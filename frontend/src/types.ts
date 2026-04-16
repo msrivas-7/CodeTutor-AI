@@ -104,10 +104,23 @@ export interface TutorSections {
   stuckness?: Stuckness | null;
 }
 
+export interface EditorSelection {
+  path: string;
+  startLine: number;
+  endLine: number;
+  text: string;
+}
+
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+}
+
 export interface AIMessage {
   role: "user" | "assistant";
   content: string;
   sections?: TutorSections;
+  usage?: TokenUsage;
 }
 
 export interface AIModel {

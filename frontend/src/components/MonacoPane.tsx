@@ -2,6 +2,7 @@ import Editor, { type Monaco, type OnMount } from "@monaco-editor/react";
 import { useEffect, useRef } from "react";
 import type { editor as MonacoEditor } from "monaco-editor";
 import { useProjectStore, type RevealTarget } from "../state/projectStore";
+import { useAIStore } from "../state/aiStore";
 import { monacoLangFor } from "../types";
 
 // Custom dark theme tuned to the app palette so the editor feels like part of
@@ -52,6 +53,8 @@ function defineTheme(monaco: Monaco) {
 
 export function MonacoPane() {
   const { activeFile, files, setContent, pendingReveal } = useProjectStore();
+  const setActiveSelection = useAIStore((s) => s.setActiveSelection);
+  const bumpFocusComposer = useAIStore((s) => s.bumpFocusComposer);
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
 
   const applyReveal = (t: RevealTarget) => {
@@ -70,7 +73,7 @@ export function MonacoPane() {
     }
   }, [pendingReveal, activeFile]);
 
-  const handleMount: OnMount = (editor) => {
+  const handleMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
     // Apply any pending reveal recorded before this editor instance existed —
     // typical when clicking a ref that switches the active file, which
@@ -78,6 +81,39 @@ export function MonacoPane() {
     if (pendingReveal && pendingReveal.path === activeFile) {
       applyReveal(pendingReveal);
     }
+
+    const captureSelection = () => {
+      const sel = editor.getSelection();
+      const model = editor.getModel();
+      const path = activeFile;
+      if (sel && model && path && !sel.isEmpty()) {
+        setActiveSelection({
+          path,
+          startLine: sel.startLineNumber,
+          endLine: sel.endLineNumber,
+          text: model.getValueInRange(sel),
+        });
+        return true;
+      }
+      return false;
+    };
+
+    // Auto-capture any non-empty selection so just highlighting in the editor
+    // attaches that range to the tutor. Collapsing the selection (clicking to
+    // move the caret) is NOT treated as a clear — otherwise clicking into the
+    // composer to type would drop the context the student just picked. Use the
+    // × on the selection chip to dismiss explicitly.
+    editor.onDidChangeCursorSelection(() => {
+      captureSelection();
+    });
+
+    // Cmd/Ctrl-K: pull focus to the composer, carrying the current selection
+    // (if any) along. A keyboard-only path for students who want to ask without
+    // reaching for the mouse.
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyK, () => {
+      captureSelection();
+      bumpFocusComposer();
+    });
   };
 
   if (!activeFile) {

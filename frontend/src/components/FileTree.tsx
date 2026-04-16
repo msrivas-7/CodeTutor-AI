@@ -55,6 +55,13 @@ export function FileTree({ onCollapse }: { onCollapse?: () => void }) {
         </span>
         <div className="flex items-center gap-1">
           <button
+            title={`main = entrypoint for the current language (${entrypoint})\nDouble-click a filename to rename.`}
+            aria-label="File tree help"
+            className="rounded px-1.5 text-[10px] font-semibold text-muted transition hover:bg-elevated hover:text-ink"
+          >
+            ?
+          </button>
+          <button
             title="New file"
             onClick={() => {
               setCreating(true);
@@ -171,17 +178,6 @@ export function FileTree({ onCollapse }: { onCollapse?: () => void }) {
       </ul>
 
       {err && <div className="mt-2 text-[11px] text-danger">{err}</div>}
-      <div className="mt-2 space-y-0.5 text-[10px] leading-tight text-faint">
-        <div>
-          <span className="rounded bg-accent/15 px-1 text-[9px] font-semibold uppercase tracking-wider text-accent">
-            main
-          </span>{" "}
-          entrypoint for the current language
-        </div>
-        <div>
-          <span className="kbd">dbl-click</span> to rename
-        </div>
-      </div>
     </div>
   );
 }

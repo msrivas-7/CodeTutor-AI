@@ -289,4 +289,70 @@ describe("buildUserTurn", () => {
     const body = buildUserTurn({ question: "?", files: [], history: [] });
     expect(body).toMatch(/LANGUAGE: unspecified/);
   });
+
+  it("omits the SELECTION block when no selection is given", () => {
+    const body = buildUserTurn({ question: "?", files: [], history: [] });
+    expect(body).not.toMatch(/STUDENT SELECTION/);
+  });
+
+  it("omits the SELECTION block when selection text is blank", () => {
+    const body = buildUserTurn({
+      question: "?",
+      files: [],
+      history: [],
+      selection: { path: "main.py", startLine: 1, endLine: 1, text: "   \n" },
+    });
+    expect(body).not.toMatch(/STUDENT SELECTION/);
+  });
+
+  it("renders a single-line selection with 'line N'", () => {
+    const body = buildUserTurn({
+      question: "?",
+      files: [],
+      history: [],
+      selection: {
+        path: "main.py",
+        startLine: 7,
+        endLine: 7,
+        text: "return mean(xs)",
+      },
+    });
+    expect(body).toMatch(/STUDENT SELECTION \(focus answer here when relevant\):/);
+    expect(body).toMatch(/--- main\.py \(line 7\) ---\nreturn mean\(xs\)/);
+  });
+
+  it("renders a multi-line selection with 'lines A-B' and places it before the question", () => {
+    const body = buildUserTurn({
+      question: "explain this",
+      files: [],
+      history: [],
+      selection: {
+        path: "stats.py",
+        startLine: 4,
+        endLine: 8,
+        text: "def median(xs):\n    s = sorted(xs)\n    n = len(s)\n    mid = n // 2\n    return s[mid]",
+      },
+    });
+    const selIdx = body.indexOf("STUDENT SELECTION");
+    const qIdx = body.indexOf("STUDENT QUESTION:");
+    expect(selIdx).toBeGreaterThan(-1);
+    expect(qIdx).toBeGreaterThan(selIdx);
+    expect(body).toMatch(/--- stats\.py \(lines 4-8\) ---/);
+    expect(body).toMatch(/def median\(xs\):/);
+  });
+
+  it("truncates a very large selection with a marker", () => {
+    const body = buildUserTurn({
+      question: "?",
+      files: [],
+      history: [],
+      selection: {
+        path: "big.py",
+        startLine: 1,
+        endLine: 500,
+        text: "x".repeat(3000), // > MAX_SELECTION_CHARS (2000)
+      },
+    });
+    expect(body).toMatch(/\[truncated, 1000 more chars\]/);
+  });
 });

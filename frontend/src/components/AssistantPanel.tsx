@@ -8,8 +8,10 @@ import { parsePartialTutor } from "../util/partialJson";
 import { linkifyRefs } from "../util/linkifyRefs";
 import { computeDiffSinceLast } from "../util/diffSinceLast";
 import { planSend } from "../util/summarizeHistory";
+import { estimateCost, formatCost, formatTokens } from "../util/pricing";
 import type {
   Stuckness,
+  TokenUsage,
   TutorCitation,
   TutorIntent,
   TutorSections,
@@ -336,22 +338,52 @@ function ActionChips({
   disabled?: boolean;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-      <span className="text-[9px] font-semibold uppercase tracking-wider text-faint">
-        Quick
-      </span>
+    <div className="flex flex-wrap items-center gap-1">
       {CHIPS.map((c) => (
         <button
           key={c.label}
           onClick={() => onAsk(c.prompt)}
           disabled={disabled}
-          className="rounded-full border border-border bg-elevated px-2 py-[2px] text-[10px] text-muted transition hover:border-accent/60 hover:bg-accent/10 hover:text-accent disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border disabled:hover:bg-elevated disabled:hover:text-muted"
+          className="rounded-full border border-border bg-elevated/60 px-2 py-[2px] text-[10px] text-muted transition hover:border-accent/60 hover:bg-accent/10 hover:text-accent disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border disabled:hover:bg-elevated disabled:hover:text-muted"
           title={c.prompt}
         >
           {c.label}
         </button>
       ))}
     </div>
+  );
+}
+
+function UsageChip({
+  usage,
+  modelId,
+  size = "sm",
+}: {
+  usage: TokenUsage;
+  modelId?: string | null;
+  size?: "sm" | "xs";
+}) {
+  const total = usage.inputTokens + usage.outputTokens;
+  const cost = modelId ? estimateCost(modelId, usage) : null;
+  const title =
+    cost !== null
+      ? `${usage.inputTokens.toLocaleString()} input + ${usage.outputTokens.toLocaleString()} output tokens · approx ${formatCost(cost)}`
+      : `${usage.inputTokens.toLocaleString()} input + ${usage.outputTokens.toLocaleString()} output tokens`;
+  const textCls = size === "xs" ? "text-[9px]" : "text-[10px]";
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full border border-border bg-elevated/70 px-1.5 py-[1px] ${textCls} text-faint`}
+      title={title}
+    >
+      <span className="font-mono">{formatTokens(total)}</span>
+      <span className="text-muted">tokens</span>
+      {cost !== null && (
+        <>
+          <span className="text-border">·</span>
+          <span className="font-mono text-muted">~{formatCost(cost)}</span>
+        </>
+      )}
+    </span>
   );
 }
 
@@ -518,6 +550,10 @@ export function AssistantPanel({ onCollapse }: { onCollapse?: () => void }) {
     summarizing,
     commitSummary,
     setSummarizing,
+    activeSelection,
+    setActiveSelection,
+    focusComposerNonce,
+    sessionUsage,
   } = useAIStore();
 
   const { snapshot, activeFile, language } = useProjectStore();
@@ -527,6 +563,8 @@ export function AssistantPanel({ onCollapse }: { onCollapse?: () => void }) {
   const [draft, setDraft] = useState("");
   const [showSettings, setShowSettings] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
   const [isMac, setIsMac] = useState(true);
 
   useEffect(() => {
@@ -537,16 +575,31 @@ export function AssistantPanel({ onCollapse }: { onCollapse?: () => void }) {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [history.length, asking]);
 
+  // Cmd+K from the editor bumps `focusComposerNonce`. Pull focus into the
+  // composer so the student can immediately type the ask about their selection.
+  // Skip the very first mount (nonce starts at 0).
+  useEffect(() => {
+    if (focusComposerNonce === 0) return;
+    textareaRef.current?.focus();
+  }, [focusComposerNonce]);
+
   const configured = keyStatus === "valid" && !!selectedModel;
   const forceSettings = !configured;
 
   const submitAsk = async (question: string) => {
     if (!question || !configured || asking) return;
+    // Snapshot + clear the selection now so fast-follow asks don't accidentally
+    // reuse stale editor context from a previous question.
+    const selectionForTurn = activeSelection;
+    setActiveSelection(null);
     pushUser(question);
     setAsking(true);
     setAskError(null);
     startStream();
+    const controller = new AbortController();
+    abortRef.current = controller;
     let raw = "";
+    let committed = false;
     try {
       const files = snapshot();
       const diffSinceLastTurn = computeDiffSinceLast(lastTurnFiles, files);
@@ -605,28 +658,46 @@ export function AssistantPanel({ onCollapse }: { onCollapse?: () => void }) {
           runsSinceLastTurn,
           editsSinceLastTurn,
           persona,
+          selection: selectionForTurn,
         },
         {
+          signal: controller.signal,
           onDelta: (chunk) => {
             raw += chunk;
             updateStream(raw, parsePartialTutor(raw));
           },
-          onDone: (finalRaw, sections) => {
-            pushAssistant(finalRaw || raw, sections);
+          onDone: (finalRaw, sections, usage) => {
+            pushAssistant(finalRaw || raw, sections, usage);
             clearStream();
+            committed = true;
           },
           onError: (message) => {
             setAskError(message);
             clearStream();
+            committed = true;
           },
         }
       );
+      // Abort path: askAIStream returns without firing onDone/onError. Commit
+      // whatever partial text we received so the student keeps the context
+      // rather than losing it when they click Stop.
+      if (!committed && controller.signal.aborted) {
+        if (raw.trim()) {
+          pushAssistant(raw, parsePartialTutor(raw));
+        }
+        clearStream();
+      }
     } catch (err) {
       setAskError((err as Error).message);
       clearStream();
     } finally {
       setAsking(false);
+      abortRef.current = null;
     }
+  };
+
+  const cancelAsk = () => {
+    abortRef.current?.abort();
   };
 
   const handleAsk = () => {
@@ -691,14 +762,14 @@ export function AssistantPanel({ onCollapse }: { onCollapse?: () => void }) {
   return (
     <div className="flex h-full flex-col border-l border-border">
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">
-            Tutor
-          </span>
+        <div className="flex min-w-0 items-center gap-2">
           {selectedModel && (
             <span className="rounded border border-border bg-elevated px-1.5 py-[1px] font-mono text-[10px] text-muted">
               {selectedModel}
             </span>
+          )}
+          {(sessionUsage.inputTokens > 0 || sessionUsage.outputTokens > 0) && (
+            <UsageChip usage={sessionUsage} modelId={selectedModel} size="xs" />
           )}
         </div>
         <div className="flex items-center gap-1">
@@ -742,6 +813,10 @@ export function AssistantPanel({ onCollapse }: { onCollapse?: () => void }) {
             <div className="mt-2 text-[11px] text-faint">
               Try: <span className="italic">"why is my variance so large?"</span>
             </div>
+            <div className="mt-1.5 text-[11px] text-faint">
+              Tip: highlight code in the editor to attach it to your question, or press{" "}
+              <span className="kbd">{isMac ? "⌘K" : "Ctrl+K"}</span> to jump here.
+            </div>
           </div>
         )}
         {history.map((m, i) => {
@@ -769,8 +844,17 @@ export function AssistantPanel({ onCollapse }: { onCollapse?: () => void }) {
                   {m.content}
                 </div>
               )}
-              {isLatestAssistant && (
-                <ActionChips onAsk={setPendingAsk} disabled={asking} />
+              {(isLatestAssistant || (m.role === "assistant" && m.usage)) && (
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
+                  {isLatestAssistant ? (
+                    <ActionChips onAsk={setPendingAsk} disabled={asking} />
+                  ) : (
+                    <span />
+                  )}
+                  {m.role === "assistant" && m.usage && (
+                    <UsageChip usage={m.usage} modelId={selectedModel} />
+                  )}
+                </div>
               )}
             </div>
           );
@@ -784,29 +868,75 @@ export function AssistantPanel({ onCollapse }: { onCollapse?: () => void }) {
       </div>
 
       <div className="border-t border-border bg-panel p-2">
+        {activeSelection && (
+          <div className="mb-1.5 rounded-md border border-accent/40 bg-accent/5 px-2 py-1.5">
+            <div className="flex items-center gap-1.5">
+              <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wider text-accent">
+                Selection
+              </span>
+              <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-accent/90">
+                {activeSelection.path}:
+                {activeSelection.startLine === activeSelection.endLine
+                  ? activeSelection.startLine
+                  : `${activeSelection.startLine}-${activeSelection.endLine}`}
+              </span>
+              <button
+                onClick={() => setActiveSelection(null)}
+                title="Remove selection"
+                className="shrink-0 rounded px-1 text-[11px] leading-none text-muted transition hover:bg-elevated hover:text-ink"
+              >
+                ×
+              </button>
+            </div>
+            <pre className="mt-1 max-h-10 overflow-hidden whitespace-pre rounded bg-bg/60 px-1.5 py-1 font-mono text-[10px] leading-snug text-ink/80">
+              {activeSelection.text
+                .replace(/\t/g, "  ")
+                .split("\n")
+                .slice(0, 2)
+                .map((l) => (l.length > 80 ? l.slice(0, 80) + "…" : l))
+                .join("\n")}
+              {activeSelection.text.split("\n").length > 2 ? "\n…" : ""}
+            </pre>
+          </div>
+        )}
         <textarea
+          ref={textareaRef}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={handleKey}
-          placeholder="Ask about your project…"
+          placeholder={activeSelection ? "Ask about the selection…" : "Ask about your project…"}
           rows={3}
           className="w-full resize-none rounded-md border border-border bg-elevated px-2.5 py-2 text-xs text-ink transition placeholder:text-faint focus:border-accent/60"
         />
-        <div className="mt-1.5 flex items-center justify-between text-[10px] text-faint">
-          <div className="flex items-center gap-1">
+        <div className="mt-1.5 flex items-center justify-between gap-2 text-[10px] text-faint">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5">
             <span className="kbd">↵</span>
             <span>send</span>
-            <span className="mx-1">·</span>
+            <span className="text-border">·</span>
             <span className="kbd">{isMac ? "⇧↵" : "Shift+↵"}</span>
             <span>newline</span>
+            <span className="text-border">·</span>
+            <span className="kbd">{isMac ? "⌘K" : "Ctrl+K"}</span>
+            <span>focus</span>
           </div>
-          <button
-            onClick={handleAsk}
-            disabled={!draft.trim() || asking}
-            className="rounded-md bg-accent px-3 py-1 text-[11px] font-semibold text-bg transition hover:bg-accentMuted disabled:cursor-not-allowed disabled:bg-elevated disabled:text-faint"
-          >
-            {asking ? "asking…" : "Ask"}
-          </button>
+          {asking ? (
+            <button
+              onClick={cancelAsk}
+              title="Stop the current response"
+              className="inline-flex items-center gap-1.5 rounded-md bg-danger/15 px-3 py-1 text-[11px] font-semibold text-danger ring-1 ring-danger/30 transition hover:bg-danger/25"
+            >
+              <span className="inline-block h-2 w-2 rounded-sm bg-danger" />
+              Stop
+            </button>
+          ) : (
+            <button
+              onClick={handleAsk}
+              disabled={!draft.trim()}
+              className="rounded-md bg-accent px-3 py-1 text-[11px] font-semibold text-bg transition hover:bg-accentMuted disabled:cursor-not-allowed disabled:bg-elevated disabled:text-faint"
+            >
+              Ask
+            </button>
+          )}
         </div>
       </div>
     </div>

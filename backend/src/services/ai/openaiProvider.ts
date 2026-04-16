@@ -122,6 +122,7 @@ export const openaiProvider: AIProvider = {
       history: params.history,
       stdin: params.stdin,
       diffSinceLastTurn: params.diffSinceLastTurn,
+      selection: params.selection,
     });
 
     const instructions = buildSystemPrompt(params.history, params.question, {
@@ -211,7 +212,16 @@ export const openaiProvider: AIProvider = {
     console.log(`[openai]   raw: ${clip(raw, 1500)}`);
     console.log(`[openai] ask end -------------------------------\n`);
 
-    return { sections, raw };
+    const usage =
+      typeof json.usage?.input_tokens === "number" &&
+      typeof json.usage?.output_tokens === "number"
+        ? {
+            inputTokens: json.usage.input_tokens,
+            outputTokens: json.usage.output_tokens,
+          }
+        : undefined;
+
+    return { sections, raw, usage };
   },
 
   async summarize({
@@ -265,6 +275,7 @@ export const openaiProvider: AIProvider = {
       history: params.history,
       stdin: params.stdin,
       diffSinceLastTurn: params.diffSinceLastTurn,
+      selection: params.selection,
     });
     const instructions = buildSystemPrompt(params.history, params.question, {
       runsSinceLastTurn: params.runsSinceLastTurn,
@@ -324,10 +335,18 @@ export const openaiProvider: AIProvider = {
     let buf = "";
     let raw = "";
     let finalFailure: string | null = null;
+    let usage: { inputTokens: number; outputTokens: number } | undefined;
 
     const processEvent = (data: string) => {
       if (!data) return;
-      let evt: { type?: string; delta?: string; response?: { error?: { message?: string } } };
+      let evt: {
+        type?: string;
+        delta?: string;
+        response?: {
+          error?: { message?: string };
+          usage?: { input_tokens?: number; output_tokens?: number };
+        };
+      };
       try {
         evt = JSON.parse(data);
       } catch {
@@ -338,6 +357,13 @@ export const openaiProvider: AIProvider = {
         handlers.onDelta(evt.delta);
       } else if (evt.type === "response.failed" || evt.type === "response.error") {
         finalFailure = evt.response?.error?.message ?? "response failed";
+      } else if (evt.type === "response.completed") {
+        // Terminal event includes aggregate usage. OpenAI doesn't emit usage
+        // on partial events, so this is where per-turn cost is fixed.
+        const u = evt.response?.usage;
+        if (typeof u?.input_tokens === "number" && typeof u?.output_tokens === "number") {
+          usage = { inputTokens: u.input_tokens, outputTokens: u.output_tokens };
+        }
       }
     };
 
@@ -379,7 +405,10 @@ export const openaiProvider: AIProvider = {
     }
 
     const elapsed = Date.now() - started;
-    console.log(`[openai] stream end (${elapsed}ms, ${raw.length} chars)`);
-    handlers.onDone(raw, sections);
+    const usageLog = usage
+      ? ` in=${usage.inputTokens} out=${usage.outputTokens}`
+      : "";
+    console.log(`[openai] stream end (${elapsed}ms, ${raw.length} chars${usageLog})`);
+    handlers.onDone(raw, sections, usage);
   },
 };

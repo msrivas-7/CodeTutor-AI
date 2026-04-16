@@ -72,6 +72,25 @@ export interface AIModel {
   label: string;
 }
 
+// A span the student pulled out of the editor to focus the tutor on. Sent as
+// a distinct block in the user-turn so the model can anchor its explanation
+// on the exact range the student is asking about, rather than inferring it
+// from the full file.
+export interface EditorSelection {
+  path: string;
+  startLine: number;
+  endLine: number;
+  text: string;
+}
+
+// Token accounting for a single tutor call. The model's own usage field on
+// Responses API replies; we forward it to the client so per-turn cost can be
+// shown without a round-trip to the pricing API.
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+}
+
 export interface AIAskParams {
   key: string;
   model: string;
@@ -91,16 +110,20 @@ export interface AIAskParams {
   // much prior knowledge the tutor assumes. Omitted → model uses its default
   // (a reasonable middle ground).
   persona?: Persona;
+  // Phase 5 — optional span of the editor the student wants the tutor to
+  // focus on (captured via Cmd+K in Monaco).
+  selection?: EditorSelection | null;
 }
 
 export interface AIAskResult {
   sections: TutorSections;
   raw: string;
+  usage?: TokenUsage;
 }
 
 export interface AIStreamHandlers {
   onDelta(chunk: string): void;
-  onDone(raw: string, sections: TutorSections): void;
+  onDone(raw: string, sections: TutorSections, usage?: TokenUsage): void;
   onError(message: string): void;
 }
 

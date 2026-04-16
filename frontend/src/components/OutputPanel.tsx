@@ -100,6 +100,14 @@ export function OutputPanel() {
               Running…
             </span>
           )}
+          {error && !hasResult && (
+            <span
+              className="rounded bg-danger/15 px-1.5 py-0.5 text-[10px] font-semibold text-danger ring-1 ring-danger/30"
+              title={error}
+            >
+              Request failed
+            </span>
+          )}
           {hasResult && (
             <>
               <span

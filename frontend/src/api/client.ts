@@ -20,10 +20,12 @@ import type {
   AIAskResult,
   AIMessage,
   AIModel,
+  EditorSelection,
   Language,
   Persona,
   ProjectFile,
   RunResult,
+  TokenUsage,
   TutorSections,
 } from "../types";
 
@@ -40,11 +42,12 @@ export interface AskStreamRequest {
   runsSinceLastTurn?: number;
   editsSinceLastTurn?: number;
   persona?: Persona;
+  selection?: EditorSelection | null;
 }
 
 export interface AskStreamHandlers {
   onDelta(chunk: string): void;
-  onDone(raw: string, sections: TutorSections): void;
+  onDone(raw: string, sections: TutorSections, usage?: TokenUsage): void;
   onError(message: string): void;
   signal?: AbortSignal;
 }
@@ -146,7 +149,14 @@ export const api = {
             .map((l) => l.slice(5).replace(/^ /, ""));
           const data = dataLines.join("\n");
           if (!data) continue;
-          let evt: { delta?: string; done?: boolean; error?: string; raw?: string; sections?: TutorSections };
+          let evt: {
+            delta?: string;
+            done?: boolean;
+            error?: string;
+            raw?: string;
+            sections?: TutorSections;
+            usage?: TokenUsage;
+          };
           try {
             evt = JSON.parse(data);
           } catch {
@@ -160,7 +170,7 @@ export const api = {
             handlers.onDelta(evt.delta);
           }
           if (evt.done) {
-            handlers.onDone(evt.raw ?? "", evt.sections ?? {});
+            handlers.onDone(evt.raw ?? "", evt.sections ?? {}, evt.usage);
             return;
           }
         }

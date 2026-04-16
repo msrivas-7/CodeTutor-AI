@@ -60,6 +60,13 @@ const historySchema = z.array(
   })
 );
 
+const selectionSchema = z.object({
+  path: z.string().min(1),
+  startLine: z.number().int().min(1),
+  endLine: z.number().int().min(1),
+  text: z.string(),
+});
+
 const askBody = z.object({
   model: z.string().min(1),
   question: z.string().min(1),
@@ -73,6 +80,7 @@ const askBody = z.object({
   runsSinceLastTurn: z.number().int().min(0).optional(),
   editsSinceLastTurn: z.number().int().min(0).optional(),
   persona: z.enum(["beginner", "intermediate", "advanced"]).optional(),
+  selection: selectionSchema.nullish(),
 });
 
 const summarizeBody = z.object({
@@ -102,6 +110,7 @@ aiRouter.post("/ask", async (req, res, next) => {
       runsSinceLastTurn: parsed.data.runsSinceLastTurn,
       editsSinceLastTurn: parsed.data.editsSinceLastTurn,
       persona: parsed.data.persona,
+      selection: parsed.data.selection ?? null,
     });
     res.json(result);
   } catch (err) {
@@ -156,15 +165,16 @@ aiRouter.post("/ask/stream", async (req, res) => {
       runsSinceLastTurn: parsed.data.runsSinceLastTurn,
       editsSinceLastTurn: parsed.data.editsSinceLastTurn,
       persona: parsed.data.persona,
+      selection: parsed.data.selection ?? null,
     },
     {
       onDelta: (chunk) => {
         if (closed) return;
         send({ delta: chunk });
       },
-      onDone: (raw, sections) => {
+      onDone: (raw, sections, usage) => {
         if (closed) return;
-        send({ done: true, raw, sections });
+        send({ done: true, raw, sections, usage });
         done();
       },
       onError: (message) => {

@@ -1,5 +1,12 @@
 import { create } from "zustand";
-import type { AIMessage, AIModel, Persona, TutorSections } from "../types";
+import type {
+  AIMessage,
+  AIModel,
+  EditorSelection,
+  Persona,
+  TokenUsage,
+  TutorSections,
+} from "../types";
 
 const LS_KEY = "aicodeeditor:openai-key";
 const LS_MODEL = "aicodeeditor:openai-model";
@@ -53,6 +60,17 @@ interface AIState {
   summarizedThrough: number;
   summarizing: boolean;
 
+  // Phase 5 — selection-aware asks. `activeSelection` is populated by Monaco's
+  // Cmd+K handler and consumed + cleared by the next ask. `focusComposerNonce`
+  // is a monotonic tick the composer watches so it can pull focus after a
+  // selection is captured outside the panel.
+  activeSelection: EditorSelection | null;
+  focusComposerNonce: number;
+
+  // Phase 5 — rolling token usage for the current conversation. Per-turn usage
+  // also lives on each AIMessage; this is the aggregate for the header chip.
+  sessionUsage: TokenUsage;
+
   setApiKey: (key: string) => void;
   setKeyStatus: (status: KeyStatus, error?: string | null) => void;
 
@@ -71,8 +89,11 @@ interface AIState {
   commitSummary: (summary: string, throughIndex: number) => void;
   setSummarizing: (on: boolean) => void;
 
+  setActiveSelection: (sel: EditorSelection | null) => void;
+  bumpFocusComposer: () => void;
+
   pushUser: (content: string) => void;
-  pushAssistant: (content: string, sections?: TutorSections) => void;
+  pushAssistant: (content: string, sections?: TutorSections, usage?: TokenUsage) => void;
   setAsking: (on: boolean) => void;
   setAskError: (e: string | null) => void;
 
@@ -145,6 +166,10 @@ export const useAIStore = create<AIState>((set, get) => ({
   summarizedThrough: 0,
   summarizing: false,
 
+  activeSelection: null,
+  focusComposerNonce: 0,
+  sessionUsage: { inputTokens: 0, outputTokens: 0 },
+
   setApiKey: (key) => {
     set({ apiKey: key, keyStatus: "none", keyError: null, models: [], modelsStatus: "idle" });
     if (get().remember) {
@@ -203,9 +228,20 @@ export const useAIStore = create<AIState>((set, get) => ({
     } catch {}
   },
 
+  setActiveSelection: (sel) => set({ activeSelection: sel }),
+  bumpFocusComposer: () => set((s) => ({ focusComposerNonce: s.focusComposerNonce + 1 })),
+
   pushUser: (content) => set((s) => ({ history: [...s.history, { role: "user", content }] })),
-  pushAssistant: (content, sections) =>
-    set((s) => ({ history: [...s.history, { role: "assistant", content, sections }] })),
+  pushAssistant: (content, sections, usage) =>
+    set((s) => ({
+      history: [...s.history, { role: "assistant", content, sections, usage }],
+      sessionUsage: usage
+        ? {
+            inputTokens: s.sessionUsage.inputTokens + usage.inputTokens,
+            outputTokens: s.sessionUsage.outputTokens + usage.outputTokens,
+          }
+        : s.sessionUsage,
+    })),
 
   setAsking: (on) => set({ asking: on }),
   setAskError: (e) => set({ askError: e }),
@@ -234,6 +270,8 @@ export const useAIStore = create<AIState>((set, get) => ({
       conversationSummary: null,
       summarizedThrough: 0,
       summarizing: false,
+      activeSelection: null,
+      sessionUsage: { inputTokens: 0, outputTokens: 0 },
     }),
 
   forgetKey: () => {

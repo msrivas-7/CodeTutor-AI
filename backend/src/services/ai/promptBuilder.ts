@@ -1,4 +1,10 @@
-import type { AIMessage, Persona, ProjectFile, RunResult } from "./provider.js";
+import type {
+  AIMessage,
+  EditorSelection,
+  Persona,
+  ProjectFile,
+  RunResult,
+} from "./provider.js";
 
 // Core tutor rules — the model follows these regardless of question type.
 // Intent classification (debug / concept / howto / walkthrough / checkin)
@@ -204,10 +210,12 @@ export interface BuildUserTurnParams {
   history: AIMessage[];
   stdin?: string | null;
   diffSinceLastTurn?: string | null;
+  selection?: EditorSelection | null;
 }
 
 const MAX_STDIN_CHARS = 1500;
 const MAX_DIFF_CHARS = 3000;
+const MAX_SELECTION_CHARS = 2000;
 
 function renderStdin(stdin: string | null | undefined): string {
   if (!stdin || !stdin.trim()) return "(no stdin provided)";
@@ -217,6 +225,15 @@ function renderStdin(stdin: string | null | undefined): string {
 function renderDiff(diff: string | null | undefined): string {
   if (!diff) return "(first tutor turn — no prior snapshot)";
   return truncate(diff, MAX_DIFF_CHARS);
+}
+
+function renderSelection(sel: EditorSelection | null | undefined): string | null {
+  if (!sel || !sel.text.trim()) return null;
+  const span =
+    sel.startLine === sel.endLine
+      ? `line ${sel.startLine}`
+      : `lines ${sel.startLine}-${sel.endLine}`;
+  return `--- ${sel.path} (${span}) ---\n${truncate(sel.text, MAX_SELECTION_CHARS)}`;
 }
 
 // Compact summary instructions for the summarize-and-continue endpoint. Kept
@@ -238,7 +255,7 @@ export function buildSummarizeInput(history: AIMessage[]): string {
 }
 
 export function buildUserTurn(p: BuildUserTurnParams): string {
-  return [
+  const sections: string[] = [
     `LANGUAGE: ${p.language ?? "unspecified"}`,
     "",
     "PROJECT FILES:",
@@ -255,10 +272,18 @@ export function buildUserTurn(p: BuildUserTurnParams): string {
     "",
     "RECENT CONVERSATION:",
     renderHistory(p.history),
-    "",
-    "STUDENT QUESTION:",
-    p.question,
-  ].join("\n");
+  ];
+
+  // When the student attached a selection, place it AFTER history but BEFORE
+  // the question so the model reads it as the most recent focus point. Any
+  // file:line citation should preferentially land inside this span.
+  const selectionBlock = renderSelection(p.selection);
+  if (selectionBlock) {
+    sections.push("", "STUDENT SELECTION (focus answer here when relevant):", selectionBlock);
+  }
+
+  sections.push("", "STUDENT QUESTION:", p.question);
+  return sections.join("\n");
 }
 
 // JSON schema for OpenAI Responses API structured output. Every property is

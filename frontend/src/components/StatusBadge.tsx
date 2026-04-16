@@ -18,19 +18,21 @@ const DOT: Record<string, string> = {
   ended: "bg-faint",
 };
 
+// Reduced to a single colored dot — full session status is duplicated verbatim
+// in the bottom StatusBar, so the header doesn't need the label + border box.
+// The dot itself is enough signal at a glance; hover for the exact phase.
 export function StatusBadge() {
   const phase = useSessionStore((s) => s.phase);
   const error = useSessionStore((s) => s.error);
+  const label = LABEL[phase] ?? phase;
+  const tooltip = error ? `${label} — ${error}` : label;
 
   return (
-    <div className="flex items-center gap-2 rounded-md border border-border bg-elevated px-2.5 py-1 text-xs">
-      <span className={`inline-block h-2 w-2 rounded-full ${DOT[phase] ?? DOT.idle}`} />
-      <span className="text-ink">{LABEL[phase] ?? phase}</span>
-      {error && (
-        <span className="max-w-[180px] truncate text-[11px] text-danger" title={error}>
-          — {error}
-        </span>
-      )}
-    </div>
+    <span
+      role="status"
+      aria-label={`Session: ${tooltip}`}
+      title={tooltip}
+      className={`inline-block h-2.5 w-2.5 rounded-full ${DOT[phase] ?? DOT.idle} ring-1 ring-border/40`}
+    />
   );
 }
