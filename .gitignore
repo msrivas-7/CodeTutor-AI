@@ -5,6 +5,7 @@ build/
 .env.local
 .DS_Store
 *.log
+*.tsbuildinfo
 
 # Per-session workspaces written by backend at runtime
 temp/sessions/*
