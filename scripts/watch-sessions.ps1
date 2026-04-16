@@ -21,7 +21,7 @@ function Colour-Event($status) {
 }
 
 function Print-Header {
-    Write-Host "═══ SESSION RUNNERS ═══" -ForegroundColor Cyan
+    Write-Host "=== SESSION RUNNERS ===" -ForegroundColor Cyan
     Write-Host "Shows per-session container lifecycle (create/start/die/destroy/kill)." -ForegroundColor DarkGray
     Write-Host "User-code output from Run streams through the backend window, not here." -ForegroundColor DarkGray
     Write-Host ""
@@ -31,7 +31,7 @@ function Print-Current-Snapshot {
     Write-Host "current session containers:" -ForegroundColor Cyan
     $listing = docker ps --filter "name=^$PREFIX" --format "  {{.Names}}  {{.Status}}" 2>$null
     if (-not $listing) {
-        Write-Host "  (none — start a session in the UI)" -ForegroundColor DarkGray
+        Write-Host "  (none -- start a session in the UI)" -ForegroundColor DarkGray
     } else {
         Write-Host $listing
     }
@@ -40,24 +40,17 @@ function Print-Current-Snapshot {
 
 Print-Header
 Print-Current-Snapshot
-Write-Host "─── live events (Ctrl-C to exit) ───" -ForegroundColor Cyan
+Write-Host "--- live events (Ctrl-C to exit) ---" -ForegroundColor Cyan
 
 # Infinite retry — if `docker events` exits (daemon restart, Docker Desktop
 # pause, pipe error), note it and reconnect so the window stays useful.
 while ($true) {
-    Write-Host "[listening for events…]" -ForegroundColor DarkGray
+    Write-Host "[listening for events...]" -ForegroundColor DarkGray
 
     # docker events produces one line per event. Stream with PowerShell's
     # pipeline and filter to our container prefix.
     try {
-        docker events `
-            --filter "type=container" `
-            --filter "event=create" `
-            --filter "event=start" `
-            --filter "event=die" `
-            --filter "event=destroy" `
-            --filter "event=kill" `
-            --format "{{.Time}}|{{.Action}}|{{.Actor.Attributes.name}}" 2>$null |
+        docker events --filter "type=container" --filter "event=create" --filter "event=start" --filter "event=die" --filter "event=destroy" --filter "event=kill" --format "{{.Time}}|{{.Action}}|{{.Actor.Attributes.name}}" 2>$null |
         ForEach-Object {
             $parts = $_ -split "\|", 3
             if ($parts.Length -lt 3) { return }
@@ -75,6 +68,6 @@ while ($true) {
         }
     } catch { }
 
-    Write-Host "[event stream dropped — reconnecting in 2s]" -ForegroundColor Yellow
+    Write-Host "[event stream dropped -- reconnecting in 2s]" -ForegroundColor Yellow
     Start-Sleep -Seconds 2
 }
