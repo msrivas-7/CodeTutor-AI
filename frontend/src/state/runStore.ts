@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { RunResult } from "../types";
 import { starterStdin } from "./projectStore";
+import { useAIStore } from "./aiStore";
 
 interface RunState {
   running: boolean;
@@ -20,7 +21,10 @@ export const useRunStore = create<RunState>((set) => ({
   error: null,
   stdin: starterStdin("python"),
   setRunning: (running) => set({ running }),
-  setResult: (result) => set({ result, error: null }),
+  setResult: (result) => {
+    set({ result, error: null });
+    if (result) useAIStore.getState().noteRun();
+  },
   setError: (error) => set({ error, result: null }),
   setStdin: (stdin) => set({ stdin }),
   clear: () => set({ result: null, error: null }),

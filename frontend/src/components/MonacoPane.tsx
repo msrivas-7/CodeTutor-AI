@@ -1,5 +1,7 @@
-import Editor, { type Monaco } from "@monaco-editor/react";
-import { useProjectStore } from "../state/projectStore";
+import Editor, { type Monaco, type OnMount } from "@monaco-editor/react";
+import { useEffect, useRef } from "react";
+import type { editor as MonacoEditor } from "monaco-editor";
+import { useProjectStore, type RevealTarget } from "../state/projectStore";
 import { monacoLangFor } from "../types";
 
 // Custom dark theme tuned to the app palette so the editor feels like part of
@@ -49,7 +51,34 @@ function defineTheme(monaco: Monaco) {
 }
 
 export function MonacoPane() {
-  const { activeFile, files, setContent } = useProjectStore();
+  const { activeFile, files, setContent, pendingReveal } = useProjectStore();
+  const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
+
+  const applyReveal = (t: RevealTarget) => {
+    const ed = editorRef.current;
+    if (!ed) return;
+    const line = Math.max(1, t.line);
+    const column = Math.max(1, t.column ?? 1);
+    ed.revealLineInCenter(line);
+    ed.setPosition({ lineNumber: line, column });
+    ed.focus();
+  };
+
+  useEffect(() => {
+    if (pendingReveal && pendingReveal.path === activeFile) {
+      applyReveal(pendingReveal);
+    }
+  }, [pendingReveal, activeFile]);
+
+  const handleMount: OnMount = (editor) => {
+    editorRef.current = editor;
+    // Apply any pending reveal recorded before this editor instance existed —
+    // typical when clicking a ref that switches the active file, which
+    // remounts the Editor (we key on activeFile).
+    if (pendingReveal && pendingReveal.path === activeFile) {
+      applyReveal(pendingReveal);
+    }
+  };
 
   if (!activeFile) {
     return (
@@ -66,6 +95,7 @@ export function MonacoPane() {
       language={monacoLangFor(activeFile)}
       value={files[activeFile] ?? ""}
       onChange={(v) => setContent(activeFile, v ?? "")}
+      onMount={handleMount}
       theme="ai-dark"
       beforeMount={defineTheme}
       options={{

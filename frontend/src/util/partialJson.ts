@@ -1,21 +1,29 @@
 import type { TutorSections } from "../types";
 
-const KEYS = [
-  "whatIThink",
-  "whatToCheck",
+// String-valued fields we can surface incrementally during streaming. The
+// array-valued fields (walkthrough, checkQuestions, citations) are shown only
+// once the full JSON parses, because partial array extraction is fragile.
+const STRING_KEYS = [
+  "intent",
+  "summary",
+  "diagnose",
+  "explain",
+  "example",
   "hint",
   "nextStep",
   "strongerHint",
+  "pitfalls",
+  "comprehensionCheck",
 ] as const;
 
 /**
  * Best-effort extractor for a partially-streamed tutor response. The model
- * emits a strict JSON object whose fields are one of KEYS. We walk the raw
- * buffer, locate each key, and extract the value string as far as the stream
- * has progressed — even when the closing quote hasn't arrived yet.
+ * emits a strict JSON object whose string fields we can read mid-stream by
+ * walking the raw buffer and extracting the value string so far — even when
+ * the closing quote hasn't arrived yet.
  *
- * Handles JSON string escapes (\n, \t, \", \\, \uXXXX) so live text reads
- * naturally. Unknown escapes pass through as the escaped character.
+ * Handles JSON string escapes (\n, \t, \", \\, \uXXXX). Unknown escapes pass
+ * through as the escaped character.
  */
 export function parsePartialTutor(raw: string): TutorSections {
   if (!raw) return {};
@@ -27,9 +35,26 @@ export function parsePartialTutor(raw: string): TutorSections {
   }
 
   const out: TutorSections = {};
-  for (const key of KEYS) {
+  for (const key of STRING_KEYS) {
     const value = extractStringField(raw, key);
-    if (value !== null) out[key] = value;
+    if (value !== null) {
+      // intent is the only enum string; validate before assigning so we don't
+      // render a garbled partial ("de" before "debug" finishes streaming).
+      if (key === "intent") {
+        if (
+          value === "debug" ||
+          value === "concept" ||
+          value === "howto" ||
+          value === "walkthrough" ||
+          value === "checkin"
+        ) {
+          out.intent = value;
+        }
+      } else {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (out as any)[key] = value;
+      }
+    }
   }
   return out;
 }

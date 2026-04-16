@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { Language, ProjectFile } from "../types";
+import { useAIStore } from "./aiStore";
 
 interface Starter {
   files: ProjectFile[];
@@ -557,6 +558,16 @@ export function starterStdin(lang: Language): string {
   return STARTER[lang].stdin;
 }
 
+// Signal MonacoPane uses to move the cursor after a jump (e.g. clicking a
+// file:line reference in the output or tutor). The ticket makes repeated
+// reveals to the same location still fire the useEffect.
+export interface RevealTarget {
+  path: string;
+  line: number;
+  column?: number;
+  ticket: number;
+}
+
 interface ProjectState {
   language: Language;
   files: Record<string, string>;
@@ -566,10 +577,12 @@ interface ProjectState {
   // is always the one matching `activeFile`. Separated from `order` (the
   // file-tree order) so the user can reorder tabs independently.
   openTabs: string[];
+  pendingReveal: RevealTarget | null;
   setLanguage: (lang: Language) => void;
   setActive: (path: string) => void;
   openFile: (path: string) => void;
   closeTab: (path: string) => void;
+  revealAt: (path: string, line: number, column?: number) => void;
   setContent: (path: string, content: string) => void;
   createFile: (path: string, content?: string) => { ok: boolean; error?: string };
   deleteFile: (path: string) => void;
@@ -589,9 +602,12 @@ function seedFor(lang: Language) {
   };
 }
 
+let revealTicket = 0;
+
 export const useProjectStore = create<ProjectState>((set, get) => ({
   language: "python",
   ...seedFor("python"),
+  pendingReveal: null,
   setLanguage: (lang) => set({ language: lang }),
   setActive: (path) => set({ activeFile: path }),
   openFile: (path) =>
@@ -599,6 +615,15 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       activeFile: path,
       openTabs: s.openTabs.includes(path) ? s.openTabs : [...s.openTabs, path],
     })),
+  revealAt: (path, line, column) =>
+    set((s) => {
+      if (!s.files[path]) return s;
+      return {
+        activeFile: path,
+        openTabs: s.openTabs.includes(path) ? s.openTabs : [...s.openTabs, path],
+        pendingReveal: { path, line, column, ticket: ++revealTicket },
+      };
+    }),
   closeTab: (path) =>
     set((s) => {
       const idx = s.openTabs.indexOf(path);
@@ -612,8 +637,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           : s.activeFile;
       return { openTabs, activeFile };
     }),
-  setContent: (path, content) =>
-    set((s) => ({ files: { ...s.files, [path]: content } })),
+  setContent: (path, content) => {
+    const prev = get().files[path];
+    set((s) => ({ files: { ...s.files, [path]: content } }));
+    // Only count it as an edit if the content actually changed — Monaco fires
+    // onChange on focus/blur round-trips in some cases, and we don't want to
+    // inflate the counter the tutor reads.
+    if (prev !== content) useAIStore.getState().noteEdit();
+  },
   createFile: (path, content = "") => {
     const s = get();
     if (s.files[path]) return { ok: false, error: "file exists" };

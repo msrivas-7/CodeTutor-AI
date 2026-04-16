@@ -61,12 +61,47 @@ export const LANGUAGE_ENTRYPOINT: Record<Language, string> = {
   ruby: "main.rb",
 };
 
+export type TutorIntent =
+  | "debug"
+  | "concept"
+  | "howto"
+  | "walkthrough"
+  | "checkin";
+
+export type Persona = "beginner" | "intermediate" | "advanced";
+
+export type Stuckness = "low" | "medium" | "high";
+
+export interface TutorCitation {
+  path: string;
+  line: number;
+  column?: number | null;
+  reason: string;
+}
+
+export interface TutorWalkStep {
+  body: string;
+  path?: string | null;
+  line?: number | null;
+}
+
+// Flat, intent-aware schema. The model fills only the fields relevant to the
+// classified `intent` and leaves the rest null.
 export interface TutorSections {
-  whatIThink?: string | null;
-  whatToCheck?: string | null;
+  intent?: TutorIntent | null;
+  summary?: string | null;
+  diagnose?: string | null;
+  explain?: string | null;
+  example?: string | null;
+  walkthrough?: TutorWalkStep[] | null;
+  checkQuestions?: string[] | null;
   hint?: string | null;
   nextStep?: string | null;
   strongerHint?: string | null;
+  pitfalls?: string | null;
+  citations?: TutorCitation[] | null;
+  comprehensionCheck?: string | null;
+  stuckness?: Stuckness | null;
 }
 
 export interface AIMessage {

@@ -68,6 +68,16 @@ const askBody = z.object({
   language: z.string().optional(),
   lastRun: runResultSchema.nullish(),
   history: historySchema.default([]),
+  stdin: z.string().nullish(),
+  diffSinceLastTurn: z.string().nullish(),
+  runsSinceLastTurn: z.number().int().min(0).optional(),
+  editsSinceLastTurn: z.number().int().min(0).optional(),
+  persona: z.enum(["beginner", "intermediate", "advanced"]).optional(),
+});
+
+const summarizeBody = z.object({
+  model: z.string().min(1),
+  history: historySchema,
 });
 
 aiRouter.post("/ask", async (req, res, next) => {
@@ -87,6 +97,11 @@ aiRouter.post("/ask", async (req, res, next) => {
       language: parsed.data.language,
       lastRun: parsed.data.lastRun ?? null,
       history: parsed.data.history,
+      stdin: parsed.data.stdin ?? null,
+      diffSinceLastTurn: parsed.data.diffSinceLastTurn ?? null,
+      runsSinceLastTurn: parsed.data.runsSinceLastTurn,
+      editsSinceLastTurn: parsed.data.editsSinceLastTurn,
+      persona: parsed.data.persona,
     });
     res.json(result);
   } catch (err) {
@@ -136,6 +151,11 @@ aiRouter.post("/ask/stream", async (req, res) => {
       language: parsed.data.language,
       lastRun: parsed.data.lastRun ?? null,
       history: parsed.data.history,
+      stdin: parsed.data.stdin ?? null,
+      diffSinceLastTurn: parsed.data.diffSinceLastTurn ?? null,
+      runsSinceLastTurn: parsed.data.runsSinceLastTurn,
+      editsSinceLastTurn: parsed.data.editsSinceLastTurn,
+      persona: parsed.data.persona,
     },
     {
       onDelta: (chunk) => {
@@ -154,4 +174,26 @@ aiRouter.post("/ask/stream", async (req, res) => {
       },
     }
   );
+});
+
+aiRouter.post("/summarize", async (req, res, next) => {
+  const key = getKey(req);
+  if (!key) return res.status(400).json({ error: "missing X-OpenAI-Key header" });
+  const parsed = summarizeBody.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues.map((i) => i.message).join("; ") });
+  }
+  if (parsed.data.history.length === 0) {
+    return res.json({ summary: "" });
+  }
+  try {
+    const summary = await openaiProvider.summarize({
+      key,
+      model: parsed.data.model,
+      history: parsed.data.history,
+    });
+    res.json({ summary });
+  } catch (err) {
+    next(err);
+  }
 });

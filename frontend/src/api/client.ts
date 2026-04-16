@@ -21,6 +21,7 @@ import type {
   AIMessage,
   AIModel,
   Language,
+  Persona,
   ProjectFile,
   RunResult,
   TutorSections,
@@ -34,6 +35,11 @@ export interface AskStreamRequest {
   language?: string;
   lastRun?: RunResult | null;
   history: AIMessage[];
+  stdin?: string | null;
+  diffSinceLastTurn?: string | null;
+  runsSinceLastTurn?: number;
+  editsSinceLastTurn?: number;
+  persona?: Persona;
 }
 
 export interface AskStreamHandlers {
@@ -79,6 +85,10 @@ export const api = {
 
   validateOpenAIKey: (key: string) =>
     post<{ valid: boolean; error?: string }>("/api/ai/validate-key", { key }),
+  summarizeHistory: (
+    key: string,
+    body: { model: string; history: AIMessage[] }
+  ) => post<{ summary: string }>("/api/ai/summarize", body, { "X-OpenAI-Key": key }),
   listOpenAIModels: (key: string) =>
     get<{ models: AIModel[] }>("/api/ai/models", { "X-OpenAI-Key": key }),
   askAI: (

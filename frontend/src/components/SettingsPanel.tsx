@@ -1,6 +1,19 @@
 import { useState } from "react";
 import { api } from "../api/client";
 import { useAIStore } from "../state/aiStore";
+import type { Persona } from "../types";
+
+const PERSONA_LABEL: Record<Persona, string> = {
+  beginner: "Beginner",
+  intermediate: "Intermediate",
+  advanced: "Advanced",
+};
+
+const PERSONA_BLURB: Record<Persona, string> = {
+  beginner: "Assumes little prior knowledge; prefers plain words and concrete examples.",
+  intermediate: "Uses standard vocabulary without defining it; explains the why.",
+  advanced: "Dense and technical; skips basics, short explanations.",
+};
 
 export function SettingsPanel({ onClose }: { onClose?: () => void }) {
   const {
@@ -19,6 +32,8 @@ export function SettingsPanel({ onClose }: { onClose?: () => void }) {
     setSelectedModel,
     setRemember,
     forgetKey,
+    persona,
+    setPersona,
   } = useAIStore();
 
   const [reveal, setReveal] = useState(false);
@@ -163,6 +178,32 @@ export function SettingsPanel({ onClose }: { onClose?: () => void }) {
           )}
         </div>
       )}
+
+      <div className="flex flex-col gap-1.5">
+        <span className="text-[11px] font-medium text-muted">Experience level</span>
+        <div className="flex overflow-hidden rounded-md border border-border">
+          {(Object.keys(PERSONA_LABEL) as Persona[]).map((p, i) => {
+            const active = persona === p;
+            return (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setPersona(p)}
+                className={`flex-1 px-2.5 py-1.5 text-[11px] font-semibold transition ${
+                  active
+                    ? "bg-accent text-bg"
+                    : "bg-elevated text-muted hover:bg-elevated/80 hover:text-ink"
+                } ${i > 0 ? "border-l border-border" : ""}`}
+              >
+                {PERSONA_LABEL[p]}
+              </button>
+            );
+          })}
+        </div>
+        <span className="text-[10px] leading-relaxed text-faint">
+          {PERSONA_BLURB[persona]}
+        </span>
+      </div>
 
       {apiKey && (
         <button

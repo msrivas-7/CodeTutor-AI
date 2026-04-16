@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { useRunStore } from "../state/runStore";
+import { useProjectStore } from "../state/projectStore";
+import { linkifyRefs } from "../util/linkifyRefs";
 import type { ErrorType } from "../types";
 
 const TYPE_LABEL: Record<ErrorType, string> = {
@@ -22,6 +24,7 @@ type Tab = "combined" | "stdout" | "stderr" | "stdin";
 
 export function OutputPanel() {
   const { running, result, error, stdin, setStdin } = useRunStore();
+  const { order, revealAt } = useProjectStore();
   const [tab, setTab] = useState<Tab>("combined");
   const [copied, setCopied] = useState(false);
 
@@ -131,7 +134,9 @@ export function OutputPanel() {
           {error ? (
             <span className="text-danger">{error}</span>
           ) : hasResult ? (
-            body || (
+            body ? (
+              linkifyRefs(body, order, revealAt)
+            ) : (
               <span className="text-faint">
                 (no output)
                 {result!.exitCode === 0 && stdin.length === 0 && (

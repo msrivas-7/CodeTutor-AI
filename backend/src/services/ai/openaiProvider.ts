@@ -7,11 +7,14 @@ import type {
   TutorSections,
 } from "./provider.js";
 import {
+  SUMMARIZE_SYSTEM_PROMPT,
   TUTOR_RESPONSE_SCHEMA,
+  buildSummarizeInput,
   buildSystemPrompt,
   buildUserTurn,
   studentSeemsStuck,
 } from "./promptBuilder.js";
+import type { AIMessage } from "./provider.js";
 
 const OPENAI_BASE = "https://api.openai.com/v1";
 
@@ -117,9 +120,15 @@ export const openaiProvider: AIProvider = {
       language: params.language,
       lastRun: params.lastRun,
       history: params.history,
+      stdin: params.stdin,
+      diffSinceLastTurn: params.diffSinceLastTurn,
     });
 
-    const instructions = buildSystemPrompt(params.history, params.question);
+    const instructions = buildSystemPrompt(params.history, params.question, {
+      runsSinceLastTurn: params.runsSinceLastTurn,
+      editsSinceLastTurn: params.editsSinceLastTurn,
+      persona: params.persona,
+    });
 
     const priorTutorTurns = params.history.filter((m) => m.role === "assistant").length;
     const stuck = studentSeemsStuck(params.question);
@@ -188,9 +197,9 @@ export const openaiProvider: AIProvider = {
     } catch {
       parseOk = false;
       // Model bypassed structured output (shouldn't happen with strict=true).
-      // Fall back to putting the whole reply in "whatIThink" so the user sees
+      // Fall back to putting the whole reply in "summary" so the user sees
       // something rather than an error.
-      sections = { whatIThink: raw };
+      sections = { summary: raw };
     }
 
     const elapsed = Date.now() - started;
@@ -205,6 +214,47 @@ export const openaiProvider: AIProvider = {
     return { sections, raw };
   },
 
+  async summarize({
+    key,
+    model,
+    history,
+  }: {
+    key: string;
+    model: string;
+    history: AIMessage[];
+  }): Promise<string> {
+    if (history.length === 0) return "";
+    const input = buildSummarizeInput(history);
+    console.log(`[openai] summarize model=${model} turns=${history.length}`);
+    const res = await openaiFetch("/responses", key, {
+      method: "POST",
+      body: JSON.stringify({
+        model,
+        instructions: SUMMARIZE_SYSTEM_PROMPT,
+        input,
+      }),
+    });
+    if (!res.ok) {
+      const err = await parseError(res);
+      console.log(`[openai] summarize error status=${res.status} body=${clip(err, 200)}`);
+      throw new Error(err);
+    }
+    const json = (await res.json()) as {
+      output_text?: string;
+      output?: { content?: { type?: string; text?: string }[] }[];
+    };
+    let summary = json.output_text ?? "";
+    if (!summary && json.output) {
+      summary = json.output
+        .flatMap((o) => o.content ?? [])
+        .filter((c) => c.type === "output_text" || typeof c.text === "string")
+        .map((c) => c.text ?? "")
+        .join("");
+    }
+    console.log(`[openai] summarize done chars=${summary.length}`);
+    return summary.trim();
+  },
+
   async askStream(params: AIAskParams, handlers: AIStreamHandlers): Promise<void> {
     const userTurn = buildUserTurn({
       question: params.question,
@@ -213,8 +263,14 @@ export const openaiProvider: AIProvider = {
       language: params.language,
       lastRun: params.lastRun,
       history: params.history,
+      stdin: params.stdin,
+      diffSinceLastTurn: params.diffSinceLastTurn,
     });
-    const instructions = buildSystemPrompt(params.history, params.question);
+    const instructions = buildSystemPrompt(params.history, params.question, {
+      runsSinceLastTurn: params.runsSinceLastTurn,
+      editsSinceLastTurn: params.editsSinceLastTurn,
+      persona: params.persona,
+    });
 
     const priorTutorTurns = params.history.filter((m) => m.role === "assistant").length;
     const stuck = studentSeemsStuck(params.question);
@@ -319,7 +375,7 @@ export const openaiProvider: AIProvider = {
     try {
       sections = JSON.parse(raw) as TutorSections;
     } catch {
-      sections = { whatIThink: raw };
+      sections = { summary: raw };
     }
 
     const elapsed = Date.now() - started;
