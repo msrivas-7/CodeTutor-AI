@@ -1,34 +1,10 @@
 import { useState } from "react";
 import { useProjectStore } from "../state/projectStore";
 import { LANGUAGE_ENTRYPOINT } from "../types";
+import { fileIcon } from "../util/fileIcon";
 
-// Per-extension accent color so a glance at the tree tells you what's what.
-// These map to our semantic tokens where sensible and to raw colors where we
-// need finer distinctions (c vs cpp, js vs ts).
-function fileIcon(path: string): { label: string; color: string } {
-  const ext = path.split(".").pop()?.toLowerCase() ?? "";
-  switch (ext) {
-    case "py": return { label: "py", color: "text-warn" };
-    case "js": return { label: "js", color: "text-warn" };
-    case "ts": return { label: "ts", color: "text-accent" };
-    case "c": return { label: "c", color: "text-accent" };
-    case "h": return { label: "h", color: "text-muted" };
-    case "cpp":
-    case "cc":
-    case "cxx": return { label: "c++", color: "text-violet" };
-    case "hpp": return { label: "hpp", color: "text-muted" };
-    case "java": return { label: "java", color: "text-danger" };
-    case "go": return { label: "go", color: "text-accent" };
-    case "rs": return { label: "rs", color: "text-warn" };
-    case "rb": return { label: "rb", color: "text-danger" };
-    case "json": return { label: "{}", color: "text-success" };
-    case "md": return { label: "md", color: "text-muted" };
-    default: return { label: "•", color: "text-faint" };
-  }
-}
-
-export function FileTree() {
-  const { order, activeFile, language, setActive, createFile, deleteFile, renameFile } =
+export function FileTree({ onCollapse }: { onCollapse?: () => void }) {
+  const { order, activeFile, language, openFile, createFile, deleteFile, renameFile } =
     useProjectStore();
 
   const [creating, setCreating] = useState(false);
@@ -77,18 +53,31 @@ export function FileTree() {
         <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">
           Files
         </span>
-        <button
-          title="New file"
-          onClick={() => {
-            setCreating(true);
-            setNewName("");
-          }}
-          className="rounded p-1 text-muted transition hover:bg-elevated hover:text-ink"
-        >
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M7 2v5H2v2h5v5h2V9h5V7H9V2H7z" />
-          </svg>
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            title="New file"
+            onClick={() => {
+              setCreating(true);
+              setNewName("");
+            }}
+            className="rounded p-1 text-muted transition hover:bg-elevated hover:text-ink"
+          >
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M7 2v5H2v2h5v5h2V9h5V7H9V2H7z" />
+            </svg>
+          </button>
+          {onCollapse && (
+            <button
+              onClick={onCollapse}
+              title="Collapse files"
+              className="rounded p-1 text-muted transition hover:bg-elevated hover:text-ink"
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M5.5 3.5L10 8l-4.5 4.5L4 11l3-3-3-3z" />
+              </svg>
+            </button>
+          )}
+        </div>
       </div>
 
       <ul className="flex-1 space-y-0.5 overflow-y-auto">
@@ -128,7 +117,7 @@ export function FileTree() {
                   {icon.label}
                 </span>
                 <button
-                  onClick={() => setActive(p)}
+                  onClick={() => openFile(p)}
                   onDoubleClick={() => {
                     setRenaming(p);
                     setRenameValue(p);

@@ -82,6 +82,15 @@ export function OutputPanel() {
           ))}
         </div>
         <div className="ml-auto flex items-center gap-2 text-[11px]">
+          {running && stdin.length > 0 && tab !== "stdin" && (
+            <button
+              onClick={() => setTab("stdin")}
+              title="View the stdin buffer being piped to the program"
+              className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent ring-1 ring-accent/30 transition hover:bg-accent/20"
+            >
+              ▸ piping {stdin.length}c to stdin
+            </button>
+          )}
           {running && (
             <span className="flex items-center gap-1.5 text-accent">
               <span className="inline-block h-1.5 w-1.5 animate-pulseDot rounded-full bg-accent" />
@@ -122,7 +131,24 @@ export function OutputPanel() {
           {error ? (
             <span className="text-danger">{error}</span>
           ) : hasResult ? (
-            body || <span className="text-faint">(no output)</span>
+            body || (
+              <span className="text-faint">
+                (no output)
+                {result!.exitCode === 0 && stdin.length === 0 && (
+                  <>
+                    {" "}
+                    — if this program reads input, try the{" "}
+                    <button
+                      onClick={() => setTab("stdin")}
+                      className="text-accent underline-offset-2 hover:underline"
+                    >
+                      stdin
+                    </button>{" "}
+                    tab.
+                  </>
+                )}
+              </span>
+            )
           ) : running ? (
             <span className="text-muted">Running…</span>
           ) : (

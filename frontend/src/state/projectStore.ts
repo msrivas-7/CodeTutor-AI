@@ -562,8 +562,14 @@ interface ProjectState {
   files: Record<string, string>;
   activeFile: string | null;
   order: string[];
+  // Files currently open as editor tabs, in tab-strip order. The active tab
+  // is always the one matching `activeFile`. Separated from `order` (the
+  // file-tree order) so the user can reorder tabs independently.
+  openTabs: string[];
   setLanguage: (lang: Language) => void;
   setActive: (path: string) => void;
+  openFile: (path: string) => void;
+  closeTab: (path: string) => void;
   setContent: (path: string, content: string) => void;
   createFile: (path: string, content?: string) => { ok: boolean; error?: string };
   deleteFile: (path: string) => void;
@@ -574,10 +580,12 @@ interface ProjectState {
 
 function seedFor(lang: Language) {
   const seed = STARTER[lang].files;
+  const first = seed[0]?.path ?? null;
   return {
     files: Object.fromEntries(seed.map((f) => [f.path, f.content])),
     order: seed.map((f) => f.path),
-    activeFile: seed[0]?.path ?? null,
+    activeFile: first,
+    openTabs: first ? [first] : [],
   };
 }
 
@@ -586,6 +594,24 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   ...seedFor("python"),
   setLanguage: (lang) => set({ language: lang }),
   setActive: (path) => set({ activeFile: path }),
+  openFile: (path) =>
+    set((s) => ({
+      activeFile: path,
+      openTabs: s.openTabs.includes(path) ? s.openTabs : [...s.openTabs, path],
+    })),
+  closeTab: (path) =>
+    set((s) => {
+      const idx = s.openTabs.indexOf(path);
+      if (idx === -1) return s;
+      const openTabs = s.openTabs.filter((p) => p !== path);
+      // If we closed the active tab, promote the neighbor (prefer the one to
+      // the left so closing rightmost tabs doesn't jump the focus around).
+      const activeFile =
+        s.activeFile === path
+          ? openTabs[idx - 1] ?? openTabs[0] ?? null
+          : s.activeFile;
+      return { openTabs, activeFile };
+    }),
   setContent: (path, content) =>
     set((s) => ({ files: { ...s.files, [path]: content } })),
   createFile: (path, content = "") => {
@@ -598,6 +624,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       files: { ...s.files, [path]: content },
       order: [...s.order, path],
       activeFile: path,
+      openTabs: [...s.openTabs, path],
     });
     return { ok: true };
   },
@@ -607,8 +634,15 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       const files = { ...s.files };
       delete files[path];
       const order = s.order.filter((p) => p !== path);
-      const activeFile = s.activeFile === path ? order[0] ?? null : s.activeFile;
-      return { files, order, activeFile };
+      const tabIdx = s.openTabs.indexOf(path);
+      const openTabs = s.openTabs.filter((p) => p !== path);
+      const activeFile =
+        s.activeFile === path
+          ? tabIdx >= 0
+            ? openTabs[tabIdx - 1] ?? openTabs[0] ?? order[0] ?? null
+            : order[0] ?? null
+          : s.activeFile;
+      return { files, order, activeFile, openTabs };
     }),
   renameFile: (from, to) => {
     const s = get();
@@ -620,8 +654,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const files = { ...s.files, [to]: s.files[from] };
     delete files[from];
     const order = s.order.map((p) => (p === from ? to : p));
+    const openTabs = s.openTabs.map((p) => (p === from ? to : p));
     const activeFile = s.activeFile === from ? to : s.activeFile;
-    set({ files, order, activeFile });
+    set({ files, order, activeFile, openTabs });
     return { ok: true };
   },
   snapshot: () => {

@@ -149,7 +149,7 @@ function ThinkingSkeleton() {
   );
 }
 
-export function AssistantPanel() {
+export function AssistantPanel({ onCollapse }: { onCollapse?: () => void }) {
   const {
     apiKey,
     keyStatus,
@@ -242,13 +242,31 @@ export function AssistantPanel() {
 
   if (forceSettings || showSettings) {
     return (
-      <div className="flex h-full flex-col overflow-auto p-3">
-        <SettingsPanel onClose={configured ? () => setShowSettings(false) : undefined} />
-        {!configured && (
-          <div className="mt-4 rounded-md border border-border bg-elevated/60 p-3 text-xs text-muted">
-            Configure an OpenAI key above to enable the tutor. The key is sent with every request but never stored on the server.
+      <div className="flex h-full flex-col border-l border-border">
+        {onCollapse && (
+          <div className="flex items-center justify-between border-b border-border px-3 py-2">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">
+              {configured ? "Settings" : "Setup"}
+            </span>
+            <button
+              onClick={onCollapse}
+              title="Collapse tutor"
+              className="rounded p-1 text-muted transition hover:bg-elevated hover:text-ink"
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M10.5 3.5L6 8l4.5 4.5L12 11 9 8l3-3z" />
+              </svg>
+            </button>
           </div>
         )}
+        <div className="flex-1 overflow-auto p-3">
+          <SettingsPanel onClose={configured ? () => setShowSettings(false) : undefined} />
+          {!configured && (
+            <div className="mt-4 rounded-md border border-border bg-elevated/60 p-3 text-xs text-muted">
+              Configure an OpenAI key above to enable the tutor. The key is sent with every request but never stored on the server.
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -275,6 +293,17 @@ export function AssistantPanel() {
           >
             clear
           </button>
+          {onCollapse && (
+            <button
+              onClick={onCollapse}
+              title="Collapse tutor"
+              className="rounded p-1 text-muted transition hover:bg-elevated hover:text-ink"
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M10.5 3.5L6 8l4.5 4.5L12 11 9 8l3-3z" />
+              </svg>
+            </button>
+          )}
           <button
             onClick={() => setShowSettings(true)}
             className="rounded p-1 text-muted transition hover:bg-elevated hover:text-ink"
