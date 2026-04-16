@@ -165,46 +165,48 @@ Open <http://localhost:5173>. The editor seeds with a starter project for the se
 ## Architecture
 
 ```
-                          ┌─────────────────────────────────────────────┐
-                          │            Docker Desktop (host)            │
-                          │                                             │
+                           ┌────────────────────────────────────────────┐
+                           │           Docker Desktop (host)            │
+                           │                                            │
 ┌──────────────────┐  HTTP/JSON  ┌──────────────────┐  docker.sock  ┌──────────────────┐
 │     Frontend     │ ──────────> │     Backend      │ ────────────> │  Runner (1:1)    │
 │                  │             │                  │   (sibling)   │                  │
 │  React + Vite    │             │  Express + TS    │               │  Python, Node,   │
 │  Monaco editor   │ <────────── │  dockerode       │ <──────────── │  gcc, JDK, Go,   │
 │  Zustand stores  │   SSE/JSON  │  OpenAI proxy    │   stdout/err  │  Rust, Ruby      │
-│  Tailwind CSS    │             │  session sweeper │               │                  │
+│  Tailwind CSS    │             │  prompt builder  │               │  --network none  │
 └──────────────────┘             └──────────────────┘               └──────────────────┘
-      :5173                            :4000                         --network none
-                                       │                             512 MB / 1 vCPU
-                              ./temp/sessions/{id}                   non-root (uid 1100)
-                              mounted at /workspace-root             10s exec timeout
-                              (host path auto-discovered
-                               via Docker self-inspect)
+      :5173                            :4000                    bind: ./temp/sessions/{id}
+                                  host path resolved
+                                  via Docker self-inspect
 ```
 
 ### Frontend — React + Vite + Monaco + Zustand
 
-- **Single-page app** served by Vite at `:5173`. All state (project files, session phase, AI history, layout) lives in Zustand stores — no Redux, no prop drilling.
-- **Monaco editor** loaded via `@monaco-editor/react` with custom dark theme, bracket-pair colorization, and JetBrains Mono. Keybindings and selection capture use the Monaco `IStandaloneCodeEditor` API directly.
-- **AI panel** streams SSE responses (`EventSource`-style fetch with `AbortController`) and paints structured JSON sections incrementally. Token/cost accounting uses `response.completed.usage` from the OpenAI Responses API.
-- **Session lifecycle** managed client-side: heartbeat pings every 30s, `pagehide` + `navigator.sendBeacon` for tab-close cleanup, automatic rebind-to-same-ID recovery on backend restart.
+- **Zustand-only state** — project files, session phase, AI history, and layout all live in Zustand stores. No Redux, no prop drilling.
+- **Monaco integration** — loaded via `@monaco-editor/react`; keybindings, selection capture, and `revealLineInCenter` linkification use the `IStandaloneCodeEditor` API directly.
+- **Client-side session lifecycle** — heartbeat pings every 30s, `pagehide` + `navigator.sendBeacon` for tab-close cleanup, rebind-to-same-ID recovery on backend restart.
 
 ### Backend — Express + TypeScript + dockerode
 
-- **Sibling-container pattern.** The backend doesn't run code itself — it asks the host Docker daemon (via mounted `/var/run/docker.sock`) to spawn isolated runner containers. Each session gets one container; the backend orchestrates create/exec/destroy.
-- **Cross-platform host-path discovery.** At startup, the backend self-inspects its own container via the Docker API to learn the host-side mount source for `/workspace-root`. This means the same code works on macOS (`/Users/…`), Linux (`/home/…`), and Windows Docker Desktop (`C:\Users\…`) without any per-OS branching.
-- **Dual-path session model.** Each `SessionRecord` stores two paths: `workspacePath` (backend-internal Linux path for `fs.*` I/O) and `hostWorkspacePath` (host-format path passed to Docker `Binds` when spawning runners). Separator detection is based on the root string, not `process.platform` — the backend always runs on Linux regardless of host OS.
-- **AI provider abstraction.** Prompt building, response parsing, and provider calls are separated behind a `Provider` interface. Only OpenAI is implemented; swapping in another provider doesn't touch routes or prompt code. The OpenAI key is forwarded per-request via `X-OpenAI-Key` — never stored server-side.
-- **Session sweeper.** A `setInterval` loop reaps sessions idle longer than `SESSION_IDLE_TIMEOUT_MS` (default 2 min), destroying the runner container and cleaning up the workspace directory.
+- **Sibling-container pattern.** The backend doesn't run code itself — it asks the host Docker daemon (via `/var/run/docker.sock`) to spawn isolated runner containers, one per session.
+- **Cross-platform host-path discovery.** At startup, the backend self-inspects its own container via the Docker API to learn the host-side mount source for `/workspace-root`. Same code works on macOS, Linux, and Windows Docker Desktop without per-OS branching.
+- **Dual-path session model.** Each `SessionRecord` stores `workspacePath` (backend-internal Linux path for `fs.*` I/O) and `hostWorkspacePath` (host-format path for Docker `Binds`). Separator detection reads the root string — not `process.platform`, since the backend always runs on Linux regardless of host OS.
 
 ### Runner container — polyglot sandbox
 
-- **Single Docker image** (`runner-image/Dockerfile`) with Python, Node.js, `tsx`, gcc/g++, JDK, Go, Rust, and Ruby. Built once at first launch by a one-shot Compose service.
-- **Hard sandbox.** `--network none`, 512 MB memory, 1 vCPU, 256 PID cap, non-root `runner` user (uid 1100), `no-new-privileges`, 10s wall-clock timeout on every `docker exec`.
-- **Bind-mounted workspace.** Host directory `./temp/sessions/{id}` is mounted at `/workspace` inside the runner. Each Run wipes and re-snapshots from the frontend, so backend restarts never lose student code.
-- **Two-phase execution.** For compiled languages (C, C++, Java, Go, Rust), the backend runs a compile step first; if it fails, the error is classified as `compile` and the run step is skipped. Interpreted languages go straight to run.
+- **Single Docker image** (`runner-image/Dockerfile`) with all nine language toolchains. Built once at first launch by a one-shot Compose service.
+- **Two-phase execution.** Compiled languages (C, C++, Java, Go, Rust) get a compile step first; failure is classified as `compile` and skips the run. Interpreted languages go straight to run.
+
+### AI tutor — prompt pipeline + structured streaming
+
+- **Prompt builder.** Each turn assembles: active file marker, full project snapshot (4 k-char cap per file), last run result, conversation history slice, diff of files changed since last turn, run/edit counters, persona level, and optional editor selection. Context is capped to stay within model limits.
+- **Structured JSON response.** Uses the OpenAI Responses API with a strict flat `json_schema`. The model classifies intent (`debug` / `concept` / `howto` / `walkthrough` / `checkin`) and fills only the relevant sections — not a free-form string.
+- **Stuckness signal.** The prompt injects `stuckness: low | medium | high` computed from client activity (repeated failed runs, "I'm stuck" in prose). Higher stuckness unlocks a stronger hint and concrete next step in the schema — but never the full solution.
+- **SSE streaming.** The backend proxies OpenAI's SSE stream to the frontend. The frontend paints sections incrementally (summary → explanation → example → hint → next step). An `AbortController` threads through the fetch — the **Stop** button aborts mid-stream and commits the partial response so nothing is lost.
+- **Summarize-and-continue.** When conversation history crosses a soft token cap, a background round-trip compresses older turns into a short narrative, then splices it back in — no blocking of the current ask.
+- **Provider abstraction.** Prompt building, response parsing, and API calls sit behind a `Provider` interface. Only OpenAI is implemented; swapping in another provider doesn't touch routes or prompt code.
+- **BYOK flow.** The frontend sends the OpenAI key per-request via `X-OpenAI-Key`. The backend forwards it to OpenAI and discards it — never logged, never persisted.
 
 ### API surface
 
@@ -222,9 +224,9 @@ Open <http://localhost:5173>. The editor seeds with a starter project for the se
 | `POST` | `/api/ai/ask` | Tutor turn (non-streaming; same schema) |
 | `POST` | `/api/ai/summarize` | Compress older history into a short narrative for long conversations |
 
-### Docker socket note
+### Security note
 
-The backend mounts `/var/run/docker.sock` so it can spawn sibling runner containers. This gives the backend root-equivalent access to the local Docker daemon — fine for local use, **not** suitable for a publicly hosted deployment without further sandboxing (rootless Docker, a dedicated runner service, or a job queue).
+The Docker socket mount gives the backend root-equivalent access to the local daemon — fine for local use, **not** suitable for public deployment without further sandboxing (rootless Docker, a dedicated runner service, or a job queue).
 
 ## Project layout
 
