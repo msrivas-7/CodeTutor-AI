@@ -18,6 +18,9 @@ function fileIcon(path: string): { label: string; color: string } {
     case "cxx": return { label: "c++", color: "text-violet" };
     case "hpp": return { label: "hpp", color: "text-muted" };
     case "java": return { label: "java", color: "text-danger" };
+    case "go": return { label: "go", color: "text-accent" };
+    case "rs": return { label: "rs", color: "text-warn" };
+    case "rb": return { label: "rb", color: "text-danger" };
     case "json": return { label: "{}", color: "text-success" };
     case "md": return { label: "md", color: "text-muted" };
     default: return { label: "•", color: "text-faint" };

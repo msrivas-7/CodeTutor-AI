@@ -3,14 +3,14 @@
 A local-first, web-based coding editor with an AI tutor. Write small single- or multi-file projects in the browser, run them in a sandboxed Docker runtime, and get structured, hint-style help from OpenAI using your own API key.
 
 ![Stack](https://img.shields.io/badge/stack-React%20%7C%20Vite%20%7C%20Monaco%20%7C%20Express%20%7C%20Docker-0f172a)
-![Languages](https://img.shields.io/badge/languages-Python%20%7C%20JS%20%7C%20C%20%7C%20C%2B%2B%20%7C%20Java-38bdf8)
+![Languages](https://img.shields.io/badge/languages-Python%20%7C%20JS%20%7C%20TS%20%7C%20C%20%7C%20C%2B%2B%20%7C%20Java%20%7C%20Go%20%7C%20Rust%20%7C%20Ruby-38bdf8)
 ![License](https://img.shields.io/badge/license-MIT-34d399)
 
 ## Features
 
 - **Multi-file editor** powered by Monaco with a custom dark theme, bracket-pair colorization, and JetBrains Mono ligatures.
 - **One-click Run** (`⌘↵` / `Ctrl+↵`) in a per-session Docker container: network disabled, CPU/memory/PID limits, non-root user, 10s wall-clock cap.
-- **Five languages** — Python, JavaScript, C, C++, Java. Each ships with a runnable starter project (stats, word frequency, array ops, palindromes, matrix ops).
+- **Nine languages** — Python, JavaScript, TypeScript, C, C++, Java, Go, Rust, Ruby. Each ships with a runnable starter project (stats, word frequency, CSV summary, array ops, palindromes, matrix ops, trait-based shapes, inventory).
 - **AI tutor** via the OpenAI Responses API with a strict JSON schema. Turn-aware prompting: a first question gets diagnostic nudges; follow-ups unlock hints; only explicit "stuck" phrasing unlocks a stronger pointer — never the full fix.
 - **Bring-your-own key.** Held in-memory on the frontend by default, or in `localStorage` behind an explicit opt-in. Sent server-side via `X-OpenAI-Key` per request; never logged, never written to disk.
 - **Resilient sessions.** Silent heartbeat retries, a `Reconnecting…` status, and rebind-to-same-ID recovery when the backend session expires.
@@ -164,7 +164,7 @@ The backend mounts `/var/run/docker.sock` so it can spawn sibling runner contain
 ai-code-editor/
 ├── backend/             Express + TypeScript (sessions, Docker, execution, AI)
 ├── frontend/            React + Vite + Tailwind + Zustand + Monaco
-├── runner-image/        Polyglot Dockerfile (Python, Node, gcc/g++, JDK)
+├── runner-image/        Polyglot Dockerfile (Python, Node, gcc/g++, JDK, Go, Rust, Ruby, tsx)
 ├── shared/              TS types shared across backend + frontend
 ├── samples/             Starter projects per language
 ├── scripts/             Helper scripts (watch-sessions.sh / .ps1)

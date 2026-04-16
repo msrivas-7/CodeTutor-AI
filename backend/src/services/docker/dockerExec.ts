@@ -11,6 +11,10 @@ export interface ExecResult {
   durationMs: number;
 }
 
+export interface ExecOptions {
+  stdin?: string;
+}
+
 /**
  * Run a shell command inside the given container as the `runner` user, with a
  * hard wall-clock timeout enforced by `timeout --signal=KILL` from coreutils.
@@ -18,14 +22,17 @@ export interface ExecResult {
 export async function execShell(
   containerId: string,
   shellCommand: string,
-  timeoutMs: number
+  timeoutMs: number,
+  options: ExecOptions = {}
 ): Promise<ExecResult> {
   const container = docker.getContainer(containerId);
   const timeoutSec = Math.max(1, Math.ceil(timeoutMs / 1000));
   const wrapped = `timeout --signal=KILL ${timeoutSec}s sh -c ${shellQuote(shellCommand)}`;
+  const attachStdin = options.stdin !== undefined;
 
   const exec = await container.exec({
     Cmd: ["sh", "-c", wrapped],
+    AttachStdin: attachStdin,
     AttachStdout: true,
     AttachStderr: true,
     WorkingDir: "/workspace",
@@ -34,7 +41,14 @@ export async function execShell(
   });
 
   const started = Date.now();
-  const stream = await exec.start({ hijack: true, stdin: false });
+  const stream = await exec.start({ hijack: true, stdin: attachStdin });
+
+  if (attachStdin) {
+    // Write the provided stdin and half-close so the process sees EOF. The
+    // server continues to push stdout/stderr back through the hijacked stream.
+    stream.write(options.stdin ?? "");
+    stream.end();
+  }
 
   const stdoutBuf = new PassThrough();
   const stderrBuf = new PassThrough();

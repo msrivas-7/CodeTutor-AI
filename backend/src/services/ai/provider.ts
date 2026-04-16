@@ -49,8 +49,15 @@ export interface AIAskResult {
   raw: string;
 }
 
+export interface AIStreamHandlers {
+  onDelta(chunk: string): void;
+  onDone(raw: string, sections: TutorSections): void;
+  onError(message: string): void;
+}
+
 export interface AIProvider {
   validateKey(key: string): Promise<{ valid: boolean; error?: string }>;
   listModels(key: string): Promise<AIModel[]>;
   ask(params: AIAskParams): Promise<AIAskResult>;
+  askStream(params: AIAskParams, handlers: AIStreamHandlers): Promise<void>;
 }

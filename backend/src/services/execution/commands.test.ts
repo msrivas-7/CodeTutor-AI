@@ -6,7 +6,7 @@ describe("isLanguage", () => {
     expect(isLanguage(lang)).toBe(true);
   });
 
-  it.each(["ruby", "go", "rust", "", "PYTHON", "C ", " python"])(
+  it.each(["perl", "kotlin", "swift", "", "PYTHON", "C ", " python"])(
     "returns false for unknown value %j",
     (v) => {
       expect(isLanguage(v)).toBe(false);
@@ -88,6 +88,55 @@ describe("commandFor", () => {
     });
   });
 
+  describe("typescript", () => {
+    const cmd = commandFor("typescript");
+    it("uses main.ts as entrypoint and has no compile step", () => {
+      expect(cmd.entrypoint).toBe("main.ts");
+      expect(cmd.compile).toBeNull();
+    });
+    it("runs via tsx", () => {
+      expect(cmd.run.shell).toBe("tsx main.ts");
+    });
+  });
+
+  describe("go", () => {
+    const cmd = commandFor("go");
+    it("uses main.go and compiles every .go file", () => {
+      expect(cmd.entrypoint).toBe("main.go");
+      expect(cmd.compile?.shell).toMatch(/^go build /);
+      expect(cmd.compile?.shell).toMatch(/\*\.go\b/);
+    });
+    it("runs the compiled binary at /tmp/out", () => {
+      expect(cmd.run.shell).toBe("/tmp/out");
+    });
+  });
+
+  describe("rust", () => {
+    const cmd = commandFor("rust");
+    it("uses main.rs and compiles with rustc", () => {
+      expect(cmd.entrypoint).toBe("main.rs");
+      expect(cmd.compile?.shell).toMatch(/^rustc /);
+      expect(cmd.compile?.shell).toMatch(/main\.rs\b/);
+    });
+    it("compiles against the 2021 edition", () => {
+      expect(cmd.compile?.shell).toMatch(/--edition=2021/);
+    });
+    it("runs the compiled binary at /tmp/out", () => {
+      expect(cmd.run.shell).toBe("/tmp/out");
+    });
+  });
+
+  describe("ruby", () => {
+    const cmd = commandFor("ruby");
+    it("uses main.rb and has no compile step", () => {
+      expect(cmd.entrypoint).toBe("main.rb");
+      expect(cmd.compile).toBeNull();
+    });
+    it("runs via ruby", () => {
+      expect(cmd.run.shell).toBe("ruby main.rb");
+    });
+  });
+
   it("returns a non-null config for every Language in LANGUAGES", () => {
     for (const lang of LANGUAGES) {
       const cmd = commandFor(lang);
@@ -99,12 +148,12 @@ describe("commandFor", () => {
 
   it("marks compile-less languages correctly", () => {
     const compileless = LANGUAGES.filter((l) => commandFor(l).compile === null);
-    expect(compileless.sort()).toEqual(["javascript", "python"]);
+    expect(compileless.slice().sort()).toEqual(["javascript", "python", "ruby", "typescript"]);
   });
 
   it("marks compiled languages with a compile step labelled 'compile'", () => {
     const compiled = LANGUAGES.filter((l): l is Language => commandFor(l).compile !== null);
-    expect(compiled.sort()).toEqual(["c", "cpp", "java"]);
+    expect(compiled.slice().sort()).toEqual(["c", "cpp", "go", "java", "rust"]);
     for (const lang of compiled) {
       expect(commandFor(lang).compile?.label).toBe("compile");
     }

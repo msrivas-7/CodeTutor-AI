@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useProjectStore } from "../state/projectStore";
+import { useProjectStore, starterStdin } from "../state/projectStore";
 import { useSessionStore } from "../state/sessionStore";
 import { useRunStore } from "../state/runStore";
 import { api } from "../api/client";
@@ -9,7 +9,7 @@ export function Toolbar() {
   const { language, resetToStarter, snapshot } = useProjectStore();
   const sessionId = useSessionStore((s) => s.sessionId);
   const phase = useSessionStore((s) => s.phase);
-  const { running, setRunning, setResult, setError } = useRunStore();
+  const { running, setRunning, setResult, setError, stdin, setStdin } = useRunStore();
   const [isMac, setIsMac] = useState(true);
 
   useEffect(() => {
@@ -26,7 +26,7 @@ export function Toolbar() {
     try {
       const files = snapshot();
       await api.snapshotProject(sessionId, files);
-      const result = await api.execute(sessionId, language);
+      const result = await api.execute(sessionId, language, stdin || undefined);
       setResult(result);
     } catch (err) {
       setError((err as Error).message);
@@ -43,6 +43,8 @@ export function Toolbar() {
       )
     ) {
       resetToStarter(next);
+      // Starters read stdin; pre-fill the textarea so first-run "just works".
+      setStdin(starterStdin(next));
     }
   };
 

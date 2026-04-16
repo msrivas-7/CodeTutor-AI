@@ -3,6 +3,7 @@ import type {
   AIAskResult,
   AIModel,
   AIProvider,
+  AIStreamHandlers,
   TutorSections,
 } from "./provider.js";
 import {
@@ -202,5 +203,127 @@ export const openaiProvider: AIProvider = {
     console.log(`[openai] ask end -------------------------------\n`);
 
     return { sections, raw };
+  },
+
+  async askStream(params: AIAskParams, handlers: AIStreamHandlers): Promise<void> {
+    const userTurn = buildUserTurn({
+      question: params.question,
+      files: params.files,
+      activeFile: params.activeFile,
+      language: params.language,
+      lastRun: params.lastRun,
+      history: params.history,
+    });
+    const instructions = buildSystemPrompt(params.history, params.question);
+
+    const priorTutorTurns = params.history.filter((m) => m.role === "assistant").length;
+    const stuck = studentSeemsStuck(params.question);
+    const mode = priorTutorTurns === 0 && !stuck ? "first-turn" : stuck ? "stuck" : "follow-up";
+
+    console.log(`\n[openai] stream start ---------------------------`);
+    console.log(`[openai]   model=${params.model}  fingerprint=${keyFingerprint(params.key)}`);
+    console.log(`[openai]   mode=${mode}  priorTutorTurns=${priorTutorTurns}  stuck=${stuck}`);
+    console.log(`[openai]   question: ${clip(params.question, 300)}`);
+
+    const body = {
+      model: params.model,
+      instructions,
+      input: userTurn,
+      stream: true,
+      text: {
+        format: {
+          type: "json_schema",
+          name: "tutor_response",
+          schema: TUTOR_RESPONSE_SCHEMA,
+          strict: true,
+        },
+      },
+    };
+
+    const started = Date.now();
+    let res: Response;
+    try {
+      res = await openaiFetch("/responses", params.key, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+    } catch (err) {
+      handlers.onError((err as Error).message);
+      return;
+    }
+
+    if (!res.ok || !res.body) {
+      const err = await parseError(res);
+      console.log(`[openai] stream error status=${res.status} body=${clip(err, 300)}`);
+      handlers.onError(err);
+      return;
+    }
+
+    // OpenAI streams SSE: lines prefixed `data: ` separated by blank lines.
+    // Each event's data is a JSON object whose `type` drives how we interpret
+    // it. We only care about `response.output_text.delta` (incremental JSON)
+    // and the terminal events (`response.completed`, `response.failed`, etc).
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buf = "";
+    let raw = "";
+    let finalFailure: string | null = null;
+
+    const processEvent = (data: string) => {
+      if (!data) return;
+      let evt: { type?: string; delta?: string; response?: { error?: { message?: string } } };
+      try {
+        evt = JSON.parse(data);
+      } catch {
+        return;
+      }
+      if (evt.type === "response.output_text.delta" && typeof evt.delta === "string") {
+        raw += evt.delta;
+        handlers.onDelta(evt.delta);
+      } else if (evt.type === "response.failed" || evt.type === "response.error") {
+        finalFailure = evt.response?.error?.message ?? "response failed";
+      }
+    };
+
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        // Split on blank-line separators. An SSE event can span multiple
+        // `data:` lines; concat them.
+        let sep: number;
+        while ((sep = buf.indexOf("\n\n")) !== -1) {
+          const block = buf.slice(0, sep);
+          buf = buf.slice(sep + 2);
+          const dataLines = block
+            .split("\n")
+            .filter((l) => l.startsWith("data:"))
+            .map((l) => l.slice(5).replace(/^ /, ""));
+          const data = dataLines.join("\n");
+          if (data === "[DONE]") continue;
+          processEvent(data);
+        }
+      }
+    } catch (err) {
+      handlers.onError((err as Error).message);
+      return;
+    }
+
+    if (finalFailure) {
+      handlers.onError(finalFailure);
+      return;
+    }
+
+    let sections: TutorSections = {};
+    try {
+      sections = JSON.parse(raw) as TutorSections;
+    } catch {
+      sections = { whatIThink: raw };
+    }
+
+    const elapsed = Date.now() - started;
+    console.log(`[openai] stream end (${elapsed}ms, ${raw.length} chars)`);
+    handlers.onDone(raw, sections);
   },
 };

@@ -24,6 +24,8 @@ interface AIState {
   asking: boolean;
   askError: string | null;
 
+  pending: { raw: string; sections: TutorSections } | null;
+
   setApiKey: (key: string) => void;
   setKeyStatus: (status: KeyStatus, error?: string | null) => void;
 
@@ -37,6 +39,10 @@ interface AIState {
   pushAssistant: (content: string, sections?: TutorSections) => void;
   setAsking: (on: boolean) => void;
   setAskError: (e: string | null) => void;
+
+  startStream: () => void;
+  updateStream: (raw: string, sections: TutorSections) => void;
+  clearStream: () => void;
 
   clearConversation: () => void;
   forgetKey: () => void;
@@ -70,6 +76,8 @@ export const useAIStore = create<AIState>((set, get) => ({
   history: [],
   asking: false,
   askError: null,
+
+  pending: null,
 
   setApiKey: (key) => {
     set({ apiKey: key, keyStatus: "none", keyError: null, models: [], modelsStatus: "idle" });
@@ -125,7 +133,11 @@ export const useAIStore = create<AIState>((set, get) => ({
   setAsking: (on) => set({ asking: on }),
   setAskError: (e) => set({ askError: e }),
 
-  clearConversation: () => set({ history: [], askError: null }),
+  startStream: () => set({ pending: { raw: "", sections: {} } }),
+  updateStream: (raw, sections) => set({ pending: { raw, sections } }),
+  clearStream: () => set({ pending: null }),
+
+  clearConversation: () => set({ history: [], askError: null, pending: null }),
 
   forgetKey: () => {
     set({

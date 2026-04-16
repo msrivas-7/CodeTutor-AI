@@ -1,4 +1,13 @@
-export type Language = "python" | "javascript" | "c" | "cpp" | "java";
+export type Language =
+  | "python"
+  | "javascript"
+  | "typescript"
+  | "c"
+  | "cpp"
+  | "java"
+  | "go"
+  | "rust"
+  | "ruby";
 
 export interface LanguageCommand {
   entrypoint: string;
@@ -9,9 +18,13 @@ export interface LanguageCommand {
 export const LANGUAGES: readonly Language[] = [
   "python",
   "javascript",
+  "typescript",
   "c",
   "cpp",
   "java",
+  "go",
+  "rust",
+  "ruby",
 ] as const;
 
 export function isLanguage(x: unknown): x is Language {
@@ -52,6 +65,33 @@ export function commandFor(language: Language): LanguageCommand {
         entrypoint: "Main.java",
         compile: { label: "compile", shell: "javac *.java" },
         run: { label: "run", shell: "java Main" },
+      };
+    case "typescript":
+      return {
+        entrypoint: "main.ts",
+        compile: null,
+        run: { label: "run", shell: "tsx main.ts" },
+      };
+    case "go":
+      return {
+        entrypoint: "main.go",
+        compile: { label: "compile", shell: "go build -o /tmp/out *.go" },
+        run: { label: "run", shell: "/tmp/out" },
+      };
+    case "rust":
+      return {
+        entrypoint: "main.rs",
+        compile: {
+          label: "compile",
+          shell: "rustc --edition=2021 -O -o /tmp/out main.rs",
+        },
+        run: { label: "run", shell: "/tmp/out" },
+      };
+    case "ruby":
+      return {
+        entrypoint: "main.rb",
+        compile: null,
+        run: { label: "run", shell: "ruby main.rb" },
       };
   }
 }

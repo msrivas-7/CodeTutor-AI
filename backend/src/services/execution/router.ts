@@ -19,10 +19,11 @@ export interface RunOptions {
   workspacePath: string;
   language: Language;
   timeoutMs?: number;
+  stdin?: string;
 }
 
 export async function runProject(opts: RunOptions): Promise<RunResult> {
-  const { containerId, workspacePath, language } = opts;
+  const { containerId, workspacePath, language, stdin } = opts;
   const timeoutMs = opts.timeoutMs ?? config.runner.execTimeoutMs;
   const cmd = commandFor(language);
 
@@ -61,7 +62,7 @@ export async function runProject(opts: RunOptions): Promise<RunResult> {
     }
   }
 
-  const run = await execShell(containerId, cmd.run.shell, timeoutMs);
+  const run = await execShell(containerId, cmd.run.shell, timeoutMs, { stdin });
   if (run.timedOut) {
     return {
       stdout: run.stdout,

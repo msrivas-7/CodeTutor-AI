@@ -26,7 +26,11 @@ export function useGlobalShortcuts() {
         try {
           const files = project.snapshot();
           await api.snapshotProject(state.sessionId, files);
-          const result = await api.execute(state.sessionId, project.language);
+          const result = await api.execute(
+            state.sessionId,
+            project.language,
+            runState.stdin || undefined
+          );
           runState.setResult(result);
         } catch (err) {
           runState.setError((err as Error).message);

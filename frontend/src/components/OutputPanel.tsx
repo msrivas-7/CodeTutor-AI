@@ -18,10 +18,10 @@ const TYPE_STYLE: Record<ErrorType, string> = {
   system: "bg-muted/15 text-muted ring-muted/30",
 };
 
-type Tab = "combined" | "stdout" | "stderr";
+type Tab = "combined" | "stdout" | "stderr" | "stdin";
 
 export function OutputPanel() {
-  const { running, result, error } = useRunStore();
+  const { running, result, error, stdin, setStdin } = useRunStore();
   const [tab, setTab] = useState<Tab>("combined");
   const [copied, setCopied] = useState(false);
 
@@ -57,7 +57,7 @@ export function OutputPanel() {
           Output
         </span>
         <div className="flex gap-0.5 rounded-md bg-elevated p-0.5 text-[11px]">
-          {(["combined", "stdout", "stderr"] as Tab[]).map((t) => (
+          {(["combined", "stdout", "stderr", "stdin"] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -66,8 +66,18 @@ export function OutputPanel() {
                   ? "bg-bg text-ink shadow-soft"
                   : "text-muted hover:text-ink"
               }`}
+              title={
+                t === "stdin"
+                  ? "Input sent to the program's stdin (piped and EOF'd before the program starts)"
+                  : undefined
+              }
             >
               {t}
+              {t === "stdin" && stdin.length > 0 && (
+                <span className="ml-1 rounded bg-accent/20 px-1 text-[9px] text-accent">
+                  {stdin.length}
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -99,20 +109,30 @@ export function OutputPanel() {
           )}
         </div>
       </div>
-      <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap bg-bg p-3 font-mono text-xs leading-relaxed text-ink">
-        {error ? (
-          <span className="text-danger">{error}</span>
-        ) : hasResult ? (
-          body || <span className="text-faint">(no output)</span>
-        ) : running ? (
-          <span className="text-muted">Running…</span>
-        ) : (
-          <span className="text-faint">
-            Press <span className="kbd">⌘↵</span> or click{" "}
-            <span className="text-ink">▶ Run</span> to execute the current project.
-          </span>
-        )}
-      </pre>
+      {tab === "stdin" ? (
+        <textarea
+          value={stdin}
+          onChange={(e) => setStdin(e.target.value)}
+          spellCheck={false}
+          placeholder={"Type input here — it will be piped to stdin on the next Run.\nOne line per prompt for programs that read with input()/scanf/fgets."}
+          className="min-h-0 flex-1 resize-none bg-bg p-3 font-mono text-xs leading-relaxed text-ink outline-none placeholder:text-faint"
+        />
+      ) : (
+        <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap bg-bg p-3 font-mono text-xs leading-relaxed text-ink">
+          {error ? (
+            <span className="text-danger">{error}</span>
+          ) : hasResult ? (
+            body || <span className="text-faint">(no output)</span>
+          ) : running ? (
+            <span className="text-muted">Running…</span>
+          ) : (
+            <span className="text-faint">
+              Press <span className="kbd">⌘↵</span> or click{" "}
+              <span className="text-ink">▶ Run</span> to execute the current project.
+            </span>
+          )}
+        </pre>
+      )}
     </div>
   );
 }

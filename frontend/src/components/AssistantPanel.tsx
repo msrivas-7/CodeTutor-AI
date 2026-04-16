@@ -4,6 +4,7 @@ import { useAIStore } from "../state/aiStore";
 import { useProjectStore } from "../state/projectStore";
 import { useRunStore } from "../state/runStore";
 import { SettingsPanel } from "./SettingsPanel";
+import { parsePartialTutor } from "../util/partialJson";
 import type { TutorSections } from "../types";
 
 type Tone = "think" | "check" | "hint" | "step" | "stronger";
@@ -156,10 +157,14 @@ export function AssistantPanel() {
     history,
     asking,
     askError,
+    pending,
     pushUser,
     pushAssistant,
     setAsking,
     setAskError,
+    startStream,
+    updateStream,
+    clearStream,
     clearConversation,
   } = useAIStore();
 
@@ -189,21 +194,40 @@ export function AssistantPanel() {
     pushUser(question);
     setAsking(true);
     setAskError(null);
+    startStream();
+    let raw = "";
     try {
       const files = snapshot();
       const historyForSend = [...history, { role: "user" as const, content: question }];
-      const result = await api.askAI(apiKey, {
-        model: selectedModel!,
-        question,
-        files,
-        activeFile: activeFile ?? undefined,
-        language,
-        lastRun: lastRun ?? null,
-        history: historyForSend.slice(0, -1),
-      });
-      pushAssistant(result.raw, result.sections);
+      await api.askAIStream(
+        apiKey,
+        {
+          model: selectedModel!,
+          question,
+          files,
+          activeFile: activeFile ?? undefined,
+          language,
+          lastRun: lastRun ?? null,
+          history: historyForSend.slice(0, -1),
+        },
+        {
+          onDelta: (chunk) => {
+            raw += chunk;
+            updateStream(raw, parsePartialTutor(raw));
+          },
+          onDone: (finalRaw, sections) => {
+            pushAssistant(finalRaw || raw, sections);
+            clearStream();
+          },
+          onError: (message) => {
+            setAskError(message);
+            clearStream();
+          },
+        }
+      );
     } catch (err) {
       setAskError((err as Error).message);
+      clearStream();
     } finally {
       setAsking(false);
     }
@@ -289,7 +313,11 @@ export function AssistantPanel() {
             )}
           </div>
         ))}
-        {asking && <ThinkingSkeleton />}
+        {asking && (
+          pending && (pending.sections.whatIThink || pending.sections.whatToCheck || pending.sections.hint || pending.sections.nextStep || pending.sections.strongerHint)
+            ? <TutorResponseView sections={pending.sections} />
+            : <ThinkingSkeleton />
+        )}
         {askError && <AskErrorView message={askError} />}
       </div>
 

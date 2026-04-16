@@ -16,7 +16,32 @@ async function get<T>(path: string, extraHeaders?: Record<string, string>): Prom
   return res.json() as Promise<T>;
 }
 
-import type { AIAskResult, AIMessage, AIModel, Language, ProjectFile, RunResult } from "../types";
+import type {
+  AIAskResult,
+  AIMessage,
+  AIModel,
+  Language,
+  ProjectFile,
+  RunResult,
+  TutorSections,
+} from "../types";
+
+export interface AskStreamRequest {
+  model: string;
+  question: string;
+  files: ProjectFile[];
+  activeFile?: string;
+  language?: string;
+  lastRun?: RunResult | null;
+  history: AIMessage[];
+}
+
+export interface AskStreamHandlers {
+  onDelta(chunk: string): void;
+  onDone(raw: string, sections: TutorSections): void;
+  onError(message: string): void;
+  signal?: AbortSignal;
+}
 
 export const api = {
   startSession: () => post<{ sessionId: string }>("/api/session"),
@@ -49,8 +74,8 @@ export const api = {
   health: () => get<{ ok: boolean; uptime: number }>("/api/health"),
   snapshotProject: (sessionId: string, files: ProjectFile[]) =>
     post<{ ok: boolean; fileCount: number }>("/api/project/snapshot", { sessionId, files }),
-  execute: (sessionId: string, language: Language) =>
-    post<RunResult>("/api/execute", { sessionId, language }),
+  execute: (sessionId: string, language: Language, stdin?: string) =>
+    post<RunResult>("/api/execute", { sessionId, language, stdin }),
 
   validateOpenAIKey: (key: string) =>
     post<{ valid: boolean; error?: string }>("/api/ai/validate-key", { key }),
@@ -68,4 +93,71 @@ export const api = {
       history: AIMessage[];
     }
   ) => post<AIAskResult>("/api/ai/ask", body, { "X-OpenAI-Key": key }),
+
+  askAIStream: async (
+    key: string,
+    body: AskStreamRequest,
+    handlers: AskStreamHandlers
+  ): Promise<void> => {
+    let res: Response;
+    try {
+      res = await fetch("/api/ai/ask/stream", {
+        method: "POST",
+        headers: { ...JSON_HEADERS, "X-OpenAI-Key": key },
+        body: JSON.stringify(body),
+        signal: handlers.signal,
+      });
+    } catch (err) {
+      handlers.onError((err as Error).message);
+      return;
+    }
+
+    if (!res.ok || !res.body) {
+      const text = await res.text().catch(() => "");
+      handlers.onError(text || `HTTP ${res.status}`);
+      return;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buf = "";
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let sep: number;
+        while ((sep = buf.indexOf("\n\n")) !== -1) {
+          const block = buf.slice(0, sep);
+          buf = buf.slice(sep + 2);
+          const dataLines = block
+            .split("\n")
+            .filter((l) => l.startsWith("data:"))
+            .map((l) => l.slice(5).replace(/^ /, ""));
+          const data = dataLines.join("\n");
+          if (!data) continue;
+          let evt: { delta?: string; done?: boolean; error?: string; raw?: string; sections?: TutorSections };
+          try {
+            evt = JSON.parse(data);
+          } catch {
+            continue;
+          }
+          if (evt.error) {
+            handlers.onError(evt.error);
+            return;
+          }
+          if (evt.delta !== undefined) {
+            handlers.onDelta(evt.delta);
+          }
+          if (evt.done) {
+            handlers.onDone(evt.raw ?? "", evt.sections ?? {});
+            return;
+          }
+        }
+      }
+    } catch (err) {
+      if ((err as Error).name === "AbortError") return;
+      handlers.onError((err as Error).message);
+    }
+  },
 };
