@@ -1,5 +1,3 @@
-import path from "node:path";
-
 const num = (v: string | undefined, d: number) => (v ? Number(v) : d);
 
 export const config = {
@@ -8,10 +6,18 @@ export const config = {
 
   runnerImage: process.env.RUNNER_IMAGE ?? "ai-code-editor-runner:latest",
 
-  // Absolute path on the host where per-session workspaces live.
-  // Must be a host path because it is bind-mounted into sibling runner containers.
-  workspaceRoot: process.env.WORKSPACE_ROOT_HOST
-    ?? path.resolve(process.cwd(), "..", "temp", "sessions"),
+  // Backend-internal path where per-session workspaces live (always a Linux
+  // path because the backend runs inside a Linux container on every host).
+  // The corresponding HOST path is discovered at startup by self-inspecting
+  // the backend container — see resolveHostWorkspaceRoot() in
+  // services/docker/dockerService.ts. Keeping these two paths separate is
+  // what lets the same code run on macOS, Linux, and Windows hosts.
+  workspaceRoot: process.env.WORKSPACE_ROOT ?? "/workspace-root",
+
+  // Escape hatch for bare-metal dev (running the backend directly on a host
+  // OS, outside docker compose). When set, overrides self-inspect discovery.
+  // Leave unset in the normal compose flow.
+  hostWorkspaceRootOverride: process.env.WORKSPACE_ROOT_HOST,
 
   session: {
     idleTimeoutMs: num(process.env.SESSION_IDLE_TIMEOUT_MS, 2 * 60 * 1000),

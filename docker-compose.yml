@@ -16,15 +16,19 @@ services:
       PORT: "4000"
       CORS_ORIGIN: "http://localhost:5173"
       RUNNER_IMAGE: "ai-code-editor-runner:latest"
-      # Must be a HOST path — backend spawns sibling containers on the host
-      # Docker daemon, and bind mounts are resolved by that daemon.
-      WORKSPACE_ROOT_HOST: "${PWD}/temp/sessions"
+      # Backend-internal path for workspace I/O. Same on every host OS —
+      # the host path is discovered at startup via Docker self-inspect and
+      # used separately when spawning sibling containers. See
+      # backend/src/services/docker/dockerService.ts → resolveHostWorkspaceRoot.
+      WORKSPACE_ROOT: "/workspace-root"
     volumes:
       # Sibling-container pattern: backend drives the host Docker daemon.
+      # Docker Desktop (macOS + Windows) exposes the Unix socket inside its
+      # Linux VM, so this line works identically on all three hosts.
       - /var/run/docker.sock:/var/run/docker.sock
-      # Mount the host workspace into the backend at the same absolute path so
-      # the backend and its sibling runner containers see identical paths.
-      - ${PWD}/temp/sessions:${PWD}/temp/sessions
+      # Relative path — Compose resolves it against the compose file location
+      # on every host. Works in PowerShell, zsh, bash identically.
+      - ./temp/sessions:/workspace-root
     ports:
       - "4000:4000"
     depends_on:

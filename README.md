@@ -16,29 +16,106 @@ A local-first, web-based coding editor with an AI tutor. Write small single- or 
 - **Resilient sessions.** Silent heartbeat retries, a `Reconnecting…` status, and rebind-to-same-ID recovery when the backend session expires.
 - **Keyboard-first UI.** Status bar, color-coded file icons, output panel with copy-to-clipboard, error-type chips, and inline keyboard hints.
 
-## Quick start
+## Prerequisites
+
+You need **Git** and **Docker Desktop** installed. That's it — everything else (Node, Python, compilers) runs inside Docker containers and is set up automatically on first launch.
+
+- **Git** — [download](https://git-scm.com/downloads). On macOS, `git` is also installed when you run `xcode-select --install`.
+- **Docker Desktop** — [download](https://www.docker.com/products/docker-desktop/). Free for personal use. Available for macOS, Windows, and Linux.
+  - Make sure Docker Desktop is **running** before you start. You should see a whale icon in your menu bar (macOS) or system tray (Windows).
+
+Optional: an **OpenAI API key** ([get one here](https://platform.openai.com/api-keys)) if you want the AI tutor. The editor and Run button work without a key; only the right-hand tutor panel requires one.
+
+### System requirements
+
+- ~4 GB free RAM while the stack is running.
+- ~2 GB disk for the Docker images (first-time build only).
+- Internet connection for the first build (to pull base images). After that, works offline for editing and running code. Only the AI tutor needs internet.
+
+## First-time setup
+
+Pick your OS. Each section is self-contained — you don't need to read the others.
+
+### macOS
+
+1. **Install Docker Desktop** from the link above. Open it. Wait until the whale icon in your menu bar stops animating (means the daemon is running).
+2. **Open Terminal** (press `⌘ + Space`, type "Terminal", hit Enter).
+3. **Clone the repo** and enter the folder:
+   ```bash
+   git clone https://github.com/msrivas-7/ai-code-editor.git
+   cd ai-code-editor
+   ```
+4. **Launch:**
+   ```bash
+   ./start.sh
+   ```
+5. The first launch will build the Docker images — this takes **2–3 minutes** and is only slow the first time. You'll see three Terminal windows open (backend logs, frontend logs, session runners) and your browser will open to **http://localhost:5173**. That's the editor.
+
+To stop everything: `./stop.sh`. To start it again later: `./start.sh` (subsequent launches take ~10 seconds since the images are already built).
+
+### Linux
+
+Same as macOS, but install Docker Desktop for Linux (or `docker.io` / `docker-ce` + `docker-compose-plugin` from your distro). Make sure your user is in the `docker` group so you don't need `sudo`:
+```bash
+sudo usermod -aG docker $USER
+# log out and back in for this to take effect
+```
+Then follow macOS steps 3–5. On Linux, `start.sh` doesn't auto-open log windows (that's macOS-specific); you can tail logs manually with `docker compose logs -f backend` if needed.
+
+### Windows
+
+1. **Install Docker Desktop** from the link above. During install, leave "Use WSL 2 instead of Hyper-V" checked (the default). Reboot if asked.
+2. **Start Docker Desktop.** Wait until the whale icon in your system tray stops animating.
+3. **Enable file sharing for your drive.** Open Docker Desktop → **Settings** (gear icon) → **Resources** → **File Sharing**. Make sure the drive you'll clone into (usually `C:`) is checked. Click **Apply & Restart** if you changed anything.
+4. **Open PowerShell.** Press `Windows key`, type "PowerShell", hit Enter. (Any PowerShell window is fine — no need for "Admin".)
+5. **Clone the repo** and enter the folder:
+   ```powershell
+   git clone https://github.com/msrivas-7/ai-code-editor.git
+   cd ai-code-editor
+   ```
+6. **Launch:**
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\start.ps1
+   ```
+   (The `-ExecutionPolicy Bypass` bit is because Windows blocks unsigned scripts by default. This only bypasses the policy for this one command — it doesn't change any system setting.)
+7. First launch builds the images — **2–3 minutes**. Three PowerShell windows will open for logs and your browser will open to **http://localhost:5173**.
+
+To stop: `.\stop.ps1`. To start again: re-run the launch command in step 6.
+
+## Quick start (after first-time setup)
+
+Once everything is installed, day-to-day use is just:
+
+| | macOS / Linux | Windows |
+| --- | --- | --- |
+| **Start** | `./start.sh` | `powershell -ExecutionPolicy Bypass -File .\start.ps1` |
+| **Stop**  | `./stop.sh`  | `.\stop.ps1` |
+
+Or, if you'd rather drive Docker Compose directly (works on all three OSes):
 
 ```bash
-git clone <your-repo-url> ai-code-editor
-cd ai-code-editor
-./start.sh
+docker compose up --build    # start (foreground; Ctrl-C to stop)
+docker compose down           # stop
 ```
 
-`start.sh` builds the images, brings up the stack, waits for it to be healthy, and opens the app. On macOS it also opens three Terminal windows that tail backend, frontend, and per-session runner logs; `stop.sh` tears everything down and closes those windows.
+## Troubleshooting
 
-If you prefer plain Docker Compose:
+**"Cannot connect to the Docker daemon" / "docker: command not found"** — Docker Desktop isn't running, or isn't installed. Open it and wait for the whale icon to stop animating.
 
-```bash
-docker compose up --build
-# then open http://localhost:5173
+**"Bind mount failed" (Windows)** — Docker Desktop doesn't have permission to the drive your repo is on. Open Docker Desktop → Settings → Resources → File Sharing → enable the drive → Apply & Restart.
+
+**Port 4000 or 5173 already in use** — something else on your machine is using those ports. Stop it, or edit `docker-compose.yml` to map different ports (e.g., change `"5173:5173"` to `"5174:5173"` and open the new port in your browser).
+
+**Windows: "cannot be loaded because running scripts is disabled"** — You ran `.\start.ps1` directly. Use the full command: `powershell -ExecutionPolicy Bypass -File .\start.ps1`.
+
+**Windows: `MAX_PATH` errors on deep workspaces** (rare) — Enable long paths in an Admin PowerShell and reboot:
+```powershell
+reg add "HKLM\SYSTEM\CurrentControlSet\Control\FileSystem" /v LongPathsEnabled /t REG_DWORD /d 1 /f
 ```
 
-### Requirements
+**First build is slow** — Expected (2–3 min). Subsequent launches use the cache and take ~10 seconds. You can watch progress in the Terminal/PowerShell window where you ran `start.sh` / `start.ps1`.
 
-- Docker Desktop, Colima, or Docker Engine.
-- On macOS, Docker Desktop shares `/Users` by default — no extra file-sharing setup needed.
-- First build pulls three images and takes ~2–3 minutes. Subsequent runs are cached.
-- An OpenAI API key only if you want the tutor; the editor and Run work without one.
+**Nothing happens when I open http://localhost:5173** — Give it another 10 seconds; the frontend dev server takes a moment to warm up on first launch. Check the frontend log window for any errors.
 
 ## Using it
 
@@ -85,15 +162,16 @@ The backend mounts `/var/run/docker.sock` so it can spawn sibling runner contain
 
 ```
 ai-code-editor/
-├── backend/            Express + TypeScript (sessions, Docker, execution, AI)
-├── frontend/           React + Vite + Tailwind + Zustand + Monaco
-├── runner-image/       Polyglot Dockerfile (Python, Node, gcc/g++, JDK)
-├── shared/             TS types shared across backend + frontend
-├── samples/            Starter projects per language
-├── scripts/            Helper scripts (watch-sessions.sh, …)
-├── temp/sessions/      Runtime per-session workspaces (gitignored)
+├── backend/             Express + TypeScript (sessions, Docker, execution, AI)
+├── frontend/            React + Vite + Tailwind + Zustand + Monaco
+├── runner-image/        Polyglot Dockerfile (Python, Node, gcc/g++, JDK)
+├── shared/              TS types shared across backend + frontend
+├── samples/             Starter projects per language
+├── scripts/             Helper scripts (watch-sessions.sh / .ps1)
+├── temp/sessions/       Runtime per-session workspaces (gitignored)
 ├── docker-compose.yml
-├── start.sh / stop.sh  One-command launcher + teardown
+├── start.sh  / stop.sh  macOS/Linux launcher + teardown
+├── start.ps1 / stop.ps1 Windows launcher + teardown
 └── .env.example
 ```
 

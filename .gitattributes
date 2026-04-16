@@ -1,0 +1,52 @@
+# Normalize line endings so the same repo works from both Unix and Windows.
+# Conservative per-extension rules — no global `text=auto`, which would
+# rewrite every file on Windows checkout.
+
+# Shell scripts must be LF: CRLF breaks the shebang line inside Linux
+# containers (kernel looks for `/usr/bin/env bash\r`).
+*.sh            text eol=lf
+Dockerfile      text eol=lf
+*.dockerfile    text eol=lf
+.dockerignore   text eol=lf
+.gitignore      text eol=lf
+.gitattributes  text eol=lf
+
+# Cross-platform source files — keep LF so diffs stay consistent regardless
+# of who authored the change.
+*.ts            text eol=lf
+*.tsx           text eol=lf
+*.js            text eol=lf
+*.jsx           text eol=lf
+*.cjs           text eol=lf
+*.mjs           text eol=lf
+*.json          text eol=lf
+*.md            text eol=lf
+*.yml           text eol=lf
+*.yaml          text eol=lf
+*.html          text eol=lf
+*.css           text eol=lf
+*.py            text eol=lf
+*.c             text eol=lf
+*.h             text eol=lf
+*.cpp           text eol=lf
+*.hpp           text eol=lf
+*.java          text eol=lf
+
+# Windows-native scripts — CRLF so PowerShell/cmd parse them cleanly.
+*.ps1           text eol=crlf
+*.psm1          text eol=crlf
+*.bat           text eol=crlf
+*.cmd           text eol=crlf
+
+# Binary assets — never touch.
+*.png           binary
+*.jpg           binary
+*.jpeg          binary
+*.gif           binary
+*.ico           binary
+*.webp          binary
+*.woff          binary
+*.woff2         binary
+*.ttf           binary
+*.eot           binary
+*.pdf           binary

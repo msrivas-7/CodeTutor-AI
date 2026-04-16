@@ -5,13 +5,21 @@ import { config } from "../../config.js";
 import {
   createSessionContainer,
   destroyContainer,
+  getHostWorkspaceRoot,
   isContainerAlive,
+  joinHostPath,
 } from "../docker/dockerService.js";
 
 export interface SessionRecord {
   id: string;
   containerId: string | null;
+  // Backend-internal path used for fs.* I/O (always a Linux path, since the
+  // backend runs in a Linux container on every host OS).
   workspacePath: string;
+  // Host-side path passed to the Docker daemon when spawning sibling
+  // runner containers. Format depends on host OS — stored verbatim from
+  // Docker's own self-inspect response. Do not conflate with workspacePath.
+  hostWorkspacePath: string;
   lastSeen: number;
   createdAt: number;
   selectedModel: string | null;
@@ -20,11 +28,27 @@ export interface SessionRecord {
 const sessions = new Map<string, SessionRecord>();
 
 async function ensureWorkspaceDir(sessionId: string): Promise<string> {
-  const dir = path.join(config.workspaceRoot, sessionId);
+  const dir = path.posix.join(config.workspaceRoot, sessionId);
   await fs.mkdir(dir, { recursive: true });
   // Runner container runs as uid/gid 1100; allow it to write.
   await fs.chmod(dir, 0o777).catch(() => {});
   return dir;
+}
+
+/**
+ * Best-effort workspace cleanup. On Windows, Defender and other scanners
+ * occasionally hold file handles briefly, causing EBUSY/EPERM from fs.rm;
+ * retry a couple of times before giving up silently.
+ */
+async function removeWorkspaceDir(dir: string): Promise<void> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await fs.rm(dir, { recursive: true, force: true });
+      return;
+    } catch {
+      await new Promise((r) => setTimeout(r, 150 * (attempt + 1)));
+    }
+  }
 }
 
 // Only accept IDs the same shape nanoid produces — prevents a client from
@@ -37,12 +61,14 @@ export async function startSession(requestedId?: string): Promise<SessionRecord>
   const canReuse = requestedId && ID_RE.test(requestedId) && !sessions.has(requestedId);
   const id = canReuse ? requestedId! : nanoid(12);
   const workspacePath = await ensureWorkspaceDir(id);
-  const { id: containerId } = await createSessionContainer(id, workspacePath);
+  const hostWorkspacePath = joinHostPath(getHostWorkspaceRoot(), id);
+  const { id: containerId } = await createSessionContainer(id, hostWorkspacePath);
   const now = Date.now();
   const record: SessionRecord = {
     id,
     containerId,
     workspacePath,
+    hostWorkspacePath,
     lastSeen: now,
     createdAt: now,
     selectedModel: null,
@@ -81,7 +107,7 @@ export async function endSession(id: string): Promise<boolean> {
   if (!s) return false;
   sessions.delete(id);
   if (s.containerId) await destroyContainer(s.containerId);
-  await fs.rm(s.workspacePath, { recursive: true, force: true }).catch(() => {});
+  await removeWorkspaceDir(s.workspacePath);
   return true;
 }
 

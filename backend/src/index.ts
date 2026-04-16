@@ -6,7 +6,7 @@ import { projectRouter } from "./routes/project.js";
 import { executionRouter } from "./routes/execution.js";
 import { aiRouter } from "./routes/ai.js";
 import { errorHandler } from "./middleware/errorHandler.js";
-import { ensureRunnerImage } from "./services/docker/dockerService.js";
+import { ensureRunnerImage, resolveHostWorkspaceRoot } from "./services/docker/dockerService.js";
 import { startSweeper, shutdownAllSessions } from "./services/session/sessionManager.js";
 
 async function main() {
@@ -43,6 +43,19 @@ async function main() {
 
   app.use(errorHandler);
 
+  // Discover the host-side path that backs our /workspace-root mount before
+  // anything that could spawn a sibling container runs. This is required for
+  // cross-platform support (macOS/Linux/Windows): the host path format
+  // differs by OS, but Docker itself tells us what to use.
+  let hostWorkspaceRoot: string;
+  try {
+    hostWorkspaceRoot = await resolveHostWorkspaceRoot();
+    console.log(`[startup] host workspace root: ${hostWorkspaceRoot}`);
+  } catch (err) {
+    console.error(`[fatal] ${(err as Error).message}`);
+    process.exit(1);
+  }
+
   try {
     await ensureRunnerImage();
     console.log(`[startup] runner image ready: ${config.runnerImage}`);
@@ -56,7 +69,8 @@ async function main() {
   const server = app.listen(config.port, () => {
     console.log(`[startup] backend listening on :${config.port}`);
     console.log(`[startup] cors origin: ${config.corsOrigin}`);
-    console.log(`[startup] workspace root: ${config.workspaceRoot}`);
+    console.log(`[startup] workspace root (backend): ${config.workspaceRoot}`);
+    console.log(`[startup] workspace root (host):    ${hostWorkspaceRoot}`);
   });
 
   const shutdown = async (signal: string) => {
