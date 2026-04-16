@@ -165,12 +165,23 @@ Open <http://localhost:5173>. The editor seeds with a starter project for the se
 ## Architecture
 
 ```
-┌───────────┐   HTTP/JSON   ┌───────────┐   docker.sock   ┌──────────────┐
-│  Frontend │ ────────────> │  Backend  │ ──────────────> │ Runner cntr  │
-│ (React +  │               │ (Express+ │   (sibling)     │  (one per    │
-│  Monaco)  │ <──────────── │  dockerode│ <────────────── │   session)   │
-└───────────┘               └───────────┘                 └──────────────┘
-     :5173                       :4000                     --network none
+                          ┌─────────────────────────────────────────────┐
+                          │            Docker Desktop (host)            │
+                          │                                             │
+┌──────────────────┐  HTTP/JSON  ┌──────────────────┐  docker.sock  ┌──────────────────┐
+│     Frontend     │ ──────────> │     Backend      │ ────────────> │  Runner (1:1)    │
+│                  │             │                  │   (sibling)   │                  │
+│  React + Vite    │             │  Express + TS    │               │  Python, Node,   │
+│  Monaco editor   │ <────────── │  dockerode       │ <──────────── │  gcc, JDK, Go,   │
+│  Zustand stores  │   SSE/JSON  │  OpenAI proxy    │   stdout/err  │  Rust, Ruby      │
+│  Tailwind CSS    │             │  session sweeper │               │                  │
+└──────────────────┘             └──────────────────┘               └──────────────────┘
+      :5173                            :4000                         --network none
+                                       │                             512 MB / 1 vCPU
+                              ./temp/sessions/{id}                   non-root (uid 1100)
+                              mounted at /workspace-root             10s exec timeout
+                              (host path auto-discovered
+                               via Docker self-inspect)
 ```
 
 ### Frontend — React + Vite + Monaco + Zustand
