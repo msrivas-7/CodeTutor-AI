@@ -8,17 +8,37 @@ A local-first, web-based coding editor with an AI tutor. Write small single- or 
 
 ## Features
 
-### Write
-Monaco at the core — the same editor that powers VS Code — with a custom dark theme, bracket-pair colorization, JetBrains Mono ligatures, and a tab strip (middle-click or ✕ to close). The workspace is a three-pane layout backed by a Zustand store: draggable splitters with double-click reset, and collapsible files/tutor rails so the editor can fill the viewport. Nine starter projects — Python, JavaScript, TypeScript, C, C++, Java, Go, Rust, Ruby — each multi-file so imports/includes/modules are exercised from turn one. Any `file.ext:line[:col]` in tutor prose or stderr is regex-linkified into a button that reveals the position via Monaco's `revealLineInCenter`.
+### Write — *editor and workspace*
 
-### Run
-One runner container per session, spawned lazily on the first Run and reaped after 2 min of heartbeat silence or immediately on tab close via `pagehide` + `navigator.sendBeacon`. The sandbox is tight: `--network none`, 512 MB memory, 1 vCPU, PID cap, non-root user, `no-new-privileges`, and a 10s wall-clock on every `docker exec`. Each Run wipes `./temp/sessions/{id}` and re-snapshots from the frontend, so backend restarts never lose student code — files live on the host, not inside the container. Stdout/stderr stream back with an exit code, duration, and a classified error type (`compile` / `runtime` / `timeout` / `system`), plus a dedicated **stdin** tab pre-seeded with each starter's sample input so the first Run produces real output.
+- **Monaco editor** — same engine as VS Code; custom dark theme, bracket-pair colorization, JetBrains Mono ligatures, tab strip with middle-click close.
+- **Three-pane workspace** — draggable splitters (double-click to reset), collapsible files and tutor rails, Zustand-backed layout state.
+- **Nine starter projects** — Python, JavaScript, TypeScript, C, C++, Java, Go, Rust, Ruby; each multi-file so imports/includes/modules are exercised from turn one.
+- **Clickable refs** — any `file.ext:line[:col]` in tutor prose or stderr becomes a button that reveals the position via Monaco's `revealLineInCenter`.
 
-### Learn
-A streaming OpenAI tutor over the Responses API with a strict flat `json_schema` — intent-aware (`debug` / `concept` / `howto` / `walkthrough` / `checkin`) so the model classifies the question first, then fills only the relevant sections. SSE deltas paint summary → explanation → example → hint → next-step as they arrive; every turn ships the active file marker, project snapshot (4 k-char cap per file), last run result, conversation history slice, a diff of files touched since the last turn, run/edit counters, persona, and — when present — the student's editor selection. A `stuckness: low | medium | high` signal from the model, combined with client-side activity (repeated failed runs, "I'm stuck" in prose), unlocks a stronger hint and a concrete next step — but never the full fix. When history crosses a soft cap, older turns compress via a background summarize round-trip that doesn't block the current ask, and an `AbortController`-threaded **Stop** button cancels mid-stream while preserving the partial response.
+### Run — *sandboxed Docker execution*
 
-### Stay in flow
-Monaco's `onDidChangeCursorSelection` auto-captures any non-empty selection into the tutor's context with a code-preview chip above the composer — no shortcut required; `⌘K` / `Ctrl+K` is the power-user path that also pulls focus. Token counts from `response.completed.usage` render per-turn and as a running session total, with cost estimates from a longest-prefix match against the published per-1M rates and a graceful tokens-only fallback for unknown models. Inline action chips — "Walk me through this" (tab strip), "Why did my last run fail?" (output panel on error), and contextual follow-ups after each tutor turn — fire asks directly, no composer detour. The OpenAI key stays in-memory by default, `localStorage` only behind an explicit opt-in, sent server-side via `X-OpenAI-Key` per request; never logged, never persisted. Sessions self-heal: silent heartbeat retries, a `Reconnecting…` status, and rebind-to-same-ID recovery when the backend blinks.
+- **One container per session** — spawned lazily on first Run, reaped after 2 min of heartbeat silence or immediately on tab close via `pagehide` + `navigator.sendBeacon`.
+- **Tight sandbox** — `--network none`, 512 MB memory, 1 vCPU, PID cap, non-root user, `no-new-privileges`, 10 s wall-clock on every `docker exec`.
+- **Durable workspace** — files live on the host at `./temp/sessions/{id}`; each Run re-snapshots from the frontend, so backend restarts never lose student code.
+- **Classified output** — stdout, stderr, exit code, duration, and an error type (`compile` / `runtime` / `timeout` / `system`) surfaced as colored pills.
+- **Stdin support** — dedicated tab pre-seeded with each starter's sample input, so the first Run always produces real output.
+
+### Learn — *streaming OpenAI tutor*
+
+- **Structured JSON** — Responses API with a strict flat `json_schema`; model classifies intent (`debug` / `concept` / `howto` / `walkthrough` / `checkin`) and fills only the relevant sections.
+- **SSE streaming** — summary → explanation → example → hint → next-step paint as they arrive; a **Stop** button cancels mid-stream and commits the partial response.
+- **Rich per-turn context** — active file marker, project snapshot (4 k-char cap per file), last run result, history slice, diff of edits since last turn, run/edit counters, persona, and optional editor selection.
+- **Stuckness escalation** — `stuckness: low | medium | high` signal plus client activity (repeated failed runs, "I'm stuck" in prose) unlocks a stronger hint and a concrete next step — but never the full fix.
+- **Persona slider** — beginner / intermediate / advanced reshapes vocabulary, assumed background, and explanation density every turn.
+- **Long-conversation compression** — background summarize round-trip replaces old history once it crosses a soft cap, without blocking the current ask.
+
+### Stay in flow — *ergonomics and resilience*
+
+- **Selection-aware asks** — highlighting code auto-attaches it (with a live preview chip); `⌘K` / `Ctrl+K` pulls focus to the composer carrying the current selection.
+- **Tokens and cost** — per-turn chip plus a running session total; USD estimate via longest-prefix match against published per-1M rates, with a tokens-only fallback for unknown models.
+- **One-click asks** — "Walk me through this" (tab strip), "Why did my last run fail?" (output panel on error), contextual follow-ups after each turn.
+- **BYOK** — key held in-memory by default, `localStorage` only behind an explicit opt-in; sent as `X-OpenAI-Key` per request; never logged, never persisted.
+- **Resilient sessions** — silent heartbeat retries, `Reconnecting…` status, and rebind-to-same-ID recovery when the backend blinks.
 
 ## Prerequisites
 
