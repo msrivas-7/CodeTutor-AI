@@ -1,7 +1,10 @@
 # Lists — Clean and Summarize
 
 raw = input("Enter comma-separated numbers: ")
-numbers = [int(x.strip()) for x in raw.split(",")]
+parts = raw.split(",")
+numbers = []
+for x in parts:
+    numbers.append(int(x.strip()))
 
 print(f"Original: {numbers}")
 

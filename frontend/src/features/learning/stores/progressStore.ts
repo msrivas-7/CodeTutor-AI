@@ -14,6 +14,14 @@ function loadJson<T>(key: string): T | null {
   }
 }
 
+export function loadSavedCode(
+  courseId: string,
+  lessonId: string,
+): Record<string, string> | null {
+  const lp = loadJson<LessonProgress>(LESSON_KEY(courseId, lessonId));
+  return lp?.lastCode ?? null;
+}
+
 function saveJson(key: string, value: unknown): void {
   try {
     localStorage.setItem(key, JSON.stringify(value));
@@ -131,10 +139,10 @@ export const useProgressStore = create<ProgressState>()((set, get) => ({
         lastCode: null,
         lastOutput: null,
       }),
-      status: "in_progress",
+      status: current?.status === "completed" ? "completed" : "in_progress",
       startedAt: current?.startedAt ?? now(),
       updatedAt: now(),
-      attemptCount: (current?.attemptCount ?? 0) + 1,
+      attemptCount: (current?.attemptCount ?? 0) + (current?.status === "completed" ? 0 : 1),
     };
     saveJson(lsKey, updated);
     set((s) => ({

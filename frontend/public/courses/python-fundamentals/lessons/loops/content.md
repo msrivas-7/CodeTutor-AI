@@ -13,7 +13,10 @@ Loops let you run the same code multiple times. Instead of writing `print()` ten
 
 1. Write a `for` loop that prints the **multiplication table** for a number read from stdin.
 2. Print each line as: `"N x i = result"` for i from 1 to 10.
-3. After the table, use a `while` loop to find the **smallest power of 2** that is greater than the input number. Print it.
+
+### Bonus challenge
+
+3. After the table, use a `while` loop to find the **smallest power of 2** that is greater than the input number. Print it. (This part is optional — try it once your for loop works!)
 
 Example output for input `7`:
 ```

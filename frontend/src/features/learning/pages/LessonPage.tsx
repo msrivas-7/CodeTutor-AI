@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import type { Lesson } from "../types";
 import { loadFullLesson, loadCourse } from "../content/courseLoader";
-import { useProgressStore } from "../stores/progressStore";
+import { useProgressStore, loadSavedCode } from "../stores/progressStore";
 import { useLearnerStore } from "../stores/learnerStore";
 import { LessonInstructionsPanel } from "../components/LessonInstructionsPanel";
 import { GuidedTutorPanel } from "../components/GuidedTutorPanel";
@@ -85,6 +85,7 @@ export default function LessonPage() {
 
   const [lesson, setLesson] = useState<Lesson | null>(null);
   const [totalLessons, setTotalLessons] = useState(10);
+  const [lessonOrder, setLessonOrder] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [validation, setValidation] = useState<ValidationResult | null>(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -117,6 +118,7 @@ export default function LessonPage() {
       .then(([l, course]) => {
         setLesson(l);
         setTotalLessons(course.lessonOrder.length);
+        setLessonOrder(course.lessonOrder);
         startLesson(identity.learnerId, courseId, lessonId);
       })
       .catch(() => setLesson(null))
@@ -127,10 +129,9 @@ export default function LessonPage() {
     if (!lesson || !courseId || !lessonId || initialized.current) return;
     initialized.current = true;
 
-    const savedProgress = lessonProgressMap[`${courseId}/${lessonId}`];
-    const savedCode = savedProgress?.lastCode;
+    const savedCode = loadSavedCode(courseId, lessonId);
 
-    let files: Record<string, string> = {};
+    const files: Record<string, string> = {};
     const order: string[] = [];
 
     if (savedCode && Object.keys(savedCode).length > 0) {
@@ -211,6 +212,13 @@ export default function LessonPage() {
 
   const lp = lessonProgressMap[`${courseId}/${lessonId}`];
   const canRun = !!sessionId && sessionPhase === "active" && !running;
+
+  const nextLessonId = (() => {
+    if (!lessonId || lessonOrder.length === 0) return null;
+    const idx = lessonOrder.indexOf(lessonId);
+    return idx >= 0 && idx < lessonOrder.length - 1 ? lessonOrder[idx + 1] : null;
+  })();
+  const showNext = (validation?.passed || lp?.status === "completed") && nextLessonId;
 
   return (
     <div className="flex h-full flex-col bg-bg text-ink">
@@ -361,6 +369,14 @@ export default function LessonPage() {
                 }`}>
                   {validation.passed ? "Passed!" : validation.feedback[0] ?? "Not quite."}
                 </div>
+              )}
+              {showNext && (
+                <button
+                  onClick={() => nav(`/learn/course/${courseId}/lesson/${nextLessonId}`)}
+                  className="flex items-center gap-1.5 rounded-lg bg-violet/20 px-4 py-1.5 text-xs font-semibold text-violet transition hover:bg-violet/30"
+                >
+                  Next Lesson →
+                </button>
               )}
               {lp && (
                 <span className="text-[10px] text-faint">
