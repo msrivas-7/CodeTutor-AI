@@ -1,11 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type Ref } from "react";
 import { useProjectStore, starterStdin } from "../state/projectStore";
 import { useSessionStore } from "../state/sessionStore";
 import { useRunStore } from "../state/runStore";
 import { api } from "../api/client";
 import { LANGUAGES, LANGUAGE_LABEL, type Language } from "../types";
 
-export function Toolbar() {
+interface ToolbarProps {
+  langPickerRef?: Ref<HTMLLabelElement>;
+  runButtonRef?: Ref<HTMLButtonElement>;
+}
+
+export function Toolbar({ langPickerRef, runButtonRef }: ToolbarProps = {}) {
   const { language, resetToStarter, snapshot } = useProjectStore();
   const sessionId = useSessionStore((s) => s.sessionId);
   const phase = useSessionStore((s) => s.phase);
@@ -50,7 +55,7 @@ export function Toolbar() {
 
   return (
     <div className="flex items-center gap-2">
-      <label className="relative">
+      <label ref={langPickerRef} className="relative">
         <select
           value={language}
           onChange={(e) => handleLanguageChange(e.target.value as Language)}
@@ -69,6 +74,7 @@ export function Toolbar() {
       </label>
 
       <button
+        ref={runButtonRef}
         onClick={handleRun}
         disabled={!canRun}
         className={`group flex items-center gap-2 rounded-md px-3 py-1 text-xs font-semibold transition ${

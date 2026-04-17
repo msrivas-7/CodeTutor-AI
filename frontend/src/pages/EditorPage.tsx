@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { StatusBadge } from "../components/StatusBadge";
 import { FileTree } from "../components/FileTree";
@@ -15,6 +15,7 @@ import { useAIStore } from "../state/aiStore";
 import { useProjectStore } from "../state/projectStore";
 import { useRunStore } from "../state/runStore";
 import { SettingsModal } from "../components/SettingsModal";
+import { EditorCoach, isEditorOnboardingDone } from "../components/EditorCoach";
 
 const LS_LEFT = "ui:leftW";
 const LS_RIGHT = "ui:rightW";
@@ -74,6 +75,21 @@ export default function EditorPage() {
     try { return localStorage.getItem(LS_FILES) === "1"; } catch { return false; }
   });
   const [showSettings, setShowSettings] = useState(false);
+  const [showCoach, setShowCoach] = useState(false);
+
+  const langPickerRef = useRef<HTMLLabelElement>(null);
+  const fileTreeRef = useRef<HTMLElement>(null);
+  const editorRef = useRef<HTMLElement>(null);
+  const runButtonRef = useRef<HTMLButtonElement>(null);
+  const outputRef = useRef<HTMLDivElement>(null);
+  const tutorRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (!isEditorOnboardingDone()) {
+      const t = setTimeout(() => setShowCoach(true), 600);
+      return () => clearTimeout(t);
+    }
+  }, []);
 
   useEffect(() => save(LS_LEFT, leftW), [leftW]);
   useEffect(() => save(LS_RIGHT, rightW), [rightW]);
@@ -99,7 +115,7 @@ export default function EditorPage() {
           </h1>
         </div>
         <div className="flex items-center gap-4">
-          <Toolbar />
+          <Toolbar langPickerRef={langPickerRef} runButtonRef={runButtonRef} />
           <StatusBadge />
           <button
             onClick={() => setShowSettings(true)}
@@ -132,6 +148,7 @@ export default function EditorPage() {
         ) : (
           <>
             <aside
+              ref={fileTreeRef}
               style={{ width: leftW }}
               className="min-h-0 shrink-0 overflow-hidden border-r border-border bg-panel p-3"
             >
@@ -146,7 +163,7 @@ export default function EditorPage() {
           </>
         )}
 
-        <section className="flex min-w-0 flex-1 flex-col">
+        <section ref={editorRef} className="flex min-w-0 flex-1 flex-col">
           <EditorTabs />
           <div className="min-h-0 flex-1">
             <MonacoPane />
@@ -156,7 +173,7 @@ export default function EditorPage() {
             onDrag={(dy) => setOutputH((h) => clamp(h - dy, BOUNDS.out))}
             onDoubleClick={() => setOutputH(DEFAULTS.out)}
           />
-          <div style={{ height: outputH }} className="min-h-0 shrink-0">
+          <div ref={outputRef} style={{ height: outputH }} className="min-h-0 shrink-0">
             <OutputPanel />
           </div>
         </section>
@@ -183,6 +200,7 @@ export default function EditorPage() {
               onDoubleClick={() => setRightW(DEFAULTS.right)}
             />
             <aside
+              ref={tutorRef}
               style={{ width: rightW }}
               className="min-h-0 shrink-0 overflow-hidden bg-panel"
             >
@@ -194,6 +212,19 @@ export default function EditorPage() {
 
       <StatusBar />
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
+      {showCoach && (
+        <EditorCoach
+          refs={{
+            langPicker: langPickerRef.current,
+            fileTree: fileTreeRef.current,
+            editor: editorRef.current,
+            runButton: runButtonRef.current,
+            outputPanel: outputRef.current,
+            tutorPanel: tutorRef.current,
+          }}
+          onComplete={() => setShowCoach(false)}
+        />
+      )}
     </div>
   );
 }

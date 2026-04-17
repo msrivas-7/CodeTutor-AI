@@ -12,6 +12,7 @@ export function markWelcomeDone(): void {
 }
 
 interface WelcomeStep {
+  refKey: keyof WelcomeOverlayRefs;
   title: string;
   body: string;
   position: "top" | "bottom" | "left" | "right";
@@ -19,19 +20,28 @@ interface WelcomeStep {
 
 const STEPS: WelcomeStep[] = [
   {
+    refKey: "header",
     title: "Welcome to CodeTutor AI!",
     body: "Learn to code from scratch with hands-on lessons and an AI tutor that guides you — without giving away the answers. No account needed.",
     position: "bottom",
   },
   {
-    title: "Start here",
-    body: "New to coding? Click this to begin the guided Python course — step-by-step lessons with instant feedback.",
-    position: "left",
+    refKey: "editorCard",
+    title: "Free-form Editor",
+    body: "Already know some coding? Use the editor to write and run code in 9 languages with a sandboxed environment and AI help.",
+    position: "top",
+  },
+  {
+    refKey: "guidedCard",
+    title: "Guided Course — start here!",
+    body: "New to coding? This is for you. Step-by-step Python lessons with instructions, instant feedback, and an AI tutor that won't give away the answer.",
+    position: "top",
   },
 ];
 
 export interface WelcomeOverlayRefs {
   header: HTMLElement | null;
+  editorCard: HTMLElement | null;
   guidedCard: HTMLElement | null;
 }
 
@@ -45,15 +55,19 @@ export function WelcomeOverlay({ refs, onDismiss }: WelcomeOverlayProps) {
   const [targetRect, setTargetRect] = useState<DOMRect | null>(null);
 
   const currentStep = STEPS[step];
-  const targetEl = step === 0 ? refs.header : refs.guidedCard;
+  const targetEl = currentStep ? refs[currentStep.refKey] : null;
 
   useEffect(() => {
-    if (!targetEl) return;
+    if (!targetEl) {
+      if (step < STEPS.length - 1) setStep((s) => s + 1);
+      else { markWelcomeDone(); onDismiss(); }
+      return;
+    }
     const update = () => setTargetRect(targetEl.getBoundingClientRect());
     update();
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
-  }, [targetEl]);
+  }, [targetEl, step, onDismiss]);
 
   const advance = useCallback(() => {
     if (step >= STEPS.length - 1) {

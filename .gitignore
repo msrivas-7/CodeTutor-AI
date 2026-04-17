@@ -13,6 +13,7 @@ temp/sessions/*
 
 # Terminal window IDs recorded by start.sh for stop.sh to close
 .ai-code-editor-terminals
+.codetutor-ai-terminals
 
 # Editor / tooling
 .vscode/

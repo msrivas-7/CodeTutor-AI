@@ -19,6 +19,7 @@ Write, run, and debug code in **9 languages** with a Monaco-powered editor and a
 - **Nine starter projects** — Python, JavaScript, TypeScript, C, C++, Java, Go, Rust, Ruby; multi-file so imports/modules work from turn one.
 - **Sandboxed Docker execution** — one container per session, `--network none`, 512 MB RAM, 10s timeout, non-root user. Stdout, stderr, exit code, duration, and error type (`compile`/`runtime`/`timeout`) shown as colored pills.
 - **Stdin support** — dedicated tab pre-seeded with sample input per language.
+- **First-time editor tour** — 6-step spotlight walkthrough on first visit: language picker, file tree, code editor, run button, output panel, and AI tutor. Shown once, skippable, tracked in localStorage.
 
 ### Guided Learning Mode — structured Python course
 
@@ -30,7 +31,7 @@ A 10-lesson Python fundamentals course with instructions, starter code, and auto
 - **Progress tracking** — lesson status, run count, hint count, attempt count, code snapshots, and last output persist in `localStorage` across browser sessions. Returning to a lesson restores your code with a "Resuming where you left off" indicator. Reset individual lesson progress or the entire course from the UI.
 - **Lesson-aware AI tutor** — the tutor knows the lesson objectives, concepts, and completion criteria. It guides toward the solution without giving it away, and stays within the scope of what the lesson has taught so far. Three-level hint ladder (gentle hint → stronger hint → show approach), one-click "Explain Error" button when runs produce stderr.
 - **Proactive coach rail** — contextual nudges appear in the instructions panel based on student behavior. Timer and state-driven (no AI needed): prompts to read instructions, try editing, run code, check solutions, or ask for hints — adapting as the student progresses through each lesson.
-- **First-time onboarding** — new visitors see a welcome overlay on the start page that introduces the platform and guides them into the course. The dashboard and course overview show contextual nudges for first-time users. Opening a lesson triggers a 6-step spotlight tour of the workspace (instructions, editor, run, output, check solution, tutor). All shown once, skippable, tracked in localStorage.
+- **First-time onboarding** — new visitors see a 3-step welcome spotlight on the start page introducing the platform, editor mode, and guided course. The dashboard and course overview show contextual nudges for first-time users. Opening a lesson triggers a 6-step spotlight tour of the workspace (instructions, editor, run, output, check solution, tutor). All shown once, skippable, tracked in localStorage.
 - **Learning dashboard** — progress summary with gradient bar, "Next up" card, recent activity feed (last 3 lessons with timestamps), and "Might Need Review" indicators for lessons that took extra effort.
 - **Anonymous learner identity** — auto-generated, persisted locally. Ready for future auth.
 
@@ -169,6 +170,8 @@ Click the **gear icon** in the header bar (visible on every page) to configure y
 - **Repository abstraction** — `LearningRepository` interface with `LocalLearningRepository` (localStorage) and `RemoteLearningRepository` (stub) for future backend persistence.
 - **Coach rail** — `CoachRail` component with a priority-ordered rule engine. Observes elapsed time, edit/run/check state, and failed attempt count to surface one contextual nudge at a time. Purely deterministic — no AI or API calls.
 - **Workspace onboarding** — `WorkspaceCoach` spotlight overlay using `box-shadow` cutouts. Steps through 6 key UI areas with positioned `CoachBubble` tooltips. Persisted via localStorage flag; auto-skips steps whose target ref is null (e.g., collapsed panel).
+- **Editor onboarding** — `EditorCoach` spotlight overlay with 6 steps covering language picker, file tree, editor, run button, output panel, and tutor. Same pattern as `WorkspaceCoach`. Persisted via `onboarding:v1:editor-done`.
+- **Welcome spotlight** — `WelcomeOverlay` 3-step spotlight on the start page: header intro, editor card, guided course card. Uses shared `CoachBubble` component with `box-shadow` cutouts. Persisted via `onboarding:v1:welcome-done`.
 
 ### API Surface
 

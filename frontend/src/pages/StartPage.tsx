@@ -13,6 +13,7 @@ export default function StartPage() {
     }
   }, []);
   const headerRef = useRef<HTMLDivElement>(null);
+  const editorRef = useRef<HTMLButtonElement>(null);
   const guidedRef = useRef<HTMLButtonElement>(null);
 
   return (
@@ -31,6 +32,7 @@ export default function StartPage() {
 
         <div className="grid w-full max-w-2xl gap-4 sm:grid-cols-2">
           <button
+            ref={editorRef}
             onClick={() => nav("/editor")}
             className="group flex flex-col items-start gap-3 rounded-xl border border-border bg-panel p-6 text-left transition hover:border-accent/50 hover:shadow-glow"
           >
@@ -83,7 +85,7 @@ export default function StartPage() {
 
       {showWelcome && (
         <WelcomeOverlay
-          refs={{ header: headerRef.current, guidedCard: guidedRef.current }}
+          refs={{ header: headerRef.current, editorCard: editorRef.current, guidedCard: guidedRef.current }}
           onDismiss={() => setShowWelcome(false)}
         />
       )}
