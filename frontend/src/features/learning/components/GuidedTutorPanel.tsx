@@ -13,6 +13,7 @@ import {
   AskErrorView,
   hasTutorContent,
 } from "../../../components/TutorResponseViews";
+import { useProgressStore } from "../stores/progressStore";
 import type { LessonMeta } from "../types";
 
 interface GuidedTutorPanelProps {
@@ -23,6 +24,7 @@ interface GuidedTutorPanelProps {
 }
 
 export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, onCollapse }: GuidedTutorPanelProps) {
+  const incrementHint = useProgressStore((s) => s.incrementHint);
   const {
     apiKey,
     keyStatus,
@@ -296,6 +298,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, on
                             ];
                             setPendingAsk(prompts[hintLevel]);
                             setHintLevel((l) => l + 1);
+                            incrementHint(lessonMeta.courseId, lessonMeta.id);
                           }}
                           disabled={asking}
                           className="rounded-full border border-warn/40 bg-warn/10 px-2 py-[2px] text-[10px] font-medium text-warn transition hover:bg-warn/20 disabled:cursor-not-allowed disabled:opacity-50"

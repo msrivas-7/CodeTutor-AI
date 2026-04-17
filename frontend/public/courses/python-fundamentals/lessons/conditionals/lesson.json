@@ -11,11 +11,39 @@
     "Use comparison operators (==, !=, <, >, <=, >=)",
     "Combine conditions with and, or, not"
   ],
-  "conceptTags": ["if", "elif", "else", "comparison", "boolean", "and", "or", "not"],
-  "completionRules": [
-    { "type": "required_file_contains", "file": "main.py", "pattern": "if " },
-    { "type": "required_file_contains", "file": "main.py", "pattern": "elif " },
-    { "type": "required_file_contains", "file": "main.py", "pattern": "else:" }
+  "conceptTags": [
+    "if",
+    "elif",
+    "else",
+    "comparison",
+    "boolean",
+    "and",
+    "or",
+    "not"
   ],
-  "prerequisiteLessonIds": ["input-output"]
+  "completionRules": [
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "if "
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "elif "
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "else:"
+    }
+  ],
+  "prerequisiteLessonIds": [
+    "input-output"
+  ],
+  "recap": "if/elif/else lets your program make decisions. Comparison operators (==, <, >) and logical operators (and, or, not) control which branch runs.",
+  "practicePrompts": [
+    "Write a program that classifies a number as positive, negative, or zero.",
+    "Can you check if a year is a leap year? (Divisible by 4, but not 100, unless also 400.)"
+  ]
 }

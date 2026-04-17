@@ -11,9 +11,21 @@
     "Use the print() function",
     "Understand strings and quotes"
   ],
-  "conceptTags": ["print", "strings", "syntax"],
-  "completionRules": [
-    { "type": "expected_stdout", "expected": "Hello, World!" }
+  "conceptTags": [
+    "print",
+    "strings",
+    "syntax"
   ],
-  "prerequisiteLessonIds": []
+  "completionRules": [
+    {
+      "type": "expected_stdout",
+      "expected": "Hello, World!"
+    }
+  ],
+  "prerequisiteLessonIds": [],
+  "recap": "You wrote your first Python program using print(). Strings go inside quotes, and print() displays them on screen.",
+  "practicePrompts": [
+    "Can you print your name on one line and your favorite color on the next?",
+    "Try printing a sentence that includes both single and double quotes."
+  ]
 }

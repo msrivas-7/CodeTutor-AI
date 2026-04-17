@@ -27,6 +27,8 @@ export interface LessonMeta {
   conceptTags: string[];
   completionRules: CompletionRule[];
   prerequisiteLessonIds: string[];
+  recap?: string;
+  practicePrompts?: string[];
 }
 
 export interface Lesson extends LessonMeta {

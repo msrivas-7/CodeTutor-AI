@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { CourseProgress, LessonProgress, ProgressStatus } from "../types";
+import type { CourseProgress, LessonProgress } from "../types";
 
 const COURSE_KEY = (courseId: string) => `learner:v1:progress:${courseId}`;
 const LESSON_KEY = (courseId: string, lessonId: string) =>
@@ -46,6 +46,8 @@ function now(): string {
   return new Date().toISOString();
 }
 
+const startedThisSession = new Set<string>();
+
 interface ProgressState {
   courseProgress: Record<string, CourseProgress>;
   lessonProgress: Record<string, LessonProgress>;
@@ -72,6 +74,17 @@ interface ProgressState {
     code: Record<string, string>
   ) => void;
   saveOutput: (courseId: string, lessonId: string, output: string) => void;
+}
+
+function resolveLesson(
+  state: ProgressState,
+  courseId: string,
+  lessonId: string,
+): LessonProgress | null {
+  const compositeKey = `${courseId}/${lessonId}`;
+  const fromStore = state.lessonProgress[compositeKey];
+  if (fromStore) return fromStore;
+  return loadJson<LessonProgress>(LESSON_KEY(courseId, lessonId));
 }
 
 export const useProgressStore = create<ProgressState>()((set, get) => ({
@@ -138,7 +151,14 @@ export const useProgressStore = create<ProgressState>()((set, get) => ({
   startLesson(learnerId, courseId, lessonId) {
     const compositeKey = `${courseId}/${lessonId}`;
     const lsKey = LESSON_KEY(courseId, lessonId);
-    const current = get().lessonProgress[compositeKey];
+    const current = resolveLesson(get(), courseId, lessonId);
+
+    const isNewSession = !startedThisSession.has(compositeKey);
+    startedThisSession.add(compositeKey);
+
+    const shouldBumpAttempt =
+      isNewSession && current?.status !== "completed";
+
     const updated: LessonProgress = {
       ...(current ?? {
         learnerId,
@@ -154,7 +174,7 @@ export const useProgressStore = create<ProgressState>()((set, get) => ({
       status: current?.status === "completed" ? "completed" : "in_progress",
       startedAt: current?.startedAt ?? now(),
       updatedAt: now(),
-      attemptCount: (current?.attemptCount ?? 0) + (current?.status === "completed" ? 0 : 1),
+      attemptCount: (current?.attemptCount ?? 0) + (shouldBumpAttempt ? 1 : 0),
     };
     saveJson(lsKey, updated);
     set((s) => ({
@@ -162,7 +182,8 @@ export const useProgressStore = create<ProgressState>()((set, get) => ({
     }));
 
     const courseKey = COURSE_KEY(courseId);
-    const cp = get().courseProgress[courseId];
+    const cp = get().courseProgress[courseId]
+      ?? loadJson<CourseProgress>(courseKey);
     if (cp && cp.status === "not_started") {
       const updatedCp: CourseProgress = {
         ...cp,
@@ -191,7 +212,7 @@ export const useProgressStore = create<ProgressState>()((set, get) => ({
   completeLesson(learnerId, courseId, lessonId, totalLessons) {
     const compositeKey = `${courseId}/${lessonId}`;
     const lsKey = LESSON_KEY(courseId, lessonId);
-    const current = get().lessonProgress[compositeKey];
+    const current = resolveLesson(get(), courseId, lessonId);
     const updated: LessonProgress = {
       ...(current ?? {
         learnerId,
@@ -214,7 +235,8 @@ export const useProgressStore = create<ProgressState>()((set, get) => ({
     }));
 
     const courseKey = COURSE_KEY(courseId);
-    const cp = get().courseProgress[courseId];
+    const cp = get().courseProgress[courseId]
+      ?? loadJson<CourseProgress>(courseKey);
     if (cp) {
       const completed = cp.completedLessonIds.includes(lessonId)
         ? cp.completedLessonIds
@@ -237,7 +259,7 @@ export const useProgressStore = create<ProgressState>()((set, get) => ({
   incrementRun(courseId, lessonId) {
     const compositeKey = `${courseId}/${lessonId}`;
     const lsKey = LESSON_KEY(courseId, lessonId);
-    const current = get().lessonProgress[compositeKey];
+    const current = resolveLesson(get(), courseId, lessonId);
     if (!current) return;
     const updated = { ...current, runCount: current.runCount + 1, updatedAt: now() };
     saveJson(lsKey, updated);
@@ -249,7 +271,7 @@ export const useProgressStore = create<ProgressState>()((set, get) => ({
   incrementHint(courseId, lessonId) {
     const compositeKey = `${courseId}/${lessonId}`;
     const lsKey = LESSON_KEY(courseId, lessonId);
-    const current = get().lessonProgress[compositeKey];
+    const current = resolveLesson(get(), courseId, lessonId);
     if (!current) return;
     const updated = { ...current, hintCount: current.hintCount + 1, updatedAt: now() };
     saveJson(lsKey, updated);
@@ -261,7 +283,7 @@ export const useProgressStore = create<ProgressState>()((set, get) => ({
   saveCode(courseId, lessonId, code) {
     const compositeKey = `${courseId}/${lessonId}`;
     const lsKey = LESSON_KEY(courseId, lessonId);
-    const current = get().lessonProgress[compositeKey];
+    const current = resolveLesson(get(), courseId, lessonId);
     if (!current) return;
     const updated = { ...current, lastCode: code, updatedAt: now() };
     saveJson(lsKey, updated);
@@ -273,7 +295,7 @@ export const useProgressStore = create<ProgressState>()((set, get) => ({
   saveOutput(courseId, lessonId, output) {
     const compositeKey = `${courseId}/${lessonId}`;
     const lsKey = LESSON_KEY(courseId, lessonId);
-    const current = get().lessonProgress[compositeKey];
+    const current = resolveLesson(get(), courseId, lessonId);
     if (!current) return;
     const updated = { ...current, lastOutput: output, updatedAt: now() };
     saveJson(lsKey, updated);

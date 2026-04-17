@@ -11,10 +11,31 @@
     "Convert strings to numbers with int() and float()",
     "Build a simple interactive program"
   ],
-  "conceptTags": ["input", "type-conversion", "int()", "float()", "print"],
-  "completionRules": [
-    { "type": "required_file_contains", "file": "main.py", "pattern": "input(" },
-    { "type": "required_file_contains", "file": "main.py", "pattern": "int(" }
+  "conceptTags": [
+    "input",
+    "type-conversion",
+    "int()",
+    "float()",
+    "print"
   ],
-  "prerequisiteLessonIds": ["variables"]
+  "completionRules": [
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "input("
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "int("
+    }
+  ],
+  "prerequisiteLessonIds": [
+    "variables"
+  ],
+  "recap": "input() reads text from the user (always as a string), and you can convert it with int() or float(). f-strings make formatting output easy.",
+  "practicePrompts": [
+    "Ask the user for their birth year and print how old they are.",
+    "Can you format a price to always show exactly 2 decimal places?"
+  ]
 }

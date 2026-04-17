@@ -11,9 +11,27 @@
     "Identify common error types (SyntaxError, TypeError, NameError, IndexError)",
     "Use print() to debug step by step"
   ],
-  "conceptTags": ["debugging", "traceback", "SyntaxError", "TypeError", "NameError", "IndexError", "print-debugging"],
-  "completionRules": [
-    { "type": "expected_stdout", "expected": "All bugs fixed!\nResult: [2, 4, 6, 8, 10]" }
+  "conceptTags": [
+    "debugging",
+    "traceback",
+    "SyntaxError",
+    "TypeError",
+    "NameError",
+    "IndexError",
+    "print-debugging"
   ],
-  "prerequisiteLessonIds": ["dictionaries"]
+  "completionRules": [
+    {
+      "type": "expected_stdout",
+      "expected": "All bugs fixed!\nResult: [2, 4, 6, 8, 10]"
+    }
+  ],
+  "prerequisiteLessonIds": [
+    "dictionaries"
+  ],
+  "recap": "Reading error messages carefully is the #1 debugging skill. Python tells you the error type, the line number, and often what went wrong. Print statements help you inspect values at runtime.",
+  "practicePrompts": [
+    "Intentionally cause a TypeError and then fix it based on the error message.",
+    "Add print() statements to trace a bug in a loop that produces wrong output."
+  ]
 }

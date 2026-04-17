@@ -11,10 +11,32 @@
     "Use while loops with a condition",
     "Control loops with break and continue"
   ],
-  "conceptTags": ["for", "while", "range", "break", "continue", "iteration"],
-  "completionRules": [
-    { "type": "required_file_contains", "file": "main.py", "pattern": "for " },
-    { "type": "required_file_contains", "file": "main.py", "pattern": "range(" }
+  "conceptTags": [
+    "for",
+    "while",
+    "range",
+    "break",
+    "continue",
+    "iteration"
   ],
-  "prerequisiteLessonIds": ["conditionals"]
+  "completionRules": [
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "for "
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "range("
+    }
+  ],
+  "prerequisiteLessonIds": [
+    "conditionals"
+  ],
+  "recap": "for loops iterate a fixed number of times using range(). while loops repeat until a condition becomes false. break exits early, continue skips to the next iteration.",
+  "practicePrompts": [
+    "Can you make the loop count backwards from 10 to 1?",
+    "Try printing only the even numbers between 1 and 20 using a loop."
+  ]
 }

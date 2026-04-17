@@ -11,11 +11,38 @@
     "Design a program from requirements",
     "Parse structured input and produce formatted output"
   ],
-  "conceptTags": ["project", "functions", "lists", "dictionaries", "loops", "conditionals", "design"],
-  "completionRules": [
-    { "type": "required_file_contains", "file": "main.py", "pattern": "def " },
-    { "type": "required_file_contains", "file": "main.py", "pattern": "for " },
-    { "type": "required_file_contains", "file": "main.py", "pattern": ".get(" }
+  "conceptTags": [
+    "project",
+    "functions",
+    "lists",
+    "dictionaries",
+    "loops",
+    "conditionals",
+    "design"
   ],
-  "prerequisiteLessonIds": ["debugging-basics"]
+  "completionRules": [
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "def "
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "for "
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": ".get("
+    }
+  ],
+  "prerequisiteLessonIds": [
+    "debugging-basics"
+  ],
+  "recap": "You combined variables, input, conditionals, loops, lists, dictionaries, and functions into a complete program. This is real programming!",
+  "practicePrompts": [
+    "Add a feature to find the student with the highest average grade.",
+    "Can you save the grade book to a file and load it back?"
+  ]
 }

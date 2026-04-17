@@ -11,9 +11,27 @@
     "Understand int, float, str, and bool types",
     "Use f-strings for formatted output"
   ],
-  "conceptTags": ["variables", "types", "int", "float", "str", "bool", "f-strings"],
-  "completionRules": [
-    { "type": "expected_stdout", "expected": "Name: Alice\nAge: 25\nHeight: 1.68 meters\nStudent: True" }
+  "conceptTags": [
+    "variables",
+    "types",
+    "int",
+    "float",
+    "str",
+    "bool",
+    "f-strings"
   ],
-  "prerequisiteLessonIds": ["hello-world"]
+  "completionRules": [
+    {
+      "type": "expected_stdout",
+      "expected": "Name: Alice\nAge: 25\nHeight: 1.68 meters\nStudent: True"
+    }
+  ],
+  "prerequisiteLessonIds": [
+    "hello-world"
+  ],
+  "recap": "Variables store values that you can reuse and update. Python figures out the type (int, float, str, bool) automatically.",
+  "practicePrompts": [
+    "Create a variable for temperature in Celsius and convert it to Fahrenheit.",
+    "Try swapping two variables without using a third variable."
+  ]
 }

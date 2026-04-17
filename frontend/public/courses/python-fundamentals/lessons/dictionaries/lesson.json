@@ -12,10 +12,33 @@
     "Iterate over keys, values, and items",
     "Use .get() for safe access"
   ],
-  "conceptTags": ["dict", "key-value", "get", "items", "keys", "values", "nesting"],
-  "completionRules": [
-    { "type": "required_file_contains", "file": "main.py", "pattern": ".get(" },
-    { "type": "required_file_contains", "file": "main.py", "pattern": "for " }
+  "conceptTags": [
+    "dict",
+    "key-value",
+    "get",
+    "items",
+    "keys",
+    "values",
+    "nesting"
   ],
-  "prerequisiteLessonIds": ["lists"]
+  "completionRules": [
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": ".get("
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "for "
+    }
+  ],
+  "prerequisiteLessonIds": [
+    "lists"
+  ],
+  "recap": "Dictionaries map keys to values for fast lookups. They're perfect for structured data like records, configs, and counters.",
+  "practicePrompts": [
+    "Count how many times each word appears in a sentence using a dictionary.",
+    "Can you merge two dictionaries together?"
+  ]
 }

@@ -11,10 +11,31 @@
     "Use parameters and return values",
     "Understand scope (local vs global)"
   ],
-  "conceptTags": ["def", "parameters", "return", "scope", "default-arguments"],
-  "completionRules": [
-    { "type": "required_file_contains", "file": "main.py", "pattern": "def " },
-    { "type": "required_file_contains", "file": "main.py", "pattern": "return " }
+  "conceptTags": [
+    "def",
+    "parameters",
+    "return",
+    "scope",
+    "default-arguments"
   ],
-  "prerequisiteLessonIds": ["loops"]
+  "completionRules": [
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "def "
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "return "
+    }
+  ],
+  "prerequisiteLessonIds": [
+    "loops"
+  ],
+  "recap": "Functions let you name a block of code and reuse it. They take parameters, do work, and return results. This keeps your code organized and DRY.",
+  "practicePrompts": [
+    "Write a function that takes a list of numbers and returns the largest one.",
+    "Can you write a function with a default parameter?"
+  ]
 }

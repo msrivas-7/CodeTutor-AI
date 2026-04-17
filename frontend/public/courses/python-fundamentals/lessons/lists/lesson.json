@@ -12,10 +12,33 @@
     "Iterate over lists with for loops",
     "Use list comprehensions"
   ],
-  "conceptTags": ["list", "indexing", "slicing", "append", "remove", "comprehension", "len"],
-  "completionRules": [
-    { "type": "required_file_contains", "file": "main.py", "pattern": "append(" },
-    { "type": "required_file_contains", "file": "main.py", "pattern": "for " }
+  "conceptTags": [
+    "list",
+    "indexing",
+    "slicing",
+    "append",
+    "remove",
+    "comprehension",
+    "len"
   ],
-  "prerequisiteLessonIds": ["functions"]
+  "completionRules": [
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "append("
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "for "
+    }
+  ],
+  "prerequisiteLessonIds": [
+    "functions"
+  ],
+  "recap": "Lists store ordered collections of items. You can add, remove, and access elements by index. Loops and lists are a powerful combination.",
+  "practicePrompts": [
+    "Create a list of 5 names and print them in reverse order.",
+    "Can you remove all duplicates from a list while keeping the original order?"
+  ]
 }

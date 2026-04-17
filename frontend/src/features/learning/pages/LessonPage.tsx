@@ -19,6 +19,7 @@ import { useRunStore } from "../../../state/runStore";
 import { useAIStore } from "../../../state/aiStore";
 import { api } from "../../../api/client";
 import { validateLesson } from "../utils/validator";
+import { LessonCompletePanel } from "../components/LessonCompletePanel";
 import type { ValidationResult } from "../types";
 
 const LS_OUT_H = "ui:lesson:outputH";
@@ -89,6 +90,7 @@ export default function LessonPage() {
   const [lessonOrder, setLessonOrder] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [validation, setValidation] = useState<ValidationResult | null>(null);
+  const [showComplete, setShowComplete] = useState(false);
   const [resumed, setResumed] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [outputH, setOutputH] = useState(() => loadNum(LS_OUT_H, DEFAULT_OUT));
@@ -113,6 +115,7 @@ export default function LessonPage() {
     initialized.current = false;
     setLoading(true);
     setValidation(null);
+    setShowComplete(false);
     Promise.all([
       loadFullLesson(courseId, lessonId),
       loadCourse(courseId),
@@ -222,6 +225,7 @@ export default function LessonPage() {
     if (v.passed) {
       completeLesson(identity.learnerId, courseId, lessonId, totalLessons);
       confetti({ particleCount: 120, spread: 70, origin: { y: 0.7 } });
+      setShowComplete(true);
     }
   }, [lesson, courseId, lessonId, completeLesson, identity.learnerId, totalLessons]);
 
@@ -528,6 +532,13 @@ export default function LessonPage() {
         </div>
       )}
 
+      {showComplete && lesson && (
+        <LessonCompletePanel
+          lesson={lesson}
+          onDismiss={() => setShowComplete(false)}
+          onNext={nextLessonId ? () => nav(`/learn/course/${courseId}/lesson/${nextLessonId}`) : undefined}
+        />
+      )}
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
     </div>
   );
