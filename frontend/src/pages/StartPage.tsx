@@ -1,12 +1,24 @@
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { WelcomeOverlay, isWelcomeDone } from "../components/WelcomeOverlay";
 
 export default function StartPage() {
   const nav = useNavigate();
+  const [showWelcome, setShowWelcome] = useState(false);
+
+  useEffect(() => {
+    if (!isWelcomeDone()) {
+      const t = setTimeout(() => setShowWelcome(true), 300);
+      return () => clearTimeout(t);
+    }
+  }, []);
+  const headerRef = useRef<HTMLDivElement>(null);
+  const guidedRef = useRef<HTMLButtonElement>(null);
 
   return (
     <div className="flex h-full flex-col bg-bg text-ink">
       <div className="flex flex-1 flex-col items-center justify-center px-6">
-        <div className="mb-10 flex flex-col items-center gap-3">
+        <div ref={headerRef} className="mb-10 flex flex-col items-center gap-3">
           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-accent to-violet text-lg font-bold text-bg shadow-glow">
             AI
           </div>
@@ -41,6 +53,7 @@ export default function StartPage() {
           </button>
 
           <button
+            ref={guidedRef}
             onClick={() => nav("/learn")}
             className="group flex flex-col items-start gap-3 rounded-xl border border-border bg-panel p-6 text-left transition hover:border-violet/50 hover:shadow-glow"
           >
@@ -67,6 +80,13 @@ export default function StartPage() {
       <footer className="border-t border-border bg-panel/60 px-4 py-2 text-center text-[10px] text-faint">
         CodeTutor AI — local-first, sandboxed, open source
       </footer>
+
+      {showWelcome && (
+        <WelcomeOverlay
+          refs={{ header: headerRef.current, guidedCard: guidedRef.current }}
+          onDismiss={() => setShowWelcome(false)}
+        />
+      )}
     </div>
   );
 }

@@ -1,0 +1,153 @@
+import { useCallback, useEffect, useState } from "react";
+import { CoachBubble } from "./CoachBubble";
+
+const LS_KEY = "onboarding:v1:workspace-done";
+
+interface CoachStep {
+  targetKey: keyof WorkspaceCoachRefs;
+  title: string;
+  body: string;
+  position: "top" | "bottom" | "left" | "right";
+}
+
+const STEPS: CoachStep[] = [
+  {
+    targetKey: "instructions",
+    title: "Lesson Instructions",
+    body: "This panel has your lesson instructions. Read them to learn what you need to do.",
+    position: "right",
+  },
+  {
+    targetKey: "editor",
+    title: "Code Editor",
+    body: "This is where you write your code. Try changing the text inside the quotes to get started.",
+    position: "left",
+  },
+  {
+    targetKey: "runButton",
+    title: "Run Your Code",
+    body: "Press this button to run your code and see the output. You can also press Cmd+Enter (or Ctrl+Enter).",
+    position: "top",
+  },
+  {
+    targetKey: "outputPanel",
+    title: "Output Panel",
+    body: "Your code's output shows up here — what it prints, any errors, and how long it took.",
+    position: "top",
+  },
+  {
+    targetKey: "checkButton",
+    title: "Check Solution",
+    body: "When you think your answer is right, click this to verify. It checks your output against what the lesson expects.",
+    position: "top",
+  },
+  {
+    targetKey: "tutorPanel",
+    title: "AI Tutor",
+    body: "If you get stuck, your AI tutor can help — it'll guide you without giving away the answer. You can also skip it entirely.",
+    position: "left",
+  },
+];
+
+export interface WorkspaceCoachRefs {
+  instructions: HTMLElement | null;
+  editor: HTMLElement | null;
+  runButton: HTMLElement | null;
+  outputPanel: HTMLElement | null;
+  checkButton: HTMLElement | null;
+  tutorPanel: HTMLElement | null;
+}
+
+interface WorkspaceCoachProps {
+  refs: WorkspaceCoachRefs;
+  onComplete: () => void;
+}
+
+function isDone(): boolean {
+  try { return localStorage.getItem(LS_KEY) === "1"; } catch { return false; }
+}
+
+function markDone(): void {
+  try { localStorage.setItem(LS_KEY, "1"); } catch { /* */ }
+}
+
+export function WorkspaceCoach({ refs, onComplete }: WorkspaceCoachProps) {
+  const [step, setStep] = useState(0);
+  const [targetRect, setTargetRect] = useState<DOMRect | null>(null);
+
+  const currentStep = STEPS[step];
+  const targetEl = currentStep ? refs[currentStep.targetKey] : null;
+
+  useEffect(() => {
+    if (!targetEl) {
+      if (step < STEPS.length - 1) setStep((s) => s + 1);
+      else { markDone(); onComplete(); }
+      return;
+    }
+    const update = () => setTargetRect(targetEl.getBoundingClientRect());
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, [targetEl, step, onComplete]);
+
+  const advance = useCallback(() => {
+    if (step >= STEPS.length - 1) {
+      markDone();
+      onComplete();
+    } else {
+      setStep((s) => s + 1);
+    }
+  }, [step, onComplete]);
+
+  const dismiss = useCallback(() => {
+    markDone();
+    onComplete();
+  }, [onComplete]);
+
+  if (!targetRect || !currentStep) return null;
+
+  const pad = 6;
+  const spotStyle = {
+    position: "fixed" as const,
+    top: targetRect.top - pad,
+    left: targetRect.left - pad,
+    width: targetRect.width + pad * 2,
+    height: targetRect.height + pad * 2,
+    borderRadius: 8,
+    boxShadow: "0 0 0 9999px rgba(0,0,0,0.65)",
+    zIndex: 51,
+    pointerEvents: "none" as const,
+  };
+
+  return (
+    <>
+      {/* Overlay — clicking it advances */}
+      <div
+        className="fixed inset-0 z-50"
+        onClick={advance}
+      />
+      {/* Spotlight cutout */}
+      <div style={spotStyle} />
+      {/* Skip button */}
+      <button
+        onClick={dismiss}
+        className="fixed right-4 top-14 z-[53] rounded-md bg-panel/90 px-3 py-1 text-[11px] text-muted ring-1 ring-border transition hover:text-ink"
+      >
+        Skip tour
+      </button>
+      {/* Coach bubble */}
+      <div className="z-[52]">
+        <CoachBubble
+          title={currentStep.title}
+          body={currentStep.body}
+          position={currentStep.position}
+          rect={targetRect}
+          onNext={advance}
+          stepLabel={`Step ${step + 1} of ${STEPS.length}`}
+        />
+      </div>
+    </>
+  );
+}
+
+export { isDone as isOnboardingDone };

@@ -20,6 +20,7 @@ import { useAIStore } from "../../../state/aiStore";
 import { api } from "../../../api/client";
 import { validateLesson } from "../utils/validator";
 import { LessonCompletePanel } from "../components/LessonCompletePanel";
+import { WorkspaceCoach, isOnboardingDone } from "../components/WorkspaceCoach";
 import type { ValidationResult } from "../types";
 
 const LS_OUT_H = "ui:lesson:outputH";
@@ -98,6 +99,10 @@ export default function LessonPage() {
   const [showSettings, setShowSettings] = useState(false);
   const [resetNonce, setResetNonce] = useState(0);
   const [confirmResetLesson, setConfirmResetLesson] = useState(false);
+  const [hasEdited, setHasEdited] = useState(false);
+  const [hasRun, setHasRun] = useState(false);
+  const [hasChecked, setHasChecked] = useState(false);
+  const [failedCheckCount, setFailedCheckCount] = useState(0);
   const [outputH, setOutputH] = useState(() => loadNum(LS_OUT_H, DEFAULT_OUT));
   const [instrW, setInstrW] = useState(() => loadNum(LS_INSTR_W, DEFAULT_INSTR));
   const [tutorW, setTutorW] = useState(() => loadNum(LS_TUTOR_W, DEFAULT_TUTOR));
@@ -109,6 +114,13 @@ export default function LessonPage() {
   });
   const initialized = useRef(false);
   const resumedTimer = useRef<ReturnType<typeof setTimeout>>();
+  const [showCoach, setShowCoach] = useState(false);
+  const instrRef = useRef<HTMLDivElement>(null);
+  const editorRef = useRef<HTMLElement>(null);
+  const runBtnRef = useRef<HTMLButtonElement>(null);
+  const outputRef = useRef<HTMLDivElement>(null);
+  const checkBtnRef = useRef<HTMLButtonElement>(null);
+  const tutorRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     return () => clearTimeout(resumedTimer.current);
@@ -126,6 +138,10 @@ export default function LessonPage() {
     setLoading(true);
     setValidation(null);
     setShowComplete(false);
+    setHasEdited(false);
+    setHasRun(false);
+    setHasChecked(false);
+    setFailedCheckCount(0);
     Promise.all([
       loadFullLesson(courseId, lessonId),
       loadCourse(courseId),
@@ -178,6 +194,14 @@ export default function LessonPage() {
     });
   }, [lesson, courseId, lessonId]);  // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    if (!lesson || loading) return;
+    if (!isOnboardingDone()) {
+      const timer = setTimeout(() => setShowCoach(true), 600);
+      return () => clearTimeout(timer);
+    }
+  }, [lesson, loading]);
+
   const handleRun = useCallback(async () => {
     if (!sessionId || sessionPhase !== "active" || running || !courseId || !lessonId) return;
     setRunning(true);
@@ -188,6 +212,7 @@ export default function LessonPage() {
       const stdin = useRunStore.getState().stdin || undefined;
       const result = await api.execute(sessionId, "python", stdin);
       setResult(result);
+      setHasRun(true);
       incrementRun(courseId, lessonId);
       if (result.stdout) {
         saveOutput(courseId, lessonId, result.stdout);
@@ -233,6 +258,8 @@ export default function LessonPage() {
     const result = useRunStore.getState().result;
     const v = validateLesson(result, files, lesson.completionRules);
     setValidation(v);
+    setHasChecked(true);
+    if (!v.passed) setFailedCheckCount((c) => c + 1);
     if (v.passed && !validation?.passed) {
       completeLesson(identity.learnerId, courseId, lessonId, totalLessons);
       confetti({ particleCount: 120, spread: 70, origin: { y: 0.7 } });
@@ -252,8 +279,13 @@ export default function LessonPage() {
     return () => window.removeEventListener("keydown", onKey, { capture: true });
   }, [handleRun]);
 
-  // Auto-save code to localStorage on edits (debounced)
   const projectFiles = useProjectStore((s) => s.files);
+
+  useEffect(() => {
+    if (initialized.current) setHasEdited(true);
+  }, [projectFiles]);
+
+  // Auto-save code to localStorage on edits (debounced)
   useEffect(() => {
     if (!courseId || !lessonId || !initialized.current) return;
     const timer = setTimeout(() => {
@@ -271,6 +303,18 @@ export default function LessonPage() {
   const lp = lessonProgressMap[`${courseId}/${lessonId}`];
   const canRun = !!sessionId && sessionPhase === "active" && !running;
   const hasStderr = !!(lastResult?.stderr?.trim());
+  const tutorConfigured = useAIStore((s) => s.keyStatus === "valid" && !!s.selectedModel);
+
+  const coachState = {
+    hasEdited,
+    hasRun,
+    hasError: hasStderr,
+    hasChecked,
+    checkPassed: !!validation?.passed,
+    failedCheckCount,
+    lessonComplete: lp?.status === "completed" || !!validation?.passed,
+    tutorConfigured,
+  };
 
   const handleExplainError = useCallback(() => {
     if (!lastResult?.stderr) return;
@@ -299,6 +343,10 @@ export default function LessonPage() {
     setShowComplete(false);
     setConfirmResetLesson(false);
     setResetNonce((n) => n + 1);
+    setHasEdited(false);
+    setHasRun(false);
+    setHasChecked(false);
+    setFailedCheckCount(0);
     startLesson(identity.learnerId, courseId, lessonId);
   }, [lesson, courseId, lessonId, identity.learnerId, resetLessonProgress, startLesson]);
 
@@ -379,11 +427,12 @@ export default function LessonPage() {
             </button>
           ) : (
             <>
-              <div style={{ width: instrW }} className="shrink-0 overflow-hidden border-r border-border">
+              <div ref={instrRef} style={{ width: instrW }} className="shrink-0 overflow-hidden border-r border-border">
                 <LessonInstructionsPanel
                   meta={lesson}
                   content={lesson.content}
                   onCollapse={() => setInstrCollapsed(true)}
+                  coachState={coachState}
                 />
               </div>
               <Splitter
@@ -395,7 +444,7 @@ export default function LessonPage() {
           )}
 
           {/* Editor + Output */}
-          <section className="flex min-w-0 flex-1 flex-col">
+          <section ref={editorRef as React.RefObject<HTMLElement>} className="flex min-w-0 flex-1 flex-col">
             {resumed && (
               <div className="flex items-center gap-2 border-b border-accent/20 bg-accent/5 px-3 py-1.5 text-[11px] text-accent animate-pulse">
                 <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -414,13 +463,14 @@ export default function LessonPage() {
               onDrag={(dy) => setOutputH((h) => clamp(h - dy, BOUNDS_OUT))}
               onDoubleClick={() => setOutputH(DEFAULT_OUT)}
             />
-            <div style={{ height: outputH }} className="min-h-0 shrink-0">
+            <div ref={outputRef} style={{ height: outputH }} className="min-h-0 shrink-0">
               <OutputPanel />
             </div>
 
             {/* Run toolbar */}
             <div className="flex items-center gap-2 border-t border-border bg-panel/80 px-4 py-1.5">
               <button
+                ref={runBtnRef}
                 onClick={handleRun}
                 disabled={!canRun}
                 className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-xs font-semibold transition ${
@@ -444,6 +494,7 @@ export default function LessonPage() {
                 )}
               </button>
               <button
+                ref={checkBtnRef}
                 onClick={handleCheck}
                 disabled={running}
                 className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-xs font-semibold transition ${
@@ -549,6 +600,7 @@ export default function LessonPage() {
                 onDoubleClick={() => setTutorW(DEFAULT_TUTOR)}
               />
               <aside
+                ref={tutorRef as React.RefObject<HTMLElement>}
                 style={{ width: tutorW }}
                 className="min-h-0 shrink-0 overflow-hidden bg-panel"
               >
@@ -581,6 +633,19 @@ export default function LessonPage() {
         />
       )}
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
+      {showCoach && (
+        <WorkspaceCoach
+          refs={{
+            instructions: instrRef.current,
+            editor: editorRef.current,
+            runButton: runBtnRef.current,
+            outputPanel: outputRef.current,
+            checkButton: checkBtnRef.current,
+            tutorPanel: tutorRef.current,
+          }}
+          onComplete={() => setShowCoach(false)}
+        />
+      )}
       {confirmResetLesson && (
         <div className="fixed inset-0 z-30 flex items-center justify-center bg-bg/80 backdrop-blur-sm">
           <div className="mx-4 w-full max-w-sm rounded-xl border border-red-500/30 bg-panel p-5 shadow-xl">

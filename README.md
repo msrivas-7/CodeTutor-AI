@@ -29,6 +29,8 @@ A 10-lesson Python fundamentals course with instructions, starter code, and auto
 - **Auto-validation** — "Check Solution" compares run output and file contents against completion rules. Pass to see a celebration with confetti, a recap of concepts learned, and suggested practice challenges. "Next Lesson" button appears on completion.
 - **Progress tracking** — lesson status, run count, hint count, attempt count, code snapshots, and last output persist in `localStorage` across browser sessions. Returning to a lesson restores your code with a "Resuming where you left off" indicator. Reset individual lesson progress or the entire course from the UI.
 - **Lesson-aware AI tutor** — the tutor knows the lesson objectives, concepts, and completion criteria. It guides toward the solution without giving it away, and stays within the scope of what the lesson has taught so far. Three-level hint ladder (gentle hint → stronger hint → show approach), one-click "Explain Error" button when runs produce stderr.
+- **Proactive coach rail** — contextual nudges appear in the instructions panel based on student behavior. Timer and state-driven (no AI needed): prompts to read instructions, try editing, run code, check solutions, or ask for hints — adapting as the student progresses through each lesson.
+- **First-time onboarding** — new visitors see a welcome overlay on the start page that introduces the platform and guides them into the course. The dashboard and course overview show contextual nudges for first-time users. Opening a lesson triggers a 6-step spotlight tour of the workspace (instructions, editor, run, output, check solution, tutor). All shown once, skippable, tracked in localStorage.
 - **Learning dashboard** — progress summary with gradient bar, "Next up" card, recent activity feed (last 3 lessons with timestamps), and "Might Need Review" indicators for lessons that took extra effort.
 - **Anonymous learner identity** — auto-generated, persisted locally. Ready for future auth.
 
@@ -103,7 +105,7 @@ docker compose down           # teardown
 
 ## Using It
 
-Open **http://localhost:5173**. You land on the **Start page** with two cards:
+Open **http://localhost:5173**. First-time visitors see a **welcome overlay** introducing the platform — click "Start Learning Python" to jump straight into the guided course, or "I'll explore on my own" to dismiss. After that, you land on the **Start page** with two cards:
 
 ### Editor mode
 
@@ -114,7 +116,8 @@ Open **http://localhost:5173**. You land on the **Start page** with two cards:
 ### Guided Learning mode
 
 - Click **Guided Course** from the start page to see your dashboard with progress, recent activity, and next-up recommendations. Open **Python Fundamentals**.
-- Pick a lesson. Read the instructions on the left, write code in the center, run it, and click **Check Solution**.
+- **First time?** A spotlight tour walks you through the workspace — instructions panel, editor, run button, output, check solution, and tutor. Takes about a minute, shown once.
+- Pick a lesson. Read the instructions on the left, write code in the center, run it, and click **Check Solution**. Contextual nudges in the instructions panel guide you if you get stuck or aren't sure what to do next.
 - The tutor panel on the right knows your lesson context — ask it for help and it will guide you without spoiling the answer. Use the hint ladder for progressive help, or click **Explain Error** when your code fails.
 - Your progress (completions, code, run counts) persists in the browser. Use **Reset Lesson** to start a lesson fresh, or **Reset Course** from the course overview to clear all progress.
 
@@ -164,6 +167,8 @@ Click the **gear icon** in the header bar (visible on every page) to configure y
 - **localStorage persistence** — versioned keys (`learner:v1:progress:{courseId}`, `learner:v1:lesson:{courseId}:{lessonId}`). Course/lesson status, timestamps, attempt/run/hint counts, code snapshots, and last output. Lesson code is restored from localStorage on return; editor-mode files are session-scoped only (in-memory). Progress can be reset per-lesson or per-course.
 - **Atomic state mutations** — all progress counters (run count, hint count, attempt count) use Zustand's `set()` callback for race-condition-free read-modify-write, with automatic localStorage fallback for hydration.
 - **Repository abstraction** — `LearningRepository` interface with `LocalLearningRepository` (localStorage) and `RemoteLearningRepository` (stub) for future backend persistence.
+- **Coach rail** — `CoachRail` component with a priority-ordered rule engine. Observes elapsed time, edit/run/check state, and failed attempt count to surface one contextual nudge at a time. Purely deterministic — no AI or API calls.
+- **Workspace onboarding** — `WorkspaceCoach` spotlight overlay using `box-shadow` cutouts. Steps through 6 key UI areas with positioned `CoachBubble` tooltips. Persisted via localStorage flag; auto-skips steps whose target ref is null (e.g., collapsed panel).
 
 ### API Surface
 
@@ -202,7 +207,7 @@ codetutor-ai/
 │       ├── components/      Shared UI (Monaco, tutor views, settings, splitters)
 │       ├── features/learning/
 │       │   ├── pages/       Dashboard, CourseOverview, LessonPage
-│       │   ├── components/  GuidedTutorPanel, LessonInstructions, CourseCard, etc.
+│       │   ├── components/  GuidedTutorPanel, LessonInstructions, CoachRail, WorkspaceCoach, etc.
 │       │   ├── stores/      progressStore, learnerStore (localStorage-backed)
 │       │   ├── repositories/ LearningRepository interface + implementations
 │       │   └── utils/       Lesson validator

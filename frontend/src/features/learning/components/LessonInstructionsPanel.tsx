@@ -1,13 +1,26 @@
 import { useState } from "react";
 import type { LessonMeta } from "../types";
+import { CoachRail } from "./CoachRail";
+
+export interface CoachState {
+  hasEdited: boolean;
+  hasRun: boolean;
+  hasError: boolean;
+  hasChecked: boolean;
+  checkPassed: boolean;
+  failedCheckCount: number;
+  lessonComplete: boolean;
+  tutorConfigured: boolean;
+}
 
 interface LessonInstructionsPanelProps {
   meta: LessonMeta;
   content: string;
   onCollapse?: () => void;
+  coachState?: CoachState;
 }
 
-export function LessonInstructionsPanel({ meta, content, onCollapse }: LessonInstructionsPanelProps) {
+export function LessonInstructionsPanel({ meta, content, onCollapse, coachState }: LessonInstructionsPanelProps) {
   const [showHints, setShowHints] = useState(false);
   const hints = extractHints(content);
   const mainContent = stripHintsSection(content);
@@ -31,6 +44,7 @@ export function LessonInstructionsPanel({ meta, content, onCollapse }: LessonIns
       </header>
 
       <div className="flex-1 overflow-y-auto px-4 py-3">
+        {coachState && <CoachRail {...coachState} />}
         <div className="mb-3 flex flex-wrap gap-1.5">
           {meta.objectives.map((obj) => (
             <span

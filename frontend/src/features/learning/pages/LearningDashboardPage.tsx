@@ -121,6 +121,29 @@ export default function LearningDashboardPage() {
             </div>
           ) : (
             <>
+              {/* First-visit welcome — shown when no course has been started */}
+              {activeCourse && (!activeProgress || activeProgress.status === "not_started") && (
+                <div className="mb-8 rounded-xl border border-violet/20 bg-gradient-to-br from-violet/5 to-accent/5 p-6">
+                  <div className="flex items-start gap-4">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-accent to-violet text-sm font-bold text-bg shadow-glow">
+                      AI
+                    </div>
+                    <div>
+                      <h2 className="text-base font-bold text-ink">Ready to start coding?</h2>
+                      <p className="mt-1 text-sm leading-relaxed text-muted">
+                        Pick a course below to begin. Each lesson has step-by-step instructions, a code editor, and an AI tutor to help you along the way. No experience needed.
+                      </p>
+                      <button
+                        onClick={() => nav(`/learn/course/${activeCourse.course.id}`)}
+                        className="mt-4 rounded-lg bg-gradient-to-r from-accent to-violet px-5 py-2 text-xs font-bold text-bg shadow-glow transition hover:opacity-90"
+                      >
+                        Open {activeCourse.course.title} →
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Progress summary + next lesson CTA */}
               {activeCourse && activeProgress && activeProgress.status !== "not_started" && (
                 <div className="mb-8 rounded-xl border border-border bg-panel p-5">

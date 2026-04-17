@@ -101,6 +101,15 @@ export default function CourseOverviewPage() {
               )}
             </div>
 
+            {completedIds.length === 0 && (!cp || cp.status === "not_started") && lessons.length > 0 && (
+              <div className="mb-5 flex items-center gap-3 rounded-lg border border-accent/20 bg-accent/5 px-4 py-3">
+                <span className="text-lg">👇</span>
+                <p className="text-xs leading-relaxed text-ink/80">
+                  Start with <strong>Lesson 1</strong> — each lesson builds on the last. Click a lesson to open it.
+                </p>
+              </div>
+            )}
+
             <LessonList
               lessons={lessons}
               progressMap={progressMap}
