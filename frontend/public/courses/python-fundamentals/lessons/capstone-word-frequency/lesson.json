@@ -1,0 +1,99 @@
+{
+  "id": "capstone-word-frequency",
+  "courseId": "python-fundamentals",
+  "title": "Capstone: Word Frequency Counter",
+  "description": "Build a text analyzer that tokenizes a paragraph, counts word frequency, and prints the top words — combining strings, loops, dicts, sorting, and functions.",
+  "order": 11,
+  "language": "python",
+  "estimatedMinutes": 30,
+  "objectives": [
+    "Split and normalize text into tokens (lowercasing, punctuation stripping)",
+    "Count occurrences with a dictionary",
+    "Sort a dictionary by value and break ties alphabetically",
+    "Decompose a program into small, named functions"
+  ],
+  "conceptTags": [
+    "capstone",
+    "strings",
+    "loops",
+    "dictionaries",
+    "sorting",
+    "functions",
+    "f-strings"
+  ],
+  "completionRules": [
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "def "
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "sorted"
+    },
+    {
+      "type": "expected_stdout",
+      "expected": "Top 3:\nthe: 5\nfox: 3\ndog: 2"
+    }
+  ],
+  "prerequisiteLessonIds": [
+    "mini-project"
+  ],
+  "recap": "You tokenized text, counted with a dict, and sorted by value with a tiebreaker — the same pattern used in search engines, log analysis, and any \"what's most common?\" question.",
+  "practicePrompts": [
+    "Add support for stop-word filtering (skip common words like 'the', 'and', 'a').",
+    "Count sentences too — split on '.', '!', '?' and print the sentence count.",
+    "Print the least-frequent word instead of the most-frequent."
+  ],
+  "practiceExercises": [
+    {
+      "id": "longest-word",
+      "title": "Longest word",
+      "prompt": "Given the word list below, print the LONGEST word. Expected output: `elderberry`.",
+      "goal": "Iterate a list, track the longest item seen so far.",
+      "starterCode": "words = [\"apple\", \"banana\", \"cherry\", \"date\", \"elderberry\"]\n\ndef longest(words):\n    # Return the longest word in the list\n    pass\n\nprint(longest(words))\n",
+      "completionRules": [
+        { "type": "expected_stdout", "expected": "elderberry" },
+        { "type": "required_file_contains", "file": "main.py", "pattern": "def longest" }
+      ],
+      "hints": [
+        "Track a `best` variable — start it as the first word or an empty string.",
+        "For each word, compare `len(word)` to `len(best)`.",
+        "If longer, update `best = word`."
+      ]
+    },
+    {
+      "id": "unique-words",
+      "title": "Count unique words",
+      "prompt": "Given the sentence below, print `Unique: N` where N is the number of distinct words (case-insensitive). Expected output: `Unique: 5`.",
+      "goal": "Normalize case, then count distinct items with a set or dict.",
+      "starterCode": "sentence = \"The cat and the dog and the bird\"\n\ndef count_unique(text):\n    # Return the count of distinct lowercased words\n    pass\n\nprint(f\"Unique: {count_unique(sentence)}\")\n",
+      "completionRules": [
+        { "type": "expected_stdout", "expected": "Unique: 5" },
+        { "type": "required_file_contains", "file": "main.py", "pattern": "def count_unique" }
+      ],
+      "hints": [
+        "Lowercase first: `text.lower()`, then `.split()`.",
+        "A set automatically deduplicates: `set(words)`.",
+        "`len(set(...))` gives the unique count directly."
+      ]
+    },
+    {
+      "id": "max-frequency",
+      "title": "Most frequent word",
+      "prompt": "Given the word list below, print the most-frequent word and its count in the format `apple (3)`. If counts tie, pick the word that comes first alphabetically. Expected output: `apple (3)`.",
+      "goal": "Build a frequency dict, then scan for the max — with an alphabetical tiebreaker.",
+      "starterCode": "words = [\"apple\", \"banana\", \"apple\", \"cherry\", \"banana\", \"apple\"]\n\ndef most_frequent(words):\n    # Return a tuple (word, count) of the most-frequent word\n    # Break ties by picking the alphabetically-first word\n    pass\n\nword, count = most_frequent(words)\nprint(f\"{word} ({count})\")\n",
+      "completionRules": [
+        { "type": "expected_stdout", "expected": "apple (3)" },
+        { "type": "required_file_contains", "file": "main.py", "pattern": "def most_frequent" }
+      ],
+      "hints": [
+        "Build `counts = {}` with `counts[w] = counts.get(w, 0) + 1`.",
+        "Loop over `counts.items()`, track `best_word` and `best_count`.",
+        "Tiebreak: `if count > best_count or (count == best_count and word < best_word):`"
+      ]
+    }
+  ]
+}

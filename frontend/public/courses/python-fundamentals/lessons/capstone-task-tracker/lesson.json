@@ -1,0 +1,99 @@
+{
+  "id": "capstone-task-tracker",
+  "courseId": "python-fundamentals",
+  "title": "Capstone: Task Tracker CLI",
+  "description": "Build a command-driven task tracker that parses lines like `add`, `done`, and `list` — combining lists of dicts, string parsing, conditionals, and per-command functions.",
+  "order": 12,
+  "language": "python",
+  "estimatedMinutes": 35,
+  "objectives": [
+    "Represent state as a list of dictionaries",
+    "Dispatch commands with conditionals and per-command functions",
+    "Parse command lines with str.split(maxsplit=...)",
+    "Print aligned, formatted output with f-strings"
+  ],
+  "conceptTags": [
+    "capstone",
+    "lists",
+    "dictionaries",
+    "functions",
+    "conditionals",
+    "string-parsing",
+    "f-strings"
+  ],
+  "completionRules": [
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "def "
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "append"
+    },
+    {
+      "type": "expected_stdout",
+      "expected": "1. [ ] Buy groceries\n2. [x] Finish report\n3. [ ] Call dentist\nDone: 1/3"
+    }
+  ],
+  "prerequisiteLessonIds": [
+    "capstone-word-frequency"
+  ],
+  "recap": "You turned lines of input into state changes and formatted output — the core loop of every CLI tool. Lists of dicts, one function per command, and a simple dispatch `if/elif` is enough to build real programs.",
+  "practicePrompts": [
+    "Add a `delete <id>` command that removes a task from the list.",
+    "Add a `pending` command that lists only unfinished tasks.",
+    "Show the task text in uppercase for done tasks, lowercase for pending."
+  ],
+  "practiceExercises": [
+    {
+      "id": "pending-count",
+      "title": "Count pending tasks",
+      "prompt": "Given the task list below, print `Pending: N` where N is the number of tasks where `done` is False. Expected output: `Pending: 2`.",
+      "goal": "Filter a list of dicts by a boolean field.",
+      "starterCode": "tasks = [\n    {\"id\": 1, \"text\": \"A\", \"done\": True},\n    {\"id\": 2, \"text\": \"B\", \"done\": False},\n    {\"id\": 3, \"text\": \"C\", \"done\": False},\n]\n\ndef pending(tasks):\n    # Return the count of tasks where done is False\n    pass\n\nprint(f\"Pending: {pending(tasks)}\")\n",
+      "completionRules": [
+        { "type": "expected_stdout", "expected": "Pending: 2" },
+        { "type": "required_file_contains", "file": "main.py", "pattern": "def pending" }
+      ],
+      "hints": [
+        "Loop and increment a counter when `not t[\"done\"]`.",
+        "Or use `sum(1 for t in tasks if not t[\"done\"])` if you're comfortable with that.",
+        "Either approach is fine."
+      ]
+    },
+    {
+      "id": "toggle-task",
+      "title": "Toggle a task",
+      "prompt": "Write `toggle(tasks, task_id)` that flips `done` on the task with the given id. Call it with id=1, then print each task as `{id}. [x|' '] {text}`. Expected output: `1. [ ] A\\n2. [ ] B`.",
+      "goal": "Find an item by id, mutate it, then format each item.",
+      "starterCode": "tasks = [\n    {\"id\": 1, \"text\": \"A\", \"done\": True},\n    {\"id\": 2, \"text\": \"B\", \"done\": False},\n]\n\ndef toggle(tasks, task_id):\n    # Flip the done flag on the matching task\n    pass\n\ntoggle(tasks, 1)\nfor t in tasks:\n    mark = \"x\" if t[\"done\"] else \" \"\n    print(f'{t[\"id\"]}. [{mark}] {t[\"text\"]}')\n",
+      "completionRules": [
+        { "type": "expected_stdout", "expected": "1. [ ] A\n2. [ ] B" },
+        { "type": "required_file_contains", "file": "main.py", "pattern": "def toggle" }
+      ],
+      "hints": [
+        "Loop: `for t in tasks: if t[\"id\"] == task_id: ...`.",
+        "Inside the match, `t[\"done\"] = not t[\"done\"]` flips the flag.",
+        "You don't need to return anything — the list is mutated in place."
+      ]
+    },
+    {
+      "id": "first-pending",
+      "title": "First pending task",
+      "prompt": "Given the task list below, print the text of the FIRST pending task (lowest id where done is False). Expected output: `First pending: B`.",
+      "goal": "Short-circuit a search through a list of dicts.",
+      "starterCode": "tasks = [\n    {\"id\": 1, \"text\": \"A\", \"done\": True},\n    {\"id\": 2, \"text\": \"B\", \"done\": False},\n    {\"id\": 3, \"text\": \"C\", \"done\": False},\n]\n\ndef first_pending(tasks):\n    # Return the text of the first task with done=False, or None\n    pass\n\nprint(f\"First pending: {first_pending(tasks)}\")\n",
+      "completionRules": [
+        { "type": "expected_stdout", "expected": "First pending: B" },
+        { "type": "required_file_contains", "file": "main.py", "pattern": "def first_pending" }
+      ],
+      "hints": [
+        "Loop in order; return as soon as you find `not t[\"done\"]`.",
+        "Return `t[\"text\"]`, not the whole dict.",
+        "If nothing matches, fall through and return None."
+      ]
+    }
+  ]
+}
