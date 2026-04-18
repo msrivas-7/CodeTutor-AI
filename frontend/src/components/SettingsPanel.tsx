@@ -4,6 +4,15 @@ import { useAIStore } from "../state/aiStore";
 import type { Persona } from "../types";
 import { useThemePref, type ThemePref } from "../util/theme";
 
+// Dev-only Developer tab. Both imports are guarded by import.meta.env.DEV
+// so Vite tree-shakes the whole __dev__ folder in prod.
+const DeveloperSection = import.meta.env.DEV
+  ? (await import("../__dev__/DeveloperSection")).DeveloperSection
+  : () => null;
+const useDevModeEnabled = import.meta.env.DEV
+  ? (await import("../__dev__/devModeStore")).useDevModeEnabled
+  : () => false;
+
 const THEME_LABEL: Record<ThemePref, string> = {
   system: "System",
   light: "Light",
@@ -45,6 +54,9 @@ export function SettingsPanel({ onClose }: { onClose?: () => void }) {
 
   const [reveal, setReveal] = useState(false);
   const [themePref, setThemePref] = useThemePref();
+  const devEnabled = useDevModeEnabled();
+  const [tab, setTab] = useState<"general" | "developer">("general");
+  const activeTab = devEnabled ? tab : "general";
 
   const handleValidate = async () => {
     if (!apiKey.trim()) return;
@@ -105,6 +117,47 @@ export function SettingsPanel({ onClose }: { onClose?: () => void }) {
         )}
       </div>
 
+      {devEnabled && (
+        <div role="tablist" aria-label="Settings sections" className="flex overflow-hidden rounded-md border border-border">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "general"}
+            onClick={() => setTab("general")}
+            className={`flex-1 px-2.5 py-1.5 text-[11px] font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent ${
+              activeTab === "general"
+                ? "bg-accent text-bg"
+                : "bg-elevated text-muted hover:bg-elevated/80 hover:text-ink"
+            }`}
+          >
+            General
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "developer"}
+            onClick={() => setTab("developer")}
+            className={`flex-1 border-l border-border px-2.5 py-1.5 text-[11px] font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet ${
+              activeTab === "developer"
+                ? "bg-violet text-bg"
+                : "bg-elevated text-muted hover:bg-elevated/80 hover:text-violet"
+            }`}
+          >
+            Developer
+          </button>
+        </div>
+      )}
+
+      {activeTab === "developer" ? (
+        <DeveloperSection />
+      ) : (
+        <GeneralSettings />
+      )}
+    </div>
+  );
+
+  function GeneralSettings() {
+    return <>
       <label className="flex flex-col gap-1.5">
         <span className="text-[11px] font-medium text-muted">OpenAI API Key</span>
         <div className="flex items-center gap-2">
@@ -278,6 +331,6 @@ export function SettingsPanel({ onClose }: { onClose?: () => void }) {
           forget key + clear conversation
         </button>
       )}
-    </div>
-  );
+    </>;
+  }
 }

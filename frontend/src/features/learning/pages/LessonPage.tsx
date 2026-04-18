@@ -19,11 +19,12 @@ import { useSessionStore } from "../../../state/sessionStore";
 import { useRunStore } from "../../../state/runStore";
 import { useAIStore } from "../../../state/aiStore";
 import { api } from "../../../api/client";
-import { validateLesson } from "../utils/validator";
+import { validateLesson, pickFirstFailure } from "../utils/validator";
 import { LessonCompletePanel } from "../components/LessonCompletePanel";
 import { WorkspaceCoach, isOnboardingDone } from "../components/WorkspaceCoach";
 import { computeMastery, formatTimeSpent } from "../utils/mastery";
-import type { ValidationResult } from "../types";
+import { FailedTestCallout } from "../components/FailedTestCallout";
+import type { FunctionTest, TestReport, ValidationResult } from "../types";
 import { useShortcutLabels } from "../../../util/platform";
 
 const LS_OUT_H = "ui:lesson:outputH";
@@ -122,6 +123,11 @@ export default function LessonPage() {
   const [practiceMode, setPracticeMode] = useState(false);
   const [practiceIndex, setPracticeIndex] = useState(0);
   const [practiceValidation, setPracticeValidation] = useState<ValidationResult | null>(null);
+  const [testReport, setTestReport] = useState<TestReport | null>(null);
+  const [runningTests, setRunningTests] = useState(false);
+  // Used to gate "Ask tutor why" on consecutive fails of the SAME test name.
+  const [lastFailedName, setLastFailedName] = useState<string | null>(null);
+  const [sameFailStreak, setSameFailStreak] = useState(0);
   const savedLessonCode = useRef<Record<string, string> | null>(null);
   const [outputH, setOutputH] = useState(() => loadNum(LS_OUT_H, DEFAULT_OUT));
   const [instrW, setInstrW] = useState(() => loadNum(LS_INSTR_W, DEFAULT_INSTR));
@@ -167,6 +173,9 @@ export default function LessonPage() {
     setPracticeMode(false);
     setPracticeIndex(0);
     setPracticeValidation(null);
+    setTestReport(null);
+    setLastFailedName(null);
+    setSameFailStreak(0);
     savedLessonCode.current = null;
     Promise.all([
       loadFullLesson(courseId, lessonId),
@@ -300,7 +309,43 @@ export default function LessonPage() {
     saveCode(courseId, lessonId, files);
   }, [lesson, courseId, lessonId, saveCode, practiceMode, practiceIndex, applyPracticeStarter]);
 
-  const handleCheck = useCallback(() => {
+  // Collects every FunctionTest authored across function_tests rules on the
+  // lesson (most lessons have at most one such rule, but the schema allows
+  // multiple). Practice exercises aren't included — those stay on legacy
+  // expected_stdout / required_file_contains only for Wave 1.
+  const functionTests: FunctionTest[] = (() => {
+    if (!lesson || practiceMode) return [];
+    const out: FunctionTest[] = [];
+    for (const r of lesson.completionRules) {
+      if (r.type === "function_tests" && Array.isArray(r.tests)) out.push(...r.tests);
+    }
+    return out;
+  })();
+
+  const handleRunExamples = useCallback(async () => {
+    if (!sessionId || sessionPhase !== "active" || runningTests || !courseId || !lessonId) return;
+    if (functionTests.length === 0) return;
+    setRunningTests(true);
+    try {
+      const files = useProjectStore.getState().snapshot();
+      await api.snapshotProject(sessionId, files);
+      // Always batch visible + hidden in one harness run — a single Python
+      // invocation carries the full overhead (docker exec, boot, runpy); the
+      // per-test cost inside is negligible, so there's no reason to split.
+      const res = await api.executeTests(sessionId, "python", functionTests);
+      setTestReport(res.report);
+    } catch (err) {
+      setTestReport({
+        results: [],
+        harnessError: (err as Error).message,
+        cleanStdout: "",
+      });
+    } finally {
+      setRunningTests(false);
+    }
+  }, [sessionId, sessionPhase, runningTests, courseId, lessonId, functionTests]);
+
+  const handleCheck = useCallback(async () => {
     if (!lesson || !courseId || !lessonId) return;
     const files = useProjectStore.getState().snapshot();
     const result = useRunStore.getState().result;
@@ -321,16 +366,52 @@ export default function LessonPage() {
       return;
     }
 
-    const v = validateLesson(result, files, lesson.completionRules);
+    // For lessons with function_tests, run the harness now so Check My Work
+    // validates against a fresh report. This guarantees the callout reflects
+    // the current code, not a stale Run-examples result.
+    let latestReport = testReport;
+    if (functionTests.length > 0) {
+      setRunningTests(true);
+      try {
+        await api.snapshotProject(sessionId!, files);
+        const res = await api.executeTests(sessionId!, "python", functionTests);
+        latestReport = res.report;
+        setTestReport(res.report);
+      } catch (err) {
+        latestReport = {
+          results: [],
+          harnessError: (err as Error).message,
+          cleanStdout: "",
+        };
+        setTestReport(latestReport);
+      } finally {
+        setRunningTests(false);
+      }
+    }
+
+    const v = validateLesson(result, files, lesson.completionRules, { testReport: latestReport });
     setValidation(v);
     setHasChecked(true);
-    if (!v.passed) setFailedCheckCount((c) => c + 1);
+    if (!v.passed) {
+      setFailedCheckCount((c) => c + 1);
+      const fail = pickFirstFailure(latestReport);
+      if (fail) {
+        setSameFailStreak((streak) => (fail.name === lastFailedName ? streak + 1 : 1));
+        setLastFailedName(fail.name);
+      } else {
+        setSameFailStreak(0);
+        setLastFailedName(null);
+      }
+    } else {
+      setSameFailStreak(0);
+      setLastFailedName(null);
+    }
     if (v.passed && !validation?.passed) {
       completeLesson(identity.learnerId, courseId, lessonId, totalLessons);
       confetti({ particleCount: 120, spread: 70, origin: { y: 0.7 } });
       setShowComplete(true);
     }
-  }, [lesson, courseId, lessonId, completeLesson, identity.learnerId, totalLessons, validation, practiceMode, practiceIndex, completePracticeExercise]);
+  }, [lesson, courseId, lessonId, completeLesson, identity.learnerId, totalLessons, validation, practiceMode, practiceIndex, completePracticeExercise, sessionId, functionTests, testReport, lastFailedName]);
 
   const handleEnterPractice = useCallback(() => {
     if (!lesson?.practiceExercises?.length) return;
@@ -417,6 +498,12 @@ export default function LessonPage() {
     if (initialized.current) setHasEdited(true);
   }, [projectFiles]);
 
+  // Invalidate the test report when code changes — stale pass/fail marks
+  // would mislead (green ✓ on a card while the user just broke the function).
+  useEffect(() => {
+    if (initialized.current) setTestReport(null);
+  }, [projectFiles]);
+
   // Auto-save code to localStorage on edits (debounced, lesson mode only)
   useEffect(() => {
     if (!courseId || !lessonId || !initialized.current || practiceMode) return;
@@ -491,6 +578,23 @@ export default function LessonPage() {
     setPendingAsk(`I got this error when I ran my code:\n\`\`\`\n${errText}\n\`\`\`\nCan you help me understand what went wrong?`);
     if (tutorCollapsed) setTutorCollapsed(false);
   }, [lastResult, setPendingAsk, tutorCollapsed]);
+
+  // "Ask tutor why" from the FailedTestCallout. For visible tests we can
+  // share the call + expected + got so the tutor can help concretely; for
+  // hidden tests we keep the inputs private and only describe the shape of
+  // the problem — the tutor's job is to coach the learner toward generating
+  // their own edge-case hypothesis, not to reveal the hidden case.
+  const handleAskTutorAboutFailure = useCallback(() => {
+    const fail = pickFirstFailure(testReport);
+    if (!fail) return;
+    const prompt = fail.hidden
+      ? `My function passes the visible examples but Check My Work says a related edge case still fails${fail.category ? ` (category: ${fail.category})` : ""}. What kinds of inputs should I test beyond the examples, and how would I trace my code through them?`
+      : fail.error
+        ? `When my function ran on the "${fail.name}" example, it raised this error:\n\`\`\`\n${(fail.error ?? "").trim().slice(0, 400)}\n\`\`\`\nCan you help me understand what caused it?`
+        : `The "${fail.name}" example returned \`${fail.actualRepr ?? "(no value)"}\` but expected \`${fail.expectedRepr ?? "(unknown)"}\`. Can you help me see why my code gives the wrong answer here?`;
+    setPendingAsk(prompt);
+    if (tutorCollapsed) setTutorCollapsed(false);
+  }, [testReport, setPendingAsk, tutorCollapsed]);
 
   const handleResetLessonProgress = useCallback(() => {
     if (!lesson || !courseId || !lessonId) return;
@@ -667,6 +771,13 @@ export default function LessonPage() {
                     content={lesson.content}
                     onCollapse={() => setInstrCollapsed(true)}
                     coachState={coachState}
+                    functionTests={functionTests}
+                    testReport={testReport}
+                    runningTests={runningTests}
+                    onRunExamples={functionTests.length > 0 ? handleRunExamples : undefined}
+                    checkFailure={hasChecked && !validation?.passed ? pickFirstFailure(testReport) : null}
+                    checkFailureStreak={sameFailStreak}
+                    onAskTutorAboutFailure={handleAskTutorAboutFailure}
                   />
                 )}
               </div>
@@ -735,20 +846,20 @@ export default function LessonPage() {
                 <button
                   ref={checkBtnRef}
                   onClick={handleCheck}
-                  disabled={running}
+                  disabled={running || runningTests}
                   className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-xs font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-violet ${
-                    !running
+                    !running && !runningTests
                       ? "bg-violet/20 text-violet hover:bg-violet/30"
                       : "bg-elevated text-muted cursor-not-allowed"
                   }`}
                   title="Verify your solution against the lesson's checks"
-                  aria-label="Check solution against lesson requirements"
+                  aria-label="Check my work against lesson requirements"
                 >
                   <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <circle cx="11" cy="11" r="7" />
                     <line x1="21" y1="21" x2="16.65" y2="16.65" />
                   </svg>
-                  Check Solution
+                  {runningTests ? "Checking…" : "Check My Work"}
                 </button>
                 {/* Reserve a fixed slot for Explain Error to avoid layout shift when stderr toggles */}
                 <div className="min-w-[128px]">

@@ -8,11 +8,38 @@ export interface Course {
   lessonOrder: string[];
 }
 
+export interface FunctionTest {
+  name: string;
+  call: string;
+  expected: string;
+  setup?: string;
+  hidden?: boolean;
+  category?: string;
+}
+
+export interface TestCaseResult {
+  name: string;
+  hidden: boolean;
+  category: string | null;
+  passed: boolean;
+  actualRepr: string | null;
+  expectedRepr: string | null;
+  stdoutDuring: string;
+  error: string | null;
+}
+
+export interface TestReport {
+  results: TestCaseResult[];
+  harnessError: string | null;
+  cleanStdout: string;
+}
+
 export interface CompletionRule {
-  type: "expected_stdout" | "required_file_contains" | "custom_validator";
+  type: "expected_stdout" | "required_file_contains" | "custom_validator" | "function_tests";
   expected?: string;
   file?: string;
   pattern?: string;
+  tests?: FunctionTest[];
 }
 
 export interface PracticeExercise {

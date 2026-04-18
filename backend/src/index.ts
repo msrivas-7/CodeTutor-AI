@@ -4,6 +4,7 @@ import { config } from "./config.js";
 import { sessionRouter } from "./routes/session.js";
 import { projectRouter } from "./routes/project.js";
 import { executionRouter } from "./routes/execution.js";
+import { executeTestsRouter } from "./routes/executeTests.js";
 import { aiRouter } from "./routes/ai.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { ensureRunnerImage, resolveHostWorkspaceRoot } from "./services/docker/dockerService.js";
@@ -19,7 +20,7 @@ async function main() {
   // API keys are never written to logs: `/api/ai/*` bodies are redacted.
   app.use((req, _res, next) => {
     const isSession = req.path.startsWith("/api/session");
-    const isExec = req.path === "/api/execute" || req.path === "/api/project/snapshot";
+    const isExec = req.path === "/api/execute" || req.path === "/api/execute/tests" || req.path === "/api/project/snapshot";
     const isAi = req.path.startsWith("/api/ai");
     if (!isSession && !isExec && !isAi) return next();
     let body = "";
@@ -38,6 +39,9 @@ async function main() {
 
   app.use("/api/session", sessionRouter);
   app.use("/api/project", projectRouter);
+  // Order matters: /api/execute/tests must be registered before the catch-all
+  // /api/execute router (which handles the base path POST /).
+  app.use("/api/execute/tests", executeTestsRouter);
   app.use("/api/execute", executionRouter);
   app.use("/api/ai", aiRouter);
 

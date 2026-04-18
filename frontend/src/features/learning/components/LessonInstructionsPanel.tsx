@@ -1,6 +1,8 @@
-import { useState } from "react";
-import type { LessonMeta } from "../types";
+import { useEffect, useState } from "react";
+import type { FunctionTest, LessonMeta, TestCaseResult, TestReport } from "../types";
 import { CoachRail } from "./CoachRail";
+import { ExamplesSection } from "./ExamplesSection";
+import { FailedTestCallout } from "./FailedTestCallout";
 
 export interface CoachState {
   hasEdited: boolean;
@@ -18,12 +20,45 @@ interface LessonInstructionsPanelProps {
   content: string;
   onCollapse?: () => void;
   coachState?: CoachState;
+  functionTests?: FunctionTest[];
+  testReport?: TestReport | null;
+  runningTests?: boolean;
+  onRunExamples?: () => void;
+  /** The single failure to surface after Check My Work. Rendered as a
+   *  FailedTestCallout above the markdown when set. */
+  checkFailure?: TestCaseResult | null;
+  /** Consecutive Check My Work fails on the same failure. Controls the
+   *  "Ask tutor why" gate inside FailedTestCallout. */
+  checkFailureStreak?: number;
+  onAskTutorAboutFailure?: () => void;
 }
 
-export function LessonInstructionsPanel({ meta, content, onCollapse, coachState }: LessonInstructionsPanelProps) {
+export function LessonInstructionsPanel({
+  meta,
+  content,
+  onCollapse,
+  coachState,
+  functionTests,
+  testReport,
+  runningTests,
+  onRunExamples,
+  checkFailure,
+  checkFailureStreak,
+  onAskTutorAboutFailure,
+}: LessonInstructionsPanelProps) {
   const [showHints, setShowHints] = useState(false);
   const hints = extractHints(content);
   const mainContent = stripHintsSection(content);
+
+  const hasExamples = !!(functionTests && functionTests.length > 0 && onRunExamples);
+  const [tab, setTab] = useState<"instructions" | "examples">("instructions");
+  const activeTab = hasExamples ? tab : "instructions";
+
+  // When a Check My Work fails, auto-switch to the Examples tab so the callout
+  // and the example list are both visible without the learner having to hunt.
+  useEffect(() => {
+    if (hasExamples && checkFailure) setTab("examples");
+  }, [hasExamples, checkFailure]);
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -43,52 +78,110 @@ export function LessonInstructionsPanel({ meta, content, onCollapse, coachState 
         )}
       </header>
 
-      <div className="flex-1 overflow-y-auto px-4 py-3">
-        {coachState && <CoachRail {...coachState} />}
-        <div className="mb-3 flex flex-wrap gap-1.5">
-          {meta.objectives.map((obj) => (
-            <span
-              key={obj}
-              className="rounded-full bg-violet/10 px-2 py-0.5 text-[10px] font-medium text-violet"
-            >
-              {obj}
-            </span>
-          ))}
-        </div>
-
-        <div className="prose-learning text-sm leading-relaxed text-ink/90">
-          <MarkdownContent text={mainContent} />
-        </div>
-
-        {hints.length > 0 && (
-          <div className="mt-4 border-t border-border pt-3">
-            <button
-              onClick={() => setShowHints(!showHints)}
-              className="flex items-center gap-1 text-xs font-medium text-accent transition hover:text-accent/80"
-            >
-              <svg
-                className={`h-3 w-3 transition ${showHints ? "rotate-90" : ""}`}
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <polyline points="9 18 15 12 9 6" />
-              </svg>
-              {showHints ? "Hide hints" : "Show hints"}
-            </button>
-            {showHints && (
-              <ol className="mt-2 space-y-1.5 pl-4">
-                {hints.map((hint, i) => (
-                  <li key={i} className="text-xs text-muted list-decimal">
-                    {hint}
-                  </li>
-                ))}
-              </ol>
+      {hasExamples && (
+        <div role="tablist" aria-label="Lesson sections" className="flex shrink-0 border-b border-border">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "instructions"}
+            onClick={() => setTab("instructions")}
+            className={`flex-1 px-3 py-1.5 text-[11px] font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent ${
+              activeTab === "instructions"
+                ? "border-b-2 border-accent text-ink"
+                : "border-b-2 border-transparent text-muted hover:text-ink"
+            }`}
+          >
+            Instructions
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "examples"}
+            onClick={() => setTab("examples")}
+            className={`flex-1 px-3 py-1.5 text-[11px] font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent ${
+              activeTab === "examples"
+                ? "border-b-2 border-accent text-ink"
+                : "border-b-2 border-transparent text-muted hover:text-ink"
+            }`}
+          >
+            Examples
+            {checkFailure && activeTab !== "examples" && (
+              <span
+                className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-warn align-middle"
+                aria-label="failing example"
+              />
             )}
-          </div>
+          </button>
+        </div>
+      )}
+
+      <div className="flex-1 overflow-y-auto px-4 py-3">
+        {activeTab === "instructions" ? (
+          <>
+            {coachState && <CoachRail {...coachState} />}
+            <div className="mb-3 flex flex-wrap gap-1.5">
+              {meta.objectives.map((obj) => (
+                <span
+                  key={obj}
+                  className="rounded-full bg-violet/10 px-2 py-0.5 text-[10px] font-medium text-violet"
+                >
+                  {obj}
+                </span>
+              ))}
+            </div>
+
+            <div className="prose-learning text-sm leading-relaxed text-ink/90">
+              <MarkdownContent text={mainContent} />
+            </div>
+
+            {hints.length > 0 && (
+              <div className="mt-4 border-t border-border pt-3">
+                <button
+                  onClick={() => setShowHints(!showHints)}
+                  className="flex items-center gap-1 text-xs font-medium text-accent transition hover:text-accent/80"
+                >
+                  <svg
+                    className={`h-3 w-3 transition ${showHints ? "rotate-90" : ""}`}
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <polyline points="9 18 15 12 9 6" />
+                  </svg>
+                  {showHints ? "Hide hints" : "Show hints"}
+                </button>
+                {showHints && (
+                  <ol className="mt-2 space-y-1.5 pl-4">
+                    {hints.map((hint, i) => (
+                      <li key={i} className="text-xs text-muted list-decimal">
+                        {hint}
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            {checkFailure && (
+              <FailedTestCallout
+                failure={checkFailure}
+                failingTest={functionTests?.find((t) => t.name === checkFailure.name && !t.hidden)}
+                consecutiveFails={checkFailureStreak ?? 1}
+                onAskTutor={onAskTutorAboutFailure}
+              />
+            )}
+            <ExamplesSection
+              tests={functionTests!}
+              report={testReport ?? null}
+              running={!!runningTests}
+              onRunExamples={onRunExamples!}
+            />
+          </>
         )}
       </div>
     </div>

@@ -28,6 +28,15 @@ import type {
   TokenUsage,
   TutorSections,
 } from "../types";
+import type { FunctionTest, TestReport } from "../features/learning/types";
+
+export interface ExecuteTestsResponse {
+  report: TestReport;
+  stderr: string;
+  exitCode: number;
+  timedOut: boolean;
+  durationMs: number;
+}
 
 export interface AskStreamRequest {
   model: string;
@@ -96,6 +105,8 @@ export const api = {
     post<{ ok: boolean; fileCount: number }>("/api/project/snapshot", { sessionId, files }),
   execute: (sessionId: string, language: Language, stdin?: string) =>
     post<RunResult>("/api/execute", { sessionId, language, stdin }),
+  executeTests: (sessionId: string, language: Language, tests: FunctionTest[]) =>
+    post<ExecuteTestsResponse>("/api/execute/tests", { sessionId, language, tests }),
 
   validateOpenAIKey: (key: string) =>
     post<{ valid: boolean; error?: string }>("/api/ai/validate-key", { key }),

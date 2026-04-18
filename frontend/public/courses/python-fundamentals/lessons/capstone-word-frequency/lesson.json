@@ -35,6 +35,57 @@
     {
       "type": "expected_stdout",
       "expected": "Top 3:\nthe: 5\nfox: 3\ndog: 2"
+    },
+    {
+      "type": "function_tests",
+      "tests": [
+        {
+          "name": "tokenize basic words",
+          "call": "tokenize('Hello world')",
+          "expected": "['hello', 'world']"
+        },
+        {
+          "name": "tokenize strips common punctuation",
+          "call": "tokenize('Hi, there!')",
+          "expected": "['hi', 'there']"
+        },
+        {
+          "name": "tokenize lowercases every word",
+          "call": "tokenize('THE the ThE')",
+          "expected": "['the', 'the', 'the']"
+        },
+        {
+          "name": "count_words sums repeats",
+          "call": "count_words(['a', 'b', 'a'])",
+          "expected": "{'a': 2, 'b': 1}"
+        },
+        {
+          "name": "count_words single word",
+          "call": "count_words(['hi'])",
+          "expected": "{'hi': 1}"
+        },
+        {
+          "name": "tokenize handles ellipsis and multiple marks",
+          "call": "tokenize('Wait... really?!')",
+          "expected": "['wait', 'really']",
+          "hidden": true,
+          "category": "all-punctuation-stripped"
+        },
+        {
+          "name": "tokenize empty string",
+          "call": "tokenize('')",
+          "expected": "[]",
+          "hidden": true,
+          "category": "empty-input"
+        },
+        {
+          "name": "count_words empty list",
+          "call": "count_words([])",
+          "expected": "{}",
+          "hidden": true,
+          "category": "empty-input"
+        }
+      ]
     }
   ],
   "prerequisiteLessonIds": [

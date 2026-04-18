@@ -1,4 +1,4 @@
-import type { CompletionRule, ValidationResult } from "../types";
+import type { CompletionRule, TestCaseResult, TestReport, ValidationResult } from "../types";
 import type { RunResult, ProjectFile } from "../../../types";
 
 // Word-boundary-aware substring check. For patterns that start with an
@@ -13,10 +13,29 @@ function containsPattern(content: string, pattern: string): boolean {
   return new RegExp(`\\b${escaped}`).test(content);
 }
 
+export interface ValidateExtraContext {
+  testReport?: TestReport | null;
+}
+
+/**
+ * Returns the single most informative failure from a test report, in priority
+ * order: first failing visible test, then first failing hidden test. Used by
+ * the FailedTestCallout so the learner sees one thing to focus on rather
+ * than a wall of red.
+ */
+export function pickFirstFailure(report: TestReport | null | undefined): TestCaseResult | null {
+  if (!report || !report.results) return null;
+  const visibleFail = report.results.find((r) => !r.passed && !r.hidden);
+  if (visibleFail) return visibleFail;
+  const hiddenFail = report.results.find((r) => !r.passed && r.hidden);
+  return hiddenFail ?? null;
+}
+
 export function validateLesson(
   result: RunResult | null,
   files: ProjectFile[],
-  rules: CompletionRule[]
+  rules: CompletionRule[],
+  extra: ValidateExtraContext = {},
 ): ValidationResult {
   if (!rules.length) {
     return { passed: true, feedback: ["No validation rules — auto-pass."] };
@@ -71,6 +90,35 @@ export function validateLesson(
           nextHints.push(`Make sure your code in ${targetPath} uses the required approach.`);
           allPassed = false;
         }
+        break;
+      }
+      case "function_tests": {
+        const report = extra.testReport ?? null;
+        if (!report) {
+          feedback.push("Run the examples first so we can check your function.");
+          allPassed = false;
+          break;
+        }
+        if (report.harnessError) {
+          feedback.push("Your code couldn't run — fix the error above, then try again.");
+          nextHints.push("The tests need your code to run without errors before they can check it.");
+          allPassed = false;
+          break;
+        }
+        const failed = report.results.filter((r) => !r.passed);
+        if (failed.length === 0) {
+          feedback.push(`All ${report.results.length} tests pass — nice work!`);
+          break;
+        }
+        const firstFail = pickFirstFailure(report);
+        if (firstFail && !firstFail.hidden) {
+          feedback.push(`Test "${firstFail.name}" didn't match.`);
+          nextHints.push("Look at the failing example and compare your output to the expected value.");
+        } else {
+          feedback.push("Your function works on the visible examples but breaks on a related case.");
+          nextHints.push("Sketch 2–3 more inputs you'd expect it to handle, then trace them through your code.");
+        }
+        allPassed = false;
         break;
       }
       case "custom_validator": {
