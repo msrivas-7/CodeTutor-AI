@@ -1,52 +1,14 @@
-import fs from "node:fs/promises";
-import path from "node:path";
-import { config } from "../../config.js";
-import { execShell } from "../docker/dockerExec.js";
+import {
+  TEST_SENTINEL,
+  type FunctionTest,
+  type HarnessBackend,
+  type HarnessFile,
+  type TestCaseResult,
+  type TestReport,
+} from "./types.js";
 
-export const TEST_SENTINEL = "__CODETUTOR_TESTS_v1_da39a3ee5e6b4b0d__";
 export const HARNESS_PY = "__codetutor_tests.py";
 export const HARNESS_JSON = "__codetutor_tests.json";
-
-export interface FunctionTest {
-  name: string;
-  call: string;
-  expected: string;
-  setup?: string;
-  hidden?: boolean;
-  category?: string;
-}
-
-export interface TestCaseResult {
-  name: string;
-  hidden: boolean;
-  category: string | null;
-  passed: boolean;
-  actualRepr: string | null;
-  expectedRepr: string | null;
-  stdoutDuring: string;
-  error: string | null;
-}
-
-export interface TestReport {
-  results: TestCaseResult[];
-  harnessError: string | null;
-  cleanStdout: string;
-}
-
-export interface RunTestsOptions {
-  containerId: string;
-  workspacePath: string;
-  tests: FunctionTest[];
-  timeoutMs?: number;
-}
-
-export interface RunTestsResult {
-  report: TestReport;
-  stderr: string;
-  exitCode: number;
-  timedOut: boolean;
-  durationMs: number;
-}
 
 /**
  * Python harness: runs main.py via runpy (so `if __name__ == "__main__":`
@@ -130,15 +92,10 @@ export function parseHarnessOutput(stdout: string, stderr: string): TestReport {
   const start = stdout.indexOf(TEST_SENTINEL);
   const end = stdout.lastIndexOf(TEST_SENTINEL);
   if (start === -1 || start === end) {
-    // Fallback: harness never emitted its sentinel block. Surface stderr as
-    // the diagnostic so the UI can say "something broke before tests ran".
     const msg = stderr.trim() || "Tests could not run. Check for syntax errors in your code.";
     return { results: [], harnessError: msg, cleanStdout: stdout };
   }
   const jsonStr = stdout.slice(start + TEST_SENTINEL.length, end);
-  // The harness writes `SENTINEL + payload + SENTINEL + "\n"`; strip that
-  // trailing newline so the sentinel block leaves no visible gap in learner
-  // stdout. Then trim trailing newlines from the whole cleanStdout too.
   let afterEnd = end + TEST_SENTINEL.length;
   if (stdout[afterEnd] === "\n") afterEnd++;
   const cleanStdout = (stdout.slice(0, start) + stdout.slice(afterEnd)).replace(/\n+$/, "");
@@ -160,53 +117,16 @@ export function parseHarnessOutput(stdout: string, stderr: string): TestReport {
   };
 }
 
-export async function runTests(opts: RunTestsOptions): Promise<RunTestsResult> {
-  const { containerId, workspacePath, tests } = opts;
-  const timeoutMs = opts.timeoutMs ?? config.runner.execTimeoutMs;
-  const pyPath = path.join(workspacePath, HARNESS_PY);
-  const jsonPath = path.join(workspacePath, HARNESS_JSON);
-
-  try {
-    await fs.writeFile(pyPath, harnessPython(), "utf8");
-    await fs.chmod(pyPath, 0o666).catch(() => {});
-    await fs.writeFile(jsonPath, JSON.stringify(tests), "utf8");
-    await fs.chmod(jsonPath, 0o666).catch(() => {});
-
-    const exec = await execShell(
-      containerId,
-      `python3 ${HARNESS_PY}`,
-      timeoutMs,
-      { stdin: "" },
-    );
-
-    // On timeout (137 from `timeout --signal=KILL`) the harness didn't finish
-    // — return an explicit harnessError so the UI can say so rather than
-    // showing an empty results array.
-    const timedOut = exec.exitCode === 137;
-    if (timedOut) {
-      return {
-        report: {
-          results: [],
-          harnessError: `Tests timed out after ${timeoutMs}ms. Check for infinite loops.`,
-          cleanStdout: exec.stdout,
-        },
-        stderr: exec.stderr,
-        exitCode: exec.exitCode,
-        timedOut: true,
-        durationMs: exec.durationMs,
-      };
-    }
-
-    const report = parseHarnessOutput(exec.stdout, exec.stderr);
-    return {
-      report,
-      stderr: exec.stderr,
-      exitCode: exec.exitCode,
-      timedOut: false,
-      durationMs: exec.durationMs,
-    };
-  } finally {
-    await fs.rm(pyPath, { force: true }).catch(() => {});
-    await fs.rm(jsonPath, { force: true }).catch(() => {});
-  }
-}
+export const pythonHarness: HarnessBackend = {
+  language: "python",
+  prepareFiles(tests: FunctionTest[]): HarnessFile[] {
+    return [
+      { name: HARNESS_PY, content: harnessPython() },
+      { name: HARNESS_JSON, content: JSON.stringify(tests) },
+    ];
+  },
+  execCommand(): string {
+    return `python3 ${HARNESS_PY}`;
+  },
+  parseOutput: parseHarnessOutput,
+};

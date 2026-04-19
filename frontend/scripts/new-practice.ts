@@ -22,6 +22,14 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  LANGUAGE_SYNTAX,
+  entryFileFor,
+  fileExtForLanguage,
+  hasFunctionTestsHarnessLanguage,
+  isScaffoldLanguage,
+  type Language,
+} from "./language";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -112,32 +120,61 @@ function printHelp() {
   );
 }
 
-function completionRulesFor(style: RuleStyle, id: string): unknown[] {
+function functionPatternFor(lang: Language, fnName: string): string {
+  // The pattern used in required_file_contains to verify the learner defined a
+  // function. Mirrors the languages' declaration keywords.
+  switch (lang) {
+    case "python":
+      return `def ${fnName}`;
+    case "javascript":
+    case "typescript":
+      return `function ${fnName}`;
+    case "ruby":
+      return `def ${fnName}`;
+    case "go":
+      return `func ${fnName}`;
+    case "rust":
+      return `fn ${fnName}`;
+    default:
+      return fnName;
+  }
+}
+
+function completionRulesFor(style: RuleStyle, id: string, lang: Language): unknown[] {
   const fnName = id.replace(/-/g, "_");
+  const entry = entryFileFor(lang);
+  const pattern = functionPatternFor(lang, fnName);
   if (style === "function") {
-    return [
-      { type: "required_file_contains", file: "main.py", pattern: `def ${fnName}` },
-      {
+    const rules: unknown[] = [
+      { type: "required_file_contains", file: entry, pattern },
+    ];
+    // Only languages with a registered function_tests harness get the
+    // function_tests rule scaffolded. Others fall through to a plain
+    // required_file_contains check.
+    if (hasFunctionTestsHarnessLanguage(lang)) {
+      rules.push({
         type: "function_tests",
         tests: [
           { name: "TODO replace", call: `${fnName}(1)`, expected: "1" },
         ],
-      },
-    ];
+      });
+    }
+    return rules;
   }
   if (style === "stdout") {
     return [{ type: "expected_stdout", expected: "REPLACE_WITH_EXPECTED" }];
   }
   // file
-  return [{ type: "required_file_contains", file: "main.py", pattern: `def ${fnName}` }];
+  return [{ type: "required_file_contains", file: entry, pattern }];
 }
 
-function starterFor(style: RuleStyle, id: string): string {
+function starterFor(style: RuleStyle, id: string, lang: Language): string {
   const fnName = id.replace(/-/g, "_");
   if (style === "function" || style === "file") {
-    return `def ${fnName}(/* TODO */):\n    # TODO: implement\n    pass\n`;
+    return LANGUAGE_SYNTAX[lang].functionStub(fnName);
   }
-  return "# TODO: write your solution here\n";
+  const commentPrefix = lang === "python" || lang === "ruby" ? "#" : "//";
+  return `${commentPrefix} TODO: write your solution here\n`;
 }
 
 function main() {
@@ -152,9 +189,26 @@ function main() {
   }
 
   const lesson = JSON.parse(readFileSync(lessonJsonPath, "utf8")) as {
+    language?: string;
     practiceExercises?: Array<{ id: string; [k: string]: unknown }>;
     [k: string]: unknown;
   };
+
+  const rawLang = lesson.language ?? "python";
+  if (!isScaffoldLanguage(rawLang)) {
+    die(
+      `lesson.language "${rawLang}" is not supported by new-practice. ` +
+        `Add a templates/<language>/ + scripts/language.ts entry first.`,
+    );
+  }
+  const lang: Language = rawLang;
+
+  if (args.ruleStyle === "function" && !hasFunctionTestsHarnessLanguage(lang)) {
+    console.warn(
+      `new-practice: --rule-style=function on a ${lang} lesson — ` +
+        `no function_tests harness for this language, falling back to required_file_contains only.`,
+    );
+  }
 
   const existingIds = new Set((lesson.practiceExercises ?? []).map((e) => e.id));
   if (existingIds.has(args.id)) {
@@ -166,8 +220,8 @@ function main() {
     title: args.title,
     prompt: args.prompt,
     goal: args.goal,
-    starterCode: starterFor(args.ruleStyle, args.id),
-    completionRules: completionRulesFor(args.ruleStyle, args.id),
+    starterCode: starterFor(args.ruleStyle, args.id, lang),
+    completionRules: completionRulesFor(args.ruleStyle, args.id, lang),
     hints: [
       "Nudge without naming the tool.",
       "Name the tool and describe its shape.",
@@ -178,19 +232,21 @@ function main() {
   lesson.practiceExercises = [...(lesson.practiceExercises ?? []), exercise];
   writeFileSync(lessonJsonPath, JSON.stringify(lesson, null, 2) + "\n");
 
-  // Drop a solution stub
+  // Drop a solution stub (same extension as the lesson's entry file)
   const solutionDir = join(lessonDir, "solution", "practice");
-  const solutionPath = join(solutionDir, `${args.id}.py`);
+  const ext = fileExtForLanguage(lang);
+  const solutionPath = join(solutionDir, `${args.id}.${ext}`);
+  const commentPrefix = lang === "python" || lang === "ruby" ? "#" : "//";
   if (!existsSync(solutionPath)) {
     writeFileSync(
       solutionPath,
-      `# TODO: write the golden solution for practice exercise "${args.id}".\n`,
+      `${commentPrefix} TODO: write the golden solution for practice exercise "${args.id}".\n`,
     );
   }
 
-  console.log(`new-practice: appended exercise "${args.id}" to lessons/${args.lesson}/lesson.json`);
+  console.log(`new-practice: appended exercise "${args.id}" to lessons/${args.lesson}/lesson.json (${lang})`);
   console.log(`  - practiceExercises[] entry with ${args.ruleStyle}-style rules`);
-  console.log(`  - solution stub at solution/practice/${args.id}.py`);
+  console.log(`  - solution stub at solution/practice/${args.id}.${ext}`);
   console.log("");
   console.log("Next: fill in the exercise body, replace TODOs, run `npm run lint:content`.");
 }

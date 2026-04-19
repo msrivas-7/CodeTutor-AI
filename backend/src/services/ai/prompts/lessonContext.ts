@@ -1,7 +1,30 @@
+import { commandFor, type Language } from "../../execution/commands.js";
+
+// Mirrors the authoring discriminated union. We carry the richer shape through
+// the prompt pipeline so future prompt blocks can reference fields like
+// `function_tests.tests` without changing types again.
+export interface FunctionTestSpec {
+  name: string;
+  call: string;
+  expected: string;
+  setup?: string;
+  hidden?: boolean;
+  category?: string;
+}
+export type CompletionRule =
+  | { type: "expected_stdout"; expected: string }
+  | { type: "required_file_contains"; pattern: string; file?: string }
+  | { type: "function_tests"; tests: FunctionTestSpec[] }
+  | { type: "custom_validator" };
+
 export interface LessonContext {
   courseId: string;
   lessonId: string;
   lessonTitle: string;
+  // The language the lesson is authored in. Drives the default entry file
+  // when a completion rule omits `file`, and is echoed back to the tutor so
+  // syntax examples match the learner's runtime.
+  language: Language;
   lessonObjectives: string[];
   // Concepts this lesson INTRODUCES for the first time. Explaining these is the
   // point of the lesson; lean into them when the student asks.
@@ -13,7 +36,7 @@ export interface LessonContext {
   // baseVocabulary). Use to scope explanations: anything outside this set + the
   // lesson's own teaches/uses is "future material" and should be avoided.
   priorConcepts: string[];
-  completionRules: { type: string; expected?: string; file?: string; pattern?: string }[];
+  completionRules: CompletionRule[];
   studentProgressSummary: string;
   lessonOrder?: number;
   totalLessons?: number;
@@ -24,11 +47,12 @@ function formatTagList(tags: string[]): string {
 }
 
 export function buildLessonContextBlock(ctx: LessonContext): string {
+  const entryFile = commandFor(ctx.language).entrypoint;
   const objectives = ctx.lessonObjectives.map((o) => `  - ${o}`).join("\n");
   const task = ctx.completionRules
     .map((r) => {
       if (r.type === "expected_stdout") return `produce stdout containing "${r.expected}"`;
-      if (r.type === "required_file_contains") return `write code in ${r.file ?? "main.py"} containing \`${r.pattern}\``;
+      if (r.type === "required_file_contains") return `write code in ${r.file ?? entryFile} containing \`${r.pattern}\``;
       if (r.type === "function_tests") return `define the tested function(s) at module scope so the harness can call them`;
       return `pass custom validation`;
     })

@@ -1,0 +1,135 @@
+// Lesson edge-case specs: stdin-driven lesson, locked lessons on the course
+// overview, and the resume toast (saved code restoration). Each test exercises
+// a narrow surface that's easy to regress during UI refactors.
+
+import { expect, test } from "@playwright/test";
+
+import { mockAllAI } from "../fixtures/aiMocks";
+import { setMonacoValue, waitForMonacoReady } from "../fixtures/monaco";
+import { loadProfile, markOnboardingDone } from "../fixtures/profiles";
+import { readLessonSolution } from "../fixtures/solutions";
+import * as S from "../utils/selectors";
+
+const COURSE_ID = "python-fundamentals";
+
+test.describe("lesson edge cases", () => {
+  test.beforeEach(async ({ page }) => {
+    await mockAllAI(page);
+    await markOnboardingDone(page);
+  });
+
+  test("input-output lesson: stdin tab text feeds input() at runtime", async ({ page }) => {
+    await loadProfile(page, "empty");
+    await page.goto(`/learn/course/${COURSE_ID}/lesson/input-output`);
+    await waitForMonacoReady(page);
+    await expect(S.lessonRunButton(page)).toBeEnabled({ timeout: 30_000 });
+
+    // Use the golden solution — it reads name + birth_year from stdin and
+    // prints "Hi <name>! You are about <age> years old.".
+    await setMonacoValue(page, readLessonSolution(COURSE_ID, "input-output"));
+
+    // Load canned stdin via the Stdin tab. The OutputPanel tab bar reuses the
+    // shared #output-panel-body textarea for stdin authoring.
+    await S.stdinTab(page).click();
+    const stdinBox = page.locator("#output-panel-body");
+    await stdinBox.click();
+    await stdinBox.fill("Alice\n2000\n");
+    await S.outputTab(page).click();
+
+    await S.lessonRunButton(page).click();
+    await expect(S.outputPanel(page)).toContainText(/Hi Alice/i, { timeout: 30_000 });
+    await expect(S.outputPanel(page)).toContainText(/25 years old/i);
+  });
+
+  test("locked lesson: prerequisite-blocked lesson renders disabled in LessonList", async ({
+    page,
+  }) => {
+    // Empty profile — nothing completed → lesson 2 (variables) should be
+    // locked because its prereq (hello-world) isn't done.
+    await loadProfile(page, "empty");
+    await page.goto(`/learn/course/${COURSE_ID}`);
+
+    // The lesson card itself is a <button disabled>. Its aria-label includes
+    // "(locked — complete prerequisites first)".
+    const lockedVariables = page.getByRole("button", {
+      name: /variables.*locked.*complete prerequisites first/i,
+    });
+    await expect(lockedVariables).toBeVisible({ timeout: 10_000 });
+    await expect(lockedVariables).toBeDisabled();
+  });
+
+  test("resume toast: seeded lastCode triggers 'Your code was restored' banner", async ({
+    page,
+  }) => {
+    const SAVED_CODE = "print('resumed from a previous session')\n";
+    await loadProfile(page, "empty");
+
+    // Seed a lesson progress record with lastCode BEFORE navigation so the
+    // LessonPage loader effect sees it on first paint.
+    await page.addInitScript(
+      ({ courseId, lessonId, code }) => {
+        const key = `learner:v1:lesson:${courseId}:${lessonId}`;
+        localStorage.setItem(
+          key,
+          JSON.stringify({
+            courseId,
+            lessonId,
+            status: "in_progress",
+            attemptCount: 1,
+            lastCode: { "main.py": code },
+            startedAt: new Date().toISOString(),
+          }),
+        );
+      },
+      { courseId: COURSE_ID, lessonId: "hello-world", code: SAVED_CODE },
+    );
+
+    await page.goto(`/learn/course/${COURSE_ID}/lesson/hello-world`);
+    await waitForMonacoReady(page);
+
+    // Resume banner visible immediately.
+    await expect(page.getByText(/your code was restored/i)).toBeVisible({ timeout: 10_000 });
+
+    // Monaco now carries the saved code (loadSavedCode populates the model).
+    await expect
+      .poll(async () =>
+        page.evaluate(() => {
+          const win = window as unknown as {
+            monaco?: { editor?: { getModels: () => Array<{ getValue: () => string }> } };
+          };
+          const model = win.monaco?.editor?.getModels()?.[0];
+          return model?.getValue() ?? "";
+        }),
+      )
+      .toContain("resumed from a previous session");
+  });
+
+  test("resume toast auto-dismisses after RESUME_TOAST_MS (3s)", async ({ page }) => {
+    await loadProfile(page, "empty");
+    await page.addInitScript(
+      ({ courseId, lessonId }) => {
+        const key = `learner:v1:lesson:${courseId}:${lessonId}`;
+        localStorage.setItem(
+          key,
+          JSON.stringify({
+            courseId,
+            lessonId,
+            status: "in_progress",
+            attemptCount: 1,
+            lastCode: { "main.py": "print('x')\n" },
+            startedAt: new Date().toISOString(),
+          }),
+        );
+      },
+      { courseId: COURSE_ID, lessonId: "hello-world" },
+    );
+
+    await page.goto(`/learn/course/${COURSE_ID}/lesson/hello-world`);
+    await waitForMonacoReady(page);
+
+    const toast = page.getByText(/your code was restored/i);
+    await expect(toast).toBeVisible({ timeout: 10_000 });
+    // RESUME_TOAST_MS is 3000 — give it 6s of slack for event-loop jitter.
+    await expect(toast).toHaveCount(0, { timeout: 6_000 });
+  });
+});

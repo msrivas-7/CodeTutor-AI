@@ -14,6 +14,8 @@ import { EditorTabs } from "../../../components/EditorTabs";
 import { OutputPanel } from "../../../components/OutputPanel";
 import { Splitter } from "../../../components/Splitter";
 import { SettingsModal } from "../../../components/SettingsModal";
+import { SessionErrorBanner } from "../../../components/SessionErrorBanner";
+import { Modal } from "../../../components/Modal";
 import { useSessionLifecycle } from "../../../hooks/useSessionLifecycle";
 import { useProjectStore } from "../../../state/projectStore";
 import { useSessionStore } from "../../../state/sessionStore";
@@ -26,7 +28,10 @@ import { WorkspaceCoach, isOnboardingDone } from "../components/WorkspaceCoach";
 import { computeMastery, formatTimeSpent } from "../utils/mastery";
 import { FailedTestCallout } from "../components/FailedTestCallout";
 import type { FunctionTest, TestReport, ValidationResult } from "../types";
+import { LANGUAGE_ENTRYPOINT } from "../../../types";
 import { useShortcutLabels } from "../../../util/platform";
+import { clamp, clampSide, usePersistedNumber, usePersistedFlag } from "../../../util/layoutPrefs";
+import { COACH_AUTO_OPEN_MS, RESUME_TOAST_MS } from "../../../util/timings";
 
 const LS_OUT_H = "ui:lesson:outputH";
 const LS_INSTR_W = "ui:lesson:instrW";
@@ -40,32 +45,6 @@ const DEFAULT_TUTOR = 340;
 const BOUNDS_OUT = [80, 500] as const;
 const BOUNDS_INSTR = [240, 520] as const;
 const BOUNDS_TUTOR = [260, 600] as const;
-
-function clamp(v: number, [min, max]: readonly [number, number]) {
-  return Math.max(min, Math.min(max, v));
-}
-
-// Side panels (instructions, tutor) are also clamped against a fraction of
-// viewport width so narrow screens don't allow dragging them wide enough to
-// squeeze the editor to nothing.
-function clampSide(v: number, [min, hardMax]: readonly [number, number]) {
-  const vw = typeof window !== "undefined" ? window.innerWidth : Infinity;
-  const max = Math.min(hardMax, Math.floor(vw * 0.45));
-  return Math.max(min, Math.min(max, v));
-}
-
-function loadNum(key: string, fallback: number): number {
-  try {
-    const v = Number(localStorage.getItem(key));
-    return Number.isFinite(v) && v > 0 ? v : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function save(key: string, value: string | number): void {
-  try { localStorage.setItem(key, String(value)); } catch { /* */ }
-}
 
 export default function LessonPage() {
   const { courseId, lessonId } = useParams<{
@@ -118,6 +97,8 @@ export default function LessonPage() {
   const [resetNonce, setResetNonce] = useState(0);
   const [confirmResetLesson, setConfirmResetLesson] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [resetMenuOpen, setResetMenuOpen] = useState(false);
+  const resetMenuRef = useRef<HTMLDivElement>(null);
   const [hasEdited, setHasEdited] = useState(false);
   const [hasRun, setHasRun] = useState(false);
   const [hasChecked, setHasChecked] = useState(false);
@@ -136,15 +117,11 @@ export default function LessonPage() {
   const [lastFailedName, setLastFailedName] = useState<string | null>(null);
   const [sameFailStreak, setSameFailStreak] = useState(0);
   const savedLessonCode = useRef<Record<string, string> | null>(null);
-  const [outputH, setOutputH] = useState(() => loadNum(LS_OUT_H, DEFAULT_OUT));
-  const [instrW, setInstrW] = useState(() => loadNum(LS_INSTR_W, DEFAULT_INSTR));
-  const [tutorW, setTutorW] = useState(() => loadNum(LS_TUTOR_W, DEFAULT_TUTOR));
-  const [instrCollapsed, setInstrCollapsed] = useState(() => {
-    try { return localStorage.getItem(LS_INSTR_COLLAPSED) === "1"; } catch { return false; }
-  });
-  const [tutorCollapsed, setTutorCollapsed] = useState(() => {
-    try { return localStorage.getItem(LS_TUTOR_COLLAPSED) === "1"; } catch { return false; }
-  });
+  const [outputH, setOutputH] = usePersistedNumber(LS_OUT_H, DEFAULT_OUT);
+  const [instrW, setInstrW] = usePersistedNumber(LS_INSTR_W, DEFAULT_INSTR);
+  const [tutorW, setTutorW] = usePersistedNumber(LS_TUTOR_W, DEFAULT_TUTOR);
+  const [instrCollapsed, setInstrCollapsed] = usePersistedFlag(LS_INSTR_COLLAPSED, false);
+  const [tutorCollapsed, setTutorCollapsed] = usePersistedFlag(LS_TUTOR_COLLAPSED, false);
   const initialized = useRef(false);
   const resumedTimer = useRef<ReturnType<typeof setTimeout>>();
   const [showCoach, setShowCoach] = useState(false);
@@ -160,14 +137,27 @@ export default function LessonPage() {
     return () => clearTimeout(resumedTimer.current);
   }, []);
 
-  useEffect(() => save(LS_OUT_H, outputH), [outputH]);
-  useEffect(() => save(LS_INSTR_W, instrW), [instrW]);
-  useEffect(() => save(LS_TUTOR_W, tutorW), [tutorW]);
-  useEffect(() => save(LS_INSTR_COLLAPSED, instrCollapsed ? "1" : "0"), [instrCollapsed]);
-  useEffect(() => save(LS_TUTOR_COLLAPSED, tutorCollapsed ? "1" : "0"), [tutorCollapsed]);
+  useEffect(() => {
+    if (!resetMenuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (resetMenuRef.current && !resetMenuRef.current.contains(e.target as Node)) {
+        setResetMenuOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setResetMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [resetMenuOpen]);
 
   useEffect(() => {
     if (!courseId || !lessonId) return;
+    let cancelled = false;
     initialized.current = false;
     autoEnteredPractice.current = false;
     setLoading(true);
@@ -192,6 +182,7 @@ export default function LessonPage() {
       loadAllLessonMetas(courseId),
     ])
       .then(([l, course, metas]) => {
+        if (cancelled) return;
         setLesson(l);
         setTotalLessons(course.lessonOrder.length);
         setLessonOrder(course.lessonOrder);
@@ -199,8 +190,17 @@ export default function LessonPage() {
         setPriorConcepts(conceptsAvailableBefore(course, metaMap, lessonId));
         startLesson(identity.learnerId, courseId, lessonId);
       })
-      .catch(() => setLesson(null))
-      .finally(() => setLoading(false));
+      .catch(() => {
+        if (cancelled) return;
+        setLesson(null);
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [courseId, lessonId, identity.learnerId, startLesson]);
 
   useEffect(() => {
@@ -218,7 +218,7 @@ export default function LessonPage() {
         order.push(path);
       }
       setResumed(true);
-      resumedTimer.current = setTimeout(() => setResumed(false), 3000);
+      resumedTimer.current = setTimeout(() => setResumed(false), RESUME_TOAST_MS);
     } else {
       for (const f of lesson.starterFiles) {
         files[f.path] = f.content;
@@ -226,14 +226,15 @@ export default function LessonPage() {
       }
     }
 
+    const entry = LANGUAGE_ENTRYPOINT[lesson.language];
     if (order.length === 0) {
-      files["main.py"] = "# Write your code here\n";
-      order.push("main.py");
+      files[entry] = "# Write your code here\n";
+      order.push(entry);
     }
 
     const ctxKey = `lesson:${courseId}/${lessonId}`;
     switchProjectContext(ctxKey, {
-      language: "python",
+      language: lesson.language,
       files,
       order,
       activeFile: order[0],
@@ -244,20 +245,20 @@ export default function LessonPage() {
   useEffect(() => {
     if (!lesson || loading) return;
     if (!isOnboardingDone()) {
-      const timer = setTimeout(() => setShowCoach(true), 600);
+      const timer = setTimeout(() => setShowCoach(true), COACH_AUTO_OPEN_MS);
       return () => clearTimeout(timer);
     }
   }, [lesson, loading]);
 
   const handleRun = useCallback(async () => {
-    if (!sessionId || sessionPhase !== "active" || running || !courseId || !lessonId) return;
+    if (!sessionId || sessionPhase !== "active" || running || !courseId || !lessonId || !lesson) return;
     setRunning(true);
     setRunError(null);
     try {
       const files = useProjectStore.getState().snapshot();
       await api.snapshotProject(sessionId, files);
       const stdin = useRunStore.getState().stdin || undefined;
-      const result = await api.execute(sessionId, "python", stdin);
+      const result = await api.execute(sessionId, lesson.language, stdin);
       setResult(result);
       setHasRun(true);
       incrementRun(courseId, lessonId);
@@ -274,18 +275,19 @@ export default function LessonPage() {
     } finally {
       setRunning(false);
     }
-  }, [sessionId, sessionPhase, running, courseId, lessonId, setRunning, setRunError, setResult, incrementRun, saveOutput, saveCode, practiceMode]);
+  }, [sessionId, sessionPhase, running, courseId, lessonId, lesson, setRunning, setRunError, setResult, incrementRun, saveOutput, saveCode, practiceMode]);
 
   const applyPracticeStarter = useCallback((exerciseIndex: number) => {
     if (!lesson?.practiceExercises) return;
     const exercise = lesson.practiceExercises[exerciseIndex];
     if (!exercise) return;
     const starter = exercise.starterCode ?? "# Write your code here\n";
+    const entry = LANGUAGE_ENTRYPOINT[lesson.language];
     useProjectStore.setState({
-      files: { "main.py": starter },
-      order: ["main.py"],
-      activeFile: "main.py",
-      openTabs: ["main.py"],
+      files: { [entry]: starter },
+      order: [entry],
+      activeFile: entry,
+      openTabs: [entry],
     });
     useRunStore.getState().setResult(null);
     useRunStore.getState().setError(null);
@@ -304,9 +306,10 @@ export default function LessonPage() {
       files[f.path] = f.content;
       order.push(f.path);
     }
+    const entry = LANGUAGE_ENTRYPOINT[lesson.language];
     if (order.length === 0) {
-      files["main.py"] = "# Write your code here\n";
-      order.push("main.py");
+      files[entry] = "# Write your code here\n";
+      order.push(entry);
     }
     useProjectStore.setState({
       files,
@@ -335,16 +338,16 @@ export default function LessonPage() {
   })();
 
   const handleRunExamples = useCallback(async () => {
-    if (!sessionId || sessionPhase !== "active" || runningTests || !courseId || !lessonId) return;
+    if (!sessionId || sessionPhase !== "active" || runningTests || !courseId || !lessonId || !lesson) return;
     if (functionTests.length === 0) return;
     setRunningTests(true);
     try {
       const files = useProjectStore.getState().snapshot();
       await api.snapshotProject(sessionId, files);
-      // Always batch visible + hidden in one harness run — a single Python
-      // invocation carries the full overhead (docker exec, boot, runpy); the
-      // per-test cost inside is negligible, so there's no reason to split.
-      const res = await api.executeTests(sessionId, "python", functionTests);
+      // Always batch visible + hidden in one harness run — a single harness
+      // invocation carries the full overhead (docker exec, boot, runtime init);
+      // the per-test cost inside is negligible, so there's no reason to split.
+      const res = await api.executeTests(sessionId, lesson.language, functionTests);
       setTestReport(res.report);
     } catch (err) {
       setTestReport({
@@ -355,7 +358,7 @@ export default function LessonPage() {
     } finally {
       setRunningTests(false);
     }
-  }, [sessionId, sessionPhase, runningTests, courseId, lessonId, functionTests]);
+  }, [sessionId, sessionPhase, runningTests, courseId, lessonId, lesson, functionTests]);
 
   const handleCheck = useCallback(async () => {
     if (!lesson || !courseId || !lessonId) return;
@@ -365,7 +368,27 @@ export default function LessonPage() {
     if (practiceMode) {
       const exercise = lesson.practiceExercises?.[practiceIndex];
       if (!exercise) return;
-      const v = validateLesson(result, files, exercise.completionRules);
+      const practiceFnTests = exercise.completionRules
+        .filter((r) => r.type === "function_tests")
+        .flatMap((r) => r.tests ?? []);
+      let practiceReport: typeof testReport = null;
+      if (practiceFnTests.length > 0 && sessionId) {
+        setRunningTests(true);
+        try {
+          await api.snapshotProject(sessionId, files);
+          const res = await api.executeTests(sessionId, lesson.language, practiceFnTests);
+          practiceReport = res.report;
+        } catch (err) {
+          practiceReport = {
+            results: [],
+            harnessError: (err as Error).message,
+            cleanStdout: "",
+          };
+        } finally {
+          setRunningTests(false);
+        }
+      }
+      const v = validateLesson(result, files, exercise.completionRules, { testReport: practiceReport });
       setPracticeValidation(v);
       if (v.passed) {
         const current = useProgressStore.getState().lessonProgress[`${courseId}/${lessonId}`];
@@ -386,7 +409,7 @@ export default function LessonPage() {
       setRunningTests(true);
       try {
         await api.snapshotProject(sessionId!, files);
-        const res = await api.executeTests(sessionId!, "python", functionTests);
+        const res = await api.executeTests(sessionId!, lesson.language, functionTests);
         latestReport = res.report;
         setTestReport(res.report);
       } catch (err) {
@@ -635,9 +658,10 @@ export default function LessonPage() {
       files[f.path] = f.content;
       order.push(f.path);
     }
+    const entry = LANGUAGE_ENTRYPOINT[lesson.language];
     if (order.length === 0) {
-      files["main.py"] = "# Write your code here\n";
-      order.push("main.py");
+      files[entry] = "# Write your code here\n";
+      order.push(entry);
     }
     useProjectStore.setState({ files, order, activeFile: order[0], openTabs: [order[0]] });
     useRunStore.getState().setResult(null);
@@ -761,9 +785,38 @@ export default function LessonPage() {
         </div>
       </header>
 
+      <SessionErrorBanner />
+
       {loading ? (
-        <div className="flex flex-1 items-center justify-center">
-          <span className="skeleton h-4 w-32 rounded" />
+        <div
+          className="flex min-h-0 flex-1 overflow-hidden"
+          role="status"
+          aria-live="polite"
+          aria-label="Loading lesson"
+        >
+          <span className="sr-only">Loading…</span>
+          <div className="flex w-[320px] shrink-0 flex-col gap-3 border-r border-border bg-panel p-4">
+            <span className="skeleton h-4 w-2/3 rounded" />
+            <span className="skeleton h-3 w-5/6 rounded" />
+            <span className="skeleton h-3 w-3/4 rounded" />
+            <span className="skeleton h-3 w-4/5 rounded" />
+            <span className="skeleton h-3 w-1/2 rounded" />
+          </div>
+          <div className="flex min-w-0 flex-1 flex-col">
+            <div className="flex-1 space-y-2 bg-bg p-6">
+              <span className="skeleton h-3 w-1/3 rounded" />
+              <span className="skeleton mt-4 block h-3 w-1/2 rounded" />
+              <span className="skeleton mt-2 block h-3 w-3/4 rounded" />
+              <span className="skeleton mt-2 block h-3 w-2/3 rounded" />
+            </div>
+            <div className="h-[200px] border-t border-border bg-panel p-4">
+              <span className="skeleton h-3 w-1/4 rounded" />
+            </div>
+          </div>
+          <div className="flex w-[340px] shrink-0 flex-col gap-3 border-l border-border bg-panel p-4">
+            <span className="skeleton h-3 w-1/3 rounded" />
+            <span className="skeleton h-10 w-full rounded-md" />
+          </div>
         </div>
       ) : lesson ? (
         <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -845,10 +898,12 @@ export default function LessonPage() {
               <OutputPanel />
             </div>
 
-            {/* Run toolbar — 3 rows: primary actions, validation feedback, secondary/meta */}
+            {/* Run toolbar — 2 rows: primary actions (+ overflow menu), validation feedback.
+                Secondary actions (Reset Code / Reset Lesson) + stats are tucked behind ⋯ so
+                the toolbar stays a single visual strip. */}
             <div className="border-t border-border bg-panel/80">
               {/* Row 1 — Primary actions */}
-              <div className="flex items-center gap-2 px-4 pt-1.5">
+              <div className="flex items-center gap-2 px-4 py-1.5">
                 <button
                   ref={runBtnRef}
                   onClick={handleRun}
@@ -939,6 +994,51 @@ export default function LessonPage() {
                     Next Lesson →
                   </button>
                 )}
+                <div ref={resetMenuRef} className="relative">
+                  <button
+                    onClick={() => setResetMenuOpen((v) => !v)}
+                    aria-label="More lesson actions"
+                    aria-haspopup="menu"
+                    aria-expanded={resetMenuOpen}
+                    className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition hover:bg-elevated hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    title="More actions"
+                  >
+                    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                      <circle cx="5" cy="12" r="1.6" />
+                      <circle cx="12" cy="12" r="1.6" />
+                      <circle cx="19" cy="12" r="1.6" />
+                    </svg>
+                  </button>
+                  {resetMenuOpen && (
+                    // Opens UPWARD (bottom-full) — the kebab sits low in the
+                    // viewport (between editor and output panel) so a downward
+                    // dropdown falls off-screen.
+                    <div
+                      role="menu"
+                      className="absolute right-0 bottom-full z-40 mb-1 w-48 overflow-hidden rounded-lg border border-border bg-panel/95 p-1 shadow-xl backdrop-blur"
+                    >
+                      <button
+                        role="menuitem"
+                        onClick={() => { setResetMenuOpen(false); handleReset(); }}
+                        disabled={running}
+                        className="block w-full rounded-md px-3 py-1.5 text-left text-xs text-ink transition hover:bg-elevated disabled:cursor-not-allowed disabled:opacity-40"
+                        title="Reset code to starter"
+                      >
+                        Reset Code
+                      </button>
+                      <div className="my-0.5 border-t border-border/50" />
+                      <button
+                        role="menuitem"
+                        onClick={() => { setResetMenuOpen(false); setConfirmResetLesson(true); }}
+                        disabled={running}
+                        className="block w-full rounded-md px-3 py-1.5 text-left text-xs font-medium text-danger/80 transition hover:bg-danger/10 hover:text-danger disabled:cursor-not-allowed disabled:opacity-40"
+                        title="Reset all lesson progress (attempts, runs, hints, code) — destructive"
+                      >
+                        Reset Lesson
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
               {/* Row 2 — Validation feedback (own row so it never collides with primary actions). Caps height so long hints can't push the toolbar off-screen. */}
               {!practiceMode && validation && !validation.passed && (
@@ -952,37 +1052,19 @@ export default function LessonPage() {
                   )}
                 </div>
               )}
-              {/* Row 3 — Secondary actions + stats */}
-              <div className="flex items-center gap-2 px-4 pb-1.5 pt-1">
-                <button
-                  onClick={handleReset}
-                  disabled={running}
-                  className="rounded-md px-2 py-0.5 text-[11px] text-muted transition hover:bg-elevated hover:text-ink disabled:opacity-40"
-                  title="Reset code to starter"
-                >
-                  Reset Code
-                </button>
-                <button
-                  onClick={() => setConfirmResetLesson(true)}
-                  disabled={running}
-                  className="rounded-md px-2 py-0.5 text-[11px] font-medium text-danger/70 transition hover:bg-danger/10 hover:text-danger disabled:opacity-40"
-                  title="Reset all lesson progress (attempts, runs, hints, code) — destructive"
-                >
-                  Reset Lesson
-                </button>
-                <span className="text-[10px] text-faint">
-                  <kbd className="rounded border border-border bg-elevated px-1 py-[1px] font-mono text-[9px] text-muted">{keys.run}</kbd> to run
-                </span>
-                <div className="flex-1" />
-                {lp && (
+              {/* Row 3 — Stats strip. Ambient motivation (time/attempts/runs/hints),
+                  always visible. No controls here — Resets live in Row 1's ⋯ menu. */}
+              {lp && (
+                <div className="flex items-center px-4 pb-1.5 pt-1">
+                  <div className="flex-1" />
                   <span
                     className="text-[10px] text-faint"
                     title="Time is estimated from active tabs. Long idle periods and hidden tabs are excluded."
                   >
-                    {lp.runCount} runs · {lp.hintCount} hints · {lp.attemptCount} attempts · {formatTimeSpent(lp.timeSpentMs)}
+                    {formatTimeSpent(lp.timeSpentMs)} · {lp.attemptCount} attempts · {lp.runCount} runs · {lp.hintCount} hints
                   </span>
-                )}
-              </div>
+                </div>
+              )}
             </div>
           </section>
 
@@ -1062,28 +1144,32 @@ export default function LessonPage() {
         />
       )}
       {confirmResetLesson && (
-        <div className="fixed inset-0 z-30 flex items-center justify-center bg-bg/80 backdrop-blur-sm">
-          <div className="mx-4 w-full max-w-sm rounded-xl border border-danger/30 bg-panel p-5 shadow-xl">
-            <h2 className="text-sm font-bold text-ink">Reset Lesson Progress?</h2>
-            <p className="mt-2 text-xs leading-relaxed text-muted">
-              This will clear all progress for this lesson — attempts, runs, hints, saved code, and completion status. You'll start fresh as if you've never opened this lesson.
-            </p>
-            <div className="mt-4 flex items-center gap-2">
-              <button
-                onClick={() => setConfirmResetLesson(false)}
-                className="flex-1 rounded-lg border border-border px-4 py-2 text-xs font-medium text-muted transition hover:bg-elevated hover:text-ink"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleResetLessonProgress}
-                className="flex-1 rounded-lg bg-danger/20 px-4 py-2 text-xs font-semibold text-danger ring-1 ring-danger/40 transition hover:bg-danger/30"
-              >
-                Reset Lesson
-              </button>
-            </div>
+        <Modal
+          onClose={() => setConfirmResetLesson(false)}
+          role="alertdialog"
+          labelledBy="reset-lesson-title"
+          position="center"
+          panelClassName="mx-4 w-full max-w-sm rounded-xl border border-danger/30 bg-panel p-5 shadow-xl"
+        >
+          <h2 id="reset-lesson-title" className="text-sm font-bold text-ink">Reset Lesson Progress?</h2>
+          <p className="mt-2 text-xs leading-relaxed text-muted">
+            This will clear all progress for this lesson — attempts, runs, hints, saved code, and completion status. You'll start fresh as if you've never opened this lesson.
+          </p>
+          <div className="mt-4 flex items-center gap-2">
+            <button
+              onClick={() => setConfirmResetLesson(false)}
+              className="flex-1 rounded-lg border border-border px-4 py-2 text-xs font-medium text-muted transition hover:bg-elevated hover:text-ink"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleResetLessonProgress}
+              className="flex-1 rounded-lg bg-danger/20 px-4 py-2 text-xs font-semibold text-danger ring-1 ring-danger/40 transition hover:bg-danger/30"
+            >
+              Reset Lesson
+            </button>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

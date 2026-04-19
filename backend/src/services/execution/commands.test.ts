@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
 import { LANGUAGES, commandFor, isLanguage, type Language } from "./commands.js";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const frontendTypes = resolve(here, "../../../../frontend/src/types.ts");
 
 describe("isLanguage", () => {
   it.each(LANGUAGES)("returns true for known language %j", (lang) => {
@@ -157,5 +163,26 @@ describe("commandFor", () => {
     for (const lang of compiled) {
       expect(commandFor(lang).compile?.label).toBe("compile");
     }
+  });
+});
+
+// Until `Language` lives in a real shared package, the frontend re-declares it
+// verbatim at frontend/src/types.ts. This test parses that file and asserts the
+// union members + the LANGUAGES array match — so any drift fails CI loudly.
+describe("Language drift guard (frontend ⇄ backend)", () => {
+  const source = readFileSync(frontendTypes, "utf8");
+
+  it("frontend Language union matches backend LANGUAGES", () => {
+    const unionMatch = source.match(/export type Language =\s*([\s\S]*?);/);
+    expect(unionMatch, "could not find `export type Language` in frontend/src/types.ts").toBeTruthy();
+    const members = Array.from(unionMatch![1].matchAll(/"([^"]+)"/g)).map((m) => m[1]).sort();
+    expect(members).toEqual([...LANGUAGES].sort());
+  });
+
+  it("frontend LANGUAGE_ENTRYPOINT keys match backend LANGUAGES", () => {
+    const mapMatch = source.match(/LANGUAGE_ENTRYPOINT[^=]*=\s*\{([\s\S]*?)\}/);
+    expect(mapMatch, "could not find LANGUAGE_ENTRYPOINT in frontend/src/types.ts").toBeTruthy();
+    const keys = Array.from(mapMatch![1].matchAll(/(\w+)\s*:/g)).map((m) => m[1]).sort();
+    expect(keys).toEqual([...LANGUAGES].sort());
   });
 });

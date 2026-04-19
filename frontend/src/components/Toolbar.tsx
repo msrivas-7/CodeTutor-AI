@@ -1,10 +1,11 @@
-import { type Ref } from "react";
+import { useState, type Ref } from "react";
 import { useProjectStore, starterStdin } from "../state/projectStore";
 import { useSessionStore } from "../state/sessionStore";
 import { useRunStore } from "../state/runStore";
 import { api } from "../api/client";
 import { LANGUAGES, LANGUAGE_LABEL, type Language } from "../types";
 import { useShortcutLabels } from "../util/platform";
+import { Modal } from "./Modal";
 
 interface ToolbarProps {
   langPickerRef?: Ref<HTMLLabelElement>;
@@ -17,6 +18,7 @@ export function Toolbar({ langPickerRef, runButtonRef }: ToolbarProps = {}) {
   const phase = useSessionStore((s) => s.phase);
   const { running, setRunning, setResult, setError, stdin, setStdin } = useRunStore();
   const keys = useShortcutLabels();
+  const [pendingLang, setPendingLang] = useState<Language | null>(null);
 
   const canRun = Boolean(sessionId) && phase === "active" && !running;
 
@@ -38,15 +40,14 @@ export function Toolbar({ langPickerRef, runButtonRef }: ToolbarProps = {}) {
 
   const handleLanguageChange = (next: Language) => {
     if (next === language) return;
-    if (
-      confirm(
-        `Switch to ${LANGUAGE_LABEL[next]}? This replaces the current project with the ${LANGUAGE_LABEL[next]} starter.`
-      )
-    ) {
-      resetToStarter(next);
-      // Starters read stdin; pre-fill the textarea so first-run "just works".
-      setStdin(starterStdin(next));
-    }
+    setPendingLang(next);
+  };
+
+  const confirmLanguageSwitch = () => {
+    if (!pendingLang) return;
+    resetToStarter(pendingLang);
+    setStdin(starterStdin(pendingLang));
+    setPendingLang(null);
   };
 
   return (
@@ -92,6 +93,39 @@ export function Toolbar({ langPickerRef, runButtonRef }: ToolbarProps = {}) {
         </span>
         {canRun && !running && <kbd className="kbd">{keys.run}</kbd>}
       </button>
+
+      {pendingLang && (
+        <Modal
+          onClose={() => setPendingLang(null)}
+          role="alertdialog"
+          labelledBy="lang-switch-title"
+          position="center"
+          panelClassName="mx-4 w-full max-w-sm rounded-xl border border-warn/30 bg-panel p-5 shadow-xl"
+        >
+          <h2 id="lang-switch-title" className="text-sm font-bold text-ink">
+            Switch to {LANGUAGE_LABEL[pendingLang]}?
+          </h2>
+          <p className="mt-2 text-xs leading-relaxed text-muted">
+            This replaces your current project files with the{" "}
+            <span className="font-semibold text-ink">{LANGUAGE_LABEL[pendingLang]}</span>{" "}
+            starter. Any unsaved code in the editor will be lost.
+          </p>
+          <div className="mt-4 flex items-center gap-2">
+            <button
+              onClick={() => setPendingLang(null)}
+              className="flex-1 rounded-lg border border-border px-4 py-2 text-xs font-medium text-muted transition hover:bg-elevated hover:text-ink"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={confirmLanguageSwitch}
+              className="flex-1 rounded-lg bg-warn/20 px-4 py-2 text-xs font-semibold text-warn ring-1 ring-warn/40 transition hover:bg-warn/30"
+            >
+              Switch
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

@@ -1,0 +1,10 @@
+// {{TITLE}}
+//
+// Replace this scaffold with the starter skeleton a learner sees when the
+// lesson opens. Keep it terse — stubs and TODOs, not a working solution.
+
+function main() {
+  // TODO: implement the task described in content.md
+}
+
+main();

@@ -1,10 +1,19 @@
 import { z } from "zod";
+import { LANGUAGES, type Language } from "../../../types";
 
 const nonEmptyString = z.string().min(1);
+const languageEnum = z.enum(LANGUAGES as [Language, ...Language[]]);
 const kebabOrSnake = z
   .string()
   .min(1)
   .regex(/^[a-z0-9][a-z0-9_-]*$/i, "must be a simple identifier (letters, digits, -, _)");
+// Course ids additionally permit a single leading underscore, which is the
+// folder-naming convention for internal (non-shipping) courses like
+// `_internal-js-smoke`.
+const courseId = z
+  .string()
+  .min(1)
+  .regex(/^_?[a-z0-9][a-z0-9_-]*$/i, "must be a simple identifier (letters, digits, -, _), optionally prefixed with `_`");
 
 export const functionTestSchema = z.object({
   name: nonEmptyString,
@@ -54,11 +63,11 @@ export const practiceExerciseSchema = z.object({
 
 export const lessonMetaSchema = z.object({
   id: kebabOrSnake,
-  courseId: kebabOrSnake,
+  courseId: courseId,
   title: nonEmptyString,
   description: nonEmptyString,
   order: z.number().int().positive(),
-  language: nonEmptyString,
+  language: languageEnum,
   estimatedMinutes: z.number().int().positive(),
   objectives: z.array(z.string()).min(1),
   teachesConceptTags: z.array(z.string()).default([]),
@@ -71,12 +80,16 @@ export const lessonMetaSchema = z.object({
 });
 
 export const courseSchema = z.object({
-  id: kebabOrSnake,
+  id: courseId,
   title: nonEmptyString,
   description: nonEmptyString,
-  language: nonEmptyString,
+  language: languageEnum,
   lessonOrder: z.array(kebabOrSnake).min(1),
   baseVocabulary: z.array(z.string()).default([]),
+  // Internal courses exist to validate architecture (e.g. the Phase 10 JS
+  // smoke-test course) without showing up on the learner dashboard. Dev-only
+  // surfaces like ContentHealthPage still list them.
+  internal: z.boolean().optional(),
 });
 
 export type CourseSchemaInferred = z.infer<typeof courseSchema>;

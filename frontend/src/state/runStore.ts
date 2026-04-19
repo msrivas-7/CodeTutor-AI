@@ -21,7 +21,6 @@ interface RunState {
   setResult: (r: RunResult | null) => void;
   setError: (e: string | null) => void;
   setStdin: (v: string) => void;
-  clear: () => void;
   switchRunContext: (contextKey: string, defaults?: { stdin?: string }) => void;
 }
 
@@ -38,7 +37,6 @@ export const useRunStore = create<RunState>((set, get) => ({
   },
   setError: (error) => set({ error, result: null }),
   setStdin: (stdin) => set({ stdin }),
-  clear: () => set({ result: null, error: null }),
   switchRunContext: (contextKey, defaults) => {
     const state = get();
     if (state.runContext) {

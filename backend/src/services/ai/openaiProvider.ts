@@ -77,6 +77,51 @@ async function parseError(res: Response): Promise<string> {
   }
 }
 
+// Pick the lesson-aware (guided) or editor-mode prompt builders based on
+// whether the request carries a lessonContext, and classify the turn for the
+// telemetry log line. Shared by `ask` and `askStream` — if this contract
+// changes, both code paths move together.
+function buildPromptInputs(params: AIAskParams): {
+  userTurn: string;
+  instructions: string;
+  mode: "first-turn" | "stuck" | "follow-up";
+  priorTutorTurns: number;
+  stuck: boolean;
+} {
+  const guided = !!params.lessonContext;
+  const common = {
+    question: params.question,
+    files: params.files,
+    activeFile: params.activeFile,
+    lastRun: params.lastRun,
+    history: params.history,
+    stdin: params.stdin,
+    diffSinceLastTurn: params.diffSinceLastTurn,
+    selection: params.selection,
+  };
+  // Guided mode reads language from the lessonContext — that's the authoritative
+  // source (lesson.language on the schema); the top-level `params.language` is
+  // an editor-mode construct.
+  const userTurn = guided
+    ? buildGuidedUserTurn({ ...common, language: params.lessonContext!.language })
+    : buildUserTurn({ ...common, language: params.language });
+
+  const promptOpts = {
+    runsSinceLastTurn: params.runsSinceLastTurn,
+    editsSinceLastTurn: params.editsSinceLastTurn,
+    persona: params.persona,
+  };
+  const instructions = guided
+    ? buildGuidedSystemPrompt(params.history, params.question, params.lessonContext!, promptOpts)
+    : buildSystemPrompt(params.history, params.question, promptOpts);
+
+  const priorTutorTurns = params.history.filter((m) => m.role === "assistant").length;
+  const stuck = studentSeemsStuck(params.question);
+  const mode = priorTutorTurns === 0 && !stuck ? "first-turn" : stuck ? "stuck" : "follow-up";
+
+  return { userTurn, instructions, mode, priorTutorTurns, stuck };
+}
+
 export const openaiProvider: AIProvider = {
   async validateKey(key) {
     console.log(`[openai] validate-key fingerprint=${keyFingerprint(key)}`);
@@ -117,51 +162,7 @@ export const openaiProvider: AIProvider = {
   },
 
   async ask(params: AIAskParams): Promise<AIAskResult> {
-    const guided = !!params.lessonContext;
-
-    const userTurn = guided
-      ? buildGuidedUserTurn({
-          question: params.question,
-          files: params.files,
-          activeFile: params.activeFile,
-          language: params.language,
-          lastRun: params.lastRun,
-          history: params.history,
-          stdin: params.stdin,
-          diffSinceLastTurn: params.diffSinceLastTurn,
-          selection: params.selection,
-        })
-      : buildUserTurn({
-          question: params.question,
-          files: params.files,
-          activeFile: params.activeFile,
-          language: params.language,
-          lastRun: params.lastRun,
-          history: params.history,
-          stdin: params.stdin,
-          diffSinceLastTurn: params.diffSinceLastTurn,
-          selection: params.selection,
-        });
-
-    const instructions = guided
-      ? buildGuidedSystemPrompt(params.history, params.question, params.lessonContext!, {
-          runsSinceLastTurn: params.runsSinceLastTurn,
-          editsSinceLastTurn: params.editsSinceLastTurn,
-          persona: params.persona,
-        })
-      : buildSystemPrompt(params.history, params.question, {
-          runsSinceLastTurn: params.runsSinceLastTurn,
-          editsSinceLastTurn: params.editsSinceLastTurn,
-          persona: params.persona,
-        });
-
-    const priorTutorTurns = params.history.filter((m) => m.role === "assistant").length;
-    const stuck = studentSeemsStuck(params.question);
-    const mode = priorTutorTurns === 0 && !stuck
-      ? "first-turn"
-      : stuck
-        ? "stuck"
-        : "follow-up";
+    const { userTurn, instructions, mode, priorTutorTurns, stuck } = buildPromptInputs(params);
 
     console.log(`\n[openai] ask start -----------------------------`);
     console.log(`[openai]   model=${params.model}  fingerprint=${keyFingerprint(params.key)}`);
@@ -290,47 +291,7 @@ export const openaiProvider: AIProvider = {
   },
 
   async askStream(params: AIAskParams, handlers: AIStreamHandlers): Promise<void> {
-    const guided = !!params.lessonContext;
-
-    const userTurn = guided
-      ? buildGuidedUserTurn({
-          question: params.question,
-          files: params.files,
-          activeFile: params.activeFile,
-          language: params.language,
-          lastRun: params.lastRun,
-          history: params.history,
-          stdin: params.stdin,
-          diffSinceLastTurn: params.diffSinceLastTurn,
-          selection: params.selection,
-        })
-      : buildUserTurn({
-          question: params.question,
-          files: params.files,
-          activeFile: params.activeFile,
-          language: params.language,
-          lastRun: params.lastRun,
-          history: params.history,
-          stdin: params.stdin,
-          diffSinceLastTurn: params.diffSinceLastTurn,
-          selection: params.selection,
-        });
-
-    const instructions = guided
-      ? buildGuidedSystemPrompt(params.history, params.question, params.lessonContext!, {
-          runsSinceLastTurn: params.runsSinceLastTurn,
-          editsSinceLastTurn: params.editsSinceLastTurn,
-          persona: params.persona,
-        })
-      : buildSystemPrompt(params.history, params.question, {
-          runsSinceLastTurn: params.runsSinceLastTurn,
-          editsSinceLastTurn: params.editsSinceLastTurn,
-          persona: params.persona,
-        });
-
-    const priorTutorTurns = params.history.filter((m) => m.role === "assistant").length;
-    const stuck = studentSeemsStuck(params.question);
-    const mode = priorTutorTurns === 0 && !stuck ? "first-turn" : stuck ? "stuck" : "follow-up";
+    const { userTurn, instructions, mode, priorTutorTurns, stuck } = buildPromptInputs(params);
 
     console.log(`\n[openai] stream start ---------------------------`);
     console.log(`[openai]   model=${params.model}  fingerprint=${keyFingerprint(params.key)}`);

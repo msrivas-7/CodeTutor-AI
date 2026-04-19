@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { CourseProgress, LessonProgress } from "../types";
+import { noteStorageQuotaError } from "../../../state/storageStore";
 
 const COURSE_KEY = (courseId: string) => `learner:v1:progress:${courseId}`;
 const LESSON_KEY = (courseId: string, lessonId: string) =>
@@ -37,8 +38,10 @@ export function loadAllLessonProgress(
 function saveJson(key: string, value: unknown): void {
   try {
     localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    /* quota or disabled */
+  } catch (err) {
+    // Surface quota errors as a dismissible banner — silent loss of progress
+    // (what the old `/* quota or disabled */` swallow did) was a footgun.
+    noteStorageQuotaError(err);
   }
 }
 
@@ -103,7 +106,30 @@ interface ProgressState {
   resetCourseProgress: (learnerId: string, courseId: string, lessonIds: string[]) => void;
 }
 
-export const useProgressStore = create<ProgressState>()((set, get) => ({
+export const useProgressStore = create<ProgressState>()((set, get) => {
+  // Private mutator used by every simple per-lesson update (runCount,
+  // hintCount, lastCode, lastOutput, timeSpentMs, practiceCompletedIds, …).
+  // Return `null` from `patch` to no-op (e.g. lesson not found, duplicate
+  // practice id). Eliminates ~100 lines of resolveLesson/saveJson/set
+  // scaffolding that was copy-pasted across 7 methods.
+  const updateLesson = (
+    courseId: string,
+    lessonId: string,
+    patch: (current: LessonProgress) => LessonProgress | null,
+  ) => {
+    const compositeKey = `${courseId}/${lessonId}`;
+    const lsKey = LESSON_KEY(courseId, lessonId);
+    set((s) => {
+      const current = resolveLesson(s.lessonProgress, courseId, lessonId);
+      if (!current) return s;
+      const next = patch(current);
+      if (!next) return s;
+      saveJson(lsKey, next);
+      return { lessonProgress: { ...s.lessonProgress, [compositeKey]: next } };
+    });
+  };
+
+  return ({
   courseProgress: {},
   lessonProgress: {},
 
@@ -296,103 +322,48 @@ export const useProgressStore = create<ProgressState>()((set, get) => ({
   },
 
   incrementRun(courseId, lessonId) {
-    const compositeKey = `${courseId}/${lessonId}`;
-    const lsKey = LESSON_KEY(courseId, lessonId);
-    set((s) => {
-      const current = resolveLesson(s.lessonProgress, courseId, lessonId);
-      if (!current) return s;
-      const updated = { ...current, runCount: current.runCount + 1, updatedAt: now() };
-      saveJson(lsKey, updated);
-      return { lessonProgress: { ...s.lessonProgress, [compositeKey]: updated } };
-    });
+    updateLesson(courseId, lessonId, (lp) => ({ ...lp, runCount: lp.runCount + 1, updatedAt: now() }));
   },
 
   incrementHint(courseId, lessonId) {
-    const compositeKey = `${courseId}/${lessonId}`;
-    const lsKey = LESSON_KEY(courseId, lessonId);
-    set((s) => {
-      const current = resolveLesson(s.lessonProgress, courseId, lessonId);
-      if (!current) return s;
-      const updated = { ...current, hintCount: current.hintCount + 1, updatedAt: now() };
-      saveJson(lsKey, updated);
-      return { lessonProgress: { ...s.lessonProgress, [compositeKey]: updated } };
-    });
+    updateLesson(courseId, lessonId, (lp) => ({ ...lp, hintCount: lp.hintCount + 1, updatedAt: now() }));
   },
 
   saveCode(courseId, lessonId, code) {
-    const compositeKey = `${courseId}/${lessonId}`;
-    const lsKey = LESSON_KEY(courseId, lessonId);
-    set((s) => {
-      const current = resolveLesson(s.lessonProgress, courseId, lessonId);
-      if (!current) return s;
-      const updated = { ...current, lastCode: code, updatedAt: now() };
-      saveJson(lsKey, updated);
-      return { lessonProgress: { ...s.lessonProgress, [compositeKey]: updated } };
-    });
+    updateLesson(courseId, lessonId, (lp) => ({ ...lp, lastCode: code, updatedAt: now() }));
   },
 
   saveOutput(courseId, lessonId, output) {
-    const compositeKey = `${courseId}/${lessonId}`;
-    const lsKey = LESSON_KEY(courseId, lessonId);
-    set((s) => {
-      const current = resolveLesson(s.lessonProgress, courseId, lessonId);
-      if (!current) return s;
-      const updated = { ...current, lastOutput: output, updatedAt: now() };
-      saveJson(lsKey, updated);
-      return { lessonProgress: { ...s.lessonProgress, [compositeKey]: updated } };
-    });
+    updateLesson(courseId, lessonId, (lp) => ({ ...lp, lastOutput: output, updatedAt: now() }));
   },
 
   incrementLessonTime(courseId, lessonId, deltaMs) {
     if (!Number.isFinite(deltaMs) || deltaMs <= 0) return;
-    const compositeKey = `${courseId}/${lessonId}`;
-    const lsKey = LESSON_KEY(courseId, lessonId);
-    set((s) => {
-      const current = resolveLesson(s.lessonProgress, courseId, lessonId);
-      if (!current) return s;
-      const prev = current.timeSpentMs ?? 0;
-      const updated: LessonProgress = {
-        ...current,
-        timeSpentMs: prev + deltaMs,
-        updatedAt: now(),
-      };
-      saveJson(lsKey, updated);
-      return { lessonProgress: { ...s.lessonProgress, [compositeKey]: updated } };
-    });
+    updateLesson(courseId, lessonId, (lp) => ({
+      ...lp,
+      timeSpentMs: (lp.timeSpentMs ?? 0) + deltaMs,
+      updatedAt: now(),
+    }));
   },
 
   completePracticeExercise(courseId, lessonId, exerciseId) {
-    const compositeKey = `${courseId}/${lessonId}`;
-    const lsKey = LESSON_KEY(courseId, lessonId);
-    set((s) => {
-      const current = resolveLesson(s.lessonProgress, courseId, lessonId);
-      if (!current) return s;
-      const existing = current.practiceCompletedIds ?? [];
-      if (existing.includes(exerciseId)) return s;
-      const updated: LessonProgress = {
-        ...current,
+    updateLesson(courseId, lessonId, (lp) => {
+      const existing = lp.practiceCompletedIds ?? [];
+      if (existing.includes(exerciseId)) return null;
+      return {
+        ...lp,
         practiceCompletedIds: [...existing, exerciseId],
         updatedAt: now(),
       };
-      saveJson(lsKey, updated);
-      return { lessonProgress: { ...s.lessonProgress, [compositeKey]: updated } };
     });
   },
 
   resetPracticeProgress(courseId, lessonId) {
-    const compositeKey = `${courseId}/${lessonId}`;
-    const lsKey = LESSON_KEY(courseId, lessonId);
-    set((s) => {
-      const current = resolveLesson(s.lessonProgress, courseId, lessonId);
-      if (!current) return s;
-      const updated: LessonProgress = {
-        ...current,
-        practiceCompletedIds: [],
-        updatedAt: now(),
-      };
-      saveJson(lsKey, updated);
-      return { lessonProgress: { ...s.lessonProgress, [compositeKey]: updated } };
-    });
+    updateLesson(courseId, lessonId, (lp) => ({
+      ...lp,
+      practiceCompletedIds: [],
+      updatedAt: now(),
+    }));
   },
 
   resetLessonProgress(learnerId, courseId, lessonId) {
@@ -455,4 +426,5 @@ export const useProgressStore = create<ProgressState>()((set, get) => ({
       };
     });
   },
-}));
+  });
+});

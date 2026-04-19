@@ -1,5 +1,6 @@
 import type { LessonMeta } from "../types";
 import { formatTimeSpent, type MasteryLevel } from "../utils/mastery";
+import { Modal } from "../../../components/Modal";
 
 interface LessonCompletePanelProps {
   lesson: LessonMeta;
@@ -29,14 +30,14 @@ export function LessonCompletePanel({
     mastery === "shaky" && practiceCount > 0 && practiceDone < practiceCount;
 
   return (
-    <div
+    <Modal
+      onClose={onDismiss}
       role="alertdialog"
-      aria-modal="true"
-      aria-labelledby="lesson-complete-title"
-      aria-describedby="lesson-complete-desc"
-      className="fixed inset-0 z-20 flex items-center justify-center bg-bg/80 backdrop-blur-sm"
+      labelledBy="lesson-complete-title"
+      position="center"
+      panelClassName="mx-4 w-full max-w-md rounded-xl border border-success/30 bg-panel p-6 shadow-xl"
     >
-      <div className="mx-4 w-full max-w-md rounded-xl border border-success/30 bg-panel p-6 shadow-xl">
+      <div>
         <div className="mb-4 text-center">
           <span aria-hidden="true" className="text-4xl">🎉</span>
           <h2 id="lesson-complete-title" className="mt-2 text-lg font-bold text-success">Lesson Complete!</h2>
@@ -197,6 +198,6 @@ export function LessonCompletePanel({
           )}
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

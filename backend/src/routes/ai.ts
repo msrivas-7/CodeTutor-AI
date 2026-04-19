@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { openaiProvider } from "../services/ai/openaiProvider.js";
+import { languageSchema } from "../services/execution/commands.js";
 
 export const aiRouter = Router();
 
@@ -67,12 +68,34 @@ const selectionSchema = z.object({
   text: z.string(),
 });
 
+// Mirrors the authoring schema in frontend/src/features/learning/content/schema.ts.
+// Kept as a discriminated union here so the `function_tests.tests` payload
+// survives the route boundary instead of being silently dropped.
+const functionTestSchema = z.object({
+  name: z.string().min(1),
+  call: z.string().min(1),
+  expected: z.string().min(1),
+  setup: z.string().optional(),
+  hidden: z.boolean().optional(),
+  category: z.string().optional(),
+});
+const completionRuleSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("expected_stdout"), expected: z.string() }),
+  z.object({
+    type: z.literal("required_file_contains"),
+    file: z.string().optional(),
+    pattern: z.string(),
+  }),
+  z.object({ type: z.literal("function_tests"), tests: z.array(functionTestSchema).min(1) }),
+  z.object({ type: z.literal("custom_validator") }),
+]);
+
 const askBody = z.object({
   model: z.string().min(1),
   question: z.string().min(1),
   files: z.array(projectFileSchema).max(50),
   activeFile: z.string().optional(),
-  language: z.string().optional(),
+  language: languageSchema.optional(),
   lastRun: runResultSchema.nullish(),
   history: historySchema.default([]),
   stdin: z.string().nullish(),
@@ -85,16 +108,12 @@ const askBody = z.object({
     courseId: z.string(),
     lessonId: z.string(),
     lessonTitle: z.string(),
+    language: languageSchema,
     lessonObjectives: z.array(z.string()),
     teachesConceptTags: z.array(z.string()),
     usesConceptTags: z.array(z.string()),
     priorConcepts: z.array(z.string()),
-    completionRules: z.array(z.object({
-      type: z.string(),
-      expected: z.string().optional(),
-      file: z.string().optional(),
-      pattern: z.string().optional(),
-    })),
+    completionRules: z.array(completionRuleSchema),
     studentProgressSummary: z.string(),
     lessonOrder: z.number().int().optional(),
     totalLessons: z.number().int().optional(),

@@ -21,8 +21,8 @@ import {
   buildConceptGraph,
   type ConceptGraphIssue,
 } from "../features/learning/content/conceptGraph";
-
-const KNOWN_COURSES = ["python-fundamentals"];
+import { listAllCourses } from "../features/learning/content/courseLoader";
+import { LANGUAGE_ENTRYPOINT, LANGUAGE_LABEL } from "../types";
 
 interface LessonHealth {
   meta: LessonMeta;
@@ -35,12 +35,6 @@ interface CourseHealth {
   course: Course;
   lessons: LessonHealth[];
   loadErrors: string[];
-}
-
-async function fetchCourse(courseId: string): Promise<Course | null> {
-  const r = await fetch(`/courses/${courseId}/course.json`);
-  if (!r.ok) return null;
-  return r.json();
 }
 
 async function fetchLesson(
@@ -64,14 +58,11 @@ async function hasFile(url: string): Promise<boolean> {
   }
 }
 
-async function loadHealth(courseId: string): Promise<CourseHealth | null> {
-  const course = await fetchCourse(courseId);
-  if (!course) return null;
-
+async function loadHealth(course: Course): Promise<CourseHealth> {
   const loadErrors: string[] = [];
   const metas: LessonMeta[] = [];
   for (const lessonId of course.lessonOrder) {
-    const meta = await fetchLesson(courseId, lessonId);
+    const meta = await fetchLesson(course.id, lessonId);
     if (!meta) {
       loadErrors.push(`lesson.json missing: ${lessonId}`);
       continue;
@@ -91,9 +82,10 @@ async function loadHealth(courseId: string): Promise<CourseHealth | null> {
 
   const lessons: LessonHealth[] = await Promise.all(
     metas.map(async (meta) => {
+      const entry = LANGUAGE_ENTRYPOINT[meta.language];
       const [hasSolution, hasContent] = await Promise.all([
-        hasFile(`/courses/${courseId}/lessons/${meta.id}/solution/main.py`),
-        hasFile(`/courses/${courseId}/lessons/${meta.id}/content.md`),
+        hasFile(`/courses/${course.id}/lessons/${meta.id}/solution/${entry}`),
+        hasFile(`/courses/${course.id}/lessons/${meta.id}/content.md`),
       ]);
       return {
         meta,
@@ -137,8 +129,9 @@ export default function ContentHealthPage() {
   useEffect(() => {
     (async () => {
       try {
-        const results = await Promise.all(KNOWN_COURSES.map(loadHealth));
-        setCourses(results.filter((x): x is CourseHealth => x !== null));
+        const all = await listAllCourses();
+        const results = await Promise.all(all.map(loadHealth));
+        setCourses(results);
       } catch (e) {
         setError((e as Error).message);
       } finally {
@@ -201,7 +194,10 @@ export default function ContentHealthPage() {
 
       {courses?.map((c) => (
         <section key={c.course.id} className="mb-8">
-          <h2 className="mb-2 text-base font-semibold">{c.course.title}</h2>
+          <h2 className="mb-2 flex items-center gap-2 text-base font-semibold">
+            <span>{c.course.title}</span>
+            {c.course.internal && <Pill tone="warn">internal</Pill>}
+          </h2>
           {c.loadErrors.length > 0 && (
             <div className="mb-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-1.5 text-xs text-danger">
               {c.loadErrors.map((e) => (
@@ -215,6 +211,7 @@ export default function ContentHealthPage() {
                 <tr>
                   <th className="px-3 py-2 font-medium">#</th>
                   <th className="px-3 py-2 font-medium">Lesson</th>
+                  <th className="px-3 py-2 font-medium">Language</th>
                   <th className="px-3 py-2 font-medium">Min</th>
                   <th className="px-3 py-2 font-medium">Rules</th>
                   <th className="px-3 py-2 font-medium">Teaches</th>
@@ -232,6 +229,7 @@ export default function ContentHealthPage() {
                       <div className="font-medium text-ink">{l.meta.title}</div>
                       <div className="text-[10px] text-muted">{l.meta.id}</div>
                     </td>
+                    <td className="px-3 py-2 text-muted">{LANGUAGE_LABEL[l.meta.language]}</td>
                     <td className="px-3 py-2 text-muted">{l.meta.estimatedMinutes}</td>
                     <td className="px-3 py-2 text-muted">
                       {ruleSummary(l.meta.completionRules)}

@@ -2,9 +2,11 @@ import { describe, it, expect } from "vitest";
 import {
   harnessPython,
   parseHarnessOutput,
-  TEST_SENTINEL,
+  pythonHarness,
+  HARNESS_PY,
   HARNESS_JSON,
-} from "./testHarness.js";
+} from "./pythonHarness.js";
+import { TEST_SENTINEL } from "./types.js";
 
 describe("harnessPython", () => {
   const src = harnessPython();
@@ -29,7 +31,6 @@ describe("harnessPython", () => {
 
   it("parses expected values with ast.literal_eval (not raw eval) for safety", () => {
     expect(src).toContain("ast.literal_eval(expected_src)");
-    // No bare `eval(expected_src)` — only the ast.literal_eval variant.
     expect(src).not.toMatch(/(?<!ast\.literal_)eval\(expected_src\)/);
   });
 
@@ -141,5 +142,29 @@ describe("parseHarnessOutput", () => {
     const out = `prefix\n${wrap(payload)}suffix`;
     const r = parseHarnessOutput(out, "");
     expect(r.cleanStdout).toBe("prefix\nsuffix");
+  });
+});
+
+describe("pythonHarness (HarnessBackend adapter)", () => {
+  it("declares language = python", () => {
+    expect(pythonHarness.language).toBe("python");
+  });
+
+  it("prepareFiles returns the harness script + serialized tests JSON", () => {
+    const files = pythonHarness.prepareFiles([
+      { name: "basic", call: "square(2)", expected: "4" },
+    ]);
+    expect(files).toHaveLength(2);
+    const byName = new Map(files.map((f) => [f.name, f.content]));
+    expect(byName.get(HARNESS_PY)).toContain(TEST_SENTINEL);
+    const json = byName.get(HARNESS_JSON);
+    expect(json).toBeDefined();
+    expect(JSON.parse(json!)).toEqual([
+      { name: "basic", call: "square(2)", expected: "4" },
+    ]);
+  });
+
+  it("execCommand invokes the harness script under python3", () => {
+    expect(pythonHarness.execCommand()).toBe(`python3 ${HARNESS_PY}`);
   });
 });

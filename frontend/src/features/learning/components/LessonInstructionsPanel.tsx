@@ -158,9 +158,9 @@ export function LessonInstructionsPanel({
                   {showHints ? "Hide hints" : "Show hints"}
                 </button>
                 {showHints && (
-                  <ol className="mt-2 space-y-1.5 pl-4">
+                  <ol className="mt-2 list-decimal space-y-1.5 pl-5">
                     {hints.map((hint, i) => (
-                      <li key={i} className="text-xs text-muted list-decimal">
+                      <li key={i} className="text-xs text-muted">
                         {hint}
                       </li>
                     ))}
@@ -238,9 +238,9 @@ function MarkdownContent({ text }: { text: string }) {
         items.push(lines[i].replace(/^\d+\.\s/, ""));
       }
       elements.push(
-        <ol key={`ol-${i}`} className="my-1 space-y-0.5 pl-4">
+        <ol key={`ol-${i}`} className="my-1 list-decimal space-y-0.5 pl-5">
           {items.map((item, j) => (
-            <li key={j} className="list-decimal text-xs">{renderInline(item)}</li>
+            <li key={j} className="text-xs">{renderInline(item)}</li>
           ))}
         </ol>
       );

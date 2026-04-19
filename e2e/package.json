@@ -1,0 +1,21 @@
+{
+  "name": "codetutor-ai-e2e",
+  "version": "0.1.0",
+  "private": true,
+  "description": "End-to-end test harness for CodeTutor AI. Runs against a live docker-compose stack at localhost:5173 (frontend) / localhost:4000 (backend). OpenAI is mocked by default; set E2E_REAL_OPENAI=1 to run the opt-in real-API specs.",
+  "scripts": {
+    "test": "playwright test",
+    "test:ui": "playwright test --ui",
+    "test:debug": "playwright test --debug",
+    "test:real": "E2E_REAL_OPENAI=1 playwright test specs/real-api",
+    "report": "playwright show-report",
+    "dump-seeds": "tsx scripts/dump-profile-seeds.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0",
+    "@types/node": "^20.11.0",
+    "dotenv": "^16.4.5",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0"
+  }
+}

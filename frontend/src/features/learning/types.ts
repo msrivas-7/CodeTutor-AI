@@ -1,12 +1,18 @@
+import type { Language } from "../../types";
+
 // ── Course & Lesson content (static, lives in repo files) ──────────
 
 export interface Course {
   id: string;
   title: string;
   description: string;
-  language: string;
+  language: Language;
   lessonOrder: string[];
   baseVocabulary?: string[];
+  // When true, this course is kept out of the learner-facing dashboard. Used
+  // for architecture-validation courses that aren't ready (or intended) to
+  // ship. ContentHealthPage still lists them.
+  internal?: boolean;
 }
 
 export interface FunctionTest {
@@ -59,7 +65,7 @@ export interface LessonMeta {
   title: string;
   description: string;
   order: number;
-  language: string;
+  language: Language;
   estimatedMinutes: number;
   objectives: string[];
   teachesConceptTags: string[];
@@ -82,7 +88,6 @@ export interface LearnerIdentity {
   learnerId: string;
   createdAt: string;
   isAnonymous: boolean;
-  userId?: string;
 }
 
 // ── Progress tracking ──────────────────────────────────────────────
@@ -125,16 +130,3 @@ export interface ValidationResult {
   nextHints?: string[];
 }
 
-// ── Guided tutor context (sent in AI ask body) ─────────────────────
-
-export interface LessonContext {
-  courseId: string;
-  lessonId: string;
-  lessonTitle: string;
-  lessonObjectives: string[];
-  conceptTags: string[];
-  completionRules: CompletionRule[];
-  studentProgressSummary: string;
-  lessonOrder: number;
-  totalLessons: number;
-}

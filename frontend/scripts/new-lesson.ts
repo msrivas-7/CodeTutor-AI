@@ -19,6 +19,13 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import {
+  SCAFFOLD_LANGUAGES,
+  entryFileFor,
+  fileExtForLanguage,
+  isScaffoldLanguage,
+  type Language,
+} from "./language";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -33,7 +40,7 @@ interface Args {
   minutes: number;
   order?: number;
   prereqs: string[];
-  language: string;
+  language: Language;
   multiFile: boolean;
 }
 
@@ -69,6 +76,13 @@ function parseArgs(argv: string[]): Args {
   for (const k of ["course", "id", "title", "description", "minutes"] as const) {
     if (out[k] === undefined) die(`missing required --${k}`);
   }
+  const rawLang = (out as { language?: string }).language ?? "python";
+  if (!isScaffoldLanguage(rawLang)) {
+    die(
+      `unsupported --language "${rawLang}". Supported: ${SCAFFOLD_LANGUAGES.join(", ")}. ` +
+        `(Add a templates/<language>/ folder to support more.)`,
+    );
+  }
   return {
     course: out.course!,
     id: out.id!,
@@ -77,7 +91,7 @@ function parseArgs(argv: string[]): Args {
     minutes: out.minutes!,
     order: out.order,
     prereqs: out.prereqs,
-    language: out.language ?? "python",
+    language: rawLang,
     multiFile: Boolean((out as { multiFile?: boolean }).multiFile),
   };
 }
@@ -103,14 +117,25 @@ function printHelp() {
       "Optional:",
       "  --order <n>           lesson order (default: max existing + 1)",
       "  --prereq <lesson-id>  may be repeated; must exist and appear earlier",
-      "  --language <lang>     default: python",
-      "  --multi-file          scaffold starter/_index.json + main.py + helper.py",
+      `  --language <lang>     default: python; supported: ${SCAFFOLD_LANGUAGES.join(", ")}`,
+      "  --multi-file          scaffold starter/_index.json + entry + helper files",
     ].join("\n"),
   );
 }
 
 function loadTemplate(name: string): string {
   return readFileSync(join(TEMPLATE_DIR, name), "utf8");
+}
+
+function helperFileNameFor(lang: Language): string {
+  switch (lang) {
+    case "python":
+      return "helper.py";
+    case "javascript":
+      return "helper.js";
+    default:
+      return `helper.${fileExtForLanguage(lang)}`;
+  }
 }
 
 function renderTemplate(
@@ -175,9 +200,15 @@ function main() {
     DESCRIPTION: args.description,
   });
 
-  const starterPy = renderTemplate(loadTemplate("starter-main.py.template"), {
+  const entry = entryFileFor(args.language);
+  const ext = fileExtForLanguage(args.language);
+  const starterTemplateName = `${args.language}/main.${ext}.template`;
+  const starterSrc = renderTemplate(loadTemplate(starterTemplateName), {
     TITLE: args.title,
   });
+
+  const commentPrefix = args.language === "python" ? "#" : "//";
+  const helperFileName = helperFileNameFor(args.language);
 
   // Create folder structure
   mkdirSync(lessonDir, { recursive: true });
@@ -187,42 +218,42 @@ function main() {
 
   writeFileSync(join(lessonDir, "lesson.json"), lessonJson);
   writeFileSync(join(lessonDir, "content.md"), contentMd);
-  writeFileSync(join(lessonDir, "starter", "main.py"), starterPy);
+  writeFileSync(join(lessonDir, "starter", entry), starterSrc);
   if (args.multiFile) {
-    // Two-file scaffold: main.py (driver) + helper.py (module under test).
+    // Two-file scaffold: entry (driver) + helper (module under test).
     // _index.json is a flat JSON array per the loader contract.
     writeFileSync(
       join(lessonDir, "starter", "_index.json"),
-      JSON.stringify(["main.py", "helper.py"], null, 2) + "\n",
+      JSON.stringify([entry, helperFileName], null, 2) + "\n",
     );
     writeFileSync(
-      join(lessonDir, "starter", "helper.py"),
-      "# TODO: move supporting code (data, helper functions) into this module\n" +
-        "# and import it from main.py.\n",
+      join(lessonDir, "starter", helperFileName),
+      `${commentPrefix} TODO: move supporting code (data, helper functions) into this module\n` +
+        `${commentPrefix} and import it from ${entry}.\n`,
     );
   }
   writeFileSync(
-    join(lessonDir, "solution", "main.py"),
-    "# TODO: author the golden solution — must satisfy every completionRule.\n",
+    join(lessonDir, "solution", entry),
+    `${commentPrefix} TODO: author the golden solution — must satisfy every completionRule.\n`,
   );
 
   // Append to course.lessonOrder if not already present (we checked earlier)
   course.lessonOrder.push(args.id);
   writeFileSync(coursePath, JSON.stringify(course, null, 2) + "\n");
 
-  console.log(`new-lesson: scaffolded lessons/${args.id}/`);
+  console.log(`new-lesson: scaffolded lessons/${args.id}/ (${args.language})`);
   console.log("  - lesson.json");
   console.log("  - content.md");
-  console.log("  - starter/main.py");
-  console.log("  - solution/main.py  (stub — replace with golden solution)");
+  console.log(`  - starter/${entry}`);
+  console.log(`  - solution/${entry}  (stub — replace with golden solution)`);
   console.log("  - solution/practice/  (populate as you add practice exercises)");
   console.log(`  - updated course.json lessonOrder (+${args.id})`);
   console.log("");
   console.log("Next steps:");
   console.log("  1. Edit lesson.json — fill objectives, teachesConceptTags, completionRules");
   console.log("  2. Edit content.md — write the lesson body");
-  console.log("  3. Edit starter/main.py — provide the scaffold learners see");
-  console.log("  4. Write solution/main.py — must satisfy every completionRule");
+  console.log(`  3. Edit starter/${entry} — provide the scaffold learners see`);
+  console.log(`  4. Write solution/${entry} — must satisfy every completionRule`);
   console.log("  5. Run: npm run lint:content");
   console.log("  6. Run: npm run verify:solutions");
 

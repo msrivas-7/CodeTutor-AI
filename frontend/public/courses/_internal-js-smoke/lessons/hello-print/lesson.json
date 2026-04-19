@@ -1,0 +1,22 @@
+{
+  "id": "hello-print",
+  "courseId": "_internal-js-smoke",
+  "title": "Hello, JavaScript",
+  "description": "Smoke-test lesson that prints a fixed line to stdout. Exists only to exercise the multi-language path end-to-end.",
+  "order": 1,
+  "language": "javascript",
+  "estimatedMinutes": 1,
+  "objectives": [
+    "Print a line from a JavaScript main.js file",
+    "Exercise the polyglot runner end-to-end"
+  ],
+  "teachesConceptTags": ["console-log"],
+  "usesConceptTags": [],
+  "completionRules": [
+    {
+      "type": "expected_stdout",
+      "expected": "Hello, JavaScript!"
+    }
+  ],
+  "prerequisiteLessonIds": []
+}

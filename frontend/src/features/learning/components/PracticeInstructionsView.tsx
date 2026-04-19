@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { PracticeExercise, ValidationResult } from "../types";
+import { Modal } from "../../../components/Modal";
 
 function PracticeTestsMiniList({ exercise }: { exercise: PracticeExercise }) {
   const rule = exercise.completionRules.find((r) => r.type === "function_tests");
@@ -183,9 +184,9 @@ export function PracticeInstructionsView({
               {showHints ? "Hide hints" : "Show hints"}
             </button>
             {showHints && (
-              <ol className="mt-2 space-y-1.5 pl-4">
+              <ol className="mt-2 list-decimal space-y-1.5 pl-5">
                 {current.hints.map((hint, i) => (
-                  <li key={i} className="list-decimal text-xs text-muted">
+                  <li key={i} className="text-xs text-muted">
                     {hint}
                   </li>
                 ))}
@@ -235,31 +236,35 @@ export function PracticeInstructionsView({
       </div>
 
       {confirmReset && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center bg-bg/80 backdrop-blur-sm">
-          <div className="mx-4 w-full max-w-xs rounded-xl border border-danger/30 bg-panel p-4 shadow-xl">
-            <h3 className="text-xs font-bold text-ink">Reset practice progress?</h3>
-            <p className="mt-1.5 text-[11px] leading-relaxed text-muted">
-              This clears your practice completions for this lesson. Your lesson progress stays intact.
-            </p>
-            <div className="mt-3 flex items-center gap-2">
-              <button
-                onClick={() => setConfirmReset(false)}
-                className="flex-1 rounded-md border border-border px-3 py-1.5 text-[11px] font-medium text-muted transition hover:bg-elevated hover:text-ink"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  onResetPractice();
-                  setConfirmReset(false);
-                }}
-                className="flex-1 rounded-md bg-danger/20 px-3 py-1.5 text-[11px] font-semibold text-danger ring-1 ring-danger/40 transition hover:bg-danger/30"
-              >
-                Reset
-              </button>
-            </div>
+        <Modal
+          onClose={() => setConfirmReset(false)}
+          role="alertdialog"
+          labelledBy="practice-reset-title"
+          position="center"
+          panelClassName="mx-4 w-full max-w-xs rounded-xl border border-danger/30 bg-panel p-4 shadow-xl"
+        >
+          <h3 id="practice-reset-title" className="text-xs font-bold text-ink">Reset practice progress?</h3>
+          <p className="mt-1.5 text-[11px] leading-relaxed text-muted">
+            This clears your practice completions for this lesson. Your lesson progress stays intact.
+          </p>
+          <div className="mt-3 flex items-center gap-2">
+            <button
+              onClick={() => setConfirmReset(false)}
+              className="flex-1 rounded-md border border-border px-3 py-1.5 text-[11px] font-medium text-muted transition hover:bg-elevated hover:text-ink"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => {
+                onResetPractice();
+                setConfirmReset(false);
+              }}
+              className="flex-1 rounded-md bg-danger/20 px-3 py-1.5 text-[11px] font-semibold text-danger ring-1 ring-danger/40 transition hover:bg-danger/30"
+            >
+              Reset
+            </button>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

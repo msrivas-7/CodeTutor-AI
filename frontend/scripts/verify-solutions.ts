@@ -23,6 +23,12 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { lessonMetaSchema } from "../src/features/learning/content/schema";
+import {
+  entryFileFor,
+  fileExtForLanguage,
+  hasFunctionTestsHarnessLanguage,
+  type Language,
+} from "./language";
 import type { z } from "zod";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -46,6 +52,10 @@ interface RunFailure {
 const failures: RunFailure[] = [];
 
 function main() {
+  // python3 is only strictly required if any course is Python — other
+  // languages have their own runtime checks inside runRulesAgainstSolution.
+  // The broad precheck stays for the common case: we want to fail early when
+  // the Python courses (our primary content) can't be verified.
   if (!isPythonAvailable()) {
     console.error("verify-solutions: python3 is required on PATH.");
     process.exit(2);
@@ -105,18 +115,23 @@ function verifyLesson(courseFolder: string, lessonFolder: string) {
     return;
   }
 
+  const lang: Language = lesson.language;
+  const entry = entryFileFor(lang);
+  const ext = fileExtForLanguage(lang);
+
   const solutionDir = join(lessonDir, "solution");
-  const mainSolution = join(solutionDir, "main.py");
+  const mainSolution = join(solutionDir, entry);
 
   if (!existsSync(mainSolution)) {
     failures.push({
       where: `${courseFolder}/${lessonFolder}`,
-      message: "missing solution/main.py — every lesson must have a golden solution",
+      message: `missing solution/${entry} — every lesson must have a golden solution`,
     });
   } else {
     const inputPath = join(solutionDir, "input.txt");
     runRulesAgainstSolution({
       where: `${courseFolder}/${lessonFolder} (main)`,
+      language: lang,
       solutionFile: mainSolution,
       stdinFile: existsSync(inputPath) ? inputPath : null,
       rules: lesson.completionRules,
@@ -124,17 +139,18 @@ function verifyLesson(courseFolder: string, lessonFolder: string) {
   }
 
   for (const exercise of lesson.practiceExercises ?? []) {
-    const exSolution = join(solutionDir, "practice", `${exercise.id}.py`);
+    const exSolution = join(solutionDir, "practice", `${exercise.id}.${ext}`);
     if (!existsSync(exSolution)) {
       failures.push({
         where: `${courseFolder}/${lessonFolder}/practice/${exercise.id}`,
-        message: `missing solution/practice/${exercise.id}.py`,
+        message: `missing solution/practice/${exercise.id}.${ext}`,
       });
       continue;
     }
     const exStdin = join(solutionDir, "practice", `${exercise.id}.stdin`);
     runRulesAgainstSolution({
       where: `${courseFolder}/${lessonFolder}/practice/${exercise.id}`,
+      language: lang,
       solutionFile: exSolution,
       stdinFile: existsSync(exStdin) ? exStdin : null,
       rules: exercise.completionRules,
@@ -144,28 +160,60 @@ function verifyLesson(courseFolder: string, lessonFolder: string) {
 
 interface RunArgs {
   where: string;
+  language: Language;
   solutionFile: string;
   stdinFile: string | null;
   rules: Rule[];
 }
 
-function runRulesAgainstSolution(args: RunArgs) {
-  const { where, solutionFile, stdinFile, rules } = args;
+interface RunSpec {
+  // How to execute the solution file in the temp dir (where it's been copied
+  // under its language's entry filename). Returns null if the language is not
+  // yet supported for `expected_stdout` verification.
+  command: string;
+  args: string[];
+}
 
-  // Copy solution into a private temp dir as main.py, plus any stdin file.
+function runSpecFor(language: Language, entry: string): RunSpec | null {
+  switch (language) {
+    case "python":
+      return { command: "python3", args: [entry] };
+    case "javascript":
+      return { command: "node", args: [entry] };
+    default:
+      return null;
+  }
+}
+
+function runRulesAgainstSolution(args: RunArgs) {
+  const { where, language, solutionFile, stdinFile, rules } = args;
+  const entry = entryFileFor(language);
+
+  // Copy solution into a private temp dir as the language's entry filename,
+  // plus any stdin file.
   const tmp = mkdtempSync(join(tmpdir(), "verify-sol-"));
   try {
-    const mainPath = join(tmp, "main.py");
+    const mainPath = join(tmp, entry);
     cpSync(solutionFile, mainPath);
     const stdinText = stdinFile ? readFileSync(stdinFile, "utf8") : "";
     const solutionSource = readFileSync(solutionFile, "utf8");
 
-    // Lazily run main.py once if we have any expected_stdout rule. Cache the result.
+    // Lazily run the entry once if we have any expected_stdout rule. Cache the result.
+    const spec = runSpecFor(language, entry);
     let scriptStdout: string | null = null;
     let scriptExitCode: number | null = null;
     const ensureScriptRun = () => {
       if (scriptStdout !== null) return;
-      const r = spawnSync("python3", ["main.py"], {
+      if (!spec) {
+        failures.push({
+          where,
+          message: `cannot run expected_stdout rule — no run command registered for language "${language}"`,
+        });
+        scriptStdout = "";
+        scriptExitCode = -1;
+        return;
+      }
+      const r = spawnSync(spec.command, spec.args, {
         cwd: tmp,
         input: stdinText,
         encoding: "utf8",
@@ -176,7 +224,7 @@ function runRulesAgainstSolution(args: RunArgs) {
       if (r.status !== 0) {
         failures.push({
           where,
-          message: `python3 main.py exited with code ${r.status}. stderr: ${(r.stderr ?? "").trim().slice(0, 300)}`,
+          message: `${spec.command} ${spec.args.join(" ")} exited with code ${r.status}. stderr: ${(r.stderr ?? "").trim().slice(0, 300)}`,
         });
       }
     };
@@ -194,9 +242,9 @@ function runRulesAgainstSolution(args: RunArgs) {
           });
         }
       } else if (rule.type === "required_file_contains") {
-        // file field almost always refers to main.py — in our setup, the
-        // solution file IS the main.py. If another filename is specified, we
-        // only check against the solution source.
+        // file field almost always refers to the entry file — in our setup,
+        // the solution file IS the entry file. If another filename is
+        // specified, we only check against the solution source.
         if (!containsPattern(solutionSource, rule.pattern)) {
           failures.push({
             where,
@@ -204,6 +252,10 @@ function runRulesAgainstSolution(args: RunArgs) {
           });
         }
       } else if (rule.type === "function_tests") {
+        if (!hasFunctionTestsHarnessLanguage(language)) {
+          console.log(`[skip] ${where}  no function_tests harness for language "${language}"`);
+          continue;
+        }
         const report = runHarness(tmp, rule.tests);
         if (report.harnessError) {
           failures.push({

@@ -1,15 +1,9 @@
 import type { AIMessage, EditorSelection, Persona, ProjectFile, RunResult } from "./provider.js";
+import type { Language } from "../execution/commands.js";
 import { TUTOR_CORE_PROMPT } from "./prompts/coreRules.js";
 import { PERSONA_BLOCK } from "./prompts/persona.js";
 import { buildSituationBlock } from "./prompts/situation.js";
-import {
-  renderFiles,
-  renderRun,
-  renderHistory,
-  renderStdin,
-  renderDiff,
-  renderSelection,
-} from "./prompts/renderContext.js";
+import { buildUserTurn } from "./editorPromptBuilder.js";
 import type { LessonContext } from "./prompts/lessonContext.js";
 import { buildLessonContextBlock } from "./prompts/lessonContext.js";
 
@@ -60,7 +54,9 @@ export interface BuildGuidedUserTurnParams {
   question: string;
   files: ProjectFile[];
   activeFile?: string;
-  language?: string;
+  // Required in guided mode — the lesson always declares a language, and we
+  // thread it through so the tutor's examples match the learner's runtime.
+  language: Language;
   lastRun?: RunResult | null;
   history: AIMessage[];
   stdin?: string | null;
@@ -68,31 +64,10 @@ export interface BuildGuidedUserTurnParams {
   selection?: EditorSelection | null;
 }
 
+// Guided mode's user turn is identical to the editor turn today — the only
+// difference is that `language` is required (lessons always declare one), so
+// the LANGUAGE header never falls back to "unspecified". Delegate to the core
+// builder to keep the two in sync automatically.
 export function buildGuidedUserTurn(p: BuildGuidedUserTurnParams): string {
-  const sections: string[] = [
-    `LANGUAGE: ${p.language ?? "python"}`,
-    "",
-    "PROJECT FILES:",
-    renderFiles(p.files, p.activeFile),
-    "",
-    "STDIN:",
-    renderStdin(p.stdin),
-    "",
-    "LAST RUN:",
-    renderRun(p.lastRun),
-    "",
-    "CHANGES SINCE LAST TUTOR TURN:",
-    renderDiff(p.diffSinceLastTurn),
-    "",
-    "RECENT CONVERSATION:",
-    renderHistory(p.history),
-  ];
-
-  const selectionBlock = renderSelection(p.selection);
-  if (selectionBlock) {
-    sections.push("", "STUDENT SELECTION (focus answer here when relevant):", selectionBlock);
-  }
-
-  sections.push("", "STUDENT QUESTION:", p.question);
-  return sections.join("\n");
+  return buildUserTurn(p);
 }

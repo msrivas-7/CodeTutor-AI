@@ -17,7 +17,6 @@ async function get<T>(path: string, extraHeaders?: Record<string, string>): Prom
 }
 
 import type {
-  AIAskResult,
   AIMessage,
   AIModel,
   EditorSelection,
@@ -28,7 +27,7 @@ import type {
   TokenUsage,
   TutorSections,
 } from "../types";
-import type { FunctionTest, TestReport } from "../features/learning/types";
+import type { CompletionRule, FunctionTest, TestReport } from "../features/learning/types";
 
 export interface ExecuteTestsResponse {
   report: TestReport;
@@ -43,7 +42,7 @@ export interface AskStreamRequest {
   question: string;
   files: ProjectFile[];
   activeFile?: string;
-  language?: string;
+  language?: Language;
   lastRun?: RunResult | null;
   history: AIMessage[];
   stdin?: string | null;
@@ -56,11 +55,12 @@ export interface AskStreamRequest {
     courseId: string;
     lessonId: string;
     lessonTitle: string;
+    language: Language;
     lessonObjectives: string[];
     teachesConceptTags: string[];
     usesConceptTags: string[];
     priorConcepts: string[];
-    completionRules: { type: string; expected?: string; file?: string; pattern?: string }[];
+    completionRules: CompletionRule[];
     studentProgressSummary: string;
     lessonOrder?: number;
     totalLessons?: number;
@@ -118,19 +118,6 @@ export const api = {
   ) => post<{ summary: string }>("/api/ai/summarize", body, { "X-OpenAI-Key": key }),
   listOpenAIModels: (key: string) =>
     get<{ models: AIModel[] }>("/api/ai/models", { "X-OpenAI-Key": key }),
-  askAI: (
-    key: string,
-    body: {
-      model: string;
-      question: string;
-      files: ProjectFile[];
-      activeFile?: string;
-      language?: string;
-      lastRun?: RunResult | null;
-      history: AIMessage[];
-    }
-  ) => post<AIAskResult>("/api/ai/ask", body, { "X-OpenAI-Key": key }),
-
   askAIStream: async (
     key: string,
     body: AskStreamRequest,

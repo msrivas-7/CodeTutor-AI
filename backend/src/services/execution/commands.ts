@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 export type Language =
   | "python"
   | "javascript"
@@ -26,6 +28,13 @@ export const LANGUAGES: readonly Language[] = [
   "rust",
   "ruby",
 ] as const;
+
+// Shared Zod schema for route validators. Previously each route re-declared
+// `z.enum(LANGUAGES as unknown as [Language, ...Language[]])`; centralizing it
+// here means adding a language updates schemas everywhere in one spot.
+export const languageSchema = z.enum(
+  LANGUAGES as unknown as [Language, ...Language[]],
+);
 
 export function isLanguage(x: unknown): x is Language {
   return typeof x === "string" && (LANGUAGES as readonly string[]).includes(x);

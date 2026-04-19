@@ -5,13 +5,27 @@ This is the reference for adding or editing lessons in a CodeTutor AI course. If
 The authoring pipeline is:
 
 1. Scaffold the lesson folder with `npm run new:lesson` (or by hand if you prefer).
-2. Write `content.md`, edit `lesson.json`, fill in `starter/main.py`.
-3. Write the golden `solution/main.py` — must pass every `completionRule`.
+2. Write `content.md`, edit `lesson.json`, fill in `starter/<entry>` (e.g., `main.py`, `main.js`).
+3. Write the golden `solution/<entry>` — must pass every `completionRule`.
 4. Run `npm run lint:content` — must be clean.
 5. Run `npm run verify:solutions` — must be clean.
 6. Open a PR. CI re-runs both commands and fails if either breaks.
 
-Everything under `frontend/public/courses/<courseId>/` is plain JSON + Markdown + Python. No build step; files are fetched at runtime.
+Everything under `frontend/public/courses/<courseId>/` is plain JSON + Markdown + source files. No build step; files are fetched at runtime.
+
+## Languages
+
+A course declares its `language` in `course.json`; every lesson inherits it via `lesson.json.language`. Today:
+
+| Language | Guided authoring? | `function_tests` harness? |
+| --- | --- | --- |
+| `python` | ✓ (production content) | ✓ |
+| `javascript` | ✓ (scaffolders + smoke-test course only) | ✗ — `expected_stdout` + `required_file_contains` only |
+| everything else on the editor's `Language` enum | ✗ (no scaffolder / no course yet) | ✗ |
+
+`frontend/scripts/language.ts` is the scripts-side source of truth: `SCAFFOLD_LANGUAGES` (which languages `new-lesson`/`new-practice` accept), `entryFileFor(language)` (e.g., `main.py` / `main.js`), `fileExtForLanguage`, per-language `functionStub`, and `hasFunctionTestsHarnessLanguage(language)` (currently `python` only). Templates live under `scripts/templates/<language>/`. When adding a new language, add SCAFFOLD entry + templates here and a backend `HarnessBackend` in `backend/src/services/execution/harness/` before attempting to author `function_tests` lessons.
+
+An `"internal": true` flag on `course.json` hides a course from learner-facing listings (`courseLoader.listPublicCourses()` filters these out) while keeping it visible to the dev content-health dashboard and all CI tooling. Use this for smoke-test courses like `_internal-js-smoke` that only exist to keep non-Python code paths exercised end-to-end.
 
 ---
 
@@ -142,6 +156,7 @@ Avoid brittle patterns like `append(0` or `sum(` — they false-pass on incident
 
 The harness runs `main.py` via `runpy.run_path(..., run_name="__codetutor_main__")`, then evaluates each `call` in a shared copy of the module's globals. `expected` is parsed via Python's `ast.literal_eval` — so it must be a Python literal (string, number, list, dict, tuple, bool, None).
 
+- **Language support:** `function_tests` is only valid for languages with a registered `HarnessBackend` (see `backend/src/services/execution/harness/registry.ts`). Python is the only registered backend today — `content-lint` rejects `function_tests` rules on non-Python lessons with a clear author-facing error, and `verify-solutions` loudly skips them on non-harness languages rather than failing CI.
 - **Authoring gate:** lessons with `order < 6` may not use `function_tests` — `def` hasn't been taught yet.
 - **Hidden tests** stay hidden in the UI. They're good for stretch cases and anti-cheese.
 - **Category** surfaces softly in the "Check My Work" failure panel after 2+ consecutive failures.
@@ -261,10 +276,11 @@ npm run new:lesson -- \
   --title "New topic" \
   --description "One-line pitch." \
   --minutes 15 \
-  --prereq previous-lesson
+  --prereq previous-lesson \
+  --language python          # optional; defaults to the course's language
 ```
 
-Creates the folder, populates templates, appends to `course.json.lessonOrder`, and runs content-lint so you see the fields that still need attention.
+Creates the folder, populates templates from `scripts/templates/<language>/`, appends to `course.json.lessonOrder`, and runs content-lint so you see the fields that still need attention.
 
 ```bash
 npm run new:practice -- \
@@ -277,7 +293,7 @@ npm run new:practice -- \
   --rule-style function     # or stdout | file
 ```
 
-Appends the exercise to the lesson and drops a solution stub.
+Appends the exercise to the lesson and drops a solution stub. `--rule-style function` is only available for languages with a registered harness (Python today); pick `stdout` or `file` for other languages.
 
 ---
 

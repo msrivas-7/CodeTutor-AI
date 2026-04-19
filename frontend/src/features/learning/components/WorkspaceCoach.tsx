@@ -39,7 +39,7 @@ function buildSteps(runPhrase: string): CoachStep[] {
     },
     {
       targetKey: "checkButton",
-      title: "Check Solution",
+      title: "Check My Work",
       body: "When you think your answer is right, click this to verify. It checks your output against what the lesson expects.",
       position: "top",
     },
@@ -89,10 +89,28 @@ export function WorkspaceCoach({ refs, onComplete }: WorkspaceCoachProps) {
       else { markDone(); onComplete(); }
       return;
     }
-    const update = () => setTargetRect(targetEl.getBoundingClientRect());
+    // Spotlight target can drift if anything scrolls (panels, window) or the
+    // target element's own box reflows (splitter drag, content change). Subscribe
+    // to all three signals and throttle via rAF so we never paint mid-frame.
+    let rafId = 0;
+    const update = () => {
+      if (rafId) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = 0;
+        setTargetRect(targetEl.getBoundingClientRect());
+      });
+    };
     update();
+    const ro = new ResizeObserver(update);
+    ro.observe(targetEl);
     window.addEventListener("resize", update);
-    return () => window.removeEventListener("resize", update);
+    window.addEventListener("scroll", update, { capture: true, passive: true });
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      ro.disconnect();
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, { capture: true } as EventListenerOptions);
+    };
   }, [targetEl, step, onComplete, STEPS.length]);
 
   const advance = useCallback(() => {

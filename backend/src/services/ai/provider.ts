@@ -1,6 +1,9 @@
 // AI provider abstraction. Only OpenAI is implemented; the interface exists so
 // we can swap in Anthropic/etc. without touching routes or prompt code.
 
+import type { Language } from "../execution/commands.js";
+import type { CompletionRule } from "./prompts/lessonContext.js";
+
 export interface ProjectFile {
   path: string;
   content: string;
@@ -97,7 +100,7 @@ export interface AIAskParams {
   question: string;
   files: ProjectFile[];
   activeFile?: string;
-  language?: string;
+  language?: Language;
   lastRun?: RunResult | null;
   history: AIMessage[];
   // Phase 2 context — everything below is optional; the prompt builder falls
@@ -118,11 +121,12 @@ export interface AIAskParams {
     courseId: string;
     lessonId: string;
     lessonTitle: string;
+    language: Language;
     lessonObjectives: string[];
     teachesConceptTags: string[];
     usesConceptTags: string[];
     priorConcepts: string[];
-    completionRules: { type: string; expected?: string; file?: string; pattern?: string }[];
+    completionRules: CompletionRule[];
     studentProgressSummary: string;
     lessonOrder?: number;
     totalLessons?: number;

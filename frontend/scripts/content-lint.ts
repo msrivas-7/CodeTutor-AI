@@ -19,6 +19,7 @@ import {
   lessonMetaSchema,
 } from "../src/features/learning/content/schema";
 import { buildConceptGraph } from "../src/features/learning/content/conceptGraph";
+import { hasFunctionTestsHarness } from "../src/features/learning/content/harnessSupport";
 import type { z } from "zod";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -370,7 +371,7 @@ function lintLesson(
   }
 
   // Completion rules: function_tests ordering gate, required_file_contains file presence
-  lintCompletionRules(lesson.completionRules, lesson.order, lessonDir, relLesson, "completionRules", issues);
+  lintCompletionRules(lesson.completionRules, lesson.order, lesson.language, lessonDir, relLesson, "completionRules", issues);
 
   // Practice exercises
   const practiceIds = new Set<string>();
@@ -388,6 +389,7 @@ function lintLesson(
     lintCompletionRules(
       ex.completionRules,
       lesson.order,
+      lesson.language,
       lessonDir,
       relLesson,
       `practiceExercises[${i}].completionRules`,
@@ -399,6 +401,7 @@ function lintLesson(
 function lintCompletionRules(
   rules: Lesson["completionRules"],
   lessonOrder: number,
+  lessonLanguage: Lesson["language"],
   lessonDir: string,
   relLesson: string,
   pointerPrefix: string,
@@ -414,19 +417,34 @@ function lintCompletionRules(
           message: `function_tests not allowed on lesson with order ${lessonOrder} (floor is ${FUNCTION_TESTS_ORDER_FLOOR} — def must be taught first)`,
         });
       }
-      // Validate expected values parse as Python literals (best-effort; skips if python3 unavailable)
-      const pyAvailable = isPythonAvailable();
-      for (let j = 0; j < rule.tests.length; j++) {
-        const t = rule.tests[j];
-        if (pyAvailable) {
-          const ok = pythonLiteralEvalOk(t.expected);
-          if (!ok) {
-            issues.push({
-              severity: "error",
-              file: relLesson,
-              pointer: `${pointerPrefix}[${i}].tests[${j}].expected`,
-              message: `expected value does not parse as a Python literal via ast.literal_eval: ${t.expected}`,
-            });
+      // Authoring gate: the language must have a registered function_tests
+      // harness. Otherwise the route would 422 at runtime and the learner
+      // would hit an author-shaped error. Fail loud at lint time instead.
+      if (!hasFunctionTestsHarness(lessonLanguage)) {
+        issues.push({
+          severity: "error",
+          file: relLesson,
+          pointer: `${pointerPrefix}[${i}]`,
+          message: `function_tests is not supported for language "${lessonLanguage}" — no harness backend is registered for this language`,
+        });
+      }
+      // Validate expected values parse as Python literals only for Python
+      // lessons — the ast.literal_eval contract is Python-specific.
+      // Non-Python harnesses will grow their own expected-value validation.
+      if (lessonLanguage === "python") {
+        const pyAvailable = isPythonAvailable();
+        for (let j = 0; j < rule.tests.length; j++) {
+          const t = rule.tests[j];
+          if (pyAvailable) {
+            const ok = pythonLiteralEvalOk(t.expected);
+            if (!ok) {
+              issues.push({
+                severity: "error",
+                file: relLesson,
+                pointer: `${pointerPrefix}[${i}].tests[${j}].expected`,
+                message: `expected value does not parse as a Python literal via ast.literal_eval: ${t.expected}`,
+              });
+            }
           }
         }
       }

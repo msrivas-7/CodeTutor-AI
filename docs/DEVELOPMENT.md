@@ -11,13 +11,17 @@
 (cd frontend && npx tsc --noEmit)
 (cd backend  && npx tsc --noEmit)
 
-# Tests
+# Unit tests
 (cd frontend && npm test)
 (cd backend  && npm test)
 
 # Content validation (frontend)
 (cd frontend && npm run lint:content)       # schema + structural + concept graph
 (cd frontend && npm run verify:solutions)   # runs every golden solution against its completion rules
+
+# End-to-end tests (Playwright, mocked OpenAI; see e2e/README.md)
+docker compose up -d
+(cd e2e && npm install && npx playwright install --with-deps chromium && npm test)
 
 # Frontend only (backend in Docker)
 docker compose up -d backend
@@ -76,6 +80,28 @@ All optional — defaults work for local use. See [.env.example](../.env.example
 docker compose up --build    # start (Ctrl-C to stop)
 docker compose down           # teardown
 ```
+
+## Shared utilities
+
+Reach for these before copy-pasting — each one exists because the same pattern was duplicated across ≥2 call sites.
+
+### Frontend
+
+| Module | What it gives you |
+| --- | --- |
+| `frontend/src/util/layoutPrefs.ts` | `usePersistedNumber(key, default)` and `usePersistedFlag(key, default)` — drop-in `useState` replacements that persist to localStorage and route quota errors to the warning banner. `clamp(n, [min, max])` + `clampSide(n, [min, max])` for splitter/panel sizing. |
+| `frontend/src/util/timings.ts` | Named durations for values shared across files (`COACH_AUTO_OPEN_MS`, `RESUME_TOAST_MS`). Only add here when ≥2 callsites want the same semantic value. |
+| `frontend/src/state/storageStore.ts` | `noteStorageQuotaError(err)` — React-free helper. Call from any `catch` around `localStorage.setItem`; sniffs `QuotaExceededError` + `NS_ERROR_DOM_QUOTA_REACHED` (Firefox) and flips the global banner flag. The banner itself (`StorageQuotaBanner`) is mounted once in `App.tsx`. |
+| `frontend/src/components/SelectionPreview.tsx` | Shared "selected code context" chip used by the editor and guided tutor panels. |
+| `frontend/src/features/learning/stores/progressStore.ts` → `updateLesson(lessonId, patch)` | Merge-patch a lesson's progress record. Prefer this over hand-rolled spreads. |
+
+### Backend
+
+| Module | What it gives you |
+| --- | --- |
+| `backend/src/services/execution/commands.ts` → `languageSchema` | The canonical `z.enum` over supported languages. Routes that accept a language parameter should import this rather than re-declaring the enum inline. |
+| `backend/src/services/session/requireActiveSession.ts` | Route helper: `const session = requireActiveSession(res, sessionId); if (!session) return;`. Handles the 404 / 409 responses and returns a narrowed `ActiveSession` type (`containerId: string`, not `string \| null`) so downstream code reads the field without re-asserting. |
+| `backend/src/services/execution/harness/registry.ts` | Per-language harness plug-in point for `function_tests`. Currently Python-only; new languages add a `HarnessBackend` implementation and register it. |
 
 ## Design Tokens
 
@@ -136,3 +162,21 @@ A dev-only "cheat code" system for manually verifying UI states without grinding
 **Keyboard shortcut implementation note:** the listener uses `event.code === "KeyD"` (not `event.key`) because on macOS the Option modifier transforms `e.key` into a unicode symbol (`Option+D` → `∂`). The listener is registered with `capture: true` on `window` so it fires before Monaco's own keydown handlers.
 
 **Adding a profile:** edit [`frontend/src/__dev__/profiles.ts`](../frontend/src/__dev__/profiles.ts). Each profile returns a map of localStorage key → serialized value from `seedStorage()`. Only keys matching `OWNED_PREFIXES` (`learner:v1:`, `onboarding:v1:`) are ever written; any other key is dropped at apply time. Add a matching case to [`profiles.test.ts`](../frontend/src/__dev__/profiles.test.ts) if the profile encodes an invariant worth asserting (e.g., "exactly N shaky entries").
+
+## Demoing the product
+
+Two paths, depending on whether you want a frozen scripted state or a realistic walk-through.
+
+**Quick demo with dev profiles (recommended for screenshots, short videos, UI-state walkthroughs).** The shortcut is intentionally dev-only — it's your cheat code, not something end users ever see.
+
+1. `npm run dev` (or `./start.sh` for the full Docker stack).
+2. `Cmd/Ctrl + Shift + Alt + D` to enable dev mode.
+3. Open Settings → Developer tab, pick the profile that matches the story you're telling:
+   - `fresh-install` — first-run welcome spotlight, dashboard banner, workspace tour.
+   - `mid-course-healthy` — dashboard progress bar, "Next up", activity feed.
+   - `all-complete` — celebration + review replay.
+4. Frozen profiles snap back to their seed on every reload, so you can interact freely without drift between takes.
+
+**End-user Export/Import for portable demo state.** If you've built up a specific progress state by hand and want to reproduce it on another machine (or share it with a teammate for bug repro), use **Settings → General → Progress → Export progress**. The JSON round-trips through the same allow-listed keys as the dev switcher — API keys, theme, and layout preferences are never included. Import replaces current progress and reloads.
+
+**When to ship dev mode to external users.** Don't. Dev mode is a production-safe no-op (tree-shaken from the prod bundle), but the shortcut + Developer tab are aimed at developers. For guided demos to non-developers, either pre-seed the browser with the profile you want before they sit down, or walk them through the real flow.

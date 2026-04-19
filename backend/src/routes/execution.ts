@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
-import { getSession, pingSession } from "../services/session/sessionManager.js";
+import { pingSession } from "../services/session/sessionManager.js";
+import { requireActiveSession } from "../services/session/requireActiveSession.js";
 import { runProject } from "../services/execution/router.js";
 import { isLanguage, LANGUAGES } from "../services/execution/commands.js";
 
@@ -23,11 +24,8 @@ executionRouter.post("/", async (req, res, next) => {
     });
   }
 
-  const session = getSession(sessionId);
-  if (!session) return res.status(404).json({ error: "session not found" });
-  if (!session.containerId) {
-    return res.status(409).json({ error: "session has no active container" });
-  }
+  const session = requireActiveSession(res, sessionId);
+  if (!session) return;
 
   try {
     const result = await runProject({

@@ -89,10 +89,25 @@ export function EditorCoach({ refs, onComplete }: EditorCoachProps) {
       else { markDone(); onComplete(); }
       return;
     }
-    const update = () => setTargetRect(targetEl.getBoundingClientRect());
+    let rafId = 0;
+    const update = () => {
+      if (rafId) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = 0;
+        setTargetRect(targetEl.getBoundingClientRect());
+      });
+    };
     update();
+    const ro = new ResizeObserver(update);
+    ro.observe(targetEl);
     window.addEventListener("resize", update);
-    return () => window.removeEventListener("resize", update);
+    window.addEventListener("scroll", update, { capture: true, passive: true });
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      ro.disconnect();
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, { capture: true } as EventListenerOptions);
+    };
   }, [targetEl, step, onComplete, STEPS.length]);
 
   const advance = useCallback(() => {

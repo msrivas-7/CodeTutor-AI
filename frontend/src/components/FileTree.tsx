@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useProjectStore } from "../state/projectStore";
 import { LANGUAGE_ENTRYPOINT } from "../types";
 import { fileIcon } from "../util/fileIcon";
+import { Modal } from "./Modal";
 
 export function FileTree({ onCollapse }: { onCollapse?: () => void }) {
   const { order, activeFile, language, openFile, createFile, deleteFile, renameFile } =
@@ -13,17 +14,6 @@ export function FileTree({ onCollapse }: { onCollapse?: () => void }) {
   const [renameValue, setRenameValue] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
-  const confirmButtonRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    if (!pendingDelete) return;
-    confirmButtonRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setPendingDelete(null);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [pendingDelete]);
 
   const entrypoint = LANGUAGE_ENTRYPOINT[language];
 
@@ -67,11 +57,13 @@ export function FileTree({ onCollapse }: { onCollapse?: () => void }) {
         </span>
         <div className="flex items-center gap-1">
           <button
+            type="button"
+            tabIndex={0}
             title={`main = entrypoint for the current language (${entrypoint})\nDouble-click a filename to rename.`}
-            aria-label="File tree help"
-            className="rounded px-1.5 text-[10px] font-semibold text-muted transition hover:bg-elevated hover:text-ink"
+            aria-label="File tree help — main is the entrypoint for the current language; double-click a filename to rename"
+            className="rounded px-1.5 text-[10px] font-semibold text-muted transition hover:bg-elevated hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
-            ?
+            <span aria-hidden="true">?</span>
           </button>
           <button
             title="New file"
@@ -209,43 +201,37 @@ export function FileTree({ onCollapse }: { onCollapse?: () => void }) {
       )}
 
       {pendingDelete && (
-        <div
+        <Modal
+          onClose={() => setPendingDelete(null)}
           role="alertdialog"
-          aria-modal="true"
-          aria-labelledby="delete-file-title"
-          aria-describedby="delete-file-desc"
-          className="fixed inset-0 z-40 flex items-center justify-center bg-bg/80 backdrop-blur-sm"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setPendingDelete(null);
-          }}
+          labelledBy="delete-file-title"
+          position="center"
+          panelClassName="mx-4 w-full max-w-sm rounded-xl border border-danger/30 bg-panel p-5 shadow-xl"
         >
-          <div className="mx-4 w-full max-w-sm rounded-xl border border-danger/30 bg-panel p-5 shadow-xl">
-            <h2 id="delete-file-title" className="text-sm font-bold text-ink">
-              Delete file?
-            </h2>
-            <p id="delete-file-desc" className="mt-2 text-xs leading-relaxed text-muted">
-              Permanently delete <span className="font-mono font-semibold text-ink">{pendingDelete}</span>? This can't be undone.
-            </p>
-            <div className="mt-4 flex items-center gap-2">
-              <button
-                onClick={() => setPendingDelete(null)}
-                className="flex-1 rounded-lg border border-border px-4 py-2 text-xs font-medium text-muted transition hover:bg-elevated hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-              >
-                Cancel
-              </button>
-              <button
-                ref={confirmButtonRef}
-                onClick={() => {
-                  deleteFile(pendingDelete);
-                  setPendingDelete(null);
-                }}
-                className="flex-1 rounded-lg bg-danger/20 px-4 py-2 text-xs font-semibold text-danger ring-1 ring-danger/40 transition hover:bg-danger/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-danger"
-              >
-                Delete
-              </button>
-            </div>
+          <h2 id="delete-file-title" className="text-sm font-bold text-ink">
+            Delete file?
+          </h2>
+          <p className="mt-2 text-xs leading-relaxed text-muted">
+            Permanently delete <span className="font-mono font-semibold text-ink">{pendingDelete}</span>? This can't be undone.
+          </p>
+          <div className="mt-4 flex items-center gap-2">
+            <button
+              onClick={() => setPendingDelete(null)}
+              className="flex-1 rounded-lg border border-border px-4 py-2 text-xs font-medium text-muted transition hover:bg-elevated hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => {
+                deleteFile(pendingDelete);
+                setPendingDelete(null);
+              }}
+              className="flex-1 rounded-lg bg-danger/20 px-4 py-2 text-xs font-semibold text-danger ring-1 ring-danger/40 transition hover:bg-danger/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-danger"
+            >
+              Delete
+            </button>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

@@ -3,6 +3,7 @@ import { api } from "../api/client";
 import { useAIStore } from "../state/aiStore";
 import type { Persona } from "../types";
 import { useThemePref, type ThemePref } from "../util/theme";
+import { ProgressIOControls } from "./ProgressIOControls";
 
 // Dev-only Developer tab. Both imports are guarded by import.meta.env.DEV
 // so Vite tree-shakes the whole __dev__ folder in prod.
@@ -57,6 +58,9 @@ export function SettingsPanel({ onClose }: { onClose?: () => void }) {
   const devEnabled = useDevModeEnabled();
   const [tab, setTab] = useState<"general" | "developer">("general");
   const activeTab = devEnabled ? tab : "general";
+  // Two-step confirm for Remove API key — clears both the key and the tutor
+  // chat, so a single click shouldn't wipe an in-progress conversation.
+  const [confirmForget, setConfirmForget] = useState(false);
 
   const handleValidate = async () => {
     if (!apiKey.trim()) return;
@@ -202,7 +206,7 @@ export function SettingsPanel({ onClose }: { onClose?: () => void }) {
               ? "Enter an API key first"
               : keyStatus === "validating"
                 ? "Validating… please wait"
-                : "Check this API key with Anthropic"
+                : "Check this API key with OpenAI"
           }
           aria-label={
             !apiKey.trim()
@@ -228,7 +232,7 @@ export function SettingsPanel({ onClose }: { onClose?: () => void }) {
         <div className="text-[11px] leading-relaxed">
           <div className="font-semibold text-warn">Remember on this device</div>
           <div className="text-warn/70">
-            Stores the key in this browser's localStorage in plaintext. Fine for a personal machine; don't enable on a shared computer.
+            Saved on this computer only — don't enable on a shared machine.
           </div>
         </div>
       </label>
@@ -266,23 +270,32 @@ export function SettingsPanel({ onClose }: { onClose?: () => void }) {
           )}
           {modelsStatus === "loaded" && models.length === 0 && (
             <span className="text-[11px] text-muted">
-              no chat-capable models available for this key
+              This key doesn't have access to any chat models — check your OpenAI plan.
             </span>
           )}
         </div>
       )}
 
       <div className="flex flex-col gap-1.5">
-        <span className="text-[11px] font-medium text-muted">Experience level</span>
-        <div className="flex overflow-hidden rounded-md border border-border">
+        <span id="persona-label" className="text-[11px] font-medium text-muted">
+          Experience level
+        </span>
+        <div
+          role="radiogroup"
+          aria-labelledby="persona-label"
+          aria-describedby="persona-blurb"
+          className="flex overflow-hidden rounded-md border border-border"
+        >
           {(Object.keys(PERSONA_LABEL) as Persona[]).map((p, i) => {
             const active = persona === p;
             return (
               <button
                 key={p}
                 type="button"
+                role="radio"
+                aria-checked={active}
                 onClick={() => setPersona(p)}
-                className={`flex-1 px-2.5 py-1.5 text-[11px] font-semibold transition ${
+                className={`flex-1 px-2.5 py-1.5 text-[11px] font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent ${
                   active
                     ? "bg-accent text-bg"
                     : "bg-elevated text-muted hover:bg-elevated/80 hover:text-ink"
@@ -293,7 +306,7 @@ export function SettingsPanel({ onClose }: { onClose?: () => void }) {
             );
           })}
         </div>
-        <span className="text-[10px] leading-relaxed text-faint">
+        <span id="persona-blurb" className="text-[10px] leading-relaxed text-faint">
           {PERSONA_BLURB[persona]}
         </span>
       </div>
@@ -329,13 +342,37 @@ export function SettingsPanel({ onClose }: { onClose?: () => void }) {
         </span>
       </div>
 
+      <ProgressIOControls />
+
       {apiKey && (
-        <button
-          onClick={forgetKey}
-          className="self-start text-[11px] text-danger transition hover:text-danger/80"
-        >
-          forget key + clear conversation
-        </button>
+        confirmForget ? (
+          <div className="flex flex-col gap-1.5 self-start rounded-md border border-danger/40 bg-danger/5 p-2">
+            <span className="text-[11px] text-danger">
+              This also clears your tutor chat — continue?
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => { forgetKey(); setConfirmForget(false); }}
+                className="rounded-md bg-danger px-2.5 py-1 text-[11px] font-semibold text-bg transition hover:bg-danger/80"
+              >
+                Remove
+              </button>
+              <button
+                onClick={() => setConfirmForget(false)}
+                className="rounded-md border border-border bg-elevated px-2.5 py-1 text-[11px] text-muted transition hover:text-ink"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={() => setConfirmForget(true)}
+            className="self-start text-[11px] text-danger transition hover:text-danger/80"
+          >
+            Remove API key
+          </button>
+        )
       )}
     </>;
   }

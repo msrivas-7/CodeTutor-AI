@@ -7,7 +7,6 @@ RUN npm install --no-audit --no-fund
 
 COPY backend/tsconfig.json ./
 COPY backend/src ./src
-COPY shared /shared
 
 EXPOSE 4000
 

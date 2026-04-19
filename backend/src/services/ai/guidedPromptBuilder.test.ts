@@ -10,6 +10,7 @@ const lessonCtx: LessonContext = {
   courseId: "python-fundamentals",
   lessonId: "hello-world",
   lessonTitle: "Hello, World!",
+  language: "python",
   lessonObjectives: ["Write and run a Python program", "Use print()"],
   teachesConceptTags: ["print", "strings"],
   usesConceptTags: ["syntax"],
@@ -99,13 +100,18 @@ describe("buildGuidedSystemPrompt", () => {
 });
 
 describe("buildGuidedUserTurn", () => {
-  it("defaults language to python", () => {
-    const body = buildGuidedUserTurn({ question: "?", files: [], history: [] });
+  it("renders the lesson's language in the LANGUAGE header", () => {
+    const body = buildGuidedUserTurn({ question: "?", files: [], history: [], language: "python" });
     expect(body).toMatch(/LANGUAGE: python/);
   });
 
+  it("renders non-Python languages", () => {
+    const body = buildGuidedUserTurn({ question: "?", files: [], history: [], language: "javascript" });
+    expect(body).toMatch(/LANGUAGE: javascript/);
+  });
+
   it("includes all standard sections", () => {
-    const body = buildGuidedUserTurn({ question: "help me", files: [], history: [] });
+    const body = buildGuidedUserTurn({ question: "help me", files: [], history: [], language: "python" });
     expect(body).toMatch(/PROJECT FILES:/);
     expect(body).toMatch(/STDIN:/);
     expect(body).toMatch(/LAST RUN:/);
@@ -120,6 +126,7 @@ describe("buildGuidedUserTurn", () => {
       files: [{ path: "main.py", content: "print('hi')" }],
       activeFile: "main.py",
       history: [],
+      language: "python",
     });
     expect(body).toMatch(/--- main\.py \(ACTIVE\) ---/);
     expect(body).toMatch(/print\('hi'\)/);
@@ -130,6 +137,7 @@ describe("buildGuidedUserTurn", () => {
       question: "what does this do",
       files: [],
       history: [],
+      language: "python",
       selection: { path: "main.py", startLine: 3, endLine: 5, text: "for i in range(10):" },
     });
     expect(body).toMatch(/STUDENT SELECTION/);
@@ -138,7 +146,7 @@ describe("buildGuidedUserTurn", () => {
   });
 
   it("omits selection block when not provided", () => {
-    const body = buildGuidedUserTurn({ question: "?", files: [], history: [] });
+    const body = buildGuidedUserTurn({ question: "?", files: [], history: [], language: "python" });
     expect(body).not.toMatch(/STUDENT SELECTION/);
   });
 
@@ -147,6 +155,7 @@ describe("buildGuidedUserTurn", () => {
       question: "?",
       files: [],
       history: [],
+      language: "python",
       lastRun: {
         stdout: "Hello!",
         stderr: "",

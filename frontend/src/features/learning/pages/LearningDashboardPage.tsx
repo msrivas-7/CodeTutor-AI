@@ -1,14 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { Course, LessonMeta, LessonProgress, CourseProgress } from "../types";
-import { loadCourse, loadAllLessonMetas } from "../content/courseLoader";
+import { listPublicCourses, loadAllLessonMetas } from "../content/courseLoader";
 import { useProgressStore, loadAllLessonProgress } from "../stores/progressStore";
 import { useLearnerStore } from "../stores/learnerStore";
 import { CourseCard } from "../components/CourseCard";
 import { SettingsButton } from "../../../components/SettingsButton";
 import { pickShakyLessons, formatTimeSpent } from "../utils/mastery";
-
-const COURSES = ["python-fundamentals"];
 
 interface CourseData {
   course: Course;
@@ -26,17 +24,15 @@ export default function LearningDashboardPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    Promise.all(
-      COURSES.map(async (id) => {
-        const [course, lessons] = await Promise.all([
-          loadCourse(id),
-          loadAllLessonMetas(id),
-        ]);
-        loadCourseProgress(identity.learnerId, id);
-        return { course, lessons };
-      })
-    )
-      .then((data) => {
+    listPublicCourses()
+      .then(async (publicCourses) => {
+        const data = await Promise.all(
+          publicCourses.map(async (course) => {
+            const lessons = await loadAllLessonMetas(course.id);
+            loadCourseProgress(identity.learnerId, course.id);
+            return { course, lessons };
+          }),
+        );
         setCourses(data);
         const lps: LessonProgress[] = [];
         for (const { course } of data) {
@@ -331,17 +327,37 @@ export default function LearningDashboardPage() {
 
               {/* Courses grid */}
               <h2 className="mb-4 text-sm font-bold text-muted">All Courses</h2>
-              <div className="grid gap-4 sm:grid-cols-2">
-                {courses.map(({ course, lessons }) => (
-                  <CourseCard
-                    key={course.id}
-                    course={course}
-                    progress={courseProgressMap[course.id] ?? null}
-                    lessonCount={lessons.length}
-                    onOpen={() => nav(`/learn/course/${course.id}`)}
-                  />
-                ))}
-              </div>
+              {courses.length === 0 ? (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  className="rounded-xl border border-border bg-panel p-6 text-center"
+                >
+                  <p className="text-sm font-semibold text-ink">No courses available yet</p>
+                  <p className="mt-1.5 text-xs leading-relaxed text-muted">
+                    Something went wrong loading the course catalog. Reload the page,
+                    or check your internet connection if this keeps happening.
+                  </p>
+                  <button
+                    onClick={() => window.location.reload()}
+                    className="mt-3 rounded-md bg-accent px-3 py-1.5 text-[11px] font-semibold text-bg transition hover:bg-accent/90"
+                  >
+                    Reload
+                  </button>
+                </div>
+              ) : (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {courses.map(({ course, lessons }) => (
+                    <CourseCard
+                      key={course.id}
+                      course={course}
+                      progress={courseProgressMap[course.id] ?? null}
+                      lessonCount={lessons.length}
+                      onOpen={() => nav(`/learn/course/${course.id}`)}
+                    />
+                  ))}
+                </div>
+              )}
             </>
           )}
         </div>

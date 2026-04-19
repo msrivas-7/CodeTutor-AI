@@ -3,9 +3,8 @@ import { api } from "../api/client";
 import { useAIStore } from "../state/aiStore";
 import { useProjectStore } from "../state/projectStore";
 import { useRunStore } from "../state/runStore";
-import { parsePartialTutor } from "../util/partialJson";
-import { computeDiffSinceLast } from "../util/diffSinceLast";
 import { planSend } from "../util/summarizeHistory";
+import { useTutorAsk } from "../util/useTutorAsk";
 import {
   TutorResponseView,
   ActionChips,
@@ -15,6 +14,7 @@ import {
   hasTutorContent,
 } from "./TutorResponseViews";
 import { TutorSetupWarning } from "./TutorSetupWarning";
+import { SelectionPreview } from "./SelectionPreview";
 import { useShortcutLabels } from "../util/platform";
 
 export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: () => void; onOpenSettings?: () => void }) {
@@ -26,16 +26,8 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
     asking,
     askError,
     pending,
-    pushUser,
-    pushAssistant,
-    setAsking,
     setAskError,
-    startStream,
-    updateStream,
-    clearStream,
     clearConversation,
-    commitTurnSnapshot,
-    lastTurnFiles,
     runsSinceLastTurn,
     editsSinceLastTurn,
     pendingAsk,
@@ -52,14 +44,13 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
     sessionUsage,
   } = useAIStore();
 
-  const { snapshot, activeFile, language } = useProjectStore();
+  const { activeFile, language } = useProjectStore();
   const lastRun = useRunStore((s) => s.result);
   const stdin = useRunStore((s) => s.stdin);
 
   const [draft, setDraft] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const abortRef = useRef<AbortController | null>(null);
   const keys = useShortcutLabels();
 
   useEffect(() => {
@@ -76,29 +67,8 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
 
   const configured = keyStatus === "valid" && !!selectedModel;
 
-  const submitAsk = async (question: string) => {
-    if (!question || !configured || asking) return;
-    // Snapshot + clear the selection now so fast-follow asks don't accidentally
-    // reuse stale editor context from a previous question.
-    const selectionForTurn = activeSelection;
-    setActiveSelection(null);
-    pushUser(question);
-    setAsking(true);
-    setAskError(null);
-    startStream();
-    const controller = new AbortController();
-    abortRef.current = controller;
-    let raw = "";
-    let committed = false;
-    try {
-      const files = snapshot();
-      const diffSinceLastTurn = computeDiffSinceLast(lastTurnFiles, files);
-      // Snapshot BEFORE the request goes out so that any edits/runs during the
-      // model's thinking time are correctly attributed to the NEXT turn. If the
-      // request errors we still keep the snapshot — it represents "last sent",
-      // not "last successful".
-      commitTurnSnapshot(files);
-
+  const { submitAsk, cancelAsk } = useTutorAsk({
+    beforeSend: () => {
       // Phase 4 — decide what slice of history to ship. If we've crossed the
       // soft cap, fire a summarize round-trip in the background and proceed
       // with the best context we already have. The new summary lands on the
@@ -128,67 +98,24 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
           })
           .finally(() => setSummarizing(false));
       }
-      const historyToSend = [
-        ...plan.historyForSend,
-        { role: "user" as const, content: question },
-      ];
-
-      await api.askAIStream(
-        apiKey,
-        {
-          model: selectedModel!,
-          question,
-          files,
-          activeFile: activeFile ?? undefined,
-          language,
-          lastRun: lastRun ?? null,
-          history: historyToSend.slice(0, -1),
-          stdin: stdin || null,
-          diffSinceLastTurn,
-          runsSinceLastTurn,
-          editsSinceLastTurn,
-          persona,
-          selection: selectionForTurn,
-        },
-        {
-          signal: controller.signal,
-          onDelta: (chunk) => {
-            raw += chunk;
-            updateStream(raw, parsePartialTutor(raw));
-          },
-          onDone: (finalRaw, sections, usage) => {
-            pushAssistant(finalRaw || raw, sections, usage);
-            clearStream();
-            committed = true;
-          },
-          onError: (message) => {
-            setAskError(message);
-            clearStream();
-            committed = true;
-          },
-        }
-      );
-      // Abort path: askAIStream returns without firing onDone/onError. Commit
-      // whatever partial text we received so the student keeps the context
-      // rather than losing it when they click Stop.
-      if (!committed && controller.signal.aborted) {
-        if (raw.trim()) {
-          pushAssistant(raw, parsePartialTutor(raw));
-        }
-        clearStream();
-      }
-    } catch (err) {
-      setAskError((err as Error).message);
-      clearStream();
-    } finally {
-      setAsking(false);
-      abortRef.current = null;
-    }
-  };
-
-  const cancelAsk = () => {
-    abortRef.current?.abort();
-  };
+      return plan.historyForSend;
+    },
+    buildBody: ({ question, files, diffSinceLastTurn, historyForSend, selection }) => ({
+      model: selectedModel!,
+      question,
+      files,
+      activeFile: activeFile ?? undefined,
+      language,
+      lastRun: lastRun ?? null,
+      history: historyForSend,
+      stdin: stdin || null,
+      diffSinceLastTurn,
+      runsSinceLastTurn,
+      editsSinceLastTurn,
+      persona,
+      selection,
+    }),
+  });
 
   const handleAsk = () => {
     const question = draft.trim();
@@ -331,35 +258,7 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
 
       <div className="border-t border-border bg-panel p-2">
         {activeSelection && (
-          <div className="mb-1.5 rounded-md border border-accent/40 bg-accent/5 px-2 py-1.5">
-            <div className="flex items-center gap-1.5">
-              <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wider text-accent">
-                Selection
-              </span>
-              <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-accent/90">
-                {activeSelection.path}:
-                {activeSelection.startLine === activeSelection.endLine
-                  ? activeSelection.startLine
-                  : `${activeSelection.startLine}-${activeSelection.endLine}`}
-              </span>
-              <button
-                onClick={() => setActiveSelection(null)}
-                title="Remove selection"
-                className="shrink-0 rounded px-1 text-[11px] leading-none text-muted transition hover:bg-elevated hover:text-ink"
-              >
-                ×
-              </button>
-            </div>
-            <pre className="mt-1 max-h-10 overflow-hidden whitespace-pre rounded bg-bg/60 px-1.5 py-1 font-mono text-[10px] leading-snug text-ink/80">
-              {activeSelection.text
-                .replace(/\t/g, "  ")
-                .split("\n")
-                .slice(0, 2)
-                .map((l) => (l.length > 80 ? l.slice(0, 80) + "…" : l))
-                .join("\n")}
-              {activeSelection.text.split("\n").length > 2 ? "\n…" : ""}
-            </pre>
-          </div>
+          <SelectionPreview selection={activeSelection} onClear={() => setActiveSelection(null)} />
         )}
         <textarea
           ref={textareaRef}

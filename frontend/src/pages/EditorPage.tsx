@@ -15,7 +15,10 @@ import { useAIStore } from "../state/aiStore";
 import { useProjectStore } from "../state/projectStore";
 import { useRunStore } from "../state/runStore";
 import { SettingsModal } from "../components/SettingsModal";
+import { SessionErrorBanner } from "../components/SessionErrorBanner";
 import { EditorCoach, isEditorOnboardingDone } from "../components/EditorCoach";
+import { clamp, clampSide, usePersistedNumber, usePersistedFlag } from "../util/layoutPrefs";
+import { COACH_AUTO_OPEN_MS } from "../util/timings";
 
 const LS_LEFT = "ui:leftW";
 const LS_RIGHT = "ui:rightW";
@@ -29,36 +32,6 @@ const BOUNDS = {
   right: [260, 700] as const,
   out: [80, 600] as const,
 };
-
-function loadNum(key: string, fallback: number): number {
-  try {
-    const v = Number(localStorage.getItem(key));
-    return Number.isFinite(v) && v > 0 ? v : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function save(key: string, value: string | number): void {
-  try {
-    localStorage.setItem(key, String(value));
-  } catch {
-    /* quota or disabled — ignore */
-  }
-}
-
-function clamp(v: number, [min, max]: readonly [number, number]): number {
-  return Math.max(min, Math.min(max, v));
-}
-
-// Side panels are clamped against a fraction of viewport width so that on
-// narrow displays (tablets, small laptops) the user can't drag a side panel
-// wide enough to starve the editor. On wide displays the hardMax still wins.
-function clampSide(v: number, [min, hardMax]: readonly [number, number]): number {
-  const vw = typeof window !== "undefined" ? window.innerWidth : Infinity;
-  const max = Math.min(hardMax, Math.floor(vw * 0.45));
-  return Math.max(min, Math.min(max, v));
-}
 
 export default function EditorPage() {
   const nav = useNavigate();
@@ -74,15 +47,11 @@ export default function EditorPage() {
     switchRunContext("editor", { stdin: "" });
   }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
-  const [leftW, setLeftW] = useState(() => loadNum(LS_LEFT, DEFAULTS.left));
-  const [rightW, setRightW] = useState(() => loadNum(LS_RIGHT, DEFAULTS.right));
-  const [outputH, setOutputH] = useState(() => loadNum(LS_OUT, DEFAULTS.out));
-  const [tutorCollapsed, setTutorCollapsed] = useState(() => {
-    try { return localStorage.getItem(LS_TUTOR) === "1"; } catch { return false; }
-  });
-  const [filesCollapsed, setFilesCollapsed] = useState(() => {
-    try { return localStorage.getItem(LS_FILES) === "1"; } catch { return false; }
-  });
+  const [leftW, setLeftW] = usePersistedNumber(LS_LEFT, DEFAULTS.left);
+  const [rightW, setRightW] = usePersistedNumber(LS_RIGHT, DEFAULTS.right);
+  const [outputH, setOutputH] = usePersistedNumber(LS_OUT, DEFAULTS.out);
+  const [tutorCollapsed, setTutorCollapsed] = usePersistedFlag(LS_TUTOR, false);
+  const [filesCollapsed, setFilesCollapsed] = usePersistedFlag(LS_FILES, false);
   const [showSettings, setShowSettings] = useState(false);
   const [showCoach, setShowCoach] = useState(false);
 
@@ -95,16 +64,10 @@ export default function EditorPage() {
 
   useEffect(() => {
     if (!isEditorOnboardingDone()) {
-      const t = setTimeout(() => setShowCoach(true), 600);
+      const t = setTimeout(() => setShowCoach(true), COACH_AUTO_OPEN_MS);
       return () => clearTimeout(t);
     }
   }, []);
-
-  useEffect(() => save(LS_LEFT, leftW), [leftW]);
-  useEffect(() => save(LS_RIGHT, rightW), [rightW]);
-  useEffect(() => save(LS_OUT, outputH), [outputH]);
-  useEffect(() => save(LS_TUTOR, tutorCollapsed ? "1" : "0"), [tutorCollapsed]);
-  useEffect(() => save(LS_FILES, filesCollapsed ? "1" : "0"), [filesCollapsed]);
 
   return (
     <div className="flex h-full flex-col bg-bg text-ink">
@@ -155,6 +118,8 @@ export default function EditorPage() {
           </button>
         </div>
       </header>
+
+      <SessionErrorBanner />
 
       <main className="flex min-h-0 flex-1 overflow-hidden">
         {filesCollapsed ? (

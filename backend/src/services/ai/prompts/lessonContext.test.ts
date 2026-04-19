@@ -6,6 +6,7 @@ const full: LessonContext = {
   courseId: "python-fundamentals",
   lessonId: "hello-world",
   lessonTitle: "Hello, World!",
+  language: "python",
   lessonObjectives: ["Write and run a Python program", "Use print()"],
   teachesConceptTags: ["print", "strings"],
   usesConceptTags: ["syntax"],
@@ -65,10 +66,22 @@ describe("buildLessonContextBlock", () => {
     expect(block).toMatch(/write code in main\.py containing `def `/);
   });
 
+  it("uses the language's entry file for required_file_contains fallback (javascript)", () => {
+    const ctx: LessonContext = {
+      ...full,
+      language: "javascript",
+      completionRules: [{ type: "required_file_contains", pattern: "function" }],
+    };
+    const block = buildLessonContextBlock(ctx);
+    expect(block).toMatch(/write code in main\.js containing `function`/);
+  });
+
   it("describes function_tests as defining the tested functions", () => {
     const ctx: LessonContext = {
       ...full,
-      completionRules: [{ type: "function_tests" }],
+      completionRules: [
+        { type: "function_tests", tests: [{ name: "t", call: "f(1)", expected: "1" }] },
+      ],
     };
     const block = buildLessonContextBlock(ctx);
     expect(block).toMatch(/define the tested function/);

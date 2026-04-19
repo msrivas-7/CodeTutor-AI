@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import { lazy, Suspense } from "react";
+import { StorageQuotaBanner } from "./components/StorageQuotaBanner";
 
 const StartPage = lazy(() => import("./pages/StartPage"));
 const EditorPage = lazy(() => import("./pages/EditorPage"));
@@ -24,6 +25,7 @@ function Loading() {
 export default function App() {
   return (
     <Suspense fallback={<Loading />}>
+      <StorageQuotaBanner />
       <Routes>
         <Route path="/" element={<StartPage />} />
         <Route path="/editor" element={<EditorPage />} />

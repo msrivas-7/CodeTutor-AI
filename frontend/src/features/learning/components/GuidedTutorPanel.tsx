@@ -1,10 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { api } from "../../../api/client";
 import { useAIStore } from "../../../state/aiStore";
 import { useProjectStore } from "../../../state/projectStore";
 import { useRunStore } from "../../../state/runStore";
-import { parsePartialTutor } from "../../../util/partialJson";
-import { computeDiffSinceLast } from "../../../util/diffSinceLast";
+import { useTutorAsk } from "../../../util/useTutorAsk";
 import {
   TutorResponseView,
   ActionChips,
@@ -14,6 +12,7 @@ import {
   hasTutorContent,
 } from "../../../components/TutorResponseViews";
 import { TutorSetupWarning } from "../../../components/TutorSetupWarning";
+import { SelectionPreview } from "../../../components/SelectionPreview";
 import { useShortcutLabels } from "../../../util/platform";
 import { useProgressStore } from "../stores/progressStore";
 import type { LessonMeta } from "../types";
@@ -34,23 +33,14 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
   const incrementHint = useProgressStore((s) => s.incrementHint);
   const keys = useShortcutLabels();
   const {
-    apiKey,
     keyStatus,
     selectedModel,
     history,
     asking,
     askError,
     pending,
-    pushUser,
-    pushAssistant,
-    setAsking,
     setAskError,
-    startStream,
-    updateStream,
-    clearStream,
     clearConversation,
-    commitTurnSnapshot,
-    lastTurnFiles,
     runsSinceLastTurn,
     editsSinceLastTurn,
     pendingAsk,
@@ -61,7 +51,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
     sessionUsage,
   } = useAIStore();
 
-  const { snapshot, activeFile } = useProjectStore();
+  const { activeFile } = useProjectStore();
   const lastRun = useRunStore((s) => s.result);
   const stdin = useRunStore((s) => s.stdin);
 
@@ -69,7 +59,6 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
   const [hintLevel, setHintLevel] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const abortRef = useRef<AbortController | null>(null);
 
   const configured = keyStatus === "valid" && !!selectedModel;
 
@@ -93,89 +82,37 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
     textareaRef.current?.focus();
   }, [focusComposerNonce]);
 
-  const submitAsk = async (question: string) => {
-    if (!question.trim() || !configured || asking) return;
-    const selectionForTurn = activeSelection;
-    setActiveSelection(null);
-    pushUser(question);
-    setAsking(true);
-    setAskError(null);
-    startStream();
-    const controller = new AbortController();
-    abortRef.current = controller;
-    let raw = "";
-    let committed = false;
-
-    try {
-      const files = snapshot();
-      const diffSinceLastTurn = computeDiffSinceLast(lastTurnFiles, files);
-      commitTurnSnapshot(files);
-
-      await api.askAIStream(
-        apiKey,
-        {
-          model: selectedModel!,
-          question,
-          files,
-          activeFile: activeFile ?? undefined,
-          language: "python",
-          lastRun: lastRun ?? null,
-          history: [...history.map((m) => ({ role: m.role, content: m.content }))],
-          stdin: stdin || null,
-          diffSinceLastTurn,
-          runsSinceLastTurn,
-          editsSinceLastTurn,
-          persona: "beginner",
-          selection: selectionForTurn,
-          lessonContext: {
-            courseId: lessonMeta.courseId,
-            lessonId: lessonMeta.id,
-            lessonTitle: lessonMeta.title,
-            lessonObjectives: lessonMeta.objectives,
-            teachesConceptTags: lessonMeta.teachesConceptTags,
-            usesConceptTags: lessonMeta.usesConceptTags,
-            priorConcepts,
-            completionRules: lessonMeta.completionRules,
-            studentProgressSummary: progressSummary,
-            lessonOrder: lessonMeta.order,
-            totalLessons,
-          },
-        },
-        {
-          signal: controller.signal,
-          onDelta: (chunk) => {
-            raw += chunk;
-            updateStream(raw, parsePartialTutor(raw));
-          },
-          onDone: (finalRaw, sections, usage) => {
-            pushAssistant(finalRaw || raw, sections, usage);
-            clearStream();
-            committed = true;
-          },
-          onError: (message) => {
-            setAskError(message);
-            clearStream();
-            committed = true;
-          },
-        }
-      );
-
-      if (!committed && controller.signal.aborted && raw.trim()) {
-        pushAssistant(raw, parsePartialTutor(raw));
-        clearStream();
-      }
-    } catch (err) {
-      setAskError((err as Error).message);
-      clearStream();
-    } finally {
-      setAsking(false);
-      abortRef.current = null;
-    }
-  };
-
-  const cancelAsk = () => {
-    abortRef.current?.abort();
-  };
+  const { submitAsk, cancelAsk } = useTutorAsk({
+    buildBody: ({ question, files, diffSinceLastTurn, historyForSend, selection }) => ({
+      model: selectedModel!,
+      question,
+      files,
+      activeFile: activeFile ?? undefined,
+      language: lessonMeta.language,
+      lastRun: lastRun ?? null,
+      history: historyForSend,
+      stdin: stdin || null,
+      diffSinceLastTurn,
+      runsSinceLastTurn,
+      editsSinceLastTurn,
+      persona: "beginner",
+      selection,
+      lessonContext: {
+        courseId: lessonMeta.courseId,
+        lessonId: lessonMeta.id,
+        lessonTitle: lessonMeta.title,
+        language: lessonMeta.language,
+        lessonObjectives: lessonMeta.objectives,
+        teachesConceptTags: lessonMeta.teachesConceptTags,
+        usesConceptTags: lessonMeta.usesConceptTags,
+        priorConcepts,
+        completionRules: lessonMeta.completionRules,
+        studentProgressSummary: progressSummary,
+        lessonOrder: lessonMeta.order,
+        totalLessons,
+      },
+    }),
+  });
 
   const handleSubmit = () => {
     if (!draft.trim()) return;
@@ -314,7 +251,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
                             incrementHint(lessonMeta.courseId, lessonMeta.id);
                           }}
                           disabled={asking}
-                          aria-label={`Request a hint, level ${hintLevel + 1} of 3`}
+                          aria-label={`${hintLevel === 0 ? "Hint" : hintLevel === 1 ? "Stronger hint" : "Show approach"} — level ${hintLevel + 1} of 3`}
                           title={`Hint ${hintLevel + 1} of 3 — gentler first, stronger on each tap`}
                           className="flex items-center gap-1 rounded-full border border-warn/40 bg-warn/10 px-2 py-[2px] text-[10px] font-medium text-warn transition hover:bg-warn/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-warn disabled:cursor-not-allowed disabled:opacity-50"
                         >
@@ -369,35 +306,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
 
       <div className="border-t border-border bg-panel p-2">
         {activeSelection && (
-          <div className="mb-1.5 rounded-md border border-accent/40 bg-accent/5 px-2 py-1.5">
-            <div className="flex items-center gap-1.5">
-              <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wider text-accent">
-                Selection
-              </span>
-              <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-accent/90">
-                {activeSelection.path}:
-                {activeSelection.startLine === activeSelection.endLine
-                  ? activeSelection.startLine
-                  : `${activeSelection.startLine}-${activeSelection.endLine}`}
-              </span>
-              <button
-                onClick={() => setActiveSelection(null)}
-                title="Remove selection"
-                className="shrink-0 rounded px-1 text-[11px] leading-none text-muted transition hover:bg-elevated hover:text-ink"
-              >
-                ×
-              </button>
-            </div>
-            <pre className="mt-1 max-h-10 overflow-hidden whitespace-pre rounded bg-bg/60 px-1.5 py-1 font-mono text-[10px] leading-snug text-ink/80">
-              {activeSelection.text
-                .replace(/\t/g, "  ")
-                .split("\n")
-                .slice(0, 2)
-                .map((l: string) => (l.length > 80 ? l.slice(0, 80) + "…" : l))
-                .join("\n")}
-              {activeSelection.text.split("\n").length > 2 ? "\n…" : ""}
-            </pre>
-          </div>
+          <SelectionPreview selection={activeSelection} onClear={() => setActiveSelection(null)} />
         )}
         <textarea
           ref={textareaRef}

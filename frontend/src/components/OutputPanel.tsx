@@ -173,7 +173,7 @@ export function OutputPanel() {
                     — if this program reads input, try the{" "}
                     <button
                       onClick={() => setTab("stdin")}
-                      className="text-accent underline-offset-2 hover:underline"
+                      className="text-accent underline underline-offset-2 transition hover:text-accentMuted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                     >
                       stdin
                     </button>{" "}

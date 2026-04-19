@@ -16,13 +16,20 @@ export function useSessionLifecycle() {
 
   useEffect(() => {
     if (started.current) return;
+    // sessionStore persists across page navigations; if the previous page
+    // (Editor ⇄ Lesson) already started a session, reuse it instead of
+    // leaking another container on the backend.
+    if (sessionId) {
+      started.current = true;
+      return;
+    }
     started.current = true;
     setPhase("starting");
     api
       .startSession()
       .then(({ sessionId: id }) => setSession(id))
       .catch((err: Error) => setError(err.message));
-  }, [setSession, setPhase, setError]);
+  }, [sessionId, setSession, setPhase, setError]);
 
   useEffect(() => {
     if (!sessionId) return;

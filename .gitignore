@@ -19,3 +19,10 @@ temp/sessions/*
 .vscode/
 .idea/
 .claude/
+
+# Playwright E2E artifacts (e2e/ has its own .gitignore; these catch stray
+# outputs when playwright is invoked from the repo root).
+test-results/
+playwright-report/
+blob-report/
+.playwright/

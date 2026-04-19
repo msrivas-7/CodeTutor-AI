@@ -3,14 +3,15 @@
 // touched, so the dev's real config survives profile swaps.
 
 import { profileById, type DevProfile } from "./profiles";
-
-// Prefixes of localStorage keys that belong to CodeTutor *progress state*.
-// These are wiped on profile apply and replaced by the seed. Any key not
-// matching one of these prefixes is preserved.
-const OWNED_PREFIXES = [
-  "learner:v1:",
-  "onboarding:v1:",
-];
+import {
+  allOwnedKeys,
+  currentSnapshotJson as _currentSnapshotJson,
+  isOwnedKey,
+  pasteSnapshot as _pasteSnapshot,
+  snapshotOwnedKeys,
+  wipeOwnedKeys,
+  writeSnapshot,
+} from "../util/progressSnapshot";
 
 // Internal keys used by the dev-profile system itself. Never wiped by profile
 // apply (they manage the profile system). Cleared only by an explicit
@@ -21,48 +22,6 @@ export const DEV_KEYS = {
   realSnapshot: "__dev__:realSnapshot",
   sandboxSnapshot: "__dev__:sandboxSnapshot",
 } as const;
-
-function isOwnedKey(key: string): boolean {
-  return OWNED_PREFIXES.some((p) => key.startsWith(p));
-}
-
-function allOwnedKeys(): string[] {
-  const keys: string[] = [];
-  for (let i = 0; i < localStorage.length; i++) {
-    const k = localStorage.key(i);
-    if (k && isOwnedKey(k)) keys.push(k);
-  }
-  return keys;
-}
-
-function snapshotOwnedKeys(): Record<string, string> {
-  const snap: Record<string, string> = {};
-  for (const k of allOwnedKeys()) {
-    const v = localStorage.getItem(k);
-    if (v !== null) snap[k] = v;
-  }
-  return snap;
-}
-
-function wipeOwnedKeys(): void {
-  for (const k of allOwnedKeys()) {
-    try {
-      localStorage.removeItem(k);
-    } catch {
-      /* ignore */
-    }
-  }
-}
-
-function writeSnapshot(snap: Record<string, string>): void {
-  for (const [k, v] of Object.entries(snap)) {
-    try {
-      localStorage.setItem(k, v);
-    } catch {
-      /* ignore */
-    }
-  }
-}
 
 // Called the first time dev mode is ever enabled — captures whatever state
 // the developer had as a real user, so we can always restore it on exit.
@@ -190,34 +149,12 @@ export function getActiveProfileId(): string | null {
   return localStorage.getItem(DEV_KEYS.activeProfileId);
 }
 
-// Dump the current owned-key state as a prettified JSON blob. Used by the
-// "Snapshot → clipboard" button so a dev can stash an interesting bug state
-// and restore it later via pasteSnapshot().
-export function currentSnapshotJson(): string {
-  return JSON.stringify(snapshotOwnedKeys(), null, 2);
-}
-
-export function pasteSnapshot(json: string): void {
-  let snap: Record<string, string>;
-  try {
-    const parsed = JSON.parse(json);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      throw new Error("not an object");
-    }
-    snap = parsed as Record<string, string>;
-  } catch (e) {
-    throw new Error(`invalid JSON: ${(e as Error).message}`);
-  }
-  // Reject payloads that would write non-owned keys — prevents a pasted
-  // snapshot from tampering with API keys, theme, etc.
-  for (const k of Object.keys(snap)) {
-    if (!isOwnedKey(k)) {
-      throw new Error(`snapshot contains non-owned key: ${k}`);
-    }
-  }
-  wipeOwnedKeys();
-  writeSnapshot(snap);
-}
+// Re-exports of the user-facing snapshot primitives. The dev profile UI
+// (Developer tab) and the end-user Export/Import Progress flow both use the
+// same allow-list-enforced functions — lifted to util/progressSnapshot so
+// they survive the __dev__ tree-shake in prod builds.
+export const currentSnapshotJson = _currentSnapshotJson;
+export const pasteSnapshot = _pasteSnapshot;
 
 // Nuclear option — wipe everything owned, including any active profile
 // marker. Leaves real-snapshot + dev flags intact so the dev can still exit

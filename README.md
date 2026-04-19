@@ -41,14 +41,14 @@ No account needed. Runs entirely on your machine.
 
 ## Guided Learning
 
-> 12 step-by-step Python lessons — from "Hello World" through a mini project to two capstones. Instructions, starter code, and auto-validated exercises.
+> 12 step-by-step Python lessons — from "Hello World" through a mini project to two capstones. Instructions, starter code, and auto-validated exercises. _(Python today; the content pipeline, per-language harness registry, and authoring scripts are already multi-language — more courses coming.)_
 
 - **Learn by doing** — read the instructions, write code, run it, and check your work
 - **AI tutor that teaches, not solves** — knows your lesson context, gives escalating hints, and never spoils the answer
 - **Instant feedback** — "Check My Work" validates your code and shows what to fix. Pass to see a recap and practice challenges
 - **Example test cases** — capstone lessons expose visible example cases in an Examples tab. Run them any time to see how your function behaves before submitting; Check My Work also runs extra hidden cases
 - **Practice mode** — 30+ bite-sized challenges (3 per lesson) reinforce concepts with a different twist. Optional, tracked separately, visible per-lesson on the course page
-- **Progress that sticks** — your code, completions, and progress persist in the browser. Pick up where you left off
+- **Progress that sticks** — your code, completions, and progress persist in the browser. Pick up where you left off — with a visible warning if your browser storage fills up so nothing is silently lost
 - **Guided onboarding** — contextual nudges help you figure out what to do next. A spotlight tour introduces the workspace on your first lesson
 - **Learning dashboard** — see your progress, what's next, recent activity, and which lessons might need review
 

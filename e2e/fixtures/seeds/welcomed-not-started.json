@@ -1,0 +1,6 @@
+{
+  "learner:v1:identity": "{\"learnerId\":\"dev-profile-learner\",\"createdAt\":\"2026-03-20T17:33:33.339Z\",\"isAnonymous\":true}",
+  "onboarding:v1:welcome-done": "1",
+  "onboarding:v1:workspace-done": "1",
+  "onboarding:v1:editor-done": "1"
+}

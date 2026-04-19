@@ -1,0 +1,9 @@
+{
+  "id": "_internal-js-smoke",
+  "title": "Internal — JavaScript smoke test",
+  "description": "Validates the multi-language architecture (schema, loader, runner, validator, prompts). Not shown on the learner dashboard.",
+  "language": "javascript",
+  "lessonOrder": ["hello-print"],
+  "baseVocabulary": [],
+  "internal": true
+}
