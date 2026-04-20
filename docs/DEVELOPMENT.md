@@ -2,20 +2,22 @@
 
 ## First-time setup (auth stack)
 
-Phase 18a added Supabase Auth. The full stack runs locally — no cloud account required for development or CI.
+The project uses **Supabase cloud** for auth + Postgres — no local Supabase CLI install, no local stack to boot. There are two Supabase projects on one cloud account: `codetutor-dev` (dev + CI/E2E) and `codetutor-prod` (production). Real credentials are gitignored; committed `.example` files document the shape.
+
+**Getting credentials (contributors).** Request the `codetutor-dev` credential bundle from the repo owner (see the project's `README.md` for contact). If you're forking, create your own Supabase project and use its values.
+
+**Populate env files on disk (all gitignored):**
 
 ```bash
-# One-time — install Supabase CLI (macOS; see https://supabase.com/docs/guides/cli for other OSes)
-brew install supabase/tap/supabase
-
-# Boot the local Supabase stack (Postgres + GoTrue + Studio on :54321-54323)
-supabase start
-
-# Stack stays up across reboots; `supabase stop` tears it down.
-# `supabase status` prints the current URL + keys (used below).
+cp .env.example       .env            # docker compose reads this automatically
+cp .env.example       .env.local      # playwright (e2e) reads this via dotenv
+cp frontend/.env.development.example  frontend/.env.development.local
+# For prod builds only:
+cp .env.production.example            .env.production
+cp frontend/.env.production.example   frontend/.env.production.local
 ```
 
-Well-known local CLI keys are committed to [`frontend/.env.development`](../frontend/.env.development) and [`docker-compose.yml`](../docker-compose.yml) as non-secret defaults — identical on every contributor's machine. The one value that must land in [`.env.local`](../.env.local) (gitignored) is `SUPABASE_SERVICE_ROLE_KEY`, needed by the E2E helper to admin-create test users. Run `supabase status` and paste its `service_role key` into `.env.local`.
+Fill in the real values from the credential bundle. `.env` and `.env.local` carry the same backend-side Supabase values; populate both so both the compose stack and the e2e runner have what they need.
 
 ## Local Setup
 
@@ -37,8 +39,8 @@ Well-known local CLI keys are committed to [`frontend/.env.development`](../fron
 (cd frontend && npm run verify:solutions)   # runs every golden solution against its completion rules
 
 # End-to-end tests (Playwright, mocked OpenAI; see e2e/README.md)
-# Requires `supabase start` to be running — the auth fixture admin-creates
-# per-worker test users against the local GoTrue.
+# Uses codetutor-dev cloud — the auth fixture admin-creates per-worker
+# test users via the service_role key from .env.local.
 docker compose up -d
 (cd e2e && npm install && npx playwright install --with-deps chromium && npm test)
 
@@ -100,11 +102,11 @@ All optional — defaults work for local use. See [.env.example](../.env.example
 | `SESSION_CREATE_RATE_LIMIT_MAX` | `30` | Max session lifecycle calls per window per user (IP floor prevents account-churn bypass) |
 | `MUTATION_RATE_LIMIT_WINDOW_MS` | `60000` | Window for `/api/project/snapshot` + `/api/execute*` per-user bucket |
 | `MUTATION_RATE_LIMIT_MAX` | `120` | Max mutation calls per window per user |
-| `SUPABASE_URL` | `http://host.docker.internal:54321` | Backend-reachable Supabase API root. Cloud override: `https://<project-ref>.supabase.co`. |
-| `SUPABASE_AUTH_ISSUER` | `http://127.0.0.1:54321/auth/v1` | Expected `iss` claim on access tokens. Needed in local dev because the browser reaches Supabase at `127.0.0.1` (so tokens are signed with that host) while the backend reaches it at `host.docker.internal`. Leave unset in prod — `SUPABASE_URL` and the token issuer match there. |
-| `VITE_SUPABASE_URL` | `http://127.0.0.1:54321` | Browser-side Supabase URL (baked into prod bundle, read at runtime in dev). |
-| `VITE_SUPABASE_ANON_KEY` | local CLI publishable key | Public anon key. Non-secret; committed as a dev default. Cloud override comes from the project's API settings. |
-| `SUPABASE_SERVICE_ROLE_KEY` | unset | E2E-only. The auth helper uses this to admin-create per-worker test users. **Never** set in prod; the backend only verifies tokens, it has no need for the service role. |
+| `SUPABASE_URL` | **required** | Supabase API root — `https://<project-ref>.supabase.co`. Same value for backend (env) and browser (VITE_SUPABASE_URL). |
+| `VITE_SUPABASE_URL` | **required** | Browser-side Supabase URL. Inlined into the Vite bundle at build time for prod; read from `frontend/.env.development.local` at dev-server startup. |
+| `VITE_SUPABASE_ANON_KEY` | **required** | Public `sb_publishable_...` key from the Supabase project's API settings. Browser-safe; committed `.example` carries placeholder only. |
+| `SUPABASE_SERVICE_ROLE_KEY` | **required for E2E** | `sb_secret_...` key. The e2e auth helper uses it to admin-create per-worker test users. **Never** set in prod; the backend only verifies tokens, it has no need for the service role. |
+| `DATABASE_URL` | **required** | Postgres transaction pooler URL from the Supabase project's database settings (port 6543). |
 | `DEBUG_PROMPTS` | unset | When `1`, the AI provider logs full system + user turn text. Leave unset; learner code would otherwise reach the backend log. |
 
 ## Direct Docker Compose

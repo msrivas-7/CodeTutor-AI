@@ -32,11 +32,11 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    # Everything below is 12-factor config: every value differs potentially
-    # across dev / staging / prod, so it all flows in via env (with dev-
-    # friendly defaults baked in via ${VAR:-default}). Same image, different
-    # env file = different environment. `docker compose up` works with no
-    # env file; `docker compose --env-file=.env.production up` swaps it.
+    # 12-factor config: every value differs across dev / prod, all flowing
+    # in via env. Docker compose loads `.env` by default; for prod swap with
+    # `docker compose --env-file=.env.production up`. Required vars fail
+    # fast at backend boot (assertConfigValid) rather than silently running
+    # on dev-ish defaults — see backend/src/config.ts.
     environment:
       PORT: "${BACKEND_PORT:-4000}"
       CORS_ORIGIN: "${CORS_ORIGIN:-http://localhost:5173}"
@@ -45,42 +45,19 @@ services:
       # honors DOCKER_HOST; the proxy then enforces the allowlist above.
       DOCKER_HOST: "${DOCKER_HOST:-tcp://socket-proxy:2375}"
       # Backend-internal path for workspace I/O. Same on every host OS —
-      # the host path is discovered at startup via Docker self-inspect and
-      # used separately when spawning sibling containers. See
-      # backend/src/services/execution/backends/localDocker.ts → resolveHostWorkspaceRoot.
+      # the host path is discovered at startup via Docker self-inspect.
       WORKSPACE_ROOT: "${WORKSPACE_ROOT:-/workspace-root}"
-      # Rate-limits. The config.ts defaults (30 session-creates, 120
-      # mutations, 60 AI calls per minute per IP/user) are the production
-      # posture. Local compose — and especially the E2E suite, which hits
-      # the backend from a single 127.0.0.1 with parallel workers — needs a
-      # lot more headroom. Dev defaults below are generous; unit tests cover
-      # the actual 429 behavior. Override via env in prod.
+      # Rate-limits. config.ts defaults (30/120/60 per minute) are prod
+      # posture; dev headroom below because the E2E suite hits from a
+      # single 127.0.0.1 with parallel workers.
       SESSION_CREATE_RATE_LIMIT_MAX: "${SESSION_CREATE_RATE_LIMIT_MAX:-500}"
       MUTATION_RATE_LIMIT_MAX: "${MUTATION_RATE_LIMIT_MAX:-2000}"
       AI_RATE_LIMIT_MAX: "${AI_RATE_LIMIT_MAX:-500}"
-      # Phase 18a. Backend-in-container reaches the host-run Supabase stack
-      # via host.docker.internal (resolved below on Linux via extra_hosts).
-      # Auth tokens are verified via the auth server's JWKS endpoint; we do
-      # not share any secret with Supabase. Override for prod with the cloud
-      # project URL (`https://<ref>.supabase.co`).
-      SUPABASE_URL: "${SUPABASE_URL:-http://host.docker.internal:54321}"
-      # Issuer claim on access tokens. In local dev the browser reaches
-      # Supabase at 127.0.0.1 and GoTrue signs tokens with that URL in `iss`,
-      # while the backend reaches Supabase via host.docker.internal. These
-      # two differ, so we set an explicit override here. For cloud prod the
-      # SUPABASE_URL and token-issuer host match — leave this unset there.
-      SUPABASE_AUTH_ISSUER: "${SUPABASE_AUTH_ISSUER:-http://127.0.0.1:54321/auth/v1}"
-      # Phase 18b. Per-user state (preferences, progress, editor project) lives
-      # in the same Supabase Postgres that `supabase start` provisions locally.
-      # The CLI exposes it on host port 54322; from inside the backend container
-      # we reach it via host.docker.internal. Override for prod with the cloud
-      # project's direct connection string (Project Settings → Database).
-      DATABASE_URL: "${DATABASE_URL:-postgresql://postgres:postgres@host.docker.internal:54322/postgres}"
-    extra_hosts:
-      # Linux doesn't resolve host.docker.internal out of the box the way
-      # macOS/Windows do. This entry makes the backend reach the host-run
-      # Supabase identically across OSes.
-      - "host.docker.internal:host-gateway"
+      # Supabase — required. No default: failing fast beats pointing at the
+      # wrong project. Populate .env from .env.example.
+      SUPABASE_URL: "${SUPABASE_URL}"
+      SUPABASE_SERVICE_ROLE_KEY: "${SUPABASE_SERVICE_ROLE_KEY}"
+      DATABASE_URL: "${DATABASE_URL}"
     volumes:
       # Relative path — Compose resolves it against the compose file location
       # on every host. Works in PowerShell, zsh, bash identically.
@@ -112,15 +89,17 @@ services:
       # values via env-var interpolation below.
       args:
         VITE_BACKEND_URL: "${VITE_BACKEND_URL:-http://backend:4000}"
-        VITE_SUPABASE_URL: "${VITE_SUPABASE_URL:-http://127.0.0.1:54321}"
-        VITE_SUPABASE_ANON_KEY: "${VITE_SUPABASE_ANON_KEY:-}"
-    # VITE_BACKEND_URL is read by vite.config.ts (Node side) at dev-server
-    # startup to configure the /api proxy, so it has to be a runtime env var
-    # on the dev container — build args only help the prod build stage.
-    # VITE_SUPABASE_* are read at browser runtime from frontend/.env.development
-    # by Vite's native loader, so they don't need to be here.
+        VITE_SUPABASE_URL: "${VITE_SUPABASE_URL}"
+        VITE_SUPABASE_ANON_KEY: "${VITE_SUPABASE_ANON_KEY}"
+    # VITE_* are read by vite.config.ts at dev-server startup (for vite.config
+    # itself) and injected into import.meta.env for the browser bundle. In dev
+    # mode Vite picks up any VITE_* process env var, so we surface the three
+    # required values here. They flow from the compose `.env` file, which is
+    # the single source of truth for dev — see docs/DEVELOPMENT.md.
     environment:
       VITE_BACKEND_URL: "${VITE_BACKEND_URL:-http://backend:4000}"
+      VITE_SUPABASE_URL: "${VITE_SUPABASE_URL}"
+      VITE_SUPABASE_ANON_KEY: "${VITE_SUPABASE_ANON_KEY}"
     ports:
       # Default loopback-only. Prod deploys override FRONTEND_BIND.
       - "${FRONTEND_BIND:-127.0.0.1}:${FRONTEND_PORT:-5173}:5173"

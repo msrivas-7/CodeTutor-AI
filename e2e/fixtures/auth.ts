@@ -19,22 +19,25 @@ import { test as baseTest } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { createClient, type Session, type SupabaseClient, type User } from "@supabase/supabase-js";
 
-const SUPABASE_URL = process.env.E2E_SUPABASE_URL ?? "http://127.0.0.1:54321";
-const ANON_KEY =
-  process.env.E2E_SUPABASE_ANON_KEY ?? "sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH";
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+function requireEnv(name: string): string {
+  const v = process.env[name];
+  if (!v) {
+    // boot.ts asserts these already, but we double-check because this module
+    // is imported by every spec — if someone runs a single spec bypassing
+    // globalSetup, the failure mode should still be loud.
+    throw new Error(
+      `auth.ts: ${name} is required. Populate \`../.env.local\` from \`../.env.example\`.`,
+    );
+  }
+  return v;
+}
+
+const SUPABASE_URL = requireEnv("SUPABASE_URL");
+const ANON_KEY = requireEnv("SUPABASE_ANON_KEY");
+const SERVICE_KEY = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
 
 const STORAGE_KEY = "codetutor-auth";
 const PASSWORD = "E2E-Password-123!";
-
-if (!SERVICE_KEY) {
-  // boot.ts asserts this already, but we double-check because this module
-  // is imported by every spec — if someone runs a single spec bypassing
-  // globalSetup, the failure mode should still be loud.
-  throw new Error(
-    "auth.ts: SUPABASE_SERVICE_ROLE_KEY missing. Put it in ../.env.local.",
-  );
-}
 
 // Admin client — service_role, talks to /auth/v1/admin. NEVER expose this
 // key in the browser.

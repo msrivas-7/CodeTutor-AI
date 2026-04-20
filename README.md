@@ -7,8 +7,6 @@
 **Learn to code with an AI tutor that guides you — without giving away the answers.**
 <br />
 Write code, run it in a sandboxed environment, and get structured help when you're stuck.
-<br />
-No account needed. Runs entirely on your machine.
 
 <br />
 <br />
@@ -106,7 +104,7 @@ No account needed. Runs entirely on your machine.
 </td>
 <td>
 
-[Git](https://git-scm.com/downloads) and [Docker Desktop](https://www.docker.com/products/docker-desktop/) (running). Optional: [OpenAI API key](https://platform.openai.com/api-keys) for the AI tutor.
+[Git](https://git-scm.com/downloads), [Docker Desktop](https://www.docker.com/products/docker-desktop/) (running), and Supabase credentials — request the dev bundle from the repo owner or point at your own fork's project (see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md#first-time-setup-auth-stack)). Optional: [OpenAI API key](https://platform.openai.com/api-keys) for the AI tutor.
 
 </td>
 </tr>
@@ -117,6 +115,8 @@ No account needed. Runs entirely on your machine.
 ```bash
 git clone https://github.com/msrivas-7/CodeTutor-AI.git
 cd codetutor-ai
+cp .env.example .env                                   # fill in Supabase creds
+cp frontend/.env.development.example frontend/.env.development.local
 ./start.sh          # first build ~2-3 min, then ~10s
 ```
 
@@ -125,6 +125,8 @@ cd codetutor-ai
 ```powershell
 git clone https://github.com/msrivas-7/CodeTutor-AI.git
 cd codetutor-ai
+Copy-Item .env.example .env                            # fill in Supabase creds
+Copy-Item frontend/.env.development.example frontend/.env.development.local
 powershell -ExecutionPolicy Bypass -File .\start.ps1
 ```
 

@@ -27,21 +27,14 @@ function authServerUrl(): string {
   return cachedAuthServerUrl;
 }
 
-// The issuer claim we expect on tokens. Defaults to `<SUPABASE_URL>/auth/v1`
-// which matches what GoTrue mints in normal cloud deployments. Local dev is
-// the odd one out: the backend reaches Supabase on one URL
-// (host.docker.internal) while GoTrue signs tokens with a different URL
-// (127.0.0.1 — what the browser sees). SUPABASE_AUTH_ISSUER overrides the
-// default for that case.
+// Expected `iss` claim on access tokens — always `<SUPABASE_URL>/auth/v1`
+// for cloud projects. We validate it so a token minted by a different project
+// (dev vs. prod misconfig, or a different cloud account entirely) can't be
+// accepted here.
 let cachedAuthIssuer: string | null = null;
 function authIssuer(): string {
   if (cachedAuthIssuer) return cachedAuthIssuer;
-  const override = process.env.SUPABASE_AUTH_ISSUER ?? config.supabase.authIssuer;
-  if (override && override.trim() !== "") {
-    cachedAuthIssuer = override.trim();
-  } else {
-    cachedAuthIssuer = new URL("/auth/v1", authServerUrl()).toString();
-  }
+  cachedAuthIssuer = new URL("/auth/v1", authServerUrl()).toString();
   return cachedAuthIssuer;
 }
 
@@ -125,14 +118,9 @@ export async function authMiddleware(
     if (!token) throw new HttpError(401, "empty bearer token");
 
     const { payload } = await jwtVerify(token, getJwks(), {
-      // Supabase issues tokens as `<SUPABASE_URL>/auth/v1`. We validate
-      // the issuer so a token minted by a different project (dev vs. prod
-      // misconfig, or a different cloud account entirely) can't be
-      // accepted here.
       issuer: authIssuer(),
       // GoTrue sets aud="authenticated" for signed-in users. Anonymous
-      // logins would use aud="anon" — we disabled those in config.toml,
-      // so only "authenticated" is valid.
+      // logins aren't enabled on the project, so only "authenticated" is valid.
       audience: "authenticated",
     });
     const sub = typeof payload.sub === "string" ? payload.sub : null;

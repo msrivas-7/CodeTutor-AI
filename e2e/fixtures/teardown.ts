@@ -14,8 +14,8 @@ dotenv.config({ path: path.resolve(__dirname, "..", "..", ".env.local") });
 
 export default async function globalTeardown() {
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!key) return;
-  const url = process.env.E2E_SUPABASE_URL ?? "http://127.0.0.1:54321";
+  const url = process.env.SUPABASE_URL;
+  if (!key || !url) return;
 
   const admin = createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },

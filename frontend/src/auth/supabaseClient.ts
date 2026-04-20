@@ -4,11 +4,11 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 // a refresh-token timer), so creating more than one client per tab would
 // fight with itself — hence the single module-level instance.
 //
-// Env values are bound from Vite mode files (frontend/.env.development for
-// dev, frontend/.env.production for prod builds). Both are read at build
-// time — change the file + rebuild = different environment with zero code
-// touch. This is the "config-in-env-never-in-code" rule from the Phase 18a
-// plan: any value that differs across environments lives in env files.
+// Env values are bound from Vite mode files. Dev reads from the gitignored
+// `frontend/.env.development.local`; prod builds read `.env.production.local`.
+// Values are read at build time — change the file + rebuild = different
+// environment with zero code touch. Committed `.example` siblings document
+// the shape; see docs/DEVELOPMENT.md for how to request real creds.
 
 const url = import.meta.env.VITE_SUPABASE_URL;
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -17,7 +17,8 @@ if (!url || !anonKey) {
   // Better to fail loudly at import time than to present a broken login
   // screen. This also makes env-file misconfiguration obvious on deploy.
   throw new Error(
-    "Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY. Check frontend/.env.* for your mode.",
+    "Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY. Populate " +
+      "frontend/.env.development.local from frontend/.env.development.example — see docs/DEVELOPMENT.md.",
   );
 }
 

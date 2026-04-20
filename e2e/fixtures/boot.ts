@@ -7,8 +7,6 @@ import { request } from "@playwright/test";
 
 const FRONTEND = process.env.E2E_BASE_URL ?? "http://localhost:5173";
 const BACKEND = process.env.E2E_API_URL ?? "http://localhost:4000";
-// Defaults to the local-CLI URL; override via env for staging / CI.
-const SUPABASE = process.env.E2E_SUPABASE_URL ?? "http://127.0.0.1:54321";
 const MAX_ATTEMPTS = 20;
 const ATTEMPT_DELAY_MS = 500;
 
@@ -38,18 +36,21 @@ async function ping(url: string, label: string) {
 export default async function globalSetup() {
   await Promise.all([
     ping(FRONTEND, "frontend"),
-    ping(`${BACKEND}/api/ai/validate-key`, "backend"),
     // validate-key with no body → 400 is expected + means the route is mounted.
-    // Supabase GoTrue health. Same pattern: if `supabase start` isn't running,
-    // every spec would 401 at login — far cheaper to fail loudly here.
-    ping(`${SUPABASE}/auth/v1/health`, "supabase"),
+    ping(`${BACKEND}/api/ai/validate-key`, "backend"),
   ]);
 
+  if (!process.env.SUPABASE_URL) {
+    throw new Error(
+      "E2E globalSetup: SUPABASE_URL is required. Populate `../.env.local` " +
+        "from `../.env.example` with your codetutor-dev project URL. See docs/DEVELOPMENT.md.",
+    );
+  }
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
     throw new Error(
       "E2E globalSetup: SUPABASE_SERVICE_ROLE_KEY is required. " +
-        "Put it in ../.env.local (run `npx supabase status` to find the " +
-        "local secret) or inject via CI secret. See e2e/fixtures/auth.ts.",
+        "Populate `../.env.local` from `../.env.example` or inject via CI secret. " +
+        "See e2e/fixtures/auth.ts.",
     );
   }
 

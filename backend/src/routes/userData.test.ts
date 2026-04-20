@@ -1,17 +1,15 @@
 // Routes test: mount userDataRouter behind a fake auth middleware that just
 // sets req.userId from an `x-test-user` header. This sidesteps JWKS plumbing
 // and keeps the test focused on route-level concerns — schema validation,
-// happy-path round trips, query-string handling. The db layer is exercised
-// against the same local Postgres the backend uses; tests namespace by uuid.
+// happy-path round trips, query-string handling. Inserts auth.users rows
+// directly, so needs a superuser-connected Postgres with the Phase 18b
+// schema applied; skips cleanly when DATABASE_URL is unreachable.
 
 import express from "express";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
-
-process.env.DATABASE_URL ??=
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 
 const { db, closeDb } = await import("../db/client.js");
 const { userDataRouter } = await import("./userData.js");

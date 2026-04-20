@@ -20,9 +20,8 @@ import { expect, request, test } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
 
 const BACKEND = process.env.E2E_API_URL ?? "http://localhost:4000";
-const SUPABASE_URL = process.env.E2E_SUPABASE_URL ?? "http://127.0.0.1:54321";
-const ANON_KEY =
-  process.env.E2E_SUPABASE_ANON_KEY ?? "sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH";
+const SUPABASE_URL = process.env.SUPABASE_URL ?? "";
+const ANON_KEY = process.env.SUPABASE_ANON_KEY ?? "";
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
 
 const PASSWORD = "AuthSpec-Passw0rd!";

@@ -1,17 +1,17 @@
-// Integration tests against a live Postgres. Relies on the local Supabase
-// stack being up (`supabase start`) so the Phase 18b schema + RLS policies
-// are applied. Each test namespaces rows under a fresh random uuid so specs
-// don't step on each other in parallel.
+// Integration tests against a superuser-connected Postgres with the Phase
+// 18b schema + RLS policies applied. Inserts directly into auth.users via
+// the `postgres` superuser (see mkUser below) rather than going through
+// GoTrue, so these specs need a Postgres where the connection role can
+// write to `auth.*`. That rules out the cloud transaction pooler — this
+// file only runs green against a Postgres you control (a scratch docker
+// container or a personal Postgres with the migrations applied).
 //
-// Skips cleanly if DATABASE_URL is unreachable — this keeps `npm test` green
-// on a dev machine where Supabase isn't running, and still enforces the
-// integration contract on CI (where we boot Supabase before `npm test`).
+// Skips cleanly if DATABASE_URL is unreachable, so it's a no-op during the
+// normal cloud-only `npm test` flow. Each test namespaces rows under a
+// fresh random uuid so specs don't step on each other in parallel.
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
-
-process.env.DATABASE_URL ??=
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 
 const { db, closeDb } = await import("./client.js");
 const prefs = await import("./preferences.js");

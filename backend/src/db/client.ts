@@ -3,8 +3,8 @@ import { config } from "../config.js";
 
 // Phase 18b: one postgres.js connection pool shared across all db/* modules.
 // Lazy init so unit tests that don't touch the DB never open a connection.
-// The backend runs inside docker-compose — the default DATABASE_URL points at
-// the host-run Supabase Postgres via host.docker.internal:54322.
+// DATABASE_URL points at the Supabase transaction pooler (port 6543) for the
+// current environment — see config.ts + docs/DEVELOPMENT.md.
 
 let pool: Sql | null = null;
 
@@ -21,6 +21,10 @@ export function db(): Sql {
     max: 10,
     idle_timeout: 30,
     connect_timeout: 10,
+    // Supabase's transaction pooler (port 6543) recycles connections between
+    // transactions and does not support prepared statements. Without this
+    // flag we see "prepared statement does not exist" errors under load.
+    prepare: false,
     // Let application errors bubble as postgres.PostgresError so route
     // handlers can translate them to HTTP codes (unique_violation → 409, etc).
     onnotice: () => {},
