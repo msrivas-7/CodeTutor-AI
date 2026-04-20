@@ -1,6 +1,7 @@
 import type { Language } from "../commands.js";
 import type { HarnessBackend } from "./types.js";
 import { pythonHarness } from "./pythonHarness.js";
+import { javascriptHarness } from "./javascriptHarness.js";
 
 // Plug-in registry for per-language function_test harnesses. The route layer
 // looks up by language; absent entries return null and the route replies 422.
@@ -8,6 +9,7 @@ import { pythonHarness } from "./pythonHarness.js";
 // route, or frontend client.
 const HARNESSES: Partial<Record<Language, HarnessBackend>> = {
   python: pythonHarness,
+  javascript: javascriptHarness,
 };
 
 export function getHarness(language: Language): HarnessBackend | null {

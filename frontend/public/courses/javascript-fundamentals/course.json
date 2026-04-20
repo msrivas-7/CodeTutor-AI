@@ -1,0 +1,21 @@
+{
+  "id": "javascript-fundamentals",
+  "title": "JavaScript Fundamentals",
+  "description": "Learn JavaScript from scratch — values, control flow, functions, arrays, and objects. No prior programming experience required.",
+  "language": "javascript",
+  "baseVocabulary": [
+    "identifiers",
+    "expression",
+    "statement"
+  ],
+  "lessonOrder": [
+    "hello-print",
+    "variables-and-strings",
+    "conditionals",
+    "loops",
+    "functions-basics",
+    "arrays-basics",
+    "objects-basics",
+    "mini-project"
+  ]
+}

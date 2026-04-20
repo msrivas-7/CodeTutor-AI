@@ -17,13 +17,13 @@ Everything under `frontend/public/courses/<courseId>/` is plain JSON + Markdown 
 
 A course declares its `language` in `course.json`; every lesson inherits it via `lesson.json.language`. Today:
 
-| Language | Guided authoring? | `function_tests` harness? |
-| --- | --- | --- |
-| `python` | ✓ (production content) | ✓ |
-| `javascript` | ✓ (scaffolders + smoke-test course only) | ✗ — `expected_stdout` + `required_file_contains` only |
-| everything else on the editor's `Language` enum | ✗ (no scaffolder / no course yet) | ✗ |
+| Language | Guided authoring? | `function_tests` harness? | `function_tests` floor (lesson `order`) |
+| --- | --- | --- | --- |
+| `python` | ✓ (production course — `python-fundamentals`) | ✓ | 6 (after `functions` lesson) |
+| `javascript` | ✓ (production course — `javascript-fundamentals`) | ✓ | 5 (after `functions-basics` lesson) |
+| everything else on the editor's `Language` enum | ✗ (no scaffolder / no course yet) | ✗ | n/a |
 
-`frontend/scripts/language.ts` is the scripts-side source of truth: `SCAFFOLD_LANGUAGES` (which languages `new-lesson`/`new-practice` accept), `entryFileFor(language)` (e.g., `main.py` / `main.js`), `fileExtForLanguage`, per-language `functionStub`, and `hasFunctionTestsHarnessLanguage(language)` (currently `python` only). Templates live under `scripts/templates/<language>/`. When adding a new language, add SCAFFOLD entry + templates here and a backend `HarnessBackend` in `backend/src/services/execution/harness/` before attempting to author `function_tests` lessons.
+`frontend/scripts/language.ts` is the scripts-side source of truth: `SCAFFOLD_LANGUAGES` (which languages `new-lesson`/`new-practice` accept), `entryFileFor(language)` (e.g., `main.py` / `main.js`), `fileExtForLanguage`, per-language `functionStub`, and `hasFunctionTestsHarnessLanguage(language)`. The per-language authoring floor lives in `FUNCTION_TESTS_ORDER_FLOOR_BY_LANGUAGE` inside `scripts/content-lint.ts` — it tracks when each course introduces the concept of user-defined functions. Templates live under `scripts/templates/<language>/`. When adding a new language, add SCAFFOLD entry + templates here, pick a floor, and register a backend `HarnessBackend` in `backend/src/services/execution/harness/` before attempting to author `function_tests` lessons.
 
 An `"internal": true` flag on `course.json` hides a course from learner-facing listings (`courseLoader.listPublicCourses()` filters these out) while keeping it visible to the dev content-health dashboard and all CI tooling. Use this for smoke-test courses like `_internal-js-smoke` that only exist to keep non-Python code paths exercised end-to-end.
 
@@ -154,10 +154,15 @@ Avoid brittle patterns like `append(0` or `sum(` — they false-pass on incident
 }
 ```
 
-The harness runs `main.py` via `runpy.run_path(..., run_name="__codetutor_main__")`, then evaluates each `call` in a shared copy of the module's globals. `expected` is parsed via Python's `ast.literal_eval` — so it must be a Python literal (string, number, list, dict, tuple, bool, None).
+The harness runs the learner's entry file (`main.py` / `main.js` / …), then evaluates each `call` in an isolated scope with the learner's definitions in scope. Expected-value syntax follows the target language:
 
-- **Language support:** `function_tests` is only valid for languages with a registered `HarnessBackend` (see `backend/src/services/execution/harness/registry.ts`). Python is the only registered backend today — `content-lint` rejects `function_tests` rules on non-Python lessons with a clear author-facing error, and `verify-solutions` loudly skips them on non-harness languages rather than failing CI.
-- **Authoring gate:** lessons with `order < 6` may not use `function_tests` — `def` hasn't been taught yet.
+- **Python:** parsed via `ast.literal_eval` — Python literals only (`'A'`, `42`, `[1, 2]`, `{'k': 1}`, `True`, `None`, tuples).
+- **JavaScript:** parsed via `JSON.parse` — JSON literals only. Strings use double quotes; object keys must be quoted (`{"a": 2}`, not `{a: 2}`); `undefined` isn't JSON (`null` is the closest equivalent).
+
+Content-lint validates this round-trip per-language, so typos surface at `npm run lint:content` time rather than in production.
+
+- **Language support:** `function_tests` is only valid for languages with a registered `HarnessBackend` (see `backend/src/services/execution/harness/registry.ts`). Python and JavaScript have backends today; other languages are rejected by `content-lint` with a clear author-facing error, and `verify-solutions` loudly skips them on non-harness languages rather than failing CI.
+- **Authoring gate:** lessons may not declare `function_tests` before functions have been taught. The floor is language-specific — Python teaches `def` at order 6, JavaScript teaches `function` at order 5. `content-lint` enforces the right floor per course.
 - **Hidden tests** stay hidden in the UI. They're good for stretch cases and anti-cheese.
 - **Category** surfaces softly in the "Check My Work" failure panel after 2+ consecutive failures.
 - **Setup/call split** lets you test mutating functions without letting the learner observe the setup directly:
@@ -293,7 +298,7 @@ npm run new:practice -- \
   --rule-style function     # or stdout | file
 ```
 
-Appends the exercise to the lesson and drops a solution stub. `--rule-style function` is only available for languages with a registered harness (Python today); pick `stdout` or `file` for other languages.
+Appends the exercise to the lesson and drops a solution stub. `--rule-style function` is only available for languages with a registered `function_tests` harness (Python and JavaScript today); pick `stdout` or `file` for other languages.
 
 ---
 
@@ -313,7 +318,7 @@ Hints do not auto-reveal. The tutor panel surfaces them on the learner's ask or 
 
 `npm run verify:solutions` will catch this early, but the usual symptoms are:
 
-- `function_tests` expected value doesn't round-trip through `ast.literal_eval` — lint error.
+- `function_tests` expected value doesn't round-trip through the language's parser (Python: `ast.literal_eval`, JavaScript: `JSON.parse`) — lint error.
 - Solution output doesn't include the `expected_stdout` substring — verify-solutions failure.
 - `required_file_contains` pattern doesn't match the solution source — verify-solutions failure.
 

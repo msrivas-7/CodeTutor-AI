@@ -1,0 +1,94 @@
+{
+  "id": "variables-and-strings",
+  "courseId": "javascript-fundamentals",
+  "title": "Variables and strings",
+  "description": "Store values in variables and stitch strings together with template literals.",
+  "order": 2,
+  "language": "javascript",
+  "estimatedMinutes": 15,
+  "objectives": [
+    "Declare variables with let and const",
+    "Join strings with + and template literals",
+    "Understand when to reassign a value vs keep it fixed"
+  ],
+  "teachesConceptTags": [
+    "let",
+    "const",
+    "numbers",
+    "template-literals",
+    "string-concatenation"
+  ],
+  "usesConceptTags": [
+    "console-log",
+    "strings"
+  ],
+  "completionRules": [
+    {
+      "type": "required_file_contains",
+      "file": "main.js",
+      "pattern": "const "
+    },
+    {
+      "type": "expected_stdout",
+      "expected": "Hi, I'm Ada and I'm 36 years old."
+    }
+  ],
+  "prerequisiteLessonIds": [
+    "hello-print"
+  ],
+  "recap": "Variables give values names. Use `const` when the name shouldn't be reassigned, `let` when it should. Template literals (backticks) let you drop variables right inside a string with `${name}` instead of splicing them with +.",
+  "practicePrompts": [
+    "Store three of your favorite things in variables and print them on one line.",
+    "Try reassigning a `let` variable after you first set it — what does the output show?"
+  ],
+  "practiceExercises": [
+    {
+      "id": "full-name",
+      "title": "Full name",
+      "prompt": "Create two variables `first` and `last` holding any first and last name. Print them joined by a space — for example, `Ada Lovelace`.",
+      "goal": "Join two string variables into one output line.",
+      "starterCode": "// Create first and last, then print them with a space between\n",
+      "completionRules": [
+        { "type": "required_file_contains", "file": "main.js", "pattern": "const " },
+        { "type": "expected_stdout", "expected": " " }
+      ],
+      "hints": [
+        "Two strings plus a literal space character in between.",
+        "You can join them with `+ \" \" +` or use a template literal with a space inside.",
+        "`` `${first} ${last}` `` — or `` first + \" \" + last ``."
+      ]
+    },
+    {
+      "id": "two-times-price",
+      "title": "Two times the price",
+      "prompt": "Create a number variable `price` set to 12. Print a sentence that includes both the price and twice the price, like: `Price: 12, Double: 24`.",
+      "goal": "Do simple math with a variable and include the result in a string.",
+      "starterCode": "// Declare price and print the sentence\n",
+      "completionRules": [
+        { "type": "required_file_contains", "file": "main.js", "pattern": "const " },
+        { "type": "expected_stdout", "expected": "Price: 12, Double: 24" }
+      ],
+      "hints": [
+        "`price * 2` gives you double the price.",
+        "Template literals work with numbers too — you can embed any expression.",
+        "`` `Price: ${price}, Double: ${price * 2}` ``"
+      ]
+    },
+    {
+      "id": "counter-step",
+      "title": "Counter step",
+      "prompt": "Use `let` to create a variable `count` starting at 0. Print it, increase it by 1, print it again, increase it by 1, print it again. Output must be `0`, `1`, `2` on three separate lines.",
+      "goal": "Reassign a variable and see the change reflected in the output.",
+      "starterCode": "// Declare count = 0 with let, then print/increment three times\n",
+      "completionRules": [
+        { "type": "required_file_contains", "file": "main.js", "pattern": "let " },
+        { "type": "expected_stdout", "expected": "0\n1\n2" }
+      ],
+      "hints": [
+        "`count = count + 1;` bumps the value by one. `count += 1;` is a shortcut.",
+        "`const` can't be reassigned — that's why this exercise needs `let`.",
+        "Three console.log calls, each after the value changes."
+      ]
+    }
+  ]
+}

@@ -101,7 +101,7 @@ Reach for these before copy-pasting — each one exists because the same pattern
 | --- | --- |
 | `backend/src/services/execution/commands.ts` → `languageSchema` | The canonical `z.enum` over supported languages. Routes that accept a language parameter should import this rather than re-declaring the enum inline. |
 | `backend/src/services/session/requireActiveSession.ts` | Route helper: `const session = requireActiveSession(res, sessionId); if (!session) return;`. Handles the 404 / 409 responses and returns a narrowed `ActiveSession` type (`containerId: string`, not `string \| null`) so downstream code reads the field without re-asserting. |
-| `backend/src/services/execution/harness/registry.ts` | Per-language harness plug-in point for `function_tests`. Currently Python-only; new languages add a `HarnessBackend` implementation and register it. |
+| `backend/src/services/execution/harness/registry.ts` | Per-language harness plug-in point for `function_tests`. Python and JavaScript registered today; new languages add a `HarnessBackend` implementation and register it. |
 
 ## Design Tokens
 
@@ -135,18 +135,20 @@ A dev-only "cheat code" system for manually verifying UI states without grinding
 
 **Profiles:**
 
-| # | ID | Frozen | What it's for |
-| --- | --- | --- | --- |
-| 1 | `fresh-install` | ✓ | Welcome spotlight → dashboard banner → lesson 1 nudge → workspace tour |
-| 2 | `welcomed-not-started` | ✓ | Dashboard "Ready to start coding?" banner |
-| 3 | `first-lesson-editing` | ✓ | CoachRail edited-no-run nudge |
-| 4 | `mid-course-healthy` | ✓ | Dashboard happy-path — progress bar, "Next up", activity feed |
-| 5 | `stuck-on-lesson` | ✓ | CoachRail many-fails nudge |
-| 6 | `needs-help-dashboard` | ✓ | Dashboard Review card — 3 shaky-mastery entries with reason pills |
-| 7 | `capstones-pending` | ✓ | Enter `capstone-word-frequency` cold — Examples + Run examples flow |
-| 8 | `capstone-first-fail` | ✓ | Broken `count_words` pre-seeded — FailedTestCallout + 2nd-fail "Ask tutor why" gate |
-| 9 | `all-complete` | ✓ | All-green dashboard + celebration replay |
-| 10 | `sandbox` | ✗ | Free-play — persists across reloads under its own snapshot slot |
+| # | ID | Frozen | Scope | What it's for |
+| --- | --- | --- | --- | --- |
+| 1 | `fresh-install` | ✓ | — | Welcome spotlight → dashboard banner → lesson 1 nudge → workspace tour |
+| 2 | `welcomed-not-started` | ✓ | — | Dashboard "Ready to start coding?" banner |
+| 3 | `first-lesson-editing` | ✓ | Python | CoachRail edited-no-run nudge on Python `hello-world` |
+| 4 | `mid-course-healthy` | ✓ | Python + JS | Multi-course dashboard happy-path — both courses in progress with "Next up" + activity feed |
+| 5 | `stuck-on-lesson` | ✓ | Python | CoachRail many-fails nudge on Python `conditionals` |
+| 6 | `needs-help-dashboard` | ✓ | Python + JS | Dashboard Review card — 3 shaky Python entries + 2 clean JS lessons for multi-course shape |
+| 7 | `capstones-pending` | ✓ | Python + JS | JS fully complete, Python on `capstone-word-frequency` cold — Examples + Run examples flow |
+| 8 | `capstone-first-fail` | ✓ | Python | Broken `count_words` pre-seeded on Python capstone — FailedTestCallout + 2nd-fail "Ask tutor why" gate |
+| 9 | `all-complete` | ✓ | Python + JS | Both courses fully complete — all-green dashboard + celebration replay |
+| 10 | `sandbox` | ✗ | — | Free-play — persists across reloads under its own snapshot slot |
+
+The **Scope** column is a signal to screenshot authors: narrative-specific Python profiles stay Python-only because their story is tied to a specific Python lesson. Profiles labelled "Python + JS" seed state for both courses so the multi-course dashboard, review card, and celebration replay exercise real polyglot rendering rather than mocked state.
 
 **Frozen vs sandbox:**
 

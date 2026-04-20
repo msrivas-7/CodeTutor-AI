@@ -117,14 +117,16 @@ describe("needs-help-dashboard profile", () => {
     };
   }
 
-  it("produces exactly 3 shaky lessons via pickShakyLessons", () => {
+  it("produces exactly 3 shaky Python lessons via pickShakyLessons", () => {
     const profile = profileById("needs-help-dashboard")!;
     const seed = profile.seedStorage();
 
-    // Parse all lesson progress out of the seed.
+    // Parse only Python lesson progress — the profile also seeds two clean JS
+    // lessons to populate the multi-course dashboard, but the review card is
+    // per-course and this test covers the Python side.
     const lessonProgress: LessonProgress[] = [];
     for (const [k, v] of Object.entries(seed)) {
-      if (!k.startsWith("learner:v1:lesson:")) continue;
+      if (!k.startsWith("learner:v1:lesson:python-fundamentals:")) continue;
       lessonProgress.push(JSON.parse(v) as LessonProgress);
     }
 

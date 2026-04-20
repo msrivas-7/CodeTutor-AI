@@ -72,8 +72,8 @@ export default function StartPage() {
             <div>
               <h2 className="text-base font-semibold">Guided Course</h2>
               <p className="mt-1 text-xs leading-relaxed text-muted">
-                Structured Python lessons for beginners. Track your progress
-                and get lesson-aware AI guidance.
+                Structured Python and JavaScript lessons for beginners. Track
+                your progress and get lesson-aware AI guidance.
               </p>
             </div>
             <span className="mt-auto text-[11px] font-medium text-violet opacity-0 transition group-hover:opacity-100">

@@ -51,7 +51,7 @@ export const LANGUAGE_SYNTAX: Record<Language, { functionStub: (name: string) =>
  * frontend context with the same list).
  */
 export function hasFunctionTestsHarnessLanguage(lang: Language): boolean {
-  return lang === "python";
+  return lang === "python" || lang === "javascript";
 }
 
 export function entryFileFor(lang: Language): string {

@@ -40,7 +40,16 @@ type Lesson = z.infer<typeof lessonMetaSchema>;
 // ── Constants ──────────────────────────────────────────────────────
 const ROOT = resolve(__dirname, "..");
 const COURSES_DIR = resolve(ROOT, "public/courses");
-const FUNCTION_TESTS_ORDER_FLOOR = 6;
+// Minimum lesson.order at which a lesson may declare function_tests. The
+// floor enforces the pedagogical rule that function declarations must have
+// been taught first — which happens at different points in each language's
+// curriculum. Python teaches `def` at order 6; JavaScript teaches `function`
+// at order 5. Unknown languages fall back to the Python-era floor (6).
+const FUNCTION_TESTS_ORDER_FLOOR_BY_LANGUAGE: Record<string, number> = {
+  python: 6,
+  javascript: 5,
+};
+const FUNCTION_TESTS_ORDER_FLOOR_DEFAULT = 6;
 
 // ── Main ───────────────────────────────────────────────────────────
 function main() {
@@ -409,12 +418,15 @@ function lintCompletionRules(
 ) {
   rules.forEach((rule, i) => {
     if (rule.type === "function_tests") {
-      if (lessonOrder < FUNCTION_TESTS_ORDER_FLOOR) {
+      const floor =
+        FUNCTION_TESTS_ORDER_FLOOR_BY_LANGUAGE[lessonLanguage] ??
+        FUNCTION_TESTS_ORDER_FLOOR_DEFAULT;
+      if (lessonOrder < floor) {
         issues.push({
           severity: "error",
           file: relLesson,
           pointer: `${pointerPrefix}[${i}]`,
-          message: `function_tests not allowed on lesson with order ${lessonOrder} (floor is ${FUNCTION_TESTS_ORDER_FLOOR} — def must be taught first)`,
+          message: `function_tests not allowed on ${lessonLanguage} lesson with order ${lessonOrder} (floor is ${floor} — function keyword must be taught first)`,
         });
       }
       // Authoring gate: the language must have a registered function_tests
@@ -428,9 +440,9 @@ function lintCompletionRules(
           message: `function_tests is not supported for language "${lessonLanguage}" — no harness backend is registered for this language`,
         });
       }
-      // Validate expected values parse as Python literals only for Python
-      // lessons — the ast.literal_eval contract is Python-specific.
-      // Non-Python harnesses will grow their own expected-value validation.
+      // Validate expected values at authoring time using the same parser
+      // the harness uses at runtime. Each harness has its own literal
+      // contract: Python → ast.literal_eval, JavaScript → JSON.parse.
       if (lessonLanguage === "python") {
         const pyAvailable = isPythonAvailable();
         for (let j = 0; j < rule.tests.length; j++) {
@@ -445,6 +457,18 @@ function lintCompletionRules(
                 message: `expected value does not parse as a Python literal via ast.literal_eval: ${t.expected}`,
               });
             }
+          }
+        }
+      } else if (lessonLanguage === "javascript") {
+        for (let j = 0; j < rule.tests.length; j++) {
+          const t = rule.tests[j];
+          if (!jsonLiteralOk(t.expected)) {
+            issues.push({
+              severity: "error",
+              file: relLesson,
+              pointer: `${pointerPrefix}[${i}].tests[${j}].expected`,
+              message: `expected value does not parse as a JSON literal via JSON.parse: ${t.expected}`,
+            });
           }
         }
       }
@@ -559,6 +583,18 @@ function pythonLiteralEvalOk(expected: string): boolean {
     { input: expected, encoding: "utf8" },
   );
   return r.status === 0;
+}
+
+// ── JavaScript literal probe ───────────────────────────────────────
+// Mirrors the JS harness's JSON.parse contract. In-process is fine: we're
+// parsing author-provided strings, not learner code.
+function jsonLiteralOk(expected: string): boolean {
+  try {
+    JSON.parse(expected);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // ── Reporting ──────────────────────────────────────────────────────

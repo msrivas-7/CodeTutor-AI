@@ -39,6 +39,7 @@ const COURSES_DIR = resolve(ROOT, "public/courses");
 // Mirror the production validator's harness constants
 const TEST_SENTINEL = "__CODETUTOR_TESTS_v1_da39a3ee5e6b4b0d__";
 const HARNESS_PY = "__codetutor_tests.py";
+const HARNESS_JS = "__codetutor_tests.js";
 const HARNESS_JSON = "__codetutor_tests.json";
 
 type Lesson = z.infer<typeof lessonMetaSchema>;
@@ -256,7 +257,7 @@ function runRulesAgainstSolution(args: RunArgs) {
           console.log(`[skip] ${where}  no function_tests harness for language "${language}"`);
           continue;
         }
-        const report = runHarness(tmp, rule.tests);
+        const report = runHarness(language, tmp, rule.tests);
         if (report.harnessError) {
           failures.push({
             where,
@@ -293,19 +294,32 @@ interface HarnessReport {
   harnessError: string | null;
 }
 
-function runHarness(workspace: string, tests: unknown): HarnessReport {
-  const pyPath = join(workspace, HARNESS_PY);
+function runHarness(language: Language, workspace: string, tests: unknown): HarnessReport {
   const jsonPath = join(workspace, HARNESS_JSON);
-  writeFileSync(pyPath, harnessPython(), "utf8");
   writeFileSync(jsonPath, JSON.stringify(tests), "utf8");
 
-  const r = spawnSync("python3", [HARNESS_PY], {
-    cwd: workspace,
-    encoding: "utf8",
-    timeout: 20_000,
-  });
-
-  return parseHarnessOutput(r.stdout ?? "", r.stderr ?? "");
+  if (language === "python") {
+    writeFileSync(join(workspace, HARNESS_PY), harnessPython(), "utf8");
+    const r = spawnSync("python3", [HARNESS_PY], {
+      cwd: workspace,
+      encoding: "utf8",
+      timeout: 20_000,
+    });
+    return parseHarnessOutput(r.stdout ?? "", r.stderr ?? "");
+  }
+  if (language === "javascript") {
+    writeFileSync(join(workspace, HARNESS_JS), harnessJavaScript(), "utf8");
+    const r = spawnSync("node", [HARNESS_JS], {
+      cwd: workspace,
+      encoding: "utf8",
+      timeout: 20_000,
+    });
+    return parseHarnessOutput(r.stdout ?? "", r.stderr ?? "");
+  }
+  return {
+    results: [],
+    harnessError: `no function_tests harness for language "${language}"`,
+  };
 }
 
 function parseHarnessOutput(stdout: string, stderr: string): HarnessReport {
@@ -322,6 +336,111 @@ function parseHarnessOutput(stdout: string, stderr: string): HarnessReport {
   } catch (e) {
     return { results: [], harnessError: `could not parse harness JSON: ${(e as Error).message}` };
   }
+}
+
+function harnessJavaScript(): string {
+  // Mirror of backend/src/services/execution/harness/javascriptHarness.ts::harnessJavaScript().
+  // Kept in sync by convention — both harnesses share the same TEST_SENTINEL
+  // and payload shape, so parseHarnessOutput works for either.
+  return `"use strict";
+const fs = require("fs");
+const vm = require("vm");
+
+const SENTINEL = "${TEST_SENTINEL}";
+const TESTS = JSON.parse(fs.readFileSync("${HARNESS_JSON}", "utf8"));
+const MAIN_SRC = fs.readFileSync("main.js", "utf8");
+
+function fmt(v) {
+  if (typeof v === "string") return v;
+  if (v === undefined) return "undefined";
+  try { return JSON.stringify(v); } catch { return String(v); }
+}
+function repr(v) {
+  if (v === undefined) return "undefined";
+  try { return JSON.stringify(v); } catch { return String(v); }
+}
+function deepEqual(a, b) {
+  if (Object.is(a, b)) return true;
+  if (typeof a !== typeof b) return false;
+  if (a === null || b === null) return false;
+  if (typeof a !== "object") return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  if (Array.isArray(a)) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) if (!deepEqual(a[i], b[i])) return false;
+    return true;
+  }
+  const ak = Object.keys(a);
+  const bk = Object.keys(b);
+  if (ak.length !== bk.length) return false;
+  for (const k of ak) if (!deepEqual(a[k], b[k])) return false;
+  return true;
+}
+function makeContext(sink) {
+  const bufConsole = {
+    log: (...args) => { sink.buf += args.map(fmt).join(" ") + "\\n"; },
+    info: (...args) => { sink.buf += args.map(fmt).join(" ") + "\\n"; },
+    warn: (...args) => { sink.buf += args.map(fmt).join(" ") + "\\n"; },
+    error: (...args) => { sink.buf += args.map(fmt).join(" ") + "\\n"; },
+    debug: (...args) => { sink.buf += args.map(fmt).join(" ") + "\\n"; },
+  };
+  const sandboxModule = { exports: {} };
+  const ctx = {
+    console: bufConsole,
+    Math, JSON, Object, Array, String, Number, Boolean, Date,
+    Error, TypeError, RangeError, ReferenceError, SyntaxError,
+    RegExp, Map, Set, Promise, Symbol,
+    parseInt, parseFloat, isNaN, isFinite,
+    Buffer, process, require,
+    module: sandboxModule,
+    exports: sandboxModule.exports,
+    __filename: "main.js",
+    __dirname: ".",
+    globalThis: undefined,
+  };
+  ctx.globalThis = ctx;
+  vm.createContext(ctx);
+  return ctx;
+}
+let harnessError = null;
+const results = [];
+try {
+  const probeSink = { buf: "" };
+  const probeCtx = makeContext(probeSink);
+  vm.runInContext(MAIN_SRC, probeCtx, { filename: "main.js" });
+} catch (e) {
+  harnessError = e instanceof Error ? (e.name + ": " + e.message) : String(e);
+}
+if (harnessError === null) {
+  for (const t of TESTS) {
+    const sink = { buf: "" };
+    const ctx = makeContext(sink);
+    try {
+      vm.runInContext(MAIN_SRC, ctx, { filename: "main.js" });
+      if (t.setup) vm.runInContext(t.setup, ctx, { filename: "setup" });
+      const actual = vm.runInContext(t.call || "", ctx, { filename: "call" });
+      let expected;
+      try { expected = JSON.parse(t.expected); }
+      catch (parseErr) { throw new Error("invalid expected (must be JSON-literal): " + parseErr.message); }
+      results.push({
+        name: t.name, hidden: !!t.hidden, category: t.category || null,
+        passed: deepEqual(actual, expected),
+        actualRepr: repr(actual), expectedRepr: repr(expected),
+        stdoutDuring: sink.buf, error: null,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? (e.name + ": " + e.message) : String(e);
+      results.push({
+        name: t.name, hidden: !!t.hidden, category: t.category || null,
+        passed: false, actualRepr: null, expectedRepr: null,
+        stdoutDuring: sink.buf, error: msg,
+      });
+    }
+  }
+}
+const payload = JSON.stringify({ results: results, harnessError: harnessError });
+process.stdout.write(SENTINEL + payload + SENTINEL + "\\n");
+`;
 }
 
 function harnessPython(): string {

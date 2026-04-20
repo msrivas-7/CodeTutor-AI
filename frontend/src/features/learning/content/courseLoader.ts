@@ -14,6 +14,7 @@ const COURSE_BASE = "/courses";
 // (ContentHealthPage) use the full list.
 const COURSE_REGISTRY: readonly string[] = [
   "python-fundamentals",
+  "javascript-fundamentals",
   "_internal-js-smoke",
 ];
 

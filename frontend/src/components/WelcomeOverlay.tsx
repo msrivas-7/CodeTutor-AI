@@ -34,7 +34,7 @@ const STEPS: WelcomeStep[] = [
   {
     refKey: "guidedCard",
     title: "Guided Course — start here!",
-    body: "New to coding? This is for you. Step-by-step Python lessons with instructions, instant feedback, and an AI tutor that won't give away the answer.",
+    body: "New to coding? This is for you. Step-by-step Python or JavaScript lessons with instructions, instant feedback, and an AI tutor that won't give away the answer.",
     position: "top",
   },
 ];

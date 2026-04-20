@@ -1,0 +1,87 @@
+{
+  "id": "hello-print",
+  "courseId": "javascript-fundamentals",
+  "title": "Hello, JavaScript!",
+  "description": "Write and run your first JavaScript program with console.log.",
+  "order": 1,
+  "language": "javascript",
+  "estimatedMinutes": 10,
+  "objectives": [
+    "Print text to the output with console.log",
+    "Understand strings use single or double quotes",
+    "Run your code and see the result"
+  ],
+  "teachesConceptTags": [
+    "console-log",
+    "strings"
+  ],
+  "usesConceptTags": [],
+  "completionRules": [
+    {
+      "type": "expected_stdout",
+      "expected": "Hello, World!"
+    }
+  ],
+  "prerequisiteLessonIds": [],
+  "recap": "You wrote your first JavaScript program. `console.log(...)` prints its argument to the output, and strings can use either `\"double\"` or `'single'` quotes — pick whichever keeps the quotes inside your text easy to read.",
+  "practicePrompts": [
+    "Print your name on one line and your favorite language on the next.",
+    "Print a string that contains a quotation mark inside it."
+  ],
+  "practiceExercises": [
+    {
+      "id": "two-lines",
+      "title": "Two lines",
+      "prompt": "Print \"Hello\" on one line and \"World\" on the next.",
+      "goal": "Use console.log twice to produce two lines of output.",
+      "starterCode": "// Print Hello and World on separate lines\n",
+      "completionRules": [
+        {
+          "type": "expected_stdout",
+          "expected": "Hello\nWorld"
+        }
+      ],
+      "hints": [
+        "Each `console.log` call ends with its own newline.",
+        "Call `console.log` twice — once per line.",
+        "`console.log(\"Hello\"); console.log(\"World\");`"
+      ]
+    },
+    {
+      "id": "quotes-inside",
+      "title": "Quotes inside a string",
+      "prompt": "Print the sentence: She said \"JavaScript is fun!\" — with the double quotes visible in the output.",
+      "goal": "Choose quote styles so the quotes inside a string don't clash.",
+      "starterCode": "// Print the sentence with the quotes visible\n",
+      "completionRules": [
+        {
+          "type": "expected_stdout",
+          "expected": "She said \"JavaScript is fun!\""
+        }
+      ],
+      "hints": [
+        "If your string has double quotes in it, what quote style should the outside of the string use?",
+        "Wrap the whole sentence in single quotes so the double quotes inside are just regular characters.",
+        "`console.log('She said \"JavaScript is fun!\"');`"
+      ]
+    },
+    {
+      "id": "ascii-art",
+      "title": "Tiny ASCII art",
+      "prompt": "Print a small triangle of asterisks, three lines: *, **, ***.",
+      "goal": "Get comfortable running multiple console.log calls in a row.",
+      "starterCode": "// Print three lines: *, **, ***\n",
+      "completionRules": [
+        {
+          "type": "expected_stdout",
+          "expected": "*\n**\n***"
+        }
+      ],
+      "hints": [
+        "Three lines means three print calls.",
+        "Print `\"*\"`, then `\"**\"`, then `\"***\"` — each on its own line.",
+        "`console.log(\"*\"); console.log(\"**\"); console.log(\"***\");`"
+      ]
+    }
+  ]
+}

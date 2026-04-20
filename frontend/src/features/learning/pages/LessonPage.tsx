@@ -388,7 +388,10 @@ export default function LessonPage() {
           setRunningTests(false);
         }
       }
-      const v = validateLesson(result, files, exercise.completionRules, { testReport: practiceReport });
+      const v = validateLesson(result, files, exercise.completionRules, {
+        testReport: practiceReport,
+        language: lesson.language,
+      });
       setPracticeValidation(v);
       if (v.passed) {
         const current = useProgressStore.getState().lessonProgress[`${courseId}/${lessonId}`];
@@ -424,7 +427,10 @@ export default function LessonPage() {
       }
     }
 
-    const v = validateLesson(result, files, lesson.completionRules, { testReport: latestReport });
+    const v = validateLesson(result, files, lesson.completionRules, {
+      testReport: latestReport,
+      language: lesson.language,
+    });
     setValidation(v);
     setHasChecked(true);
     if (!v.passed) {

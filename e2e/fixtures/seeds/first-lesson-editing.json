@@ -1,8 +1,8 @@
 {
-  "learner:v1:identity": "{\"learnerId\":\"dev-profile-learner\",\"createdAt\":\"2026-03-20T17:33:33.340Z\",\"isAnonymous\":true}",
+  "learner:v1:identity": "{\"learnerId\":\"dev-profile-learner\",\"createdAt\":\"2026-03-20T23:49:02.877Z\",\"isAnonymous\":true}",
   "onboarding:v1:welcome-done": "1",
   "onboarding:v1:workspace-done": "1",
   "onboarding:v1:editor-done": "1",
-  "learner:v1:progress:python-fundamentals": "{\"learnerId\":\"dev-profile-learner\",\"courseId\":\"python-fundamentals\",\"status\":\"not_started\",\"startedAt\":null,\"updatedAt\":\"2026-04-19T17:33:33.340Z\",\"completedAt\":null,\"lastLessonId\":\"hello-world\",\"completedLessonIds\":[]}",
-  "learner:v1:lesson:python-fundamentals:hello-world": "{\"learnerId\":\"dev-profile-learner\",\"courseId\":\"python-fundamentals\",\"lessonId\":\"hello-world\",\"status\":\"in_progress\",\"startedAt\":\"2026-04-19T17:33:33.340Z\",\"updatedAt\":\"2026-04-19T17:33:33.340Z\",\"completedAt\":null,\"attemptCount\":1,\"runCount\":0,\"hintCount\":0,\"lastCode\":{\"main.py\":\"print('hello from dev profile')\\n\"},\"lastOutput\":null}"
+  "learner:v1:progress:python-fundamentals": "{\"learnerId\":\"dev-profile-learner\",\"courseId\":\"python-fundamentals\",\"status\":\"not_started\",\"startedAt\":null,\"updatedAt\":\"2026-04-19T23:49:02.877Z\",\"completedAt\":null,\"lastLessonId\":\"hello-world\",\"completedLessonIds\":[]}",
+  "learner:v1:lesson:python-fundamentals:hello-world": "{\"learnerId\":\"dev-profile-learner\",\"courseId\":\"python-fundamentals\",\"lessonId\":\"hello-world\",\"status\":\"in_progress\",\"startedAt\":\"2026-04-19T23:49:02.877Z\",\"updatedAt\":\"2026-04-19T23:49:02.877Z\",\"completedAt\":null,\"attemptCount\":1,\"runCount\":0,\"hintCount\":0,\"lastCode\":{\"main.py\":\"print('hello from dev profile')\\n\"},\"lastOutput\":null}"
 }

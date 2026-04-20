@@ -7,6 +7,7 @@ import type { Language } from "../../../types";
 // Adding a language means one line here AND one line in the backend registry.
 export const LANGUAGES_WITH_FUNCTION_TESTS_HARNESS: readonly Language[] = [
   "python",
+  "javascript",
 ];
 
 export function hasFunctionTestsHarness(lang: Language): boolean {

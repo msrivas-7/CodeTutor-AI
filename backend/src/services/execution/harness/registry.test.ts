@@ -5,7 +5,10 @@ import {
   registeredHarnessLanguages,
 } from "./registry.js";
 import { pythonHarness } from "./pythonHarness.js";
+import { javascriptHarness } from "./javascriptHarness.js";
 import { LANGUAGES } from "../commands.js";
+
+const REGISTERED: ReadonlySet<string> = new Set(["python", "javascript"]);
 
 describe("harness registry", () => {
   it("returns the Python harness for language 'python'", () => {
@@ -13,9 +16,14 @@ describe("harness registry", () => {
     expect(hasHarness("python")).toBe(true);
   });
 
+  it("returns the JavaScript harness for language 'javascript'", () => {
+    expect(getHarness("javascript")).toBe(javascriptHarness);
+    expect(hasHarness("javascript")).toBe(true);
+  });
+
   it("returns null / false for languages without a registered harness", () => {
     for (const lang of LANGUAGES) {
-      if (lang === "python") continue;
+      if (REGISTERED.has(lang)) continue;
       expect(hasHarness(lang)).toBe(false);
       expect(getHarness(lang)).toBeNull();
     }
@@ -23,9 +31,8 @@ describe("harness registry", () => {
 
   it("lists exactly the languages that have backends", () => {
     const listed = registeredHarnessLanguages();
-    expect(listed).toContain("python");
-    // Registry currently only has Python; lock that in so future additions
-    // are a conscious change (this test + one line in registry.ts).
-    expect(listed).toEqual(["python"]);
+    // Lock the current set in — adding a language should be a conscious
+    // change across this test + registry.ts + harnessSupport.ts.
+    expect(new Set(listed)).toEqual(REGISTERED);
   });
 });

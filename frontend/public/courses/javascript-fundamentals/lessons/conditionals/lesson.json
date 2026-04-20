@@ -1,0 +1,106 @@
+{
+  "id": "conditionals",
+  "courseId": "javascript-fundamentals",
+  "title": "Conditionals",
+  "description": "Branch your program with if, else, and comparison operators.",
+  "order": 3,
+  "language": "javascript",
+  "estimatedMinutes": 15,
+  "objectives": [
+    "Write if / else if / else statements",
+    "Use comparison operators (===, !==, <, >, <=, >=)",
+    "Combine conditions with &&, ||, and !"
+  ],
+  "teachesConceptTags": [
+    "if",
+    "else-if",
+    "else",
+    "comparison",
+    "boolean",
+    "logical-and",
+    "logical-or",
+    "logical-not"
+  ],
+  "usesConceptTags": [
+    "let",
+    "const",
+    "console-log"
+  ],
+  "completionRules": [
+    {
+      "type": "required_file_contains",
+      "file": "main.js",
+      "pattern": "if "
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.js",
+      "pattern": "else if"
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.js",
+      "pattern": "else "
+    },
+    {
+      "type": "expected_stdout",
+      "expected": "adult"
+    }
+  ],
+  "prerequisiteLessonIds": [
+    "variables-and-strings"
+  ],
+  "recap": "`if / else if / else` lets your program make decisions. Comparison operators (`===`, `<`, `>`) produce booleans; logical operators (`&&`, `||`, `!`) combine them.",
+  "practicePrompts": [
+    "Write a program that classifies a number as positive, negative, or zero.",
+    "Can you check if a year is a leap year? (Divisible by 4, but not 100, unless also 400.)"
+  ],
+  "practiceExercises": [
+    {
+      "id": "sign-of-number",
+      "title": "Positive, negative, or zero",
+      "prompt": "Set `n = -5`. Print exactly one of: `positive`, `negative`, or `zero` depending on `n`. With `n = -5`, the output must be `negative`.",
+      "goal": "Use if / else if / else to classify a number's sign.",
+      "starterCode": "const n = -5;\n// Print positive / negative / zero\n",
+      "completionRules": [
+        { "type": "expected_stdout", "expected": "negative" },
+        { "type": "required_file_contains", "file": "main.js", "pattern": "else if" }
+      ],
+      "hints": [
+        "Start with `if (n > 0)` for positive.",
+        "Use `else if (n < 0)` for negative.",
+        "Use `else` for zero."
+      ]
+    },
+    {
+      "id": "leap-year",
+      "title": "Leap year check",
+      "prompt": "Set `year = 2024`. A leap year is divisible by 4, except it's NOT a leap year if it's divisible by 100 — unless it's also divisible by 400. Print `leap` or `not leap`. For 2024 the output should be `leap`.",
+      "goal": "Combine conditions with &&, ||, and !.",
+      "starterCode": "const year = 2024;\n// Print \"leap\" or \"not leap\"\n",
+      "completionRules": [
+        { "type": "expected_stdout", "expected": "leap" }
+      ],
+      "hints": [
+        "`year % 4 === 0` tests divisibility by 4.",
+        "Combine: divisible by 4 AND (not divisible by 100, OR divisible by 400).",
+        "`(year % 4 === 0) && (year % 100 !== 0 || year % 400 === 0)`"
+      ]
+    },
+    {
+      "id": "fizzbuzz-one",
+      "title": "One FizzBuzz value",
+      "prompt": "Set `n = 15`. Print `Fizz` if n is divisible by 3 but not 5, `Buzz` if divisible by 5 but not 3, `FizzBuzz` if divisible by both, and the number itself otherwise. For `n = 15` the output is `FizzBuzz`.",
+      "goal": "Combine conditions to cover four mutually exclusive cases.",
+      "starterCode": "const n = 15;\n// Print Fizz / Buzz / FizzBuzz / or n\n",
+      "completionRules": [
+        { "type": "expected_stdout", "expected": "FizzBuzz" }
+      ],
+      "hints": [
+        "Check the combined case (divisible by both) FIRST, otherwise the single checks catch it.",
+        "`n % 15 === 0` is the same as divisible by both 3 and 5.",
+        "`if (n % 15 === 0) ... else if (n % 3 === 0) ... else if (n % 5 === 0) ... else ...`"
+      ]
+    }
+  ]
+}

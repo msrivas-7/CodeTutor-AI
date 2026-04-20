@@ -41,7 +41,7 @@ No account needed. Runs entirely on your machine.
 
 ## Guided Learning
 
-> 12 step-by-step Python lessons — from "Hello World" through a mini project to two capstones. Instructions, starter code, and auto-validated exercises. _(Python today; the content pipeline, per-language harness registry, and authoring scripts are already multi-language — more courses coming.)_
+> Two structured beginner courses: 12-lesson **Python Fundamentals** (through mini-project + two capstones) and 8-lesson **JavaScript Fundamentals** (through a habit-tracker mini-project). Instructions, starter code, and auto-validated exercises across both — powered by a shared content pipeline, per-language harness registry, and authoring scripts. _(More courses on the way.)_
 
 - **Learn by doing** — read the instructions, write code, run it, and check your work
 - **AI tutor that teaches, not solves** — knows your lesson context, gives escalating hints, and never spoils the answer

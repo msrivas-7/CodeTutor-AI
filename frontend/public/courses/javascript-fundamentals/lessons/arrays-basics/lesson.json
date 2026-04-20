@@ -1,0 +1,144 @@
+{
+  "id": "arrays-basics",
+  "courseId": "javascript-fundamentals",
+  "title": "Arrays",
+  "description": "Store lists of values and use core array methods like push, map, and filter.",
+  "order": 6,
+  "language": "javascript",
+  "estimatedMinutes": 20,
+  "objectives": [
+    "Create arrays with `[...]`",
+    "Index, push, and iterate over array elements",
+    "Use `.map` and `.filter` to transform arrays"
+  ],
+  "teachesConceptTags": [
+    "arrays",
+    "array-index",
+    "array-methods",
+    "array-length",
+    "map",
+    "filter"
+  ],
+  "usesConceptTags": [
+    "function-declaration",
+    "parameters",
+    "return",
+    "for-loop",
+    "comparison"
+  ],
+  "completionRules": [
+    {
+      "type": "required_file_contains",
+      "file": "main.js",
+      "pattern": "function sumOfSquares"
+    },
+    {
+      "type": "function_tests",
+      "tests": [
+        {
+          "name": "basic",
+          "call": "sumOfSquares([1, 2, 3])",
+          "expected": "14"
+        },
+        {
+          "name": "single",
+          "call": "sumOfSquares([5])",
+          "expected": "25"
+        },
+        {
+          "name": "empty",
+          "call": "sumOfSquares([])",
+          "expected": "0"
+        },
+        {
+          "name": "negatives",
+          "call": "sumOfSquares([-1, 2, -3])",
+          "expected": "14",
+          "hidden": true
+        }
+      ]
+    }
+  ],
+  "prerequisiteLessonIds": [
+    "functions-basics"
+  ],
+  "recap": "Arrays hold an ordered list of values — you access them by index (`arr[0]`), check their size with `.length`, and iterate with `for` or `for...of`. Methods like `.map`, `.filter`, and `.reduce` transform arrays without manual looping.",
+  "practicePrompts": [
+    "Given an array of numbers, return only the positive ones.",
+    "Count how many words in an array start with the letter `a`."
+  ],
+  "practiceExercises": [
+    {
+      "id": "positives-only",
+      "title": "Positives only",
+      "prompt": "Write a function `positivesOnly(arr)` that takes an array of numbers and returns a new array containing only the positive numbers (> 0).",
+      "goal": "Use .filter to keep only elements matching a condition.",
+      "starterCode": "function positivesOnly(arr) {\n  // TODO: return only the positive numbers\n}\n",
+      "completionRules": [
+        { "type": "required_file_contains", "file": "main.js", "pattern": "function positivesOnly" },
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "mixed", "call": "positivesOnly([-1, 2, -3, 4])", "expected": "[2, 4]" },
+            { "name": "all positive", "call": "positivesOnly([1, 2, 3])", "expected": "[1, 2, 3]" },
+            { "name": "all negative", "call": "positivesOnly([-1, -2, -3])", "expected": "[]" },
+            { "name": "zero excluded", "call": "positivesOnly([0, 1, 0, 2])", "expected": "[1, 2]", "hidden": true }
+          ]
+        }
+      ],
+      "hints": [
+        "You want to keep only some elements, not transform them.",
+        "Use `.filter(callback)` — the callback returns `true` to keep an element.",
+        "`return arr.filter((n) => n > 0);`"
+      ]
+    },
+    {
+      "id": "count-starts-with-a",
+      "title": "Count words starting with a",
+      "prompt": "Write a function `countStartsWithA(words)` that takes an array of strings and returns how many of them start with the lowercase letter `a`.",
+      "goal": "Combine .filter with string indexing or .startsWith.",
+      "starterCode": "function countStartsWithA(words) {\n  // TODO: count words that start with 'a'\n}\n",
+      "completionRules": [
+        { "type": "required_file_contains", "file": "main.js", "pattern": "function countStartsWithA" },
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "some match", "call": "countStartsWithA([\"apple\", \"banana\", \"avocado\"])", "expected": "2" },
+            { "name": "none match", "call": "countStartsWithA([\"hello\", \"world\"])", "expected": "0" },
+            { "name": "empty", "call": "countStartsWithA([])", "expected": "0" },
+            { "name": "uppercase excluded", "call": "countStartsWithA([\"Apple\", \"ant\", \"Able\"])", "expected": "1", "hidden": true }
+          ]
+        }
+      ],
+      "hints": [
+        "`word[0]` is the first character of a string — just like an array.",
+        "Filter the array to keep only words whose first character is 'a', then return `.length`.",
+        "`return words.filter((w) => w[0] === \"a\").length;`"
+      ]
+    },
+    {
+      "id": "max-in-array",
+      "title": "Maximum in an array",
+      "prompt": "Write a function `maxInArray(nums)` that returns the largest number in a non-empty array. You may NOT use `Math.max`.",
+      "goal": "Track a running max by iterating through the array.",
+      "starterCode": "function maxInArray(nums) {\n  // TODO: return the largest number — no Math.max allowed\n}\n",
+      "completionRules": [
+        { "type": "required_file_contains", "file": "main.js", "pattern": "function maxInArray" },
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "middle biggest", "call": "maxInArray([3, 9, 1, 4])", "expected": "9" },
+            { "name": "single element", "call": "maxInArray([42])", "expected": "42" },
+            { "name": "sorted ascending", "call": "maxInArray([1, 2, 3, 4, 5])", "expected": "5" },
+            { "name": "all negative", "call": "maxInArray([-10, -3, -25])", "expected": "-3", "hidden": true }
+          ]
+        }
+      ],
+      "hints": [
+        "Start with `let best = nums[0];` — the first element is a safe starting guess.",
+        "Loop over the rest; whenever you see something bigger, update `best`.",
+        "`for (const n of nums) { if (n > best) best = n; } return best;`"
+      ]
+    }
+  ]
+}

@@ -1,5 +1,17 @@
 import type { CompletionRule, TestCaseResult, TestReport, ValidationResult } from "../types";
-import type { RunResult, ProjectFile } from "../../../types";
+import { LANGUAGE_ENTRYPOINT, type Language, type RunResult, type ProjectFile } from "../../../types";
+
+const PRINT_CALL_BY_LANGUAGE: Record<Language, string> = {
+  python: "print()",
+  javascript: "console.log()",
+  typescript: "console.log()",
+  c: "printf()",
+  cpp: "std::cout",
+  java: "System.out.println()",
+  go: "fmt.Println()",
+  rust: "println!()",
+  ruby: "puts",
+};
 
 // Word-boundary-aware substring check. For patterns that start with an
 // identifier character (letter/digit/underscore), requires a word boundary
@@ -15,6 +27,7 @@ function containsPattern(content: string, pattern: string): boolean {
 
 export interface ValidateExtraContext {
   testReport?: TestReport | null;
+  language?: Language;
 }
 
 /**
@@ -64,8 +77,9 @@ export function validateLesson(
         if (actual.includes(expected)) {
           feedback.push(`Output contains "${expected}" — correct!`);
         } else if (actual.length === 0) {
-          feedback.push("Your code ran but produced no output. Make sure you're using print().");
-          nextHints.push("Add a print() statement to display your result.");
+          const printCall = extra.language ? PRINT_CALL_BY_LANGUAGE[extra.language] : "print()";
+          feedback.push(`Your code ran but produced no output. Make sure you're using ${printCall}.`);
+          nextHints.push(`Add a ${printCall} statement to display your result.`);
           allPassed = false;
         } else {
           feedback.push(`Expected "${expected}" in output, but got: "${actual.slice(0, 80)}"`);
@@ -75,7 +89,7 @@ export function validateLesson(
         break;
       }
       case "required_file_contains": {
-        const targetPath = rule.file ?? "main.py";
+        const targetPath = rule.file ?? (extra.language ? LANGUAGE_ENTRYPOINT[extra.language] : "main.py");
         const file = files.find((f) => f.path === targetPath);
         if (!file) {
           feedback.push(`File "${targetPath}" not found.`);

@@ -5,6 +5,14 @@
 // the profile wipes all CodeTutor-owned keys (allow-list in applyProfile.ts)
 // and writes the seed. Frozen profiles re-apply on every page load via the
 // pre-hydration bootstrap; sandbox persists.
+//
+// Polyglot seeding: aggregate-state profiles (mid-course, needs-help,
+// capstones-pending, all-complete) seed state for BOTH Python and JavaScript
+// courses so the dashboard, review card, and celebration replay all exercise
+// multi-course rendering. Narrative-specific profiles (first-lesson-editing,
+// stuck-on-lesson, capstone-first-fail) remain Python-only because their
+// stories are tied to a specific Python lesson — that's called out in each
+// label/description so screenshot authors pick the right profile.
 
 import type { CourseProgress, LearnerIdentity, LessonProgress } from "../features/learning/types";
 
@@ -16,9 +24,10 @@ export interface DevProfile {
   seedStorage(): Record<string, string>;
 }
 
-const COURSE_ID = "python-fundamentals";
+const PYTHON_COURSE_ID = "python-fundamentals";
+const JS_COURSE_ID = "javascript-fundamentals";
 
-const LESSONS = [
+const PYTHON_LESSONS = [
   "hello-world",
   "variables",
   "input-output",
@@ -33,6 +42,17 @@ const LESSONS = [
   "capstone-task-tracker",
 ] as const;
 
+const JS_LESSONS = [
+  "hello-print",
+  "variables-and-strings",
+  "conditionals",
+  "loops",
+  "functions-basics",
+  "arrays-basics",
+  "objects-basics",
+  "mini-project",
+] as const;
+
 function iso(daysAgo = 0): string {
   return new Date(Date.now() - daysAgo * 86_400_000).toISOString();
 }
@@ -45,21 +65,22 @@ function fakeLearner(): LearnerIdentity {
   };
 }
 
-function courseKey(): string {
-  return `learner:v1:progress:${COURSE_ID}`;
+function courseKey(courseId: string): string {
+  return `learner:v1:progress:${courseId}`;
 }
 
-function lessonKey(lessonId: string): string {
-  return `learner:v1:lesson:${COURSE_ID}:${lessonId}`;
+function lessonKey(courseId: string, lessonId: string): string {
+  return `learner:v1:lesson:${courseId}:${lessonId}`;
 }
 
 function baseLessonProgress(
+  courseId: string,
   lessonId: string,
   overrides: Partial<LessonProgress> = {},
 ): LessonProgress {
   return {
     learnerId: "dev-profile-learner",
-    courseId: COURSE_ID,
+    courseId,
     lessonId,
     status: "not_started",
     startedAt: null,
@@ -75,10 +96,11 @@ function baseLessonProgress(
 }
 
 function completedLesson(
+  courseId: string,
   lessonId: string,
   overrides: Partial<LessonProgress> = {},
 ): LessonProgress {
-  return baseLessonProgress(lessonId, {
+  return baseLessonProgress(courseId, lessonId, {
     status: "completed",
     startedAt: iso(2),
     completedAt: iso(1),
@@ -90,14 +112,15 @@ function completedLesson(
 }
 
 function courseProgress(
+  courseId: string,
+  totalLessons: number,
   completedIds: string[],
   lastLessonId: string | null = null,
 ): CourseProgress {
-  const total = LESSONS.length;
-  const allDone = completedIds.length >= total;
+  const allDone = completedIds.length >= totalLessons;
   return {
     learnerId: "dev-profile-learner",
-    courseId: COURSE_ID,
+    courseId,
     status:
       completedIds.length === 0 ? "not_started" : allDone ? "completed" : "in_progress",
     startedAt: completedIds.length > 0 ? iso(7) : null,
@@ -118,8 +141,8 @@ function onboardingAllDone(): Record<string, string> {
 
 // Known practice-exercise IDs per lesson. Used by the all-complete profile so
 // the course-overview practice bar shows fully green. Keys omitted for lessons
-// that don't have practice.
-const PRACTICE_IDS: Record<string, string[]> = {
+// that don't have practice (capstones + mini-project in JS).
+const PYTHON_PRACTICE_IDS: Record<string, string[]> = {
   "hello-world": ["rename-greeter", "two-lines", "exclamation"],
   "variables": ["swap-values", "area-of-rectangle", "celsius-to-fahrenheit"],
   "input-output": ["greet-by-name", "add-two-numbers", "echo-upper"],
@@ -132,6 +155,17 @@ const PRACTICE_IDS: Record<string, string[]> = {
   "mini-project": ["longest-word", "unique-words", "max-frequency"],
   "capstone-word-frequency": ["longest-word", "unique-words", "max-frequency"],
   "capstone-task-tracker": ["list-pending", "rename-task", "count-done"],
+};
+
+const JS_PRACTICE_IDS: Record<string, string[]> = {
+  "hello-print": ["two-lines", "quotes-inside", "ascii-art"],
+  "variables-and-strings": ["full-name", "two-times-price", "counter-step"],
+  "conditionals": ["sign-of-number", "leap-year", "fizzbuzz-one"],
+  "loops": ["sum-to-ten", "evens-one-to-twenty", "countdown"],
+  "functions-basics": ["square-function", "max-of-two", "is-even"],
+  "arrays-basics": ["positives-only", "count-starts-with-a", "max-in-array"],
+  "objects-basics": ["word-count", "price-sum", "has-key"],
+  // mini-project has no practice exercises.
 };
 
 // Pre-seeded broken code for capstone-first-fail. tokenize is correct; but
@@ -203,16 +237,18 @@ export const PROFILES: DevProfile[] = [
   },
   {
     id: "first-lesson-editing",
-    label: "Editing lesson 1, never ran",
+    label: "Editing Python lesson 1 (hello-world)",
     description:
-      "On hello-world with one edit saved, never ran it. Resume indicator should show; CoachRail edited-no-run fires after ~45s idle.",
+      "Python-course narrative: on hello-world with one edit saved, never ran it. Resume indicator should show; CoachRail edited-no-run fires after ~45s idle.",
     frozen: true,
     seedStorage: () => ({
       "learner:v1:identity": JSON.stringify(fakeLearner()),
       ...onboardingAllDone(),
-      [courseKey()]: JSON.stringify(courseProgress([], "hello-world")),
-      [lessonKey("hello-world")]: JSON.stringify(
-        baseLessonProgress("hello-world", {
+      [courseKey(PYTHON_COURSE_ID)]: JSON.stringify(
+        courseProgress(PYTHON_COURSE_ID, PYTHON_LESSONS.length, [], "hello-world"),
+      ),
+      [lessonKey(PYTHON_COURSE_ID, "hello-world")]: JSON.stringify(
+        baseLessonProgress(PYTHON_COURSE_ID, "hello-world", {
           status: "in_progress",
           startedAt: iso(0),
           attemptCount: 1,
@@ -223,44 +259,71 @@ export const PROFILES: DevProfile[] = [
   },
   {
     id: "mid-course-healthy",
-    label: "Mid-course (5 done, on lesson 6)",
+    label: "Mid-course in both Python & JS",
     description:
-      "Lessons 1–5 complete cleanly with short times. Currently on functions. Dashboard shows happy progress + Next Up + recent activity.",
+      "Python 1–5 + JS 1–3 complete cleanly. Currently on Python `functions` and JS `loops`. Dashboard shows two in-progress courses with happy progress bars + Next Up + recent activity.",
     frozen: true,
     seedStorage: () => {
-      const completed = LESSONS.slice(0, 5);
       const entries: Record<string, string> = {
         "learner:v1:identity": JSON.stringify(fakeLearner()),
         ...onboardingAllDone(),
-        [courseKey()]: JSON.stringify(courseProgress([...completed], "functions")),
-        [lessonKey("functions")]: JSON.stringify(
-          baseLessonProgress("functions", {
-            status: "in_progress",
-            startedAt: iso(0),
-            attemptCount: 1,
-          }),
-        ),
       };
-      for (const id of completed) {
-        entries[lessonKey(id)] = JSON.stringify(completedLesson(id));
+
+      // Python — lessons 1-5 complete, on lesson 6 (functions).
+      const pyCompleted = PYTHON_LESSONS.slice(0, 5);
+      entries[courseKey(PYTHON_COURSE_ID)] = JSON.stringify(
+        courseProgress(PYTHON_COURSE_ID, PYTHON_LESSONS.length, [...pyCompleted], "functions"),
+      );
+      entries[lessonKey(PYTHON_COURSE_ID, "functions")] = JSON.stringify(
+        baseLessonProgress(PYTHON_COURSE_ID, "functions", {
+          status: "in_progress",
+          startedAt: iso(0),
+          attemptCount: 1,
+        }),
+      );
+      for (const id of pyCompleted) {
+        entries[lessonKey(PYTHON_COURSE_ID, id)] = JSON.stringify(
+          completedLesson(PYTHON_COURSE_ID, id),
+        );
       }
+
+      // JS — lessons 1-3 complete, on lesson 4 (loops).
+      const jsCompleted = JS_LESSONS.slice(0, 3);
+      entries[courseKey(JS_COURSE_ID)] = JSON.stringify(
+        courseProgress(JS_COURSE_ID, JS_LESSONS.length, [...jsCompleted], "loops"),
+      );
+      entries[lessonKey(JS_COURSE_ID, "loops")] = JSON.stringify(
+        baseLessonProgress(JS_COURSE_ID, "loops", {
+          status: "in_progress",
+          startedAt: iso(0),
+          attemptCount: 1,
+        }),
+      );
+      for (const id of jsCompleted) {
+        entries[lessonKey(JS_COURSE_ID, id)] = JSON.stringify(
+          completedLesson(JS_COURSE_ID, id),
+        );
+      }
+
       return entries;
     },
   },
   {
     id: "stuck-on-lesson",
-    label: "Stuck on lesson 4",
+    label: "Stuck on Python lesson 4 (conditionals)",
     description:
-      "On conditionals with 5 attempts, 8 runs, some saved code. Opening the lesson + clicking Check a few times triggers the many-fails CoachRail nudge.",
+      "Python-course narrative: on conditionals with 5 attempts, 8 runs, some saved code. Opening the lesson + clicking Check a few times triggers the many-fails CoachRail nudge.",
     frozen: true,
     seedStorage: () => {
       const completed = ["hello-world", "variables", "input-output"];
       const entries: Record<string, string> = {
         "learner:v1:identity": JSON.stringify(fakeLearner()),
         ...onboardingAllDone(),
-        [courseKey()]: JSON.stringify(courseProgress(completed, "conditionals")),
-        [lessonKey("conditionals")]: JSON.stringify(
-          baseLessonProgress("conditionals", {
+        [courseKey(PYTHON_COURSE_ID)]: JSON.stringify(
+          courseProgress(PYTHON_COURSE_ID, PYTHON_LESSONS.length, completed, "conditionals"),
+        ),
+        [lessonKey(PYTHON_COURSE_ID, "conditionals")]: JSON.stringify(
+          baseLessonProgress(PYTHON_COURSE_ID, "conditionals", {
             status: "in_progress",
             startedAt: iso(0),
             attemptCount: 5,
@@ -274,7 +337,9 @@ export const PROFILES: DevProfile[] = [
         ),
       };
       for (const id of completed) {
-        entries[lessonKey(id)] = JSON.stringify(completedLesson(id));
+        entries[lessonKey(PYTHON_COURSE_ID, id)] = JSON.stringify(
+          completedLesson(PYTHON_COURSE_ID, id),
+        );
       }
       return entries;
     },
@@ -283,84 +348,129 @@ export const PROFILES: DevProfile[] = [
     id: "needs-help-dashboard",
     label: "Needs help (shaky mastery)",
     description:
-      "5 lessons completed — 3 of them with shaky metrics (high attempts, many hints, 2× time). Dashboard Review card should show exactly 3 entries with reason pills.",
+      "Python: 5 lessons done — 3 shaky (high attempts, many hints, 2× time). JS: 2 early lessons cleanly done. Dashboard Review card should show exactly 3 entries (all Python) with reason pills.",
     frozen: true,
     seedStorage: () => {
       // Shaky thresholds (from mastery.ts): attempts > 2, hints ≥ 3, time > 2× estimated.
       // hello-world est=10m → 2× = 20m. variables est=15m → 30m. input-output est=15m → 30m.
-      const shaky: Record<string, LessonProgress> = {
-        "hello-world": completedLesson("hello-world", {
+      const pyShaky: Record<string, LessonProgress> = {
+        "hello-world": completedLesson(PYTHON_COURSE_ID, "hello-world", {
           attemptCount: 4,
           hintCount: 4,
           runCount: 12,
           timeSpentMs: 25 * 60_000,
         }),
-        variables: completedLesson("variables", {
+        variables: completedLesson(PYTHON_COURSE_ID, "variables", {
           attemptCount: 3,
           hintCount: 5,
           runCount: 15,
           timeSpentMs: 42 * 60_000,
         }),
-        "input-output": completedLesson("input-output", {
+        "input-output": completedLesson(PYTHON_COURSE_ID, "input-output", {
           attemptCount: 5,
           hintCount: 3,
           runCount: 18,
           timeSpentMs: 38 * 60_000,
         }),
       };
-      const clean: Record<string, LessonProgress> = {
-        conditionals: completedLesson("conditionals"),
-        loops: completedLesson("loops"),
+      const pyClean: Record<string, LessonProgress> = {
+        conditionals: completedLesson(PYTHON_COURSE_ID, "conditionals"),
+        loops: completedLesson(PYTHON_COURSE_ID, "loops"),
       };
-      const completedIds = [...Object.keys(shaky), ...Object.keys(clean)];
+      const pyCompletedIds = [...Object.keys(pyShaky), ...Object.keys(pyClean)];
       const entries: Record<string, string> = {
         "learner:v1:identity": JSON.stringify(fakeLearner()),
         ...onboardingAllDone(),
-        [courseKey()]: JSON.stringify(courseProgress(completedIds, "functions")),
+        [courseKey(PYTHON_COURSE_ID)]: JSON.stringify(
+          courseProgress(PYTHON_COURSE_ID, PYTHON_LESSONS.length, pyCompletedIds, "functions"),
+        ),
       };
-      for (const [id, lp] of Object.entries({ ...shaky, ...clean })) {
-        entries[lessonKey(id)] = JSON.stringify(lp);
+      for (const [id, lp] of Object.entries({ ...pyShaky, ...pyClean })) {
+        entries[lessonKey(PYTHON_COURSE_ID, id)] = JSON.stringify(lp);
       }
+
+      // JS — two clean early lessons so the multi-course dashboard isn't empty
+      // on the JS side, but no JS lesson hits the shaky thresholds (keeps the
+      // review card's "exactly 3 Python lessons" expectation stable).
+      const jsCompleted = ["hello-print", "variables-and-strings"];
+      entries[courseKey(JS_COURSE_ID)] = JSON.stringify(
+        courseProgress(JS_COURSE_ID, JS_LESSONS.length, jsCompleted, "conditionals"),
+      );
+      for (const id of jsCompleted) {
+        entries[lessonKey(JS_COURSE_ID, id)] = JSON.stringify(
+          completedLesson(JS_COURSE_ID, id),
+        );
+      }
+
       return entries;
     },
   },
   {
     id: "capstones-pending",
-    label: "Capstones pending",
+    label: "Capstones pending (JS finished)",
     description:
-      "All 10 primary lessons done (through mini-project). Both capstones untouched. Land on capstone-word-frequency cold to test the Run examples flow.",
+      "Python: all 10 primary lessons done (through mini-project), both capstones untouched — land on capstone-word-frequency cold to test Run examples. JS: fully complete (all 8 lessons) so the dashboard shows one complete + one in-progress course side by side.",
     frozen: true,
     seedStorage: () => {
-      const completed = LESSONS.slice(0, 10);
+      const pyCompleted = PYTHON_LESSONS.slice(0, 10);
       const entries: Record<string, string> = {
         "learner:v1:identity": JSON.stringify(fakeLearner()),
         ...onboardingAllDone(),
-        [courseKey()]: JSON.stringify(
-          courseProgress([...completed], "capstone-word-frequency"),
+        [courseKey(PYTHON_COURSE_ID)]: JSON.stringify(
+          courseProgress(
+            PYTHON_COURSE_ID,
+            PYTHON_LESSONS.length,
+            [...pyCompleted],
+            "capstone-word-frequency",
+          ),
         ),
       };
-      for (const id of completed) {
-        entries[lessonKey(id)] = JSON.stringify(completedLesson(id));
+      for (const id of pyCompleted) {
+        entries[lessonKey(PYTHON_COURSE_ID, id)] = JSON.stringify(
+          completedLesson(PYTHON_COURSE_ID, id),
+        );
       }
+
+      // JS course fully complete.
+      const jsCompleted = [...JS_LESSONS];
+      entries[courseKey(JS_COURSE_ID)] = JSON.stringify(
+        courseProgress(
+          JS_COURSE_ID,
+          JS_LESSONS.length,
+          jsCompleted,
+          jsCompleted[jsCompleted.length - 1],
+        ),
+      );
+      for (const id of jsCompleted) {
+        entries[lessonKey(JS_COURSE_ID, id)] = JSON.stringify(
+          completedLesson(JS_COURSE_ID, id),
+        );
+      }
+
       return entries;
     },
   },
   {
     id: "capstone-first-fail",
-    label: "Capstone with one failing test",
+    label: "Python capstone with one failing test",
     description:
-      "On capstone-word-frequency with a partial solution pre-loaded. tokenize works; count_words returns a list of tuples instead of a dict — produces exactly one visible-test failure. Click Check My Work twice to test the 2nd-fail 'Ask tutor why' gate.",
+      "Python-course narrative: on capstone-word-frequency with a partial solution pre-loaded. tokenize works; count_words returns a list of tuples instead of a dict — produces exactly one visible-test failure. Click Check My Work twice to test the 2nd-fail 'Ask tutor why' gate.",
     frozen: true,
     seedStorage: () => {
-      const completed = LESSONS.slice(0, 10);
+      const completed = PYTHON_LESSONS.slice(0, 10);
       const entries: Record<string, string> = {
         "learner:v1:identity": JSON.stringify(fakeLearner()),
         ...onboardingAllDone(),
-        [courseKey()]: JSON.stringify(
-          courseProgress([...completed], "capstone-word-frequency"),
+        [courseKey(PYTHON_COURSE_ID)]: JSON.stringify(
+          courseProgress(
+            PYTHON_COURSE_ID,
+            PYTHON_LESSONS.length,
+            [...completed],
+            "capstone-word-frequency",
+          ),
         ),
-        [lessonKey("capstone-word-frequency")]: JSON.stringify(
-          baseLessonProgress("capstone-word-frequency", {
+        [lessonKey(PYTHON_COURSE_ID, "capstone-word-frequency")]: JSON.stringify(
+          baseLessonProgress(PYTHON_COURSE_ID, "capstone-word-frequency", {
             status: "in_progress",
             startedAt: iso(0),
             attemptCount: 2,
@@ -370,33 +480,61 @@ export const PROFILES: DevProfile[] = [
         ),
       };
       for (const id of completed) {
-        entries[lessonKey(id)] = JSON.stringify(completedLesson(id));
+        entries[lessonKey(PYTHON_COURSE_ID, id)] = JSON.stringify(
+          completedLesson(PYTHON_COURSE_ID, id),
+        );
       }
       return entries;
     },
   },
   {
     id: "all-complete",
-    label: "All complete",
+    label: "All complete (both courses)",
     description:
-      "Every lesson + every practice exercise done. Dashboard all-green, celebration replay on revisit, LessonList shows all ✓.",
+      "Every lesson + every practice exercise done across Python AND JavaScript. Dashboard all-green for both courses, celebration replay on revisit, LessonList shows all ✓.",
     frozen: true,
     seedStorage: () => {
-      const completed = [...LESSONS];
       const entries: Record<string, string> = {
         "learner:v1:identity": JSON.stringify(fakeLearner()),
         ...onboardingAllDone(),
-        [courseKey()]: JSON.stringify(
-          courseProgress(completed, completed[completed.length - 1]),
-        ),
       };
-      for (const id of completed) {
-        entries[lessonKey(id)] = JSON.stringify(
-          completedLesson(id, {
-            practiceCompletedIds: PRACTICE_IDS[id] ?? [],
+
+      // Python course fully complete.
+      const pyCompleted = [...PYTHON_LESSONS];
+      entries[courseKey(PYTHON_COURSE_ID)] = JSON.stringify(
+        courseProgress(
+          PYTHON_COURSE_ID,
+          PYTHON_LESSONS.length,
+          pyCompleted,
+          pyCompleted[pyCompleted.length - 1],
+        ),
+      );
+      for (const id of pyCompleted) {
+        entries[lessonKey(PYTHON_COURSE_ID, id)] = JSON.stringify(
+          completedLesson(PYTHON_COURSE_ID, id, {
+            practiceCompletedIds: PYTHON_PRACTICE_IDS[id] ?? [],
           }),
         );
       }
+
+      // JS course fully complete.
+      const jsCompleted = [...JS_LESSONS];
+      entries[courseKey(JS_COURSE_ID)] = JSON.stringify(
+        courseProgress(
+          JS_COURSE_ID,
+          JS_LESSONS.length,
+          jsCompleted,
+          jsCompleted[jsCompleted.length - 1],
+        ),
+      );
+      for (const id of jsCompleted) {
+        entries[lessonKey(JS_COURSE_ID, id)] = JSON.stringify(
+          completedLesson(JS_COURSE_ID, id, {
+            practiceCompletedIds: JS_PRACTICE_IDS[id] ?? [],
+          }),
+        );
+      }
+
       return entries;
     },
   },

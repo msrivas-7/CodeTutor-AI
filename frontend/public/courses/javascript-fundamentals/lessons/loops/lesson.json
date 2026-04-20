@@ -1,0 +1,91 @@
+{
+  "id": "loops",
+  "courseId": "javascript-fundamentals",
+  "title": "Loops",
+  "description": "Repeat work with for and while loops.",
+  "order": 4,
+  "language": "javascript",
+  "estimatedMinutes": 15,
+  "objectives": [
+    "Use `for` loops to repeat a block a known number of times",
+    "Use `while` loops when you don't know how many iterations in advance",
+    "Drive a counter from a starting value until a stop condition"
+  ],
+  "teachesConceptTags": [
+    "for-loop",
+    "while-loop",
+    "increment"
+  ],
+  "usesConceptTags": [
+    "let",
+    "const",
+    "comparison",
+    "console-log"
+  ],
+  "completionRules": [
+    {
+      "type": "required_file_contains",
+      "file": "main.js",
+      "pattern": "for "
+    },
+    {
+      "type": "expected_stdout",
+      "expected": "1\n2\n3\n4\n5"
+    }
+  ],
+  "prerequisiteLessonIds": [
+    "conditionals"
+  ],
+  "recap": "`for` loops are the go-to when you know how many times to repeat. `while` loops run until a condition goes `false`. Both depend on a variable that *changes* each iteration — otherwise you'd loop forever.",
+  "practicePrompts": [
+    "Print the sum of the first 10 positive integers.",
+    "Print only the even numbers from 1 to 20."
+  ],
+  "practiceExercises": [
+    {
+      "id": "sum-to-ten",
+      "title": "Sum 1 through 10",
+      "prompt": "Use a loop to compute the sum of the numbers 1 through 10. Print just the final total on one line. The answer is 55.",
+      "goal": "Accumulate a running total across loop iterations.",
+      "starterCode": "// Loop from 1 to 10, keep a running total, print it\n",
+      "completionRules": [
+        { "type": "expected_stdout", "expected": "55" }
+      ],
+      "hints": [
+        "Start with `let total = 0;` before the loop.",
+        "Inside the loop: `total += i;`. After the loop: `console.log(total);`.",
+        "`for (let i = 1; i <= 10; i++) { total += i; }`"
+      ]
+    },
+    {
+      "id": "evens-one-to-twenty",
+      "title": "Evens 1 to 20",
+      "prompt": "Print the even numbers from 2 to 20, one per line. Output must be 2, 4, 6, ..., 20 — each on its own line.",
+      "goal": "Step through a range, skipping odd values.",
+      "starterCode": "// Print each even number from 2 to 20 on its own line\n",
+      "completionRules": [
+        { "type": "expected_stdout", "expected": "2\n4\n6\n8\n10\n12\n14\n16\n18\n20" }
+      ],
+      "hints": [
+        "You can step by 2 instead of by 1.",
+        "`for (let i = 2; i <= 20; i += 2)` visits only the evens.",
+        "Or loop 1..20 and skip odds with `if (i % 2 === 0) { ... }`."
+      ]
+    },
+    {
+      "id": "countdown",
+      "title": "Countdown",
+      "prompt": "Starting from 5, print each number down to 1 on its own line, then print `Go!`. Output: 5, 4, 3, 2, 1, Go!",
+      "goal": "Use a loop that counts downward with a decrementing counter.",
+      "starterCode": "// Count down from 5 to 1, then print Go!\n",
+      "completionRules": [
+        { "type": "expected_stdout", "expected": "5\n4\n3\n2\n1\nGo!" }
+      ],
+      "hints": [
+        "You can decrement with `i--` instead of incrementing with `i++`.",
+        "`for (let i = 5; i >= 1; i--) console.log(i);`",
+        "After the loop, one more `console.log(\"Go!\")`."
+      ]
+    }
+  ]
+}

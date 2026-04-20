@@ -1,0 +1,136 @@
+{
+  "id": "functions-basics",
+  "courseId": "javascript-fundamentals",
+  "title": "Functions",
+  "description": "Bundle behavior into reusable functions with parameters and return values.",
+  "order": 5,
+  "language": "javascript",
+  "estimatedMinutes": 20,
+  "objectives": [
+    "Declare a function with `function name(params) { ... }`",
+    "Accept parameters and return a value",
+    "Call a function by name and use what it returns"
+  ],
+  "teachesConceptTags": [
+    "function-declaration",
+    "parameters",
+    "return",
+    "function-call"
+  ],
+  "usesConceptTags": [
+    "let",
+    "const",
+    "console-log",
+    "comparison",
+    "if",
+    "else"
+  ],
+  "completionRules": [
+    {
+      "type": "required_file_contains",
+      "file": "main.js",
+      "pattern": "function greet"
+    },
+    {
+      "type": "function_tests",
+      "tests": [
+        {
+          "name": "world",
+          "call": "greet(\"World\")",
+          "expected": "\"Hello, World!\""
+        },
+        {
+          "name": "ada",
+          "call": "greet(\"Ada\")",
+          "expected": "\"Hello, Ada!\""
+        },
+        {
+          "name": "empty",
+          "call": "greet(\"\")",
+          "expected": "\"Hello, !\""
+        }
+      ]
+    }
+  ],
+  "prerequisiteLessonIds": [
+    "loops"
+  ],
+  "recap": "Functions wrap a chunk of behavior behind a name. Parameters let callers pass different inputs; `return` hands a value back. `console.log` prints, `return` delivers — they're not the same thing.",
+  "practicePrompts": [
+    "Write a function that squares a number and returns the result.",
+    "Write a function that returns the larger of two numbers."
+  ],
+  "practiceExercises": [
+    {
+      "id": "square-function",
+      "title": "Square a number",
+      "prompt": "Write a function `square` that takes a number and returns it multiplied by itself. `square(4)` should return `16`.",
+      "goal": "Practice declaring and returning from a function.",
+      "starterCode": "function square(n) {\n  // TODO: return n * n\n}\n",
+      "completionRules": [
+        { "type": "required_file_contains", "file": "main.js", "pattern": "function square" },
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "four", "call": "square(4)", "expected": "16" },
+            { "name": "zero", "call": "square(0)", "expected": "0" },
+            { "name": "negative", "call": "square(-3)", "expected": "9", "hidden": true }
+          ]
+        }
+      ],
+      "hints": [
+        "Multiplication in JS uses `*`.",
+        "`return n * n;` inside the function body.",
+        "`function square(n) { return n * n; }`"
+      ]
+    },
+    {
+      "id": "max-of-two",
+      "title": "Max of two numbers",
+      "prompt": "Write a function `maxOfTwo` that takes two numbers and returns the larger one. If they are equal, return either.",
+      "goal": "Use an if/else inside a function to choose what to return.",
+      "starterCode": "function maxOfTwo(a, b) {\n  // TODO: return the larger of a and b\n}\n",
+      "completionRules": [
+        { "type": "required_file_contains", "file": "main.js", "pattern": "function maxOfTwo" },
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "first bigger", "call": "maxOfTwo(7, 3)", "expected": "7" },
+            { "name": "second bigger", "call": "maxOfTwo(2, 10)", "expected": "10" },
+            { "name": "equal", "call": "maxOfTwo(5, 5)", "expected": "5" },
+            { "name": "negatives", "call": "maxOfTwo(-1, -9)", "expected": "-1", "hidden": true }
+          ]
+        }
+      ],
+      "hints": [
+        "Compare the two values with `>`.",
+        "Return `a` if it's bigger, otherwise `b`.",
+        "`if (a > b) return a; return b;` — or the one-liner `return a > b ? a : b;`"
+      ]
+    },
+    {
+      "id": "is-even",
+      "title": "Even number check",
+      "prompt": "Write a function `isEven` that takes a number and returns `true` if it is even, `false` otherwise.",
+      "goal": "Return a boolean from a function using the modulo operator.",
+      "starterCode": "function isEven(n) {\n  // TODO: return true/false\n}\n",
+      "completionRules": [
+        { "type": "required_file_contains", "file": "main.js", "pattern": "function isEven" },
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "even", "call": "isEven(4)", "expected": "true" },
+            { "name": "odd", "call": "isEven(7)", "expected": "false" },
+            { "name": "zero", "call": "isEven(0)", "expected": "true" },
+            { "name": "negative even", "call": "isEven(-6)", "expected": "true", "hidden": true }
+          ]
+        }
+      ],
+      "hints": [
+        "The remainder after dividing by 2 tells you the answer.",
+        "`n % 2` is 0 for evens, non-zero for odds.",
+        "`return n % 2 === 0;`"
+      ]
+    }
+  ]
+}

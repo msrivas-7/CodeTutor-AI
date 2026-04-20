@@ -1,0 +1,150 @@
+{
+  "id": "objects-basics",
+  "courseId": "javascript-fundamentals",
+  "title": "Objects",
+  "description": "Group related values under named keys with plain JavaScript objects.",
+  "order": 7,
+  "language": "javascript",
+  "estimatedMinutes": 20,
+  "objectives": [
+    "Create an object with `{ key: value }` literals",
+    "Read, write, and delete properties",
+    "Iterate over an object's keys or entries"
+  ],
+  "teachesConceptTags": [
+    "objects",
+    "property-access",
+    "object-keys",
+    "object-entries"
+  ],
+  "usesConceptTags": [
+    "function-declaration",
+    "parameters",
+    "return",
+    "arrays",
+    "for-loop",
+    "comparison"
+  ],
+  "completionRules": [
+    {
+      "type": "required_file_contains",
+      "file": "main.js",
+      "pattern": "function formatPerson"
+    },
+    {
+      "type": "function_tests",
+      "tests": [
+        {
+          "name": "ada",
+          "call": "formatPerson({ name: \"Ada\", age: 36 })",
+          "expected": "\"Ada is 36 years old.\""
+        },
+        {
+          "name": "other",
+          "call": "formatPerson({ name: \"Grace\", age: 85 })",
+          "expected": "\"Grace is 85 years old.\""
+        },
+        {
+          "name": "zero age",
+          "call": "formatPerson({ name: \"Newborn\", age: 0 })",
+          "expected": "\"Newborn is 0 years old.\"",
+          "hidden": true
+        }
+      ]
+    }
+  ],
+  "prerequisiteLessonIds": [
+    "arrays-basics"
+  ],
+  "recap": "Objects group related values under named keys. Read with `obj.key`, write with `obj.key = value`, and iterate with `Object.keys(obj)` or `Object.entries(obj)`. Arrays are for ordered lists; objects are for labeled properties.",
+  "practicePrompts": [
+    "Count how many times each word appears in an array of words.",
+    "Given a map of prices, return the sum of all values."
+  ],
+  "practiceExercises": [
+    {
+      "id": "word-count",
+      "title": "Word count",
+      "prompt": "Write a function `wordCount(words)` that takes an array of strings and returns an object mapping each unique word to how many times it appears.",
+      "goal": "Use an object as a hash map and increment counts.",
+      "starterCode": "function wordCount(words) {\n  // TODO: return { word: count } for each unique word\n}\n",
+      "completionRules": [
+        {
+          "type": "required_file_contains",
+          "file": "main.js",
+          "pattern": "function wordCount"
+        },
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "simple", "call": "wordCount([\"a\", \"b\", \"a\"])", "expected": "{\"a\": 2, \"b\": 1}" },
+            { "name": "all unique", "call": "wordCount([\"one\", \"two\", \"three\"])", "expected": "{\"one\": 1, \"two\": 1, \"three\": 1}" },
+            { "name": "empty", "call": "wordCount([])", "expected": "{}" },
+            { "name": "repeated", "call": "wordCount([\"x\", \"x\", \"x\", \"x\"])", "expected": "{\"x\": 4}", "hidden": true }
+          ]
+        }
+      ],
+      "hints": [
+        "Build up an object as you loop through the array.",
+        "For each word, if it's not yet a key, start it at 1; otherwise increment.",
+        "`const counts = {}; for (const w of words) counts[w] = (counts[w] || 0) + 1; return counts;`"
+      ]
+    },
+    {
+      "id": "price-sum",
+      "title": "Sum prices",
+      "prompt": "Write a function `priceSum(prices)` that takes an object mapping item names to prices and returns the total of all prices.",
+      "goal": "Use Object.values to sum object values.",
+      "starterCode": "function priceSum(prices) {\n  // TODO: return the sum of all values in the object\n}\n",
+      "completionRules": [
+        {
+          "type": "required_file_contains",
+          "file": "main.js",
+          "pattern": "function priceSum"
+        },
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "three items", "call": "priceSum({ apple: 1, bread: 3, milk: 2 })", "expected": "6" },
+            { "name": "single item", "call": "priceSum({ coffee: 4 })", "expected": "4" },
+            { "name": "empty", "call": "priceSum({})", "expected": "0" },
+            { "name": "decimals", "call": "priceSum({ a: 1.5, b: 2.5 })", "expected": "4", "hidden": true }
+          ]
+        }
+      ],
+      "hints": [
+        "`Object.values(obj)` gives you an array of all the values.",
+        "Sum an array with `.reduce((a, b) => a + b, 0)`.",
+        "`return Object.values(prices).reduce((a, b) => a + b, 0);`"
+      ]
+    },
+    {
+      "id": "has-key",
+      "title": "Key exists",
+      "prompt": "Write a function `hasKey(obj, key)` that returns `true` if the given key exists on the object, and `false` otherwise.",
+      "goal": "Use the 'in' operator or Object.keys to check for key presence.",
+      "starterCode": "function hasKey(obj, key) {\n  // TODO: return true if key exists on obj\n}\n",
+      "completionRules": [
+        {
+          "type": "required_file_contains",
+          "file": "main.js",
+          "pattern": "function hasKey"
+        },
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "present", "call": "hasKey({ name: \"Ada\" }, \"name\")", "expected": "true" },
+            { "name": "absent", "call": "hasKey({ name: \"Ada\" }, \"age\")", "expected": "false" },
+            { "name": "empty obj", "call": "hasKey({}, \"anything\")", "expected": "false" },
+            { "name": "undefined value", "call": "hasKey({ x: undefined }, \"x\")", "expected": "true", "hidden": true }
+          ]
+        }
+      ],
+      "hints": [
+        "The `in` operator checks whether a key exists, regardless of its value.",
+        "`\"name\" in person` is `true` if `name` is a property on `person`.",
+        "`return key in obj;`"
+      ]
+    }
+  ]
+}

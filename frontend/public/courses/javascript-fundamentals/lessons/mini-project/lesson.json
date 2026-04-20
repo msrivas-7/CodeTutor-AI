@@ -1,0 +1,101 @@
+{
+  "id": "mini-project",
+  "courseId": "javascript-fundamentals",
+  "title": "Mini project: Habit tracker",
+  "description": "Use everything you've learned to build a small habit tracker from scratch.",
+  "order": 8,
+  "language": "javascript",
+  "estimatedMinutes": 30,
+  "objectives": [
+    "Model a small data structure with arrays and objects",
+    "Split the program into small, testable functions",
+    "Wire the functions together in `main()` and print a summary"
+  ],
+  "teachesConceptTags": [
+    "modeling-state",
+    "composing-functions"
+  ],
+  "usesConceptTags": [
+    "function-declaration",
+    "parameters",
+    "return",
+    "arrays",
+    "array-methods",
+    "objects",
+    "property-access",
+    "for-loop",
+    "comparison",
+    "template-literals",
+    "console-log"
+  ],
+  "completionRules": [
+    {
+      "type": "required_file_contains",
+      "file": "main.js",
+      "pattern": "function addHabit"
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.js",
+      "pattern": "function markDone"
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.js",
+      "pattern": "function summary"
+    },
+    {
+      "type": "function_tests",
+      "tests": [
+        {
+          "name": "addHabit creates entry",
+          "call": "addHabit([], \"read\")",
+          "expected": "[{\"name\": \"read\", \"done\": false}]"
+        },
+        {
+          "name": "addHabit appends",
+          "call": "addHabit([{\"name\": \"read\", \"done\": false}], \"walk\")",
+          "expected": "[{\"name\": \"read\", \"done\": false}, {\"name\": \"walk\", \"done\": false}]"
+        },
+        {
+          "name": "markDone flips a habit",
+          "call": "markDone([{\"name\": \"read\", \"done\": false}, {\"name\": \"walk\", \"done\": false}], \"walk\")",
+          "expected": "[{\"name\": \"read\", \"done\": false}, {\"name\": \"walk\", \"done\": true}]"
+        },
+        {
+          "name": "markDone unknown name leaves list alone",
+          "call": "markDone([{\"name\": \"read\", \"done\": false}], \"nope\")",
+          "expected": "[{\"name\": \"read\", \"done\": false}]",
+          "hidden": true
+        },
+        {
+          "name": "summary none done",
+          "call": "summary([{\"name\": \"read\", \"done\": false}, {\"name\": \"walk\", \"done\": false}])",
+          "expected": "\"0 of 2 habits done\""
+        },
+        {
+          "name": "summary some done",
+          "call": "summary([{\"name\": \"read\", \"done\": true}, {\"name\": \"walk\", \"done\": false}])",
+          "expected": "\"1 of 2 habits done\""
+        },
+        {
+          "name": "summary all done",
+          "call": "summary([{\"name\": \"a\", \"done\": true}, {\"name\": \"b\", \"done\": true}])",
+          "expected": "\"2 of 2 habits done\"",
+          "hidden": true
+        }
+      ]
+    },
+    {
+      "type": "expected_stdout",
+      "expected": "read: todo\nwalk: done\nmeditate: todo\n1 of 3 habits done"
+    }
+  ],
+  "prerequisiteLessonIds": ["objects-basics"],
+  "recap": "You modeled a list of habits as an array of `{ name, done }` objects, wrote small functions to add and update them, and composed those functions in `main()`. That split — data + small functions + a main that wires them together — is how every larger program is built.",
+  "practicePrompts": [
+    "Add a `removeHabit(habits, name)` function that returns a new array without the matching entry.",
+    "Add a `pending(habits)` function that returns only the habits that aren't done yet."
+  ],
+  "practiceExercises": []
+}
