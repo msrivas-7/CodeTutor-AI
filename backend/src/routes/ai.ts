@@ -40,8 +40,18 @@ aiRouter.get("/models", async (req, res, next) => {
   }
 });
 
+// Phase 17 / M-A1: reject paths that could break out of the <user_file path="…">
+// wrapper in prompts (XML escape is the primary defense in renderContext.ts —
+// this is belt-and-suspenders at the route boundary). Alphanumerics, dot,
+// underscore, dash, slash only; 256-char cap to prevent log-bloat too.
+const safePathSchema = z
+  .string()
+  .min(1)
+  .max(256)
+  .regex(/^[A-Za-z0-9._/-]+$/, "path contains disallowed characters");
+
 const projectFileSchema = z.object({
-  path: z.string(),
+  path: safePathSchema,
   content: z.string(),
 });
 
@@ -62,7 +72,7 @@ const historySchema = z.array(
 );
 
 const selectionSchema = z.object({
-  path: z.string().min(1),
+  path: safePathSchema,
   startLine: z.number().int().min(1),
   endLine: z.number().int().min(1),
   text: z.string(),

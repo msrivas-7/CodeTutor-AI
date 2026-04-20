@@ -22,6 +22,11 @@ import type { AIMessage } from "./provider.js";
 
 const OPENAI_BASE = "https://api.openai.com/v1";
 
+// Phase 17 / M-A3: full prompt content can contain the learner's code —
+// keep it out of the log unless a developer explicitly opts in. In normal
+// operation we print sizes only.
+const DEBUG_PROMPTS = process.env.DEBUG_PROMPTS === "1";
+
 // Truncate long strings for the log so the terminal stays readable. Full
 // payloads go to OpenAI regardless; this is just what we print.
 function clip(s: string, n = 800): string {
@@ -170,8 +175,11 @@ export const openaiProvider: AIProvider = {
     console.log(`[openai]   language=${params.language ?? "(none)"}  activeFile=${params.activeFile ?? "(none)"}  files=${params.files.length}`);
     console.log(`[openai]   lastRun=${params.lastRun ? `${params.lastRun.stage}/exit=${params.lastRun.exitCode}/type=${params.lastRun.errorType}` : "(none)"}`);
     console.log(`[openai]   question: ${clip(params.question, 300)}`);
-    console.log(`[openai]   --- instructions (system) ---\n${clip(instructions, 1500)}`);
-    console.log(`[openai]   --- input (user turn) ---\n${clip(userTurn, 1500)}`);
+    console.log(`[openai]   prompt sizes: instructions=${instructions.length} userTurn=${userTurn.length}`);
+    if (DEBUG_PROMPTS) {
+      console.log(`[openai]   --- instructions (system) ---\n${clip(instructions, 1500)}`);
+      console.log(`[openai]   --- input (user turn) ---\n${clip(userTurn, 1500)}`);
+    }
 
     const body = {
       model: params.model,

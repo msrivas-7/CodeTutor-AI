@@ -1,17 +1,21 @@
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { config } from "../config.js";
+import { getSession } from "../services/session/sessionManager.js";
 
-// Per-session bucket key. Falls back to IP (IPv6-safe via ipKeyGenerator)
-// so an unauthenticated probe still gets throttled — the
-// `/api/ai/validate-key` path fits this shape (no session created yet).
+// Bucket key: we key on a combined `sid|ip` so an attacker who rotates the
+// sessionId to escape a bucket *still* hits the IP floor. We also only
+// trust the sid if it refers to an extant server-side session — otherwise
+// a rogue client could invent an sid per request, which (with the
+// pre-Phase-17 resolver) gave each one a fresh bucket with zero history.
 //
-// Phase 17 will swap the resolver to "authenticated user id" in one line;
-// the tenant-ready shape is already in place so downstream routes don't
-// have to change when that happens.
-function bucketKey(req: import("express").Request): string {
+// Fixes M-A2 (sid-rotation bypass). Phase 18 will swap the sid component
+// for an authenticated user id.
+export function bucketKey(req: import("express").Request): string {
   const sid = (req.body?.sessionId as string | undefined) ?? null;
-  if (sid && sid.length > 0) return `sid:${sid}`;
-  return `ip:${ipKeyGenerator(req.ip ?? "")}`;
+  const ip = ipKeyGenerator(req.ip ?? "");
+  const trusted = sid && sid.length > 0 && getSession(sid) !== undefined;
+  if (trusted) return `sid:${sid}|ip:${ip}`;
+  return `ip:${ip}`;
 }
 
 export const aiRateLimit = rateLimit({

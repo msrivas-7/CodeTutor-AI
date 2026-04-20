@@ -42,4 +42,22 @@ export const config = {
     windowMs: num(process.env.AI_RATE_LIMIT_WINDOW_MS, 60_000),
     max: num(process.env.AI_RATE_LIMIT_MAX, 60),
   },
+
+  // Phase 17 / H-A2: per-IP throttle on the mutating routes (session
+  // lifecycle, snapshot, execute). Session creation is tighter because it's
+  // the expensive op (spawns a container). The normal mutation bucket is
+  // generous so per-keystroke snapshot sync / repeated run-code clicks
+  // still feel instant.
+  mutationRateLimit: {
+    sessionCreateWindowMs: num(
+      process.env.SESSION_CREATE_RATE_LIMIT_WINDOW_MS,
+      60_000,
+    ),
+    sessionCreateMax: num(process.env.SESSION_CREATE_RATE_LIMIT_MAX, 30),
+    mutationWindowMs: num(
+      process.env.MUTATION_RATE_LIMIT_WINDOW_MS,
+      60_000,
+    ),
+    mutationMax: num(process.env.MUTATION_RATE_LIMIT_MAX, 120),
+  },
 } as const;

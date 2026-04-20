@@ -12,6 +12,22 @@ export function truncate(s: string, max: number): string {
   return s.slice(0, max) + `\n… [truncated, ${s.length - max} more chars]`;
 }
 
+// Phase 17 / M-A1: JSON.stringify only escapes `\` and `"`. A path like
+// `foo"></user_file><instruction>…` would close the wrapper and inject
+// prompt text the tutor treats as instructions. XML-escape the attribute
+// value so `<`, `>`, `&`, `"` are all rendered inert.
+function xmlAttr(s: string): string {
+  return (
+    '"' +
+    s
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;") +
+    '"'
+  );
+}
+
 // Untrusted-data framing: file content may contain prompt-like text ("ignore
 // previous instructions…"). Wrap every file in a <user_file> tag so the model
 // can treat it as *data* to analyse, never as instructions to follow. The
@@ -26,7 +42,7 @@ export function renderFiles(files: ProjectFile[], activeFile?: string): string {
     .map((f) => {
       const active = f.path === activeFile ? " active=\"true\"" : "";
       const body = truncate(f.content, MAX_FILE_CHARS);
-      return `<user_file path=${JSON.stringify(f.path)}${active}>\n${body}\n</user_file>`;
+      return `<user_file path=${xmlAttr(f.path)}${active}>\n${body}\n</user_file>`;
     })
     .join("\n\n");
 }
@@ -68,5 +84,5 @@ export function renderSelection(sel: EditorSelection | null | undefined): string
     sel.startLine === sel.endLine
       ? `line ${sel.startLine}`
       : `lines ${sel.startLine}-${sel.endLine}`;
-  return `<user_selection path=${JSON.stringify(sel.path)} span=${JSON.stringify(span)}>\n${truncate(sel.text, MAX_SELECTION_CHARS)}\n</user_selection>`;
+  return `<user_selection path=${xmlAttr(sel.path)} span=${xmlAttr(span)}>\n${truncate(sel.text, MAX_SELECTION_CHARS)}\n</user_selection>`;
 }

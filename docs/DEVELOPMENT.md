@@ -76,7 +76,12 @@ All optional — defaults work for local use. See [.env.example](../.env.example
 | `EXECUTION_BACKEND` | `local-docker` | Execution backend impl (future: cloud variants) |
 | `DOCKER_HOST` | `tcp://socket-proxy:2375` | Docker endpoint — set by compose so dockerode talks to the allowlisted socket proxy, not the raw socket |
 | `AI_RATE_LIMIT_WINDOW_MS` | `60000` | Rate-limit window for `/api/ai/*` |
-| `AI_RATE_LIMIT_MAX` | `60` | Max AI requests per window per session |
+| `AI_RATE_LIMIT_MAX` | `60` | Max AI requests per window per `sid\|ip` bucket (unknown sids fall back to IP) |
+| `SESSION_CREATE_RATE_LIMIT_WINDOW_MS` | `60000` | Window for `/api/session*` per-IP bucket |
+| `SESSION_CREATE_RATE_LIMIT_MAX` | `30` | Max session lifecycle calls per window per IP |
+| `MUTATION_RATE_LIMIT_WINDOW_MS` | `60000` | Window for `/api/project/snapshot` + `/api/execute*` per-IP bucket |
+| `MUTATION_RATE_LIMIT_MAX` | `120` | Max mutation calls per window per IP |
+| `DEBUG_PROMPTS` | unset | When `1`, the AI provider logs full system + user turn text. Leave unset; learner code would otherwise reach the backend log. |
 
 ## Direct Docker Compose
 

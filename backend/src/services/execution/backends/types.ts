@@ -39,10 +39,10 @@ export interface ExecOptions {
   stdin?: string;
   /**
    * Per-exec env overlay. Merged on top of the container's image + create-time
-   * env. Used by the function-test harness to hand the parent process a nonce
-   * it uses to sign the result envelope — the nonce must not be inherited by
-   * user-code subprocesses the harness spawns, so the harness scrubs it on
-   * startup before any user code runs.
+   * env. Used by the function-test harness for non-secret settings like the
+   * per-test timeout. Secrets (e.g. the HMAC nonce) travel via `stdin`
+   * instead — /proc/<pid>/environ leaks env even after `unsetenv`, so env is
+   * not a safe channel for anything user-code children must not see.
    */
   env?: Record<string, string>;
 }

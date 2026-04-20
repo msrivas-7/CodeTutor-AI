@@ -7,12 +7,20 @@ import type { ExecutionBackend } from "../services/execution/backends/index.js";
 // express.json({ limit: "5mb" }) already bounds the whole request; this
 // per-file cap keeps a single file from consuming the entire budget and
 // matches the runner-side practical file size (no learner lesson is 200 kB).
+// Phase 17 / M-A1: path charset restricted to match the schema in
+// routes/ai.ts — any `<`, `>`, `&`, `"` or control chars would let a file
+// from the snapshot flow back into the tutor prompt and break out of the
+// <user_file path="…"> wrapper.
 const snapshotBody = z.object({
   sessionId: z.string().min(1),
   files: z
     .array(
       z.object({
-        path: z.string().min(1).max(256),
+        path: z
+          .string()
+          .min(1)
+          .max(256)
+          .regex(/^[A-Za-z0-9._/-]+$/, "path contains disallowed characters"),
         content: z.string().max(200_000),
       })
     )

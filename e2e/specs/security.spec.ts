@@ -1,10 +1,13 @@
-// Security-posture regressions (Phase 15). Exercises the guarantees that are
-// invisible from the learner UI but easy to silently regress:
+// Security-posture regressions (Phases 15 + 17). Exercises the guarantees
+// that are invisible from the learner UI but easy to silently regress:
 //   - AI route rate-limit kicks in once the per-session bucket exhausts.
 //   - helmet security headers (CSP, X-Content-Type-Options, Referrer-Policy,
 //     X-Frame-Options) are present on backend responses.
 //   - The docker-socket-proxy denies every endpoint outside the tight
 //     allowlist (CONTAINERS, EXEC, POST). Relies on docker compose being up.
+//   - Phase 17: mutating routes require `X-Requested-With: codetutor` and
+//     reject cross-origin POSTs missing it. Same routes also have per-IP
+//     rate-limits (session create + general mutation buckets).
 //
 // These tests are intentionally low-level — they use Playwright's
 // APIRequestContext / child_process and never drive the browser. Keeping them
@@ -16,41 +19,20 @@ import { expect, request, test } from "@playwright/test";
 
 const BACKEND = process.env.E2E_API_URL ?? "http://localhost:4000";
 
+// Phase 17: every mutating request from this file must carry the CSRF token
+// header. Pre-Phase-17 tests that POSTed without this header will now 403 —
+// the test itself becomes the regression check for the guard.
+const CSRF: Record<string, string> = { "X-Requested-With": "codetutor" };
+
 test.describe("security posture", () => {
-  test("AI rate-limit returns 429 once the per-session bucket is exhausted", async () => {
-    // Scope the bucket to a unique session id so this test doesn't cross-
-    // contaminate other AI specs running in parallel (they'd otherwise all
-    // share the IP fallback bucket). bucketKey() in aiRateLimit.ts prefers
-    // sid:<sessionId> over ip:<…> when req.body.sessionId is non-empty.
-    const sid = `e2e-rate-limit-${Date.now()}`;
-    const ctx = await request.newContext();
-
-    // Fire up to 80 sequential requests. The route handler 400s (the body
-    // is deliberately invalid — missing `question`, etc.) but the rate-limit
-    // middleware runs BEFORE the handler, so every call ticks the bucket.
-    // We expect a 429 somewhere at or before the 65th request (default
-    // limit is 60 / 60s).
-    let sawRateLimit = false;
-    let callsBefore429 = 0;
-    for (let i = 0; i < 80; i++) {
-      const res = await ctx.post(`${BACKEND}/api/ai/ask`, {
-        data: { sessionId: sid },
-        failOnStatusCode: false,
-      });
-      if (res.status() === 429) {
-        sawRateLimit = true;
-        callsBefore429 = i;
-        break;
-      }
-    }
-    await ctx.dispose();
-
-    expect(sawRateLimit, "expected a 429 from /api/ai/ask once bucket exhausts").toBe(true);
-    // Soft floor: the limit should not trip before ~50 calls. If it does, it
-    // means the default has been tightened unexpectedly or a separate bucket
-    // bled into this sid.
-    expect(callsBefore429).toBeGreaterThanOrEqual(50);
-  });
+  // Note: the rate-limit 429 behavior (AI, mutation, session-create) is
+  // proven in backend unit tests (middleware/{ai,mutation}RateLimit.test.ts)
+  // where we mount fresh middleware against an ephemeral express app and
+  // assert behavior with tight limits. Doing the same from E2E poisons the
+  // shared 127.0.0.1 bucket for every parallel spec in the run, and the
+  // docker-compose config already bumps the bucket sizes (see comments on
+  // SESSION_CREATE_RATE_LIMIT_MAX etc.) to never trip under normal learner
+  // flow. E2E's security job here is CSRF + headers + proxy allowlist.
 
   test("helmet security headers are present on backend responses", async () => {
     const ctx = await request.newContext();
@@ -72,6 +54,42 @@ test.describe("security posture", () => {
 
     await ctx.dispose();
   });
+
+  test("CSRF guard rejects mutating requests missing X-Requested-With", async () => {
+    // Phase 17 / H-A3. A cross-origin POST from a malicious page the learner
+    // happens to visit (backend listens on localhost) would be a simple
+    // request the browser sends without preflight — unless the caller sets
+    // a non-safe header. We require `X-Requested-With: codetutor`, which
+    // forces preflight and lets CORS reject the origin.
+    const ctx = await request.newContext();
+    const res = await ctx.post(`${BACKEND}/api/session`, {
+      data: {},
+      failOnStatusCode: false,
+    });
+    await ctx.dispose();
+    expect(res.status(), "POST /api/session without CSRF header must 403").toBe(403);
+  });
+
+  test("CSRF guard rejects mutating requests with a foreign Origin", async () => {
+    // Belt + suspenders: even if an attacker somehow sends the custom header
+    // (e.g. via an extension), the Origin must match `config.corsOrigin`.
+    // Missing Origin is OK (same-origin fetch from the app), but an explicit
+    // foreign origin is rejected.
+    const ctx = await request.newContext();
+    const res = await ctx.post(`${BACKEND}/api/session`, {
+      data: {},
+      headers: { ...CSRF, Origin: "http://evil.example.com" },
+      failOnStatusCode: false,
+    });
+    await ctx.dispose();
+    expect(res.status(), "POST /api/session from foreign Origin must 403").toBe(403);
+  });
+
+  // Note: the mutating per-IP rate-limits (session create + snapshot/execute)
+  // are *not* exercised from E2E. E2E runs share a single 127.0.0.1 bucket,
+  // so burning it down from one spec would 429-poison every other test in
+  // the run. The same assertion lives in backend unit tests where the
+  // middleware runs in-process against supertest.
 
   test("docker-socket-proxy denies endpoints outside the allowlist", async () => {
     // This test proves Phase 14b's allowlist. We exec inside the backend

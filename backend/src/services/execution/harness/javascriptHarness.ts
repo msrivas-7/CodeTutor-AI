@@ -11,25 +11,33 @@ export const HARNESS_JS = "__codetutor_tests.js";
 export const HARNESS_JSON = "__codetutor_tests.json";
 
 /**
- * JavaScript harness (Phase 16 trust model) — mirrors pythonHarness.
+ * JavaScript harness (Phase 17 trust model) — mirrors pythonHarness.
  *
- *   1. Runs as the parent Node process inside the runner container. Reads
- *      HARNESS_NONCE from env, then deletes it so any subprocess it spawns
- *      cannot read the nonce.
+ * Phase 17 changes from Phase 16:
+ *   - Nonce is read from stdin (not env). unsetenv doesn't zero the kernel
+ *     env region, so /proc/<ppid>/environ would still leak HARNESS_NONCE to
+ *     any child subprocess. Stdin is a pipe: once read to EOF it's drained
+ *     and unrecoverable.
+ *   - Child subprocesses are spawned with stdio: ['ignore', 'pipe', 'pipe']
+ *     so they cannot inherit the parent's drained stdin pipe.
+ *   - The vm.createContext ctx no longer exposes require / process / Buffer /
+ *     module / exports / __filename / __dirname. Those gave learner code a
+ *     direct path to the real Node process — e.g. process.env to read the
+ *     parent's environment, require('fs') to read the harness source. The
+ *     vm boundary is a namespace isolator, not a sandbox; the runner
+ *     container is the actual sandbox.
+ *
+ *   1. Parent Node process runs inside the runner container. Reads
+ *      nonce from stdin, drains the pipe, closes it.
  *   2. Reads __codetutor_tests.json into memory, then fs.unlinkSync()s it.
- *      Hidden-test metadata (expected values, category labels) lives only in
- *      the parent's RAM from this point on — user code has no path to it.
- *   3. For each test, spawns a fresh `node -e DRIVER TEST_JSON` subprocess.
- *      DRIVER runs main.js inside a vm.createContext + vm.runInContext
- *      sandbox, runs setup and call, and writes JSON.stringify(actual)
- *      between a RESULT_MARKER pair on its own stdout. That stdout is
- *      captured by the parent (never reaches the container's stdout).
- *   4. The parent extracts the LAST RESULT_MARKER block from each
- *      subprocess's stdout and compares it (via deepEqual on JSON.parse'd
- *      values) to the in-memory expected.
- *   5. The parent builds the full report, HMAC-signs the body string with
- *      the nonce, and emits SENTINEL + base64(envelope) + SENTINEL + "\n"
- *      to stdout.
+ *      Hidden-test metadata lives only in parent RAM from this point on.
+ *   3. For each test, spawns `node -e DRIVER TEST_JSON` with stdin ignored.
+ *      DRIVER runs main.js inside a vm.createContext whose ctx only carries
+ *      intrinsics (Math, JSON, Array, …) — no host APIs.
+ *   4. Parent extracts the LAST RESULT_MARKER block from each child's
+ *      stdout and compares via deepEqual on JSON.parse'd values.
+ *   5. Parent HMAC-signs the body with the nonce and emits
+ *      SENTINEL + base64(envelope) + SENTINEL + "\\n" to stdout.
  */
 export function harnessJavaScript(): string {
   return `"use strict";
@@ -41,14 +49,26 @@ const SENTINEL = ${JSON.stringify(TEST_SENTINEL)};
 const RESULT_MARKER = ${JSON.stringify(RESULT_MARKER)};
 const RESULT_ERR_MARKER = ${JSON.stringify(RESULT_ERR_MARKER)};
 
-// --- Read + scrub the nonce and per-test timeout from env ---------------
-const NONCE = process.env.HARNESS_NONCE || "";
-delete process.env.HARNESS_NONCE;
+// --- Read nonce from stdin (Phase 17) ---------------------------------
+// fs.readFileSync(0) blocks until EOF, so the pipe is fully drained by the
+// time we return. /proc/<ppid>/fd/0 will still point at this pipe, but any
+// later read gets EOF — the data is gone. We don't fs.closeSync(0): libuv
+// refuses to close fds 0/1/2 (uv__close asserts), and draining to EOF is
+// the property that matters for secrecy.
+let _stdinData = "";
+try {
+  _stdinData = fs.readFileSync(0, "utf8");
+} catch (_e) {
+  _stdinData = "";
+}
+const NONCE = _stdinData.split("\\n", 1)[0].trim();
+
+// --- Per-test timeout stays in env (non-secret) -----------------------
 let PER_TEST_TIMEOUT_MS = parseInt(process.env.HARNESS_PER_TEST_TIMEOUT_MS || "5000", 10);
 if (!Number.isFinite(PER_TEST_TIMEOUT_MS) || PER_TEST_TIMEOUT_MS <= 0) PER_TEST_TIMEOUT_MS = 5000;
 delete process.env.HARNESS_PER_TEST_TIMEOUT_MS;
 
-// --- Read tests into memory, then delete the file (hides C3) -----------
+// --- Read tests into memory, then delete the file (hides C3) ----------
 const TESTS_PATH = ${JSON.stringify(HARNESS_JSON)};
 let TESTS = [];
 let loadErr = null;
@@ -60,10 +80,16 @@ try {
 }
 
 // --- Driver run by each per-test subprocess ----------------------------
-// The driver reads the test spec from process.argv[2] (setup + call only —
+// The driver reads the test spec from process.argv[1] (setup + call only —
 // the expected value stays with the parent, so user code in the subprocess
 // cannot read it). node -e is used so driver source and test JSON are on
 // argv rather than stdin; nothing on argv is secret.
+//
+// IMPORTANT: the ctx below is deliberately minimal. Do NOT add require,
+// process, Buffer, module, exports, __filename, __dirname, or any other
+// host API — learner code must not have a handle onto the real Node
+// process. The runner container is the sandbox; the vm ctx is a
+// namespace isolator that prevents process.env / require('fs') escapes.
 const DRIVER = [
   '"use strict";',
   'const fs = require("fs");',
@@ -80,20 +106,12 @@ const DRIVER = [
   '  error: (...a) => { captured += a.map(fmt).join(" ") + "\\\\n"; },',
   '  debug: (...a) => { captured += a.map(fmt).join(" ") + "\\\\n"; },',
   '};',
-  'const sandboxModule = { exports: {} };',
   'const ctx = {',
   '  console: bufConsole,',
   '  Math: Math, JSON: JSON, Object: Object, Array: Array, String: String, Number: Number, Boolean: Boolean, Date: Date,',
   '  Error: Error, TypeError: TypeError, RangeError: RangeError, ReferenceError: ReferenceError, SyntaxError: SyntaxError,',
   '  RegExp: RegExp, Map: Map, Set: Set, Promise: Promise, Symbol: Symbol,',
   '  parseInt: parseInt, parseFloat: parseFloat, isNaN: isNaN, isFinite: isFinite,',
-  '  Buffer: Buffer,',
-  '  process: process,',
-  '  require: require,',
-  '  module: sandboxModule,',
-  '  exports: sandboxModule.exports,',
-  '  __filename: "main.js",',
-  '  __dirname: ".",',
   '  globalThis: undefined,',
   '};',
   'ctx.globalThis = ctx;',
@@ -166,12 +184,15 @@ function resultShell(test) {
   };
 }
 
+// Probe parses + evaluates main.js. The ctx here mirrors the driver's ctx —
+// no host APIs reachable by user code. stdio:['ignore', 'pipe', 'pipe']
+// gives the child no stdin (can't read parent's drained pipe).
 function probeMain() {
   try {
     const r = spawnSync(
       process.execPath,
-      ["-e", "const vm = require('vm'); const fs = require('fs'); const ctx = { console: console, require: require, module: { exports: {} }, process: process, Buffer: Buffer }; ctx.globalThis = ctx; vm.createContext(ctx); vm.runInContext(fs.readFileSync('main.js', 'utf8'), ctx, { filename: 'main.js' });"],
-      { encoding: "utf8", timeout: PER_TEST_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024 },
+      ["-e", "const vm = require('vm'); const fs = require('fs'); const ctx = { console: console, globalThis: undefined, Math: Math, JSON: JSON, Object: Object, Array: Array, String: String, Number: Number, Boolean: Boolean, Date: Date, Error: Error, TypeError: TypeError, RangeError: RangeError, ReferenceError: ReferenceError, SyntaxError: SyntaxError, RegExp: RegExp, Map: Map, Set: Set, Promise: Promise, Symbol: Symbol, parseInt: parseInt, parseFloat: parseFloat, isNaN: isNaN, isFinite: isFinite }; ctx.globalThis = ctx; vm.createContext(ctx); vm.runInContext(fs.readFileSync('main.js', 'utf8'), ctx, { filename: 'main.js' });"],
+      { encoding: "utf8", timeout: PER_TEST_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] },
     );
     return r;
   } catch (e) {
@@ -188,7 +209,7 @@ function runOne(test) {
     r = spawnSync(
       process.execPath,
       ["-e", DRIVER, payload],
-      { encoding: "utf8", timeout: PER_TEST_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024 },
+      { encoding: "utf8", timeout: PER_TEST_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] },
     );
   } catch (e) {
     shell.error = "Could not spawn test subprocess: " + (e && e.message ? e.message : String(e));

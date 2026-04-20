@@ -26,9 +26,30 @@ describe("harnessJavaScript (source)", () => {
     expect(src).toContain("fs.unlinkSync(TESTS_PATH)");
   });
 
-  it("reads the nonce from env and deletes it before spawning user code", () => {
-    expect(src).toContain("process.env.HARNESS_NONCE");
-    expect(src).toContain("delete process.env.HARNESS_NONCE");
+  it("reads the nonce from stdin (not env)", () => {
+    // Phase 17: HARNESS_NONCE must not appear in env at all — /proc/<pid>/environ
+    // leaks even after `delete process.env.X`. Nonce arrives on stdin instead.
+    // (We don't fs.closeSync(0); libuv asserts on closing fd 0. Draining via
+    // fs.readFileSync(0) to EOF is the property that matters — the pipe is
+    // empty after that, and children get stdio:['ignore'] so they can't read
+    // the parent's fd 0 either.)
+    expect(src).not.toContain("HARNESS_NONCE");
+    expect(src).toContain('fs.readFileSync(0, "utf8")');
+  });
+
+  it("spawns child subprocesses with stdio: ignore for stdin", () => {
+    // Belt-and-suspenders: parent's stdin is drained, but 'ignore' on the
+    // child means even if it tried to read fd 0 it would get EOF.
+    expect(src).toMatch(/stdio:\s*\[\s*["']ignore["']/);
+  });
+
+  it("does not expose require/process/Buffer to the user's vm ctx", () => {
+    // M-A4: vm.createContext is a module loader, not a security boundary.
+    // The DRIVER builds a ctx without require/process/Buffer so a learner's
+    // main.js referencing those fails with ReferenceError.
+    expect(src).not.toMatch(/require:\s*require/);
+    expect(src).not.toMatch(/process:\s*process/);
+    expect(src).not.toMatch(/Buffer:\s*Buffer/);
   });
 
   it("spawns the driver via spawnSync with -e (not vm.runInContext in-process)", () => {
@@ -93,9 +114,9 @@ describe("javascriptHarness integration (runs node)", () => {
       cwd: tmp,
       encoding: "utf8",
       timeout: 20_000,
+      input: `${nonce}\n`,
       env: {
         ...process.env,
-        HARNESS_NONCE: nonce,
         HARNESS_PER_TEST_TIMEOUT_MS: "5000",
       },
     });
@@ -142,19 +163,22 @@ describe("javascriptHarness integration (runs node)", () => {
   );
 
   it.skipIf(!hasNode)(
-    "skips top-level `if (require.main === module)` branches during tests",
+    "module-level side effects don't leak into per-test stdoutDuring",
     () => {
+      // Module-level console.log happens during probe + once per driver spawn
+      // (the module body re-runs each time). It shows up in cleanStdout
+      // (from the probe) but not in any test's stdoutDuring, because the
+      // driver strips markers and captures per-test prints into its own
+      // buffer — not the module-load prints.
       const main = `
+console.log("at module load");
 function greet(name) { return "hi, " + name; }
-if (require.main === module) {
-  console.log("at module load");
-}
 `;
       const { report } = runHarnessWith(main, [
         { name: "greet", call: 'greet("x")', expected: '"hi, x"' },
       ]);
       expect(report.results[0].passed).toBe(true);
-      expect(report.results[0].stdoutDuring).toBe("");
+      expect(report.cleanStdout).toContain("at module load");
     },
   );
 
@@ -249,11 +273,22 @@ function makeObj() { return { a: 1, b: [2, 3] }; }
   );
 
   it.skipIf(!hasNode)(
-    "scrubs HARNESS_NONCE from env before user code runs",
+    "user code cannot reach process.env at all (ctx minimization, Phase 17)",
     () => {
-      const main = `function leaked() { return process.env.HARNESS_NONCE || "absent"; }`;
+      // Phase 17 / M-A4: the vm ctx no longer exposes `process`, `require`, or
+      // `Buffer`. Learner code that reaches for them gets a ReferenceError —
+      // which is fine, because:
+      //   (a) those APIs were only ever namespace-convenient, not sandboxed;
+      //   (b) the nonce now lives on stdin, not env, so even if `process` were
+      //       exposed, `process.env.HARNESS_NONCE` would be empty.
+      const main = `
+function leaked() {
+  try { return process.env.HARNESS_NONCE || "absent"; }
+  catch (e) { return "no-process"; }
+}
+`;
       const { report } = runHarnessWith(main, [
-        { name: "scrub", call: "leaked()", expected: '"absent"' },
+        { name: "env-gone", call: "leaked()", expected: '"no-process"' },
       ]);
       expect(report.results[0].passed).toBe(true);
     },

@@ -1,9 +1,14 @@
+// Phase 17 / H-A3: mutating routes require a custom header so the backend
+// can reject simple cross-origin POSTs (which can't set arbitrary headers
+// without tripping CORS preflight, which the backend then rejects by
+// Origin). Attach to every POST from this client.
 const JSON_HEADERS = { "Content-Type": "application/json" };
+const CSRF_HEADER = { "X-Requested-With": "codetutor" };
 
 async function post<T>(path: string, body?: unknown, extraHeaders?: Record<string, string>): Promise<T> {
   const res = await fetch(path, {
     method: "POST",
-    headers: { ...JSON_HEADERS, ...(extraHeaders ?? {}) },
+    headers: { ...JSON_HEADERS, ...CSRF_HEADER, ...(extraHeaders ?? {}) },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`${path} failed: ${res.status} ${await res.text()}`);
@@ -87,7 +92,7 @@ export const api = {
     try {
       const res = await fetch("/api/session/ping", {
         method: "POST",
-        headers: JSON_HEADERS,
+        headers: { ...JSON_HEADERS, ...CSRF_HEADER },
         body: JSON.stringify({ sessionId }),
       });
       if (res.ok) return { ok: true };
@@ -127,7 +132,7 @@ export const api = {
     try {
       res = await fetch("/api/ai/ask/stream", {
         method: "POST",
-        headers: { ...JSON_HEADERS, "X-OpenAI-Key": key },
+        headers: { ...JSON_HEADERS, ...CSRF_HEADER, "X-OpenAI-Key": key },
         body: JSON.stringify(body),
         signal: handlers.signal,
       });

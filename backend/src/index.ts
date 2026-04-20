@@ -8,6 +8,11 @@ import { createExecutionRouter } from "./routes/execution.js";
 import { createExecuteTestsRouter } from "./routes/executeTests.js";
 import { aiRouter } from "./routes/ai.js";
 import { aiRateLimit } from "./middleware/aiRateLimit.js";
+import { csrfGuard } from "./middleware/csrfGuard.js";
+import {
+  mutationLimit,
+  sessionCreateLimit,
+} from "./middleware/mutationRateLimit.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { makeExecutionBackend } from "./services/execution/backends/index.js";
 import {
@@ -45,15 +50,38 @@ async function main() {
   app.use(express.json({ limit: "5mb" }));
 
   // Lightweight request log for session + AI routes so we can trace lifecycle.
-  // API keys are never written to logs: `/api/ai/*` bodies are redacted.
+  // Phase 17 / M-A3: learner code (snapshot files, execute stdin, harness
+  // tests) never hits the log as raw text — only shape summaries. AI bodies
+  // stay fully redacted (they carry the OpenAI key header).
   app.use((req, _res, next) => {
     const isSession = req.path.startsWith("/api/session");
-    const isExec = req.path === "/api/execute" || req.path === "/api/execute/tests" || req.path === "/api/project/snapshot";
+    const isExec = req.path === "/api/execute" || req.path === "/api/execute/tests";
+    const isSnapshot = req.path === "/api/project/snapshot";
     const isAi = req.path.startsWith("/api/ai");
-    if (!isSession && !isExec && !isAi) return next();
+    if (!isSession && !isExec && !isSnapshot && !isAi) return next();
     let body = "";
     if (req.path === "/api/session/ping" || isAi) {
       body = "(redacted)";
+    } else if (isSnapshot) {
+      const files = (req.body?.files as unknown[] | undefined) ?? [];
+      body = JSON.stringify({
+        sessionId: req.body?.sessionId,
+        files: files.length,
+      });
+    } else if (req.path === "/api/execute") {
+      const stdin = (req.body?.stdin as string | null | undefined) ?? null;
+      body = JSON.stringify({
+        sessionId: req.body?.sessionId,
+        language: req.body?.language,
+        stdin: stdin === null ? null : `<${stdin.length} chars>`,
+      });
+    } else if (req.path === "/api/execute/tests") {
+      const tests = (req.body?.tests as unknown[] | undefined) ?? [];
+      body = JSON.stringify({
+        sessionId: req.body?.sessionId,
+        language: req.body?.language,
+        tests: tests.length,
+      });
     } else {
       body = JSON.stringify(req.body ?? {});
     }
@@ -67,16 +95,36 @@ async function main() {
 
   const executionBackend = makeExecutionBackend();
 
-  app.use("/api/session", sessionRouter);
-  app.use("/api/project", createProjectRouter(executionBackend));
+  // Phase 17: CSRF + per-IP rate limits on every mutating API surface.
+  // Session creation gets its own tighter bucket because spawning a runner
+  // container is the expensive op. csrfGuard blocks simple cross-origin
+  // POSTs from a malicious page the learner happens to visit while the
+  // backend is listening on localhost. See middleware/{csrfGuard,mutationRateLimit}.ts.
+  app.use("/api/session", csrfGuard, sessionCreateLimit, sessionRouter);
+  app.use(
+    "/api/project",
+    csrfGuard,
+    mutationLimit,
+    createProjectRouter(executionBackend),
+  );
   // Order matters: /api/execute/tests must be registered before the catch-all
   // /api/execute router (which handles the base path POST /).
-  app.use("/api/execute/tests", createExecuteTestsRouter(executionBackend));
-  app.use("/api/execute", createExecutionRouter(executionBackend));
-  // Rate-limit applies only to AI calls (the expensive, OpenAI-backed ones).
-  // Per-session bucket key inside aiRateLimit; Phase 17 will swap to
-  // authenticated user id with a one-line change.
-  app.use("/api/ai", aiRateLimit, aiRouter);
+  app.use(
+    "/api/execute/tests",
+    csrfGuard,
+    mutationLimit,
+    createExecuteTestsRouter(executionBackend),
+  );
+  app.use(
+    "/api/execute",
+    csrfGuard,
+    mutationLimit,
+    createExecutionRouter(executionBackend),
+  );
+  // AI routes get both the per-session throttle (AI-specific budget) AND
+  // the CSRF guard. Phase 18 will swap the sid bucket for an authenticated
+  // user id.
+  app.use("/api/ai", csrfGuard, aiRateLimit, aiRouter);
 
   app.use(errorHandler);
 

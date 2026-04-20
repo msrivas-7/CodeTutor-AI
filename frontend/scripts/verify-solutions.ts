@@ -295,11 +295,14 @@ function runHarness(language: Language, workspace: string, tests: unknown): Harn
   writeFileSync(jsonPath, JSON.stringify(tests), "utf8");
 
   const nonce = crypto.randomBytes(32).toString("hex");
+  // Phase 17: nonce goes on stdin (not env). /proc/<pid>/environ leaks env
+  // even after unsetenv, so env is not a safe channel for anything user-code
+  // children must not see.
   const env = {
     ...process.env,
-    HARNESS_NONCE: nonce,
     HARNESS_PER_TEST_TIMEOUT_MS: "5000",
   };
+  const stdinPayload = `${nonce}\n`;
 
   if (language === "python") {
     writeFileSync(join(workspace, HARNESS_PY), harnessPython(), "utf8");
@@ -308,6 +311,7 @@ function runHarness(language: Language, workspace: string, tests: unknown): Harn
       encoding: "utf8",
       timeout: 30_000,
       env,
+      input: stdinPayload,
     });
     return parseSignedEnvelope(r.stdout ?? "", r.stderr ?? "", nonce);
   }
@@ -318,6 +322,7 @@ function runHarness(language: Language, workspace: string, tests: unknown): Harn
       encoding: "utf8",
       timeout: 30_000,
       env,
+      input: stdinPayload,
     });
     return parseSignedEnvelope(r.stdout ?? "", r.stderr ?? "", nonce);
   }
@@ -390,8 +395,12 @@ const SENTINEL = ${JSON.stringify(TEST_SENTINEL)};
 const RESULT_MARKER = ${JSON.stringify(RESULT_MARKER)};
 const RESULT_ERR_MARKER = ${JSON.stringify(RESULT_ERR_MARKER)};
 
-const NONCE = process.env.HARNESS_NONCE || "";
-delete process.env.HARNESS_NONCE;
+// Phase 17: nonce comes in on stdin, not env. We read to EOF so the pipe is
+// drained; we don't fs.closeSync(0) because libuv aborts on closing fd 0.
+let _stdinData = "";
+try { _stdinData = fs.readFileSync(0, "utf8"); } catch (_e) { _stdinData = ""; }
+const NONCE = (_stdinData.split("\\n", 1)[0] || "").trim();
+
 let PER_TEST_TIMEOUT_MS = parseInt(process.env.HARNESS_PER_TEST_TIMEOUT_MS || "5000", 10);
 if (!Number.isFinite(PER_TEST_TIMEOUT_MS) || PER_TEST_TIMEOUT_MS <= 0) PER_TEST_TIMEOUT_MS = 5000;
 delete process.env.HARNESS_PER_TEST_TIMEOUT_MS;
@@ -406,6 +415,10 @@ try {
   loadErr = "could not load test specs: " + (e && e.message ? e.message : String(e));
 }
 
+// vm.createContext is a module loader, NOT a security boundary. The runner
+// container is the sandbox. We pass only intrinsics into the ctx so the user's
+// main.js can't grab require/process/Buffer off the ambient global — if those
+// are needed in the future, rebind them narrowly. (M-A4.)
 const DRIVER = [
   '"use strict";',
   'const fs = require("fs");',
@@ -422,20 +435,12 @@ const DRIVER = [
   '  error: (...a) => { captured += a.map(fmt).join(" ") + "\\\\n"; },',
   '  debug: (...a) => { captured += a.map(fmt).join(" ") + "\\\\n"; },',
   '};',
-  'const sandboxModule = { exports: {} };',
   'const ctx = {',
   '  console: bufConsole,',
   '  Math: Math, JSON: JSON, Object: Object, Array: Array, String: String, Number: Number, Boolean: Boolean, Date: Date,',
   '  Error: Error, TypeError: TypeError, RangeError: RangeError, ReferenceError: ReferenceError, SyntaxError: SyntaxError,',
   '  RegExp: RegExp, Map: Map, Set: Set, Promise: Promise, Symbol: Symbol,',
   '  parseInt: parseInt, parseFloat: parseFloat, isNaN: isNaN, isFinite: isFinite,',
-  '  Buffer: Buffer,',
-  '  process: process,',
-  '  require: require,',
-  '  module: sandboxModule,',
-  '  exports: sandboxModule.exports,',
-  '  __filename: "main.js",',
-  '  __dirname: ".",',
   '  globalThis: undefined,',
   '};',
   'ctx.globalThis = ctx;',
@@ -512,8 +517,8 @@ function probeMain() {
   try {
     return spawnSync(
       process.execPath,
-      ["-e", "const vm = require('vm'); const fs = require('fs'); const ctx = { console: console, require: require, module: { exports: {} }, process: process, Buffer: Buffer }; ctx.globalThis = ctx; vm.createContext(ctx); vm.runInContext(fs.readFileSync('main.js', 'utf8'), ctx, { filename: 'main.js' });"],
-      { encoding: "utf8", timeout: PER_TEST_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024 },
+      ["-e", "const vm = require('vm'); const fs = require('fs'); const ctx = { console: console, Math: Math, JSON: JSON, Object: Object, Array: Array, String: String, Number: Number, Boolean: Boolean, Date: Date, Error: Error, RegExp: RegExp, Map: Map, Set: Set, Promise: Promise, Symbol: Symbol, parseInt: parseInt, parseFloat: parseFloat, isNaN: isNaN, isFinite: isFinite }; ctx.globalThis = ctx; vm.createContext(ctx); vm.runInContext(fs.readFileSync('main.js', 'utf8'), ctx, { filename: 'main.js' });"],
+      { encoding: "utf8", timeout: PER_TEST_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] },
     );
   } catch (e) {
     return null;
@@ -525,10 +530,12 @@ function runOne(test) {
   const payload = JSON.stringify({ setup: test.setup || "", call: test.call || "" });
   let r;
   try {
+    // stdio:['ignore', ...] so the child has no stdin at all — it cannot read
+    // the parent's drained stdin pipe where the nonce briefly lived.
     r = spawnSync(
       process.execPath,
       ["-e", DRIVER, payload],
-      { encoding: "utf8", timeout: PER_TEST_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024 },
+      { encoding: "utf8", timeout: PER_TEST_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] },
     );
   } catch (e) {
     shell.error = "Could not spawn test subprocess: " + (e && e.message ? e.message : String(e));
@@ -620,9 +627,18 @@ SENTINEL = ${JSON.stringify(TEST_SENTINEL)}
 RESULT_MARKER = ${JSON.stringify(RESULT_MARKER)}
 RESULT_ERR_MARKER = ${JSON.stringify(RESULT_ERR_MARKER)}
 
-_nonce = os.environ.get("HARNESS_NONCE", "")
-if "HARNESS_NONCE" in os.environ:
-    del os.environ["HARNESS_NONCE"]
+# Phase 17: nonce arrives on stdin. Read to EOF, then close stdin so there's
+# no residue visible via /proc/<pid>/fd/0 to any later child.
+try:
+    _stdin_data = sys.stdin.read()
+except BaseException:
+    _stdin_data = ""
+try:
+    sys.stdin.close()
+except BaseException:
+    pass
+_nonce = _stdin_data.split("\\n", 1)[0].strip() if _stdin_data else ""
+
 try:
     _per_test_timeout = float(os.environ.get("HARNESS_PER_TEST_TIMEOUT_MS", "5000")) / 1000.0
 except (TypeError, ValueError):
@@ -680,10 +696,11 @@ def _strip_markers(text):
     return text.strip()
 
 def _probe_main():
+    # stdin=DEVNULL so the probe child cannot read the parent's stdin pipe.
     try:
         return subprocess.run(
             ["python3", "-c", "import runpy; runpy.run_path('main.py', run_name='__codetutor_main__')"],
-            capture_output=True, text=True, timeout=_per_test_timeout,
+            stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=_per_test_timeout,
         )
     except subprocess.TimeoutExpired:
         return None
@@ -706,9 +723,10 @@ def _run_one(test):
     shell = _result_shell(test)
     payload = json.dumps({"setup": test.get("setup") or "", "call": test.get("call") or ""})
     try:
+        # stdin=DEVNULL so the child cannot read the parent's drained stdin pipe.
         r = subprocess.run(
             ["python3", "-c", _DRIVER, payload],
-            capture_output=True, text=True, timeout=_per_test_timeout,
+            stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=_per_test_timeout,
         )
     except subprocess.TimeoutExpired:
         shell["error"] = "Test timed out."

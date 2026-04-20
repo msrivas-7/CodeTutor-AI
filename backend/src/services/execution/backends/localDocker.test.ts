@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { LocalDockerBackend, joinHostPath } from "./localDocker.js";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import {
+  LocalDockerBackend,
+  ensureNoSymlinkInPath,
+  joinHostPath,
+} from "./localDocker.js";
 import type { SessionHandle } from "./types.js";
 
 describe("joinHostPath", () => {
@@ -60,6 +67,62 @@ describe("joinHostPath", () => {
       expect(joinHostPath("/pure/unix/path", "id"))
         .toBe("/pure/unix/path/id");
     });
+  });
+});
+
+// Phase 17 / C-A1: writeFiles must not be trickable into dereferencing a
+// symlink planted in the session workspace. ensureNoSymlinkInPath is the
+// walk-and-reject helper used by writeFiles before it opens the target.
+describe("ensureNoSymlinkInPath", () => {
+  let tmp: string;
+
+  it("succeeds on a normal nested directory path", async () => {
+    tmp = await fs.mkdtemp(path.join(os.tmpdir(), "no-symlink-ok-"));
+    try {
+      const target = path.join(tmp, "a", "b", "c");
+      await ensureNoSymlinkInPath(tmp, target);
+      const st = await fs.lstat(target);
+      expect(st.isDirectory()).toBe(true);
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects when any parent segment is a symlink", async () => {
+    tmp = await fs.mkdtemp(path.join(os.tmpdir(), "no-symlink-bad-"));
+    try {
+      // Simulate a learner planting /tmp/xxx/sneaky -> /etc
+      await fs.symlink("/etc", path.join(tmp, "sneaky"));
+      const target = path.join(tmp, "sneaky", "passwd-like");
+      await expect(ensureNoSymlinkInPath(tmp, target)).rejects.toThrow(
+        /symlink/i,
+      );
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects when a path segment is a regular file, not a directory", async () => {
+    tmp = await fs.mkdtemp(path.join(os.tmpdir(), "no-symlink-file-"));
+    try {
+      await fs.writeFile(path.join(tmp, "not-a-dir"), "hello");
+      await expect(
+        ensureNoSymlinkInPath(tmp, path.join(tmp, "not-a-dir", "x")),
+      ).rejects.toThrow(/not a directory/);
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects if the target escapes the workspace root", async () => {
+    tmp = await fs.mkdtemp(path.join(os.tmpdir(), "no-symlink-esc-"));
+    try {
+      await expect(
+        ensureNoSymlinkInPath(tmp, path.join(os.tmpdir(), "elsewhere")),
+      ).rejects.toThrow(/escapes workspace/);
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
   });
 });
 

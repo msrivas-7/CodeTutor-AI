@@ -26,9 +26,18 @@ describe("harnessPython (source)", () => {
     expect(src).toContain("os.remove(_tests_path)");
   });
 
-  it("reads the nonce from env and deletes it before spawning user code", () => {
-    expect(src).toContain('os.environ.get("HARNESS_NONCE"');
-    expect(src).toContain('del os.environ["HARNESS_NONCE"]');
+  it("reads the nonce from stdin (not env) and closes stdin", () => {
+    // Phase 17: HARNESS_NONCE must not appear in env at all — /proc/<pid>/environ
+    // leaks even after `del os.environ[...]`. Nonce arrives on stdin instead.
+    expect(src).not.toContain("HARNESS_NONCE");
+    expect(src).toContain("sys.stdin.read()");
+    expect(src).toContain("sys.stdin.close()");
+  });
+
+  it("spawns child subprocesses with stdin=DEVNULL", () => {
+    // Belt-and-suspenders — the parent's stdin is drained, but DEVNULL on the
+    // child means even if it tried to read its own fd 0 it would get EOF.
+    expect(src).toContain("stdin=subprocess.DEVNULL");
   });
 
   it("spawns the driver via subprocess.run with -c (not runpy in-process)", () => {
@@ -98,9 +107,9 @@ describe("pythonHarness integration (runs python3)", () => {
       cwd: tmp,
       encoding: "utf8",
       timeout: 20_000,
+      input: `${nonce}\n`,
       env: {
         ...process.env,
-        HARNESS_NONCE: nonce,
         HARNESS_PER_TEST_TIMEOUT_MS: "5000",
       },
     });
@@ -220,9 +229,10 @@ describe("pythonHarness integration (runs python3)", () => {
   );
 
   it.skipIf(!hasPython)(
-    "scrubs HARNESS_NONCE from env before user code runs",
+    "HARNESS_NONCE never appears in env for user code (Phase 17)",
     () => {
-      // User code reads os.environ and returns whether HARNESS_NONCE is there.
+      // Phase 17: nonce is on stdin, never env. Verify env is clean even in
+      // user code running inside the per-test subprocess.
       const main = [
         "import os",
         "def leaked():",
@@ -230,7 +240,7 @@ describe("pythonHarness integration (runs python3)", () => {
         "",
       ].join("\n");
       const { report } = runHarnessWith(main, [
-        { name: "scrub", call: "leaked()", expected: "'absent'" },
+        { name: "env-clean", call: "leaked()", expected: "'absent'" },
       ]);
       expect(report.results[0].passed).toBe(true);
     },

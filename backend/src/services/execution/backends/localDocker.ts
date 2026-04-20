@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import Docker from "dockerode";
@@ -226,9 +227,38 @@ export class LocalDockerBackend implements ExecutionBackend {
     const h = this.cast(handle);
     for (const f of files) {
       const abs = safeResolve(h.workspacePath, f.path);
-      await fs.mkdir(path.dirname(abs), { recursive: true });
-      await fs.writeFile(abs, f.content, "utf8");
-      await fs.chmod(abs, 0o666).catch(() => {});
+      // Phase 17 / C-A1: the learner controls the workspace contents (via
+      // docker exec as user "runner"). Without this guard, a symlink planted
+      // inside the workspace would let our writeFile() escape the session
+      // dir and overwrite arbitrary files in the backend container's FS —
+      // the backend today runs as root, so that is a full sandbox break.
+      //
+      // Two guards below:
+      //   (a) Walk each parent segment, rejecting any that is a symlink.
+      //       This catches directory-symlink attacks: e.g., a/b -> /app/src
+      //       followed by writing a/b/config.ts.
+      //   (b) Open the final file with O_NOFOLLOW so a file-symlink at the
+      //       final segment also fails to open (ELOOP). Pre-unlink the path
+      //       first (if it's a regular file we're overwriting anyway; if it's
+      //       a symlink we're removing it before the open races). Combined
+      //       with O_NOFOLLOW this is TOCTOU-safe: even if a learner replants
+      //       a symlink between unlink and open, O_NOFOLLOW refuses.
+      await ensureNoSymlinkInPath(h.workspacePath, path.dirname(abs));
+      await fs.unlink(abs).catch((e) => {
+        if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+      });
+      const flags =
+        fsConstants.O_WRONLY |
+        fsConstants.O_CREAT |
+        fsConstants.O_EXCL |
+        fsConstants.O_NOFOLLOW;
+      const fh = await fs.open(abs, flags, 0o644);
+      try {
+        await fh.writeFile(f.content, "utf8");
+        await fh.chmod(0o666).catch(() => {});
+      } finally {
+        await fh.close();
+      }
     }
   }
 
@@ -273,11 +303,18 @@ export class LocalDockerBackend implements ExecutionBackend {
     // would invalidate the mount's inode.
     await fs.mkdir(h.workspacePath, { recursive: true });
     await fs.chmod(h.workspacePath, 0o777).catch(() => {});
-    const entries = await fs.readdir(h.workspacePath);
+    // Use withFileTypes so readdir gives us entry-kind info without a
+    // follow-up lstat. fs.rm({recursive, force}) on a symlink would just
+    // unlink the symlink (not follow it) — but we want to be explicit.
+    const entries = await fs.readdir(h.workspacePath, { withFileTypes: true });
     await Promise.all(
-      entries.map((name) =>
-        fs.rm(path.join(h.workspacePath, name), { recursive: true, force: true }),
-      ),
+      entries.map((dirent) => {
+        const child = path.join(h.workspacePath, dirent.name);
+        if (dirent.isSymbolicLink()) {
+          return fs.unlink(child).catch(() => {});
+        }
+        return fs.rm(child, { recursive: true, force: true });
+      }),
     );
     await this.writeFiles(handle, files);
   }
@@ -380,6 +417,61 @@ async function removeWorkspaceDir(dir: string): Promise<void> {
       return;
     } catch {
       await new Promise((r) => setTimeout(r, 150 * (attempt + 1)));
+    }
+  }
+}
+
+/**
+ * Walk from `workspace` (inclusive) down to `dir` (inclusive), ensuring every
+ * segment is a real directory — not a symlink, not any other file type.
+ * Creates any missing segment as a plain directory (mode 0o755). Throws on
+ * the first symlink encountered.
+ *
+ * Why: writeFiles needs to be robust against directory-symlink attacks where
+ * the learner (who controls the workspace via `docker exec`) plants
+ * `workspace/a/b -> /app/src`, then a later writeFiles({path: "a/b/x.ts"})
+ * would dereference the symlink and overwrite files outside the workspace.
+ */
+export async function ensureNoSymlinkInPath(
+  workspace: string,
+  dir: string,
+): Promise<void> {
+  const workspaceAbs = path.resolve(workspace);
+  const target = path.resolve(dir);
+  if (!target.startsWith(workspaceAbs)) {
+    throw new Error(`path escapes workspace: "${dir}"`);
+  }
+
+  // Ensure the workspace root itself exists and is a directory (not a symlink).
+  const rootStat = await fs.lstat(workspaceAbs).catch(() => null);
+  if (!rootStat) {
+    await fs.mkdir(workspaceAbs, { recursive: true });
+  } else if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) {
+    throw new Error(`workspace root is not a real directory: "${workspaceAbs}"`);
+  }
+
+  if (target === workspaceAbs) return;
+
+  const rel = path.relative(workspaceAbs, target);
+  const segments = rel.split(path.sep);
+  let current = workspaceAbs;
+  for (const segment of segments) {
+    current = path.join(current, segment);
+    const st = await fs.lstat(current).catch((e: NodeJS.ErrnoException) => {
+      if (e.code === "ENOENT") return null;
+      throw e;
+    });
+    if (!st) {
+      await fs.mkdir(current, { mode: 0o755 });
+      continue;
+    }
+    if (st.isSymbolicLink()) {
+      throw new Error(
+        `refusing to follow symlink in workspace path: "${current}"`,
+      );
+    }
+    if (!st.isDirectory()) {
+      throw new Error(`path segment is not a directory: "${current}"`);
     }
   }
 }

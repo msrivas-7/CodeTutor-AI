@@ -14,9 +14,11 @@ import { parseSignedEnvelope } from "./envelope.js";
 import { TEST_SENTINEL, type FunctionTest } from "./types.js";
 
 /**
- * Phase 16 harness trust tests. Goal: prove that
+ * Phase 16 + 17 harness trust tests. Goal: prove that
  *   (a) user code cannot forge a passing test result (C2),
- *   (b) user code cannot read hidden test expected values (C3).
+ *   (b) user code cannot read hidden test expected values (C3),
+ *   (c) user code cannot read the nonce from /proc/<ppid>/environ
+ *       or any other process-visible channel (H-A1).
  *
  * Each test sets up a tmp dir with the real generated harness source +
  * tests.json + a main.{py,js} that tries to cheat, runs the harness, and
@@ -38,9 +40,9 @@ function runPython(mainPy: string, tests: FunctionTest[]) {
     cwd: tmp,
     encoding: "utf8",
     timeout: 20_000,
+    input: `${nonce}\n`,
     env: {
       ...process.env,
-      HARNESS_NONCE: nonce,
       HARNESS_PER_TEST_TIMEOUT_MS: "5000",
     },
   });
@@ -59,9 +61,9 @@ function runJs(mainJs: string, tests: FunctionTest[]) {
     cwd: tmp,
     encoding: "utf8",
     timeout: 20_000,
+    input: `${nonce}\n`,
     env: {
       ...process.env,
-      HARNESS_NONCE: nonce,
       HARNESS_PER_TEST_TIMEOUT_MS: "5000",
     },
   });
@@ -218,13 +220,19 @@ describe("harness trust — C3 hidden-test leakage", () => {
   it.skipIf(!hasNode)(
     "js: user code cannot read the tests.json file",
     () => {
+      // Two overlapping guarantees here (Phase 16 + Phase 17):
+      //   - Phase 16: the harness unlinks tests.json before spawning children,
+      //     so even a process with read access wouldn't find the file.
+      //   - Phase 17 / M-A4: the vm ctx no longer exposes `require`, so a
+      //     module-level attempt to grab fs ReferenceErrors at parse time.
+      // Either way the learner can't read the file — verify via catch-all.
       const main = `
 function leaked() {
   try {
     require("fs").readFileSync("__codetutor_tests.json", "utf8");
     return "found";
   } catch (e) {
-    return "missing: " + e.code;
+    return "missing";
   }
 }
 `;
@@ -232,7 +240,7 @@ function leaked() {
         {
           name: "can-read-tests-json",
           call: "leaked()",
-          expected: '"missing: ENOENT"',
+          expected: '"missing"',
           hidden: true,
         },
       ]);
@@ -243,8 +251,17 @@ function leaked() {
   it.skipIf(!hasNode)(
     "js: user code cannot read the expected value from process.argv",
     () => {
+      // Phase 17 / M-A4 hardens this: `process` is no longer exposed to the
+      // vm ctx, so even referencing process.argv ReferenceErrors before the
+      // learner could sniff anything. Catch-and-return-string so the test
+      // result is deterministic.
       const HIDDEN_MAGIC = "hidden-magic-string-42";
-      const main = `function peekArgv() { return process.argv.join(" "); }`;
+      const main = `
+function peekArgv() {
+  try { return process.argv.join(" "); }
+  catch (e) { return "no-process"; }
+}
+`;
       const { report } = runJs(main, [
         {
           name: "peek-argv",
@@ -253,8 +270,10 @@ function leaked() {
           hidden: true,
         },
       ]);
+      // The test will FAIL (expected is HIDDEN_MAGIC but we return "no-process"),
+      // and crucially — HIDDEN_MAGIC never appears in actualRepr.
       expect(report.results[0].passed).toBe(false);
-      expect(report.results[0].actualRepr).not.toContain(HIDDEN_MAGIC);
+      expect(report.results[0].actualRepr ?? "").not.toContain(HIDDEN_MAGIC);
     },
   );
 
@@ -277,7 +296,14 @@ function leaked() {
   it.skipIf(!hasNode)(
     "js: user code cannot read HARNESS_NONCE from the environment",
     () => {
-      const main = `function leakedNonce() { return process.env.HARNESS_NONCE || "absent"; }`;
+      // Two layers of defense: (Phase 17) nonce is never in env in the first
+      // place, and (M-A4) `process` is not exposed in the vm ctx either.
+      const main = `
+function leakedNonce() {
+  try { return process.env.HARNESS_NONCE || "absent"; }
+  catch (e) { return "absent"; }
+}
+`;
       const { report } = runJs(main, [
         { name: "nonce", call: "leakedNonce()", expected: '"absent"', hidden: true },
       ]);
@@ -309,4 +335,191 @@ describe("harness trust — golden-path sanity", () => {
     expect(report.results).toHaveLength(2);
     expect(report.results.every((r) => r.passed)).toBe(true);
   });
+});
+
+// ── H-A1: nonce must not be reachable from user code ─────────────
+// Phase 17 moved the nonce off env (it was leaking via /proc/<ppid>/environ
+// even after `unsetenv`/`del os.environ`). These tests pretend to be a
+// learner who tries every known introspection path on the parent harness
+// process.
+//
+// The darwin CI box doesn't have procfs, so /proc-specific probes degrade to
+// "nothing found" gracefully — the underlying guarantee ("nonce is not
+// readable") holds regardless, but the concrete exploit path is Linux-only.
+// We still run the tests on darwin: they exercise the test-passed path
+// (probe returns "absent") rather than failing on missing /proc.
+describe("harness trust — H-A1 nonce not leaked to user code", () => {
+  it.skipIf(!hasPython)(
+    "python: /proc/<ppid>/environ does not contain the nonce",
+    () => {
+      const main = [
+        "import os",
+        "def scan_ppid_environ():",
+        "    try:",
+        "        with open('/proc/%d/environ' % os.getppid(), 'rb') as f:",
+        "            data = f.read()",
+        "        for part in data.split(b'\\x00'):",
+        "            if part.startswith(b'HARNESS_NONCE='):",
+        "                return 'leaked'",
+        "        return 'absent'",
+        "    except Exception:",
+        "        return 'absent'",
+        "",
+      ].join("\n");
+      const { report } = runPython(main, [
+        {
+          name: "ppid-environ",
+          call: "scan_ppid_environ()",
+          expected: "'absent'",
+          hidden: true,
+        },
+      ]);
+      expect(report.results[0].passed).toBe(true);
+    },
+  );
+
+  it.skipIf(!hasPython)(
+    "python: /proc/<ppid>/cmdline does not contain the nonce",
+    () => {
+      const main = [
+        "import os, re",
+        "def scan_ppid_cmdline():",
+        "    try:",
+        "        with open('/proc/%d/cmdline' % os.getppid(), 'rb') as f:",
+        "            data = f.read()",
+        "        if re.search(rb'[0-9a-f]{64}', data):",
+        "            return 'leaked'",
+        "        return 'absent'",
+        "    except Exception:",
+        "        return 'absent'",
+        "",
+      ].join("\n");
+      const { report } = runPython(main, [
+        {
+          name: "ppid-cmdline",
+          call: "scan_ppid_cmdline()",
+          expected: "'absent'",
+          hidden: true,
+        },
+      ]);
+      expect(report.results[0].passed).toBe(true);
+    },
+  );
+
+  it.skipIf(!hasPython)(
+    "python: parent's stdin (fd 0) is drained by the time tests run",
+    () => {
+      // If we can still read anything from /proc/<ppid>/fd/0 the pipe hasn't
+      // been closed. The harness reads stdin to EOF before spawning tests,
+      // and the child subprocess runs with stdin=DEVNULL so its own fd 0 is
+      // /dev/null (any "read" returns b""). Either way: no nonce bytes leak.
+      const main = [
+        "import os",
+        "def read_ppid_stdin():",
+        "    try:",
+        "        with open('/proc/%d/fd/0' % os.getppid(), 'rb') as f:",
+        "            data = f.read(256)",
+        "        return 'leaked' if data else 'empty'",
+        "    except Exception:",
+        "        return 'inaccessible'",
+        "",
+      ].join("\n");
+      const { report } = runPython(main, [
+        {
+          name: "ppid-stdin",
+          call: "read_ppid_stdin()",
+          // "empty" = /proc exists and fd 0 read returns nothing,
+          // "inaccessible" = non-Linux or permission denied. Either is fine.
+          expected: "'leaked'",
+          hidden: true,
+        },
+      ]);
+      // We EXPECT this test to FAIL — "leaked" never appears, so the user
+      // code cannot pass it. actualRepr proves what the user code saw.
+      expect(report.results[0].passed).toBe(false);
+      expect(report.results[0].actualRepr).not.toBe("'leaked'");
+    },
+  );
+
+  it.skipIf(!hasNode)(
+    "js: /proc/<ppid>/environ does not contain the nonce",
+    () => {
+      const main = `
+function scanPpidEnviron() {
+  try {
+    const fs = require("fs");
+    const data = fs.readFileSync("/proc/" + process.ppid + "/environ", "utf8");
+    for (const part of data.split("\\0")) {
+      if (part.startsWith("HARNESS_NONCE=")) return "leaked";
+    }
+    return "absent";
+  } catch (e) {
+    return "absent";
+  }
+}
+`;
+      const { report } = runJs(main, [
+        {
+          name: "ppid-environ",
+          call: "scanPpidEnviron()",
+          expected: '"absent"',
+          hidden: true,
+        },
+      ]);
+      expect(report.results[0].passed).toBe(true);
+    },
+  );
+
+  it.skipIf(!hasNode)(
+    "js: /proc/<ppid>/cmdline does not contain the nonce",
+    () => {
+      const main = `
+function scanPpidCmdline() {
+  try {
+    const fs = require("fs");
+    const data = fs.readFileSync("/proc/" + process.ppid + "/cmdline", "utf8");
+    return /[0-9a-f]{64}/.test(data) ? "leaked" : "absent";
+  } catch (e) {
+    return "absent";
+  }
+}
+`;
+      const { report } = runJs(main, [
+        {
+          name: "ppid-cmdline",
+          call: "scanPpidCmdline()",
+          expected: '"absent"',
+          hidden: true,
+        },
+      ]);
+      expect(report.results[0].passed).toBe(true);
+    },
+  );
+
+  it.skipIf(!hasNode)(
+    "js: vm ctx does not expose require/process/Buffer to user code",
+    () => {
+      // M-A4: the DRIVER's vm ctx is a namespace, not a sandbox. Verify that
+      // a main.js referencing 'require' / 'process' / 'Buffer' in the module
+      // body fails with ReferenceError rather than silently succeeding.
+      const main = `
+function checkCtx() {
+  const out = [];
+  try { require; out.push("require-ok"); } catch (e) { out.push("require-ref-err"); }
+  try { process; out.push("process-ok"); } catch (e) { out.push("process-ref-err"); }
+  try { Buffer; out.push("buffer-ok"); } catch (e) { out.push("buffer-ref-err"); }
+  return out.join(",");
+}
+`;
+      const { report } = runJs(main, [
+        {
+          name: "vm-ctx-minimal",
+          call: "checkCtx()",
+          expected: '"require-ref-err,process-ref-err,buffer-ref-err"',
+          hidden: true,
+        },
+      ]);
+      expect(report.results[0].passed).toBe(true);
+    },
+  );
 });

@@ -11,27 +11,42 @@ export const HARNESS_PY = "__codetutor_tests.py";
 export const HARNESS_JSON = "__codetutor_tests.json";
 
 /**
- * Python harness (Phase 16 trust model).
+ * Python harness (Phase 17 trust model).
  *
- *   1. Runs as the parent process inside the runner container. Reads
- *      HARNESS_NONCE from env, then deletes it so any subprocess it spawns
- *      cannot read the nonce.
- *   2. Reads __codetutor_tests.json into memory, then os.remove()s the file.
- *      Hidden-test metadata (expected values, category labels) lives only in
- *      the parent's RAM from this point on — user code has no path to it.
- *   3. For each test, spawns a fresh `python3 -c DRIVER TEST_JSON` subprocess.
- *      DRIVER is an inlined Python snippet that loads main.py via runpy,
- *      runs setup, evaluates call, and writes `repr(actual)` between a
- *      RESULT_MARKER pair on its own stdout. The subprocess's stdout is
- *      captured by the parent (never reaches the container's stdout).
- *   4. The parent extracts the LAST RESULT_MARKER block from each
- *      subprocess's stdout and parses it with ast.literal_eval to compare
- *      against the in-memory expected. `repr()` + ast.literal_eval round-
- *      trips cleanly for every literal-friendly value; non-literal returns
- *      (class instances, generators) fall back to string equality on repr,
- *      which matches the v1 harness's behavior.
- *   5. The parent builds the full report, HMAC-signs the body with the nonce,
- *      and emits `SENTINEL + base64(envelope) + SENTINEL + "\n"` to stdout.
+ * The Phase 16 design passed the HMAC nonce through the env (HARNESS_NONCE)
+ * and relied on `del os.environ[...]` to prevent leakage into child
+ * subprocesses. That wasn't enough: the kernel's mm_struct.env_start..env_end
+ * region stays visible through /proc/<ppid>/environ even after unsetenv, so a
+ * user-code child could open /proc/self/../<ppid>/environ and recover the
+ * nonce. Phase 17 moves the nonce to stdin — reading it from stdin consumes
+ * the pipe and leaves no trace in /proc.
+ *
+ *   1. Parent runHarness.ts writes the nonce as the first line of the
+ *      harness's stdin, then closes the pipe. HARNESS_PER_TEST_TIMEOUT_MS
+ *      remains in env (non-secret).
+ *   2. Harness reads stdin to EOF, splits on the first newline, and treats
+ *      everything before it as the nonce. Stdin is then closed.
+ *   3. Reads __codetutor_tests.json into memory, then os.remove()s the file
+ *      (hides C3 — hidden-test expected values stay in parent RAM).
+ *   4. For each test, spawns a fresh `python3 -c DRIVER TEST_JSON`
+ *      subprocess with stdin=DEVNULL so the child inherits no readable pipe.
+ *      DRIVER loads main.py via runpy, runs setup, evaluates call, and
+ *      writes `repr(actual)` between a RESULT_MARKER pair on its own stdout.
+ *   5. The parent extracts the LAST RESULT_MARKER block from each child's
+ *      stdout and compares it (via ast.literal_eval) to the in-memory
+ *      expected.
+ *   6. The parent builds the full report, HMAC-signs the body with the
+ *      nonce, and emits `SENTINEL + base64(envelope) + SENTINEL + "\n"` to
+ *      stdout.
+ *
+ * Why stdin beats env:
+ *   - /proc/<pid>/environ reflects the kernel env region, not os.environ.
+ *     unsetenv updates environ[] but doesn't zero the memory.
+ *   - /proc/<pid>/cmdline reflects argv, so we can't put the nonce there.
+ *   - stdin is a pipe. Once read to EOF and closed, there is no further
+ *     path to recover the data — the pipe buffer is drained, /proc/<pid>/fd/0
+ *     points at a closed pipe inode, and the child subprocess's own fd 0 is
+ *     DEVNULL.
  */
 export function harnessPython(): string {
   return `import base64, hashlib, hmac, json, os, subprocess, sys, traceback
@@ -40,10 +55,20 @@ SENTINEL = ${JSON.stringify(TEST_SENTINEL)}
 RESULT_MARKER = ${JSON.stringify(RESULT_MARKER)}
 RESULT_ERR_MARKER = ${JSON.stringify(RESULT_ERR_MARKER)}
 
-# --- Read + scrub the nonce and per-test timeout from env --------------
-_nonce = os.environ.get("HARNESS_NONCE", "")
-if "HARNESS_NONCE" in os.environ:
-    del os.environ["HARNESS_NONCE"]
+# --- Read nonce from stdin (Phase 17); close immediately ---------------
+# stdin wire format: "<nonce>\\n"; we read to EOF so the pipe is drained
+# and no residue is visible via /proc/<pid>/fd/0 to any later child.
+try:
+    _stdin_data = sys.stdin.read()
+except BaseException:
+    _stdin_data = ""
+try:
+    sys.stdin.close()
+except BaseException:
+    pass
+_nonce = _stdin_data.split("\\n", 1)[0].strip() if _stdin_data else ""
+
+# --- Per-test timeout stays in env (non-secret) ------------------------
 try:
     _per_test_timeout = float(os.environ.get("HARNESS_PER_TEST_TIMEOUT_MS", "5000")) / 1000.0
 except (TypeError, ValueError):
@@ -111,10 +136,11 @@ def _strip_markers(text):
     return text.strip()
 
 def _probe_main():
+    # stdin=DEVNULL so the probe child cannot read the parent's stdin pipe.
     try:
         return subprocess.run(
             ["python3", "-c", "import runpy; runpy.run_path('main.py', run_name='__codetutor_main__')"],
-            capture_output=True, text=True, timeout=_per_test_timeout,
+            stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=_per_test_timeout,
         )
     except subprocess.TimeoutExpired:
         return None
@@ -138,9 +164,12 @@ def _run_one(test):
     # Only send setup + call into the subprocess. Expected stays in parent RAM.
     payload = json.dumps({"setup": test.get("setup") or "", "call": test.get("call") or ""})
     try:
+        # stdin=DEVNULL so the child cannot read the parent's drained stdin
+        # pipe (where the nonce arrived). Belt-and-suspenders — by this point
+        # the parent's stdin is closed and at EOF anyway.
         r = subprocess.run(
             ["python3", "-c", _DRIVER, payload],
-            capture_output=True, text=True, timeout=_per_test_timeout,
+            stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=_per_test_timeout,
         )
     except subprocess.TimeoutExpired:
         shell["error"] = "Test timed out."

@@ -44,6 +44,16 @@ services:
       # used separately when spawning sibling containers. See
       # backend/src/services/execution/backends/localDocker.ts → resolveHostWorkspaceRoot.
       WORKSPACE_ROOT: "/workspace-root"
+      # Phase 17 rate-limits. The config.ts defaults (30 session-creates,
+      # 120 mutations, 60 AI calls per minute per IP) are the production
+      # posture. Local compose — and especially the E2E suite, which hits
+      # the backend from a single 127.0.0.1 with parallel workers — needs
+      # a lot more headroom. Bumping here keeps the middleware wired and
+      # exercised without tripping on normal learner flows. Unit tests
+      # cover the actual 429 behavior. Override in prod deploys.
+      SESSION_CREATE_RATE_LIMIT_MAX: "500"
+      MUTATION_RATE_LIMIT_MAX: "2000"
+      AI_RATE_LIMIT_MAX: "500"
     volumes:
       # Relative path — Compose resolves it against the compose file location
       # on every host. Works in PowerShell, zsh, bash identically.
