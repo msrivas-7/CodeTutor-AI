@@ -7,4 +7,3 @@
 temp/sessions/*
 !temp/sessions/.gitkeep
 .env
-.env.local

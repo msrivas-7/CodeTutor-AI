@@ -42,14 +42,14 @@ export default async function globalSetup() {
 
   if (!process.env.SUPABASE_URL) {
     throw new Error(
-      "E2E globalSetup: SUPABASE_URL is required. Populate `../.env.local` " +
+      "E2E globalSetup: SUPABASE_URL is required. Populate `../.env` " +
         "from `../.env.example` with your codetutor-dev project URL. See docs/DEVELOPMENT.md.",
     );
   }
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
     throw new Error(
       "E2E globalSetup: SUPABASE_SERVICE_ROLE_KEY is required. " +
-        "Populate `../.env.local` from `../.env.example` or inject via CI secret. " +
+        "Populate `../.env` from `../.env.example` or inject via CI secret. " +
         "See e2e/fixtures/auth.ts.",
     );
   }
@@ -57,7 +57,7 @@ export default async function globalSetup() {
   if (process.env.E2E_REAL_OPENAI === "1" && !process.env.OPENAI_API_KEY) {
     throw new Error(
       "E2E_REAL_OPENAI=1 requires OPENAI_API_KEY in the environment. " +
-        "Source .env.local or pass it inline: `OPENAI_API_KEY=sk-… npm run test:real`",
+        "Source .env or pass it inline: `OPENAI_API_KEY=sk-… npm run test:real`",
     );
   }
 }

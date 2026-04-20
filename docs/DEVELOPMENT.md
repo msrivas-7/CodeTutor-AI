@@ -9,15 +9,14 @@ The project uses **Supabase cloud** for auth + Postgres — no local Supabase CL
 **Populate env files on disk (all gitignored):**
 
 ```bash
-cp .env.example       .env            # docker compose reads this automatically
-cp .env.example       .env.local      # playwright (e2e) reads this via dotenv
-cp frontend/.env.development.example  frontend/.env.development.local
+cp .env.example                       .env                              # docker compose + host-run playwright both read this
+cp frontend/.env.development.example  frontend/.env.development.local   # host-run Vite (cd frontend && npm run dev)
 # For prod builds only:
 cp .env.production.example            .env.production
 cp frontend/.env.production.example   frontend/.env.production.local
 ```
 
-Fill in the real values from the credential bundle. `.env` and `.env.local` carry the same backend-side Supabase values; populate both so both the compose stack and the e2e runner have what they need.
+Fill in the real values from the credential bundle. Root `.env` is the single source of truth for local dev — docker compose auto-loads it, and Playwright's dotenv in `e2e/playwright.config.ts` points at the same file.
 
 ## Local Setup
 
@@ -40,7 +39,7 @@ Fill in the real values from the credential bundle. `.env` and `.env.local` carr
 
 # End-to-end tests (Playwright, mocked OpenAI; see e2e/README.md)
 # Uses codetutor-dev cloud — the auth fixture admin-creates per-worker
-# test users via the service_role key from .env.local.
+# test users via the service_role key from .env.
 docker compose up -d
 (cd e2e && npm install && npx playwright install --with-deps chromium && npm test)
 

@@ -48,7 +48,7 @@ npx playwright show-report
 Industry-standard dual-mode: mocked by default (fast, deterministic, every PR), opt-in real-API suite for release-gate smoke. Specs under `specs/real-api/**` are excluded unless `E2E_REAL_OPENAI=1`.
 
 ```bash
-# From .env.local (never committed):
+# From .env (never committed):
 export OPENAI_API_KEY=sk-...
 npm run test:real
 ```

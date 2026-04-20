@@ -5,7 +5,7 @@
 // GoTrue rate limits under parallel workers), we:
 //
 //  1. admin-create a per-worker test user in globalSetup (via the Supabase
-//     service_role key from ../.env.local or CI secrets);
+//     service_role key from ../.env or CI secrets);
 //  2. sign that user in once, snapshot the session JSON, and
 //  3. inject it into the page's localStorage under the same storageKey the
 //     frontend's supabaseClient uses (`codetutor-auth`) BEFORE any app
@@ -26,7 +26,7 @@ function requireEnv(name: string): string {
     // is imported by every spec — if someone runs a single spec bypassing
     // globalSetup, the failure mode should still be loud.
     throw new Error(
-      `auth.ts: ${name} is required. Populate \`../.env.local\` from \`../.env.example\`.`,
+      `auth.ts: ${name} is required. Populate \`../.env\` from \`../.env.example\`.`,
     );
   }
   return v;

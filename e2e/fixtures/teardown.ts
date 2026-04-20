@@ -6,11 +6,11 @@ import * as path from "node:path";
 import * as dotenv from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 
-// Mirror playwright.config.ts: pull SUPABASE_SERVICE_ROLE_KEY out of
-// ../.env.local if present. globalSetup runs in the same node context, so
-// env is usually already populated, but this makes the teardown robust to
-// direct invocation (`tsx fixtures/teardown.ts`) too.
-dotenv.config({ path: path.resolve(__dirname, "..", "..", ".env.local") });
+// Mirror playwright.config.ts: pull SUPABASE_SERVICE_ROLE_KEY out of ../.env
+// if present. globalSetup runs in the same node context, so env is usually
+// already populated, but this makes the teardown robust to direct invocation
+// (`tsx fixtures/teardown.ts`) too.
+dotenv.config({ path: path.resolve(__dirname, "..", "..", ".env") });
 
 export default async function globalTeardown() {
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;

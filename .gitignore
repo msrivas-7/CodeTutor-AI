@@ -4,7 +4,6 @@ build/
 # Env files: only *.example templates are committed. Real values live in
 # gitignored files populated on the deploy target (or by CI secrets).
 .env
-.env.local
 .env.production
 .env.*.local
 .DS_Store

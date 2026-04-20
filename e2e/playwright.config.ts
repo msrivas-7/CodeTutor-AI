@@ -2,10 +2,11 @@ import { defineConfig, devices } from "@playwright/test";
 import * as path from "node:path";
 import * as dotenv from "dotenv";
 
-// Source ../.env.local so SUPABASE_SERVICE_ROLE_KEY + OPENAI_API_KEY are
-// available to fixtures/boot.ts and fixtures/auth.ts. CI provides these via
-// workflow secrets; the dotenv call is a no-op if the file is absent.
-dotenv.config({ path: path.resolve(__dirname, "..", ".env.local") });
+// Source ../.env so SUPABASE_SERVICE_ROLE_KEY + OPENAI_API_KEY are available
+// to fixtures/boot.ts and fixtures/auth.ts. Same file docker compose reads —
+// one source of truth for local dev. CI provides these via workflow secrets;
+// the dotenv call is a no-op if the file is absent.
+dotenv.config({ path: path.resolve(__dirname, "..", ".env") });
 
 const BASE_URL = process.env.E2E_BASE_URL ?? "http://localhost:5173";
 const API_URL = process.env.E2E_API_URL ?? "http://localhost:4000";
