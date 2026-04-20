@@ -103,10 +103,10 @@ All optional — defaults work for local use. See [.env.example](../.env.example
 | `MUTATION_RATE_LIMIT_WINDOW_MS` | `60000` | Window for `/api/project/snapshot` + `/api/execute*` per-user bucket |
 | `MUTATION_RATE_LIMIT_MAX` | `120` | Max mutation calls per window per user |
 | `SUPABASE_URL` | **required** | Supabase API root — `https://<project-ref>.supabase.co`. Same value for backend (env) and browser (VITE_SUPABASE_URL). |
-| `VITE_SUPABASE_URL` | **required** | Browser-side Supabase URL. Inlined into the Vite bundle at build time for prod; read from `frontend/.env.development.local` at dev-server startup. |
+| `VITE_SUPABASE_URL` | **required** | Browser-side Supabase URL. In dev, docker-compose surfaces it as a runtime env var on the frontend service (sourced from the root `.env`) and Vite picks it up into `import.meta.env`. For prod, `vite build` inlines it from the build env. |
 | `VITE_SUPABASE_ANON_KEY` | **required** | Public `sb_publishable_...` key from the Supabase project's API settings. Browser-safe; committed `.example` carries placeholder only. |
 | `SUPABASE_SERVICE_ROLE_KEY` | **required for E2E** | `sb_secret_...` key. The e2e auth helper uses it to admin-create per-worker test users. **Never** set in prod; the backend only verifies tokens, it has no need for the service role. |
-| `DATABASE_URL` | **required** | Postgres transaction pooler URL from the Supabase project's database settings (port 6543). |
+| `DATABASE_URL` | **required** | Postgres transaction pooler URL from the Supabase project's database settings (port 6543). The backend sets `prepare: false` on the postgres.js pool because the transaction pooler recycles connections between transactions and does not support prepared statements. |
 | `DEBUG_PROMPTS` | unset | When `1`, the AI provider logs full system + user turn text. Leave unset; learner code would otherwise reach the backend log. |
 
 ## Direct Docker Compose
