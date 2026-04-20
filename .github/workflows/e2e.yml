@@ -23,6 +23,17 @@ jobs:
     name: Playwright (chromium)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Phase 18d: cloud-only Supabase model. These feed both docker compose
+    # (which reads process env for ${VAR} interpolation in docker-compose.yml)
+    # and the Playwright specs (fixtures + auth.spec.ts read process.env).
+    # Values come from the codetutor-dev project — see docs/DEVELOPMENT.md.
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
     steps:
       - uses: actions/checkout@v4
 
