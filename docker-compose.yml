@@ -8,6 +8,26 @@ services:
       context: ./runner-image
     command: ["true"]
 
+  # Constrained-API mirror of the cloud IAM pattern: the backend never sees
+  # the raw Docker socket; it talks to this proxy, which enforces an allowlist
+  # of endpoints. Drops the blast radius of backend RCE from "root on host"
+  # to "can manage containers and exec in them." Map matches the API calls
+  # LocalDockerBackend actually makes — see backends/localDocker.ts.
+  socket-proxy:
+    image: tecnativa/docker-socket-proxy:0.3.0
+    environment:
+      CONTAINERS: "1"  # create/start/stop/inspect/remove + self-inspect
+      EXEC: "1"        # exec create/start/inspect for runner commands
+      IMAGES: "1"      # runner-image inspect in ensureReady()
+      POST: "1"        # required for any non-GET request
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:2375/_ping"]
+      interval: 5s
+      timeout: 2s
+      retries: 10
+
   backend:
     build:
       context: .
@@ -16,16 +36,15 @@ services:
       PORT: "4000"
       CORS_ORIGIN: "http://localhost:5173"
       RUNNER_IMAGE: "codetutor-ai-runner:latest"
+      # Talk to the socket proxy instead of the raw Docker socket. dockerode
+      # honors DOCKER_HOST; the proxy then enforces the allowlist above.
+      DOCKER_HOST: "tcp://socket-proxy:2375"
       # Backend-internal path for workspace I/O. Same on every host OS —
       # the host path is discovered at startup via Docker self-inspect and
       # used separately when spawning sibling containers. See
-      # backend/src/services/docker/dockerService.ts → resolveHostWorkspaceRoot.
+      # backend/src/services/execution/backends/localDocker.ts → resolveHostWorkspaceRoot.
       WORKSPACE_ROOT: "/workspace-root"
     volumes:
-      # Sibling-container pattern: backend drives the host Docker daemon.
-      # Docker Desktop (macOS + Windows) exposes the Unix socket inside its
-      # Linux VM, so this line works identically on all three hosts.
-      - /var/run/docker.sock:/var/run/docker.sock
       # Relative path — Compose resolves it against the compose file location
       # on every host. Works in PowerShell, zsh, bash identically.
       - ./temp/sessions:/workspace-root
@@ -34,6 +53,8 @@ services:
     depends_on:
       runner-image:
         condition: service_completed_successfully
+      socket-proxy:
+        condition: service_healthy
 
   frontend:
     build:

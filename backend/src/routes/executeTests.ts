@@ -5,8 +5,7 @@ import { requireActiveSession } from "../services/session/requireActiveSession.j
 import { languageSchema } from "../services/execution/commands.js";
 import { getHarness } from "../services/execution/harness/registry.js";
 import { runTests } from "../services/execution/harness/runHarness.js";
-
-export const executeTestsRouter = Router();
+import type { ExecutionBackend } from "../services/execution/backends/index.js";
 
 const functionTestSchema = z.object({
   name: z.string().min(1).max(120),
@@ -23,33 +22,38 @@ const body = z.object({
   tests: z.array(functionTestSchema).min(1).max(50),
 });
 
-executeTestsRouter.post("/", async (req, res, next) => {
-  const parsed = body.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.message });
-  const { sessionId, language, tests } = parsed.data;
+export function createExecuteTestsRouter(backend: ExecutionBackend): Router {
+  const router = Router();
 
-  const harness = getHarness(language);
-  if (!harness) {
-    // Known language but no harness registered yet. 422 (Unprocessable) lets
-    // the UI distinguish this from 400 (bad request) or 500 (crash) and surface
-    // a specific "this language doesn't support function tests" message.
-    return res.status(422).json({
-      error: `function_tests not yet supported for language: ${language}`,
-    });
-  }
+  router.post("/", async (req, res, next) => {
+    const parsed = body.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.message });
+    const { sessionId, language, tests } = parsed.data;
 
-  const session = requireActiveSession(res, sessionId);
-  if (!session) return;
+    const harness = getHarness(language);
+    if (!harness) {
+      // Known language but no harness registered yet. 422 (Unprocessable) lets
+      // the UI distinguish this from 400 (bad request) or 500 (crash) and surface
+      // a specific "this language doesn't support function tests" message.
+      return res.status(422).json({
+        error: `function_tests not yet supported for language: ${language}`,
+      });
+    }
 
-  try {
-    const result = await runTests(harness, {
-      containerId: session.containerId,
-      workspacePath: session.workspacePath,
-      tests,
-    });
-    pingSession(sessionId);
-    res.json(result);
-  } catch (err) {
-    next(err);
-  }
-});
+    const session = requireActiveSession(res, sessionId);
+    if (!session) return;
+
+    try {
+      const result = await runTests(backend, harness, {
+        handle: session.handle,
+        tests,
+      });
+      pingSession(sessionId);
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  return router;
+}

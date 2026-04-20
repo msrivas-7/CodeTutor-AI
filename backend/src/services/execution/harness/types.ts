@@ -44,13 +44,6 @@ export interface HarnessBackend {
   parseOutput(stdout: string, stderr: string): TestReport;
 }
 
-export interface RunTestsOptions {
-  containerId: string;
-  workspacePath: string;
-  tests: FunctionTest[];
-  timeoutMs?: number;
-}
-
 export interface RunTestsResult {
   report: TestReport;
   stderr: string;

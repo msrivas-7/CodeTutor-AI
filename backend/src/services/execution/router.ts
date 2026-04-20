@@ -1,6 +1,8 @@
 import { config } from "../../config.js";
-import { execShell } from "../docker/dockerExec.js";
-import { hasEntrypoint } from "../project/snapshot.js";
+import type {
+  ExecutionBackend,
+  SessionHandle,
+} from "./backends/index.js";
 import { commandFor, type Language } from "./commands.js";
 
 export type ErrorType = "none" | "compile" | "runtime" | "timeout" | "system";
@@ -15,19 +17,21 @@ export interface RunResult {
 }
 
 export interface RunOptions {
-  containerId: string;
-  workspacePath: string;
+  handle: SessionHandle;
   language: Language;
   timeoutMs?: number;
   stdin?: string;
 }
 
-export async function runProject(opts: RunOptions): Promise<RunResult> {
-  const { containerId, workspacePath, language, stdin } = opts;
+export async function runProject(
+  backend: ExecutionBackend,
+  opts: RunOptions,
+): Promise<RunResult> {
+  const { handle, language, stdin } = opts;
   const timeoutMs = opts.timeoutMs ?? config.runner.execTimeoutMs;
   const cmd = commandFor(language);
 
-  if (!(await hasEntrypoint(workspacePath, cmd.entrypoint))) {
+  if (!(await backend.fileExists(handle, cmd.entrypoint))) {
     return {
       stdout: "",
       stderr: `Missing entrypoint: ${cmd.entrypoint}`,
@@ -39,7 +43,7 @@ export async function runProject(opts: RunOptions): Promise<RunResult> {
   }
 
   if (cmd.compile) {
-    const compile = await execShell(containerId, cmd.compile.shell, timeoutMs);
+    const compile = await backend.exec(handle, cmd.compile.shell, timeoutMs);
     if (compile.timedOut) {
       return {
         stdout: compile.stdout,
@@ -62,7 +66,7 @@ export async function runProject(opts: RunOptions): Promise<RunResult> {
     }
   }
 
-  const run = await execShell(containerId, cmd.run.shell, timeoutMs, { stdin });
+  const run = await backend.exec(handle, cmd.run.shell, timeoutMs, { stdin });
   if (run.timedOut) {
     return {
       stdout: run.stdout,

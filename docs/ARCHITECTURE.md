@@ -1,19 +1,52 @@
 # Architecture
 
 ```
-                           +--------------------------------------------+
-                           |           Docker Desktop (host)            |
-                           |                                            |
-+------------------+  HTTP/JSON  +------------------+  docker.sock  +------------------+
-|     Frontend     | ----------> |     Backend      | ------------> |  Runner (1:1)    |
-|                  |             |                  |   (sibling)   |                  |
-|  React + Vite    |             |  Express + TS    |               |  Python, Node,   |
-|  React Router    | <---------- |  dockerode       | <------------ |  gcc, JDK, Go,   |
-|  Monaco + Zustand|   SSE/JSON  |  prompt builders |   stdout/err  |  Rust, Ruby      |
-|  Tailwind CSS    |             |  OpenAI proxy    |               |  --network none  |
-+------------------+             +------------------+               +------------------+
-      :5173                            :4000                    bind: ./temp/sessions/{id}
+                           +-------------------------------------------------------+
+                           |                  Docker Desktop (host)                |
+                           |                                                       |
++------------------+  HTTP/JSON  +------------------+  tcp:2375   +---------------+
+|     Frontend     | ----------> |     Backend      | ----------> |  socket-proxy |
+|                  |             |                  |  allowlist  |  (tecnativa)  |
+|  React + Vite    |             |  Express + TS    |             |               |
+|  React Router    | <---------- |  ExecutionBackend| <---------- |  docker.sock  |
+|  Monaco + Zustand|   SSE/JSON  |  (localDocker)   |             |   (read-only) |
+|  Tailwind CSS    |             |  prompt builders |             +-------+-------+
++------------------+             |  OpenAI proxy    |                     | CONTAINERS + EXEC + IMAGES
+      :5173                      +------------------+                     v
+                                        :4000                    +------------------+
+                                                                 |  Runner (1:1)    |
+                                                                 |  Python, Node,   |
+                                                                 |  gcc, JDK, Go,   |
+                                                                 |  Rust, Ruby      |
+                                                                 |  --network none  |
+                                                                 +------------------+
+                                                            bind: ./temp/sessions/{id}
 ```
+
+## ExecutionBackend abstraction
+
+The backend never touches dockerode directly at the call-site layer. `backend/src/services/execution/backends/types.ts` defines an `ExecutionBackend` interface (`createSession`, `exec`, `writeFiles`, `fileExists`, `replaceSnapshot`, `destroy`, …) that returns opaque `SessionHandle` values. Routes and the harness dispatcher accept an injected backend; `backend/src/index.ts` picks the impl at boot via the `EXECUTION_BACKEND` env (factory in `backends/index.ts`).
+
+Today only `LocalDockerBackend` ships. The interface is deliberately shaped so each cloud provider is a single additional file plus one switch case:
+
+| Impl (future) | Provider primitive | IAM scope |
+| --- | --- | --- |
+| `EcsFargateBackend` | `RunTask` / `StopTask` / `ExecuteCommand` | task-definition ARNs only |
+| `AksBackend` | `Job.create` / `Pod.exec` (K8s API) | namespace-scoped ServiceAccount |
+| `AciBackend` | `ContainerInstances.create` / `exec` | resource-group-scoped Azure role |
+
+A second impl does not change routes, the harness, or session-manager code. This is the single biggest payoff of Phase 14.
+
+## Local-dev cloud-IAM mirror (socket-proxy)
+
+To stop the backend from holding the raw Docker socket (which equals root on the host), `docker-compose.yml` runs `tecnativa/docker-socket-proxy` as a sidecar. The backend has `DOCKER_HOST=tcp://socket-proxy:2375`; dockerode honors that transparently. The proxy enforces an endpoint allowlist matching what `LocalDockerBackend` actually calls:
+
+- `CONTAINERS=1` — create/start/stop/inspect/remove + self-inspect for host-path discovery
+- `EXEC=1` — exec create/start/inspect for running learner code
+- `IMAGES=1` — runner-image inspect in `ensureReady()`
+- `POST=1` — required for any non-GET request
+
+Everything else (`VOLUMES`, `NETWORKS`, `INFO`, `BUILD`, `SERVICES`, `SECRETS`, `CONFIGS`, …) returns `403` at the proxy. This is the same "tightly-scoped API credential" pattern the cloud impls above will use — local dev now mirrors that posture exactly.
 
 ## Frontend
 
@@ -26,7 +59,7 @@
 
 ## Backend
 
-- **Sibling-container pattern** — the backend spawns isolated runner containers via the host Docker daemon. Cross-platform host-path discovery via Docker API self-inspection.
+- **Sibling-container pattern** — the backend spawns isolated runner containers via `LocalDockerBackend` (an `ExecutionBackend` impl). Cross-platform host-path discovery via Docker API self-inspection. The API call goes through `socket-proxy`, not the raw Docker socket — see [ExecutionBackend abstraction](#executionbackend-abstraction) above.
 - **Modular prompt pipeline** — `prompts/` directory with separate modules for core rules, stuck detection, persona, situation building, context rendering, schema, and summarization. Two prompt builders assemble from these modules:
   - `editorPromptBuilder` — free-form editor tutor
   - `guidedPromptBuilder` — adds lesson context block with objectives, concept scope, and "never solve" constraints
@@ -114,6 +147,11 @@ codetutor-ai/
 └── start.ps1 / stop.ps1     Windows launcher
 ```
 
-## Security Note
+## Shipping posture
 
-The Docker socket mount gives the backend root-equivalent access to the local daemon — fine for local use, **not** suitable for public deployment without further sandboxing.
+Local dev is **not** local-deployment. Long-term the product runs frontend on the learner's device (PWA/Electron) and backend + sandbox in cloud (ECS Fargate / ACI / AKS). Phase 14 removed the single change that blocked that roadmap:
+
+- **Before:** backend mounted `/var/run/docker.sock` directly — root-equivalent on the host, nothing like the cloud model.
+- **After:** backend talks to `socket-proxy` over TCP, dockerode driven transparently via `DOCKER_HOST`. The proxy enforces an API allowlist. `ExecutionBackend` is the seam cloud impls drop into without touching routes or session code.
+
+Defense-in-depth hardening (container cap-drop, rootfs read-only, tmpfs, ulimits, helmet/CSP, tenant-ready AI rate-limit, compiler-glob hardening) is tracked in Phase 15. Harness trust-model upgrade (subprocess isolation + HMAC-signed envelope) is Phase 16.

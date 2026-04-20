@@ -1,12 +1,19 @@
-import fs from "node:fs/promises";
-import path from "node:path";
 import { config } from "../../../config.js";
-import { execShell } from "../../docker/dockerExec.js";
 import type {
+  ExecutionBackend,
+  SessionHandle,
+} from "../backends/index.js";
+import type {
+  FunctionTest,
   HarnessBackend,
-  RunTestsOptions,
   RunTestsResult,
 } from "./types.js";
+
+export interface RunTestsOptions {
+  handle: SessionHandle;
+  tests: FunctionTest[];
+  timeoutMs?: number;
+}
 
 /**
  * Language-agnostic harness runner. Writes the backend's temp files into the
@@ -17,23 +24,24 @@ import type {
  * results.
  */
 export async function runTests(
-  backend: HarnessBackend,
+  execBackend: ExecutionBackend,
+  harness: HarnessBackend,
   opts: RunTestsOptions,
 ): Promise<RunTestsResult> {
-  const { containerId, workspacePath, tests } = opts;
+  const { handle, tests } = opts;
   const timeoutMs = opts.timeoutMs ?? config.runner.execTimeoutMs;
-  const files = backend.prepareFiles(tests);
-  const absolutePaths = files.map((f) => path.join(workspacePath, f.name));
+  const files = harness.prepareFiles(tests);
+  const filePaths = files.map((f) => f.name);
 
   try {
-    for (let i = 0; i < files.length; i++) {
-      await fs.writeFile(absolutePaths[i], files[i].content, "utf8");
-      await fs.chmod(absolutePaths[i], 0o666).catch(() => {});
-    }
+    await execBackend.writeFiles(
+      handle,
+      files.map((f) => ({ path: f.name, content: f.content })),
+    );
 
-    const exec = await execShell(
-      containerId,
-      backend.execCommand(),
+    const exec = await execBackend.exec(
+      handle,
+      harness.execCommand(),
       timeoutMs,
       { stdin: "" },
     );
@@ -53,7 +61,7 @@ export async function runTests(
       };
     }
 
-    const report = backend.parseOutput(exec.stdout, exec.stderr);
+    const report = harness.parseOutput(exec.stdout, exec.stderr);
     return {
       report,
       stderr: exec.stderr,
@@ -62,8 +70,6 @@ export async function runTests(
       durationMs: exec.durationMs,
     };
   } finally {
-    await Promise.all(
-      absolutePaths.map((p) => fs.rm(p, { force: true }).catch(() => {})),
-    );
+    await execBackend.removeFiles(handle, filePaths);
   }
 }

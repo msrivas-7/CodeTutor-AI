@@ -6,7 +6,7 @@ import { safeResolve } from "./snapshot.js";
 // `path.sep` is "/" there. When the Windows CI runner executes this test,
 // `path.sep` is "\\" — which is exactly why we want these assertions to run
 // on every OS: any drift in path.resolve/path.sep behaviour surfaces here
-// before it breaks writeSnapshot in a runtime-only way.
+// before it breaks the ExecutionBackend file-I/O paths in a runtime-only way.
 
 const ws = path.resolve("/tmp/workspace");
 const join = (...parts: string[]): string => path.join(ws, ...parts);

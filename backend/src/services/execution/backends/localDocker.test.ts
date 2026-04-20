@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { joinHostPath } from "./dockerService.js";
+import { LocalDockerBackend, joinHostPath } from "./localDocker.js";
+import type { SessionHandle } from "./types.js";
 
 describe("joinHostPath", () => {
   describe("Unix-style roots (macOS / Linux)", () => {
@@ -59,5 +60,24 @@ describe("joinHostPath", () => {
       expect(joinHostPath("/pure/unix/path", "id"))
         .toBe("/pure/unix/path/id");
     });
+  });
+});
+
+describe("LocalDockerBackend handle cast", () => {
+  // Guards the abstraction boundary: if a second backend ever ships, we must
+  // never silently accept another backend's handle.
+  it("rejects a handle from a different backend kind", async () => {
+    const backend = new LocalDockerBackend({
+      runnerImage: "irrelevant:test",
+      workspaceRoot: "/workspace-root",
+      runner: { memoryBytes: 0, nanoCpus: 0 },
+    });
+    const foreign: SessionHandle = {
+      sessionId: "fake",
+      __kind: "ecs-fargate",
+    };
+    await expect(backend.isAlive(foreign)).rejects.toThrow(
+      /different backend/,
+    );
   });
 });
