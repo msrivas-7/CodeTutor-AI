@@ -1,7 +1,6 @@
 import { create } from "zustand";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "./supabaseClient";
-import { useLearnerStore } from "../features/learning/stores/learnerStore";
 import { useSessionStore } from "../state/sessionStore";
 import { usePreferencesStore } from "../state/preferencesStore";
 import { useProjectStore } from "../state/projectStore";
@@ -164,13 +163,12 @@ export function initAuth(): void {
     .then(({ data }) => {
       const u = data.session?.user ?? null;
       if (u) {
-        // Persisted session on boot — rewrite identity to match the user.
-        useLearnerStore.getState().adoptAuthUser(u.id);
-        // Pull the user's preferences + progress + editor project from the
-        // server so every UI read is synchronous thereafter. Fire-and-forget;
-        // errors are already logged inside each store's hydrate(). Each
-        // hydrate() is tagged with the current auth generation so a late
-        // response after a subsequent sign-out can be discarded.
+        // Persisted session on boot — pull the user's preferences + progress
+        // + editor project from the server so every UI read is synchronous
+        // thereafter. Fire-and-forget; errors are already logged inside each
+        // store's hydrate(). Each hydrate() is tagged with the current auth
+        // generation so a late response after a subsequent sign-out can be
+        // discarded.
         const g = bumpGen();
         void usePreferencesStore.getState().hydrate(g);
         void useProgressStore.getState().hydrate(g);
@@ -190,21 +188,20 @@ export function initAuth(): void {
   // Wire all subsequent changes (login / logout / token refresh / user
   // update) into the store. Supabase fires this for every mutation.
   //
-  // We only run `adoptAuthUser` on SIGNED_IN (and USER_UPDATED if the id
-  // somehow changed, which shouldn't happen but is cheap to guard). TOKEN_REFRESHED
-  // would otherwise cause a redundant identity rewrite every hour.
+  // We only hydrate on SIGNED_IN (and USER_UPDATED if the id somehow changed,
+  // which shouldn't happen but is cheap to guard). TOKEN_REFRESHED would
+  // otherwise cause a redundant hydrate every hour.
   let lastUserId: string | null = null;
   supabase.auth.onAuthStateChange((event, session) => {
     const u = session?.user ?? null;
 
     const userChanged = u !== null && u.id !== lastUserId;
     if (u && (event === "SIGNED_IN" || userChanged)) {
-      useLearnerStore.getState().adoptAuthUser(u.id);
       // Pull fresh server state for the signed-in user. If we switched
       // users (userChanged), the prior user's state was already reset on
-      // their SIGNED_OUT; on a first sign-in from anonymous we just load.
-      // Tag each fetch with the current generation so a fast sign-out
-      // immediately after sign-in invalidates the in-flight response.
+      // their SIGNED_OUT; on a first sign-in we just load. Tag each fetch
+      // with the current generation so a fast sign-out immediately after
+      // sign-in invalidates the in-flight response.
       const g = bumpGen();
       void usePreferencesStore.getState().hydrate(g);
       void useProgressStore.getState().hydrate(g);
@@ -212,7 +209,6 @@ export function initAuth(): void {
     }
     if (event === "SIGNED_OUT") {
       bumpGen();
-      useLearnerStore.getState().resetToAnonymous();
       // Drop any lingering sessionId. The container behind it is either
       // already gone (auth-driven signout hits the app while the session
       // is still active) or will be reaped by the backend sweeper; either

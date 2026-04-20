@@ -26,10 +26,8 @@ export function createExecutionRouter(backend: ExecutionBackend): Router {
       return res.status(401).json({ error: "unauthenticated" });
     }
 
-    const session = requireActiveSession(res, sessionId, userId);
-    if (!session) return;
-
     try {
+      const session = requireActiveSession(sessionId, userId);
       const result = await runProject(backend, {
         handle: session.handle,
         language,

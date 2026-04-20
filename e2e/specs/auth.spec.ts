@@ -6,9 +6,9 @@
 //   - Unauthenticated visit redirects to /login and preserves the intended
 //     path in router state.
 //   - Signup (project has email confirmation OFF locally) lands the user
-//     on / with a live session, progress identity now tracks the user id.
+//     on / with a live session.
 //   - Password login replaces the session and persists across reload.
-//   - Signout clears the session + progress identity + sessionStore.
+//   - Signout clears the session + sessionStore.
 //   - A protected backend route 401s without an Authorization header and
 //     403s when an ownership check fails (one user poking another's session).
 //
@@ -56,31 +56,16 @@ test.describe("auth flow", () => {
     // signUp returns a live session. The SignupPage's useEffect bounces to /.
     await expect(page).toHaveURL(/\/$/, { timeout: 15_000 });
 
-    // Progress identity rewritten to the Supabase user id and marked
-    // non-anonymous. The subscriber runs asynchronously so we poll rather
-    // than snapshot — the navigation and the identity-rewrite don't have a
-    // strict ordering guarantee.
-    const identityHandle = await page.waitForFunction(
-      () => {
-        const raw = localStorage.getItem("learner:v1:identity");
-        if (!raw) return null;
-        const parsed = JSON.parse(raw) as { isAnonymous: boolean; learnerId: string };
-        return parsed.isAnonymous === false ? parsed : null;
-      },
-      undefined,
-      { timeout: 10_000 },
-    );
-    const identityJson = (await identityHandle.jsonValue()) as {
-      isAnonymous: boolean;
-      learnerId: string;
-    };
-    expect(identityJson.learnerId).toMatch(/^[0-9a-f-]{36}$/);
-
     // Supabase session persisted under the app-owned storage key.
     const authBlob = await page.evaluate(() =>
       localStorage.getItem("codetutor-auth"),
     );
     expect(authBlob, "Supabase session should be in localStorage").toBeTruthy();
+    // The user id in that blob is the identity — downstream stores read it
+    // directly from useAuthStore rather than mirroring it into a separate
+    // localStorage key.
+    const parsed = JSON.parse(authBlob!) as { user?: { id?: string } };
+    expect(parsed.user?.id).toMatch(/^[0-9a-f-]{36}$/);
   });
 
   test("login persists across reload; signout clears it", async ({ page }) => {
@@ -117,12 +102,14 @@ test.describe("auth flow", () => {
     await expect(page.getByRole("link", { name: /log in|sign in/i })).toHaveCount(0);
 
     // A brand-new admin-created user has no server-side onboarding flags set,
-    // so the WelcomeOverlay is visible on / and its "Skip" button intercepts
-    // clicks on the header. Dismiss it first.
+    // so the WelcomeOverlay appears on / and its "Skip" button intercepts
+    // clicks on the header. Wait for it, then dismiss. The overlay doesn't
+    // render until the AuthLoader gate lifts, which races with the rest of
+    // the UI — an `isVisible()` probe fires too early and misses it.
     const skip = page.getByRole("button", { name: /^skip onboarding$/i });
-    if (await skip.isVisible().catch(() => false)) {
-      await skip.click();
-    }
+    await skip.waitFor({ state: "visible", timeout: 5_000 });
+    await skip.click();
+    await skip.waitFor({ state: "hidden" });
 
     // Sign out from the UserMenu (avatar in the top-right corner).
     await page.getByRole("button", { name: /user menu/i }).click();

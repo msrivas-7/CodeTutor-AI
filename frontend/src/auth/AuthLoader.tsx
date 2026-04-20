@@ -17,7 +17,7 @@ import { useEffect, useRef, useState } from "react";
 // so the bar never renders as a flat zero-width line. Actual progress
 // overrides the nudge as soon as it exceeds 8%.
 
-const MIN_VISIBLE_MS = 600;
+const MIN_VISIBLE_MS = 1_000;
 
 export interface AuthLoaderProps {
   label?: string;

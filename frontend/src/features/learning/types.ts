@@ -82,14 +82,6 @@ export interface Lesson extends LessonMeta {
   starterFiles: { path: string; content: string }[];
 }
 
-// ── Learner identity ───────────────────────────────────────────────
-
-export interface LearnerIdentity {
-  learnerId: string;
-  createdAt: string;
-  isAnonymous: boolean;
-}
-
 // ── Progress tracking ──────────────────────────────────────────────
 
 export type ProgressStatus = "not_started" | "in_progress" | "completed";

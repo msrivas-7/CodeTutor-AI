@@ -6,6 +6,7 @@ import {
   type JWTPayload,
 } from "jose";
 import { config } from "../config.js";
+import { HttpError } from "./errorHandler.js";
 
 // Read the auth server base URL once — it doesn't change at runtime. Falls
 // back to config (which reads env at module load) if process.env was updated
@@ -109,21 +110,17 @@ export function __resetJwksCacheForTests(): void {
 
 export async function authMiddleware(
   req: Request,
-  res: Response,
+  _res: Response,
   next: NextFunction,
 ): Promise<void> {
-  const header = req.get("authorization") ?? req.get("Authorization");
-  if (!header || !header.toLowerCase().startsWith("bearer ")) {
-    res.status(401).json({ error: "missing bearer token" });
-    return;
-  }
-  const token = header.slice("bearer ".length).trim();
-  if (!token) {
-    res.status(401).json({ error: "empty bearer token" });
-    return;
-  }
-
   try {
+    const header = req.get("authorization") ?? req.get("Authorization");
+    if (!header || !header.toLowerCase().startsWith("bearer ")) {
+      throw new HttpError(401, "missing bearer token");
+    }
+    const token = header.slice("bearer ".length).trim();
+    if (!token) throw new HttpError(401, "empty bearer token");
+
     const { payload } = await jwtVerify(token, getJwks(), {
       // Supabase issues tokens as `<SUPABASE_URL>/auth/v1`. We validate
       // the issuer so a token minted by a different project (dev vs. prod
@@ -136,19 +133,18 @@ export async function authMiddleware(
       audience: "authenticated",
     });
     const sub = typeof payload.sub === "string" ? payload.sub : null;
-    if (!sub) {
-      res.status(401).json({ error: "token missing sub claim" });
-      return;
-    }
+    if (!sub) throw new HttpError(401, "token missing sub claim");
     req.userId = sub;
     req.authClaims = payload;
     next();
   } catch (err) {
+    // HttpError from the guards above just propagates — the global
+    // errorHandler serializes it and skips the noisy log for 401s.
+    if (err instanceof HttpError) return next(err);
     // Branch on jose's typed errors so we can return actionable messages
     // without leaking internals. Anything else collapses to a generic 401.
     if (err instanceof joseErrors.JWTExpired) {
-      res.status(401).json({ error: "token expired" });
-      return;
+      return next(new HttpError(401, "token expired"));
     }
     if (
       err instanceof joseErrors.JWTClaimValidationFailed ||
@@ -156,16 +152,14 @@ export async function authMiddleware(
       err instanceof joseErrors.JWSInvalid ||
       err instanceof joseErrors.JWTInvalid
     ) {
-      res.status(401).json({ error: "invalid token" });
-      return;
+      return next(new HttpError(401, "invalid token"));
     }
     // kid not found in JWKS — usually a token minted for a different project,
     // or a stale token signed with a rotated-out key. Same user-facing result
     // as a plain invalid-token, but we log distinctly for operability.
     if (err instanceof joseErrors.JWKSNoMatchingKey) {
       console.error("[auth] jwks: no matching key for token kid");
-      res.status(401).json({ error: "invalid token" });
-      return;
+      return next(new HttpError(401, "invalid token"));
     }
     // Upstream auth server is unreachable / slow. 503 is the honest answer —
     // this is a transient server-side problem, not a client credential issue.
@@ -173,12 +167,11 @@ export async function authMiddleware(
     // got logged out" alerts.
     if (err instanceof joseErrors.JWKSTimeout) {
       console.error("[auth] jwks: timeout fetching keys");
-      res.status(503).json({ error: "auth server unavailable" });
-      return;
+      return next(new HttpError(503, "auth server unavailable"));
     }
     // JWKS fetch failure, unknown error. The client can't fix it; log
     // server-side and 401 so the UI falls back to the sign-in page.
     console.error("[auth] jwks/verify error:", (err as Error).message);
-    res.status(401).json({ error: "token verification failed" });
+    return next(new HttpError(401, "token verification failed"));
   }
 }

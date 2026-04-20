@@ -41,9 +41,8 @@ export function createProjectRouter(backend: ExecutionBackend): Router {
     if (!userId) {
       return res.status(401).json({ error: "unauthenticated" });
     }
-    const session = requireActiveSession(res, sessionId, userId);
-    if (!session) return;
     try {
+      const session = requireActiveSession(sessionId, userId);
       await backend.replaceSnapshot(session.handle, files);
       touchSession(sessionId);
       res.json({ ok: true, fileCount: files.length });

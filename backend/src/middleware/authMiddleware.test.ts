@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { SignJWT, exportJWK, generateKeyPair } from "jose";
 import { authMiddleware, __resetJwksCacheForTests } from "./authMiddleware.js";
+import { errorHandler } from "./errorHandler.js";
 
 // The middleware reads `config.supabase.url` to find the JWKS endpoint. We
 // stand up a mini "Supabase" over HTTP that serves a JWKS with our test
@@ -37,6 +38,10 @@ function makeProtectedApp() {
   app.get("/protected", authMiddleware, (req, res) => {
     res.json({ userId: req.userId });
   });
+  // authMiddleware propagates HttpError via next(err); the error handler
+  // serializes it to JSON. Without this, express falls back to its default
+  // HTML 500 page and the tests' res.json() parse fails.
+  app.use(errorHandler);
   return app;
 }
 

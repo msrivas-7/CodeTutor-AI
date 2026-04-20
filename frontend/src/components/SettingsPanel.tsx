@@ -3,7 +3,6 @@ import { api } from "../api/client";
 import { useAIStore } from "../state/aiStore";
 import type { Persona } from "../types";
 import { useThemePref, type ThemePref } from "../util/theme";
-import { ProgressIOControls } from "./ProgressIOControls";
 
 const THEME_LABEL: Record<ThemePref, string> = {
   system: "System",
@@ -294,8 +293,6 @@ export function SettingsPanel({ onClose }: { onClose?: () => void }) {
               : "Always use the dark theme."}
         </span>
       </div>
-
-      <ProgressIOControls />
 
       {apiKey && (
         confirmForget ? (

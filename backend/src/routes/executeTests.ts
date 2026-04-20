@@ -44,10 +44,8 @@ export function createExecuteTestsRouter(backend: ExecutionBackend): Router {
       });
     }
 
-    const session = requireActiveSession(res, sessionId, userId);
-    if (!session) return;
-
     try {
+      const session = requireActiveSession(sessionId, userId);
       const result = await runTests(backend, harness, {
         handle: session.handle,
         tests,

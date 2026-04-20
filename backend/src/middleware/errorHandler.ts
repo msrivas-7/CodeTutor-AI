@@ -19,7 +19,12 @@ export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
     return;
   }
   if (err instanceof HttpError) {
-    console.error(`[error] ${err.status}`, err.message);
+    // 401s are routine traffic (every protected route hit without a valid
+    // token — expected on sign-out, fresh tab, expired session). Skip the
+    // log so authMiddleware doesn't turn into a noise source.
+    if (err.status !== 401) {
+      console.error(`[error] ${err.status}`, err.message);
+    }
     res.status(err.status).json({ error: err.message });
     return;
   }

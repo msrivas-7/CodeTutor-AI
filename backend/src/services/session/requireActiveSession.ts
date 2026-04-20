@@ -1,4 +1,4 @@
-import type { Response } from "express";
+import { HttpError } from "../../middleware/errorHandler.js";
 import { getSession } from "./sessionManager.js";
 import type { SessionRecord } from "./sessionManager.js";
 import type { SessionHandle } from "../execution/backends/index.js";
@@ -12,8 +12,9 @@ import type { SessionHandle } from "../execution/backends/index.js";
 //   409 — session exists and is owned, but has no backend handle (teardown
 //         mid-flight)
 //
-// Returns the session on success, or `null` after writing the response — the
-// caller should early-return when it sees null.
+// Throws HttpError on any failure; the global errorHandler serializes it.
+// Returning the ActiveSession (non-null) lets callers skip the null-check
+// ceremony that the old res-writing variant required.
 // Narrowed view: callers can read `handle` without a null check, since
 // requireActiveSession already rejected sessions without one.
 export type ActiveSession = Omit<SessionRecord, "handle"> & {
@@ -21,22 +22,16 @@ export type ActiveSession = Omit<SessionRecord, "handle"> & {
 };
 
 export function requireActiveSession(
-  res: Response,
   sessionId: string,
   userId: string,
-): ActiveSession | null {
+): ActiveSession {
   const session = getSession(sessionId);
-  if (!session) {
-    res.status(404).json({ error: "session not found" });
-    return null;
-  }
+  if (!session) throw new HttpError(404, "session not found");
   if (session.userId !== userId) {
-    res.status(403).json({ error: "session not owned by caller" });
-    return null;
+    throw new HttpError(403, "session not owned by caller");
   }
   if (!session.handle) {
-    res.status(409).json({ error: "session has no active runtime" });
-    return null;
+    throw new HttpError(409, "session has no active runtime");
   }
   return session as ActiveSession;
 }

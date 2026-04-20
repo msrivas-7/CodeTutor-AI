@@ -5,7 +5,7 @@ import type { Lesson } from "../types";
 import { loadFullLesson, loadCourse, loadAllLessonMetas } from "../content/courseLoader";
 import { conceptsAvailableBefore } from "../content/conceptGraph";
 import { useProgressStore, loadSavedCode } from "../stores/progressStore";
-import { useLearnerStore } from "../stores/learnerStore";
+import { useAuthStore } from "../../../auth/authStore";
 import { LessonInstructionsPanel } from "../components/LessonInstructionsPanel";
 import { PracticeInstructionsView } from "../components/PracticeInstructionsView";
 import { GuidedTutorPanel } from "../components/GuidedTutorPanel";
@@ -55,7 +55,8 @@ export default function LessonPage() {
   }>();
   const nav = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { identity } = useLearnerStore();
+  const user = useAuthStore((s) => s.user);
+  const learnerId = user!.id;
   const startLesson = useProgressStore((s) => s.startLesson);
   const completeLesson = useProgressStore((s) => s.completeLesson);
   const incrementRun = useProgressStore((s) => s.incrementRun);
@@ -191,7 +192,7 @@ export default function LessonPage() {
         setLessonOrder(course.lessonOrder);
         const metaMap = new Map(metas.map((m) => [m.id, m]));
         setPriorConcepts(conceptsAvailableBefore(course, metaMap, lessonId));
-        startLesson(identity.learnerId, courseId, lessonId);
+        startLesson(learnerId, courseId, lessonId);
       })
       .catch(() => {
         if (cancelled) return;
@@ -204,7 +205,7 @@ export default function LessonPage() {
     return () => {
       cancelled = true;
     };
-  }, [courseId, lessonId, identity.learnerId, startLesson]);
+  }, [courseId, lessonId, learnerId, startLesson]);
 
   useEffect(() => {
     if (!lesson || !courseId || !lessonId || initialized.current) return;
@@ -470,11 +471,11 @@ export default function LessonPage() {
       setLastFailedName(null);
     }
     if (v.passed && !validation?.passed) {
-      completeLesson(identity.learnerId, courseId, lessonId, totalLessons);
+      completeLesson(learnerId, courseId, lessonId, totalLessons);
       confetti({ particleCount: 120, spread: 70, origin: { y: 0.7 } });
       setShowComplete(true);
     }
-  }, [lesson, courseId, lessonId, completeLesson, identity.learnerId, totalLessons, validation, practiceMode, practiceIndex, completePracticeExercise, sessionId, functionTests, testReport, lastFailedName]);
+  }, [lesson, courseId, lessonId, completeLesson, learnerId, totalLessons, validation, practiceMode, practiceIndex, completePracticeExercise, sessionId, functionTests, testReport, lastFailedName]);
 
   const handleEnterPractice = useCallback(() => {
     if (!lesson?.practiceExercises?.length) return;
@@ -676,7 +677,7 @@ export default function LessonPage() {
 
   const handleResetLessonProgress = useCallback(() => {
     if (!lesson || !courseId || !lessonId) return;
-    resetLessonProgress(identity.learnerId, courseId, lessonId);
+    resetLessonProgress(learnerId, courseId, lessonId);
     const files: Record<string, string> = {};
     const order: string[] = [];
     for (const f of lesson.starterFiles) {
@@ -701,8 +702,8 @@ export default function LessonPage() {
     setFailedCheckCount(0);
     setFailedVisibleTests(0);
     setFailedHiddenTests(0);
-    startLesson(identity.learnerId, courseId, lessonId);
-  }, [lesson, courseId, lessonId, identity.learnerId, resetLessonProgress, startLesson]);
+    startLesson(learnerId, courseId, lessonId);
+  }, [lesson, courseId, lessonId, learnerId, resetLessonProgress, startLesson]);
 
   const nextLessonId = (() => {
     if (!lessonId || lessonOrder.length === 0) return null;
