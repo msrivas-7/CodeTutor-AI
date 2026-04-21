@@ -34,6 +34,7 @@ jobs:
       VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
       VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      BYOK_ENCRYPTION_KEY: ${{ secrets.BYOK_ENCRYPTION_KEY }}
     steps:
       - uses: actions/checkout@v4
 
