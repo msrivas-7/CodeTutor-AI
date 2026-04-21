@@ -4,9 +4,11 @@ import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { csrfGuard } from "./csrfGuard.js";
 
-// Phase 17 / H-A3: every mutating route must reject requests that did not
-// set `X-Requested-With: codetutor`, plus anything with a foreign `Origin`.
-// GETs are allowed through untouched.
+// Phase 17 / H-A3 (updated Phase 20-P1): every mutating route must reject
+// requests that did not set `X-Requested-With: codetutor`, plus anything
+// with a missing or foreign `Origin`. GETs are allowed through untouched.
+
+const ALLOWED_ORIGIN = "http://localhost:5173";
 
 async function listen(): Promise<{
   url: string;
@@ -66,14 +68,32 @@ describe("csrfGuard", () => {
     }
   });
 
-  it("accepts POST requests with the correct CSRF header and no Origin", async () => {
+  it("accepts POST requests with the correct CSRF header and an allowlisted Origin", async () => {
+    const srv = await listen();
+    try {
+      const res = await fetch(`${srv.url}/probe`, {
+        method: "POST",
+        headers: {
+          "X-Requested-With": "codetutor",
+          Origin: ALLOWED_ORIGIN,
+        },
+      });
+      expect(res.status).toBe(200);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  it("rejects POST requests missing the Origin header (Phase 20-P1 strict mode)", async () => {
     const srv = await listen();
     try {
       const res = await fetch(`${srv.url}/probe`, {
         method: "POST",
         headers: { "X-Requested-With": "codetutor" },
       });
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(403);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toMatch(/origin/i);
     } finally {
       await srv.close();
     }

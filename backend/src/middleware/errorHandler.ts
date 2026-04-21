@@ -28,6 +28,20 @@ export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
     res.status(err.status).json({ error: err.message });
     return;
   }
+  // Phase 20-P1: body-parser throws PayloadTooLargeError (from raw-body) when
+  // the streamed body exceeds express.json's `limit`. Our per-router
+  // bodyLimit precheck rejects most oversize traffic earlier, but the global
+  // 1 MB ceiling still fires for requests that either lied about
+  // Content-Length or omitted it and then streamed past the cap. Map to 413
+  // so clients see a meaningful status instead of a generic 500.
+  if (
+    err instanceof Error &&
+    (err as { type?: string }).type === "entity.too.large"
+  ) {
+    console.error("[error] 413", err.message);
+    res.status(413).json({ error: "payload too large" });
+    return;
+  }
   // 500 is the path for *unexpected* errors — the message often contains
   // internal details (file paths, SQL, stack fragments) that should not leak
   // to the client. Log the full error server-side; return a generic string.

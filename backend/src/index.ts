@@ -10,6 +10,7 @@ import { aiRouter } from "./routes/ai.js";
 import { userDataRouter } from "./routes/userData.js";
 import { csrfGuard } from "./middleware/csrfGuard.js";
 import { authMiddleware } from "./middleware/authMiddleware.js";
+import { bodyLimit } from "./middleware/bodyLimit.js";
 import {
   mutationLimit,
   sessionCreateLimit,
@@ -28,6 +29,15 @@ async function main() {
   assertConfigValid();
 
   const app = express();
+
+  // Phase 20-P1: trust the single Caddy hop in front of us. Without this,
+  // req.ip is always 127.0.0.1 (the proxy) so every IP-keyed rate limit —
+  // aiRateLimit, mutationRateLimit — collapses into one global bucket and
+  // stops defending against DoS. `1` means "trust exactly one hop" (Caddy);
+  // we don't want "true" because that would let any client spoof
+  // X-Forwarded-For. In dev (no proxy), req.ip correctly falls through to
+  // the socket source.
+  app.set("trust proxy", 1);
 
   app.use(cors({ origin: config.corsOrigin }));
   // Defense-in-depth security headers: X-Content-Type-Options, Referrer-Policy,
@@ -52,7 +62,13 @@ async function main() {
       },
     }),
   );
-  app.use(express.json({ limit: "5mb" }));
+  // Phase 20-P1: drop the global json cap from 5 MB to 1 MB (the largest any
+  // route legitimately needs — editor-project has a 500 KB internal cap;
+  // AI requests carry history + context). Per-router we enforce a tighter
+  // Content-Length precheck so a caller can't, e.g., POST 900 KB to
+  // /api/session. The precheck fires before json parses bytes, so the
+  // rejection is cheap even under abuse.
+  app.use(express.json({ limit: "1mb" }));
 
   // Lightweight request log for session + AI routes so we can trace lifecycle.
   // Phase 17 / M-A3: learner code (snapshot files, execute stdin, harness
@@ -123,6 +139,7 @@ async function main() {
   // test their OpenAI key before finishing signup; see routes/ai.ts.
   app.use(
     "/api/session",
+    bodyLimit(64 * 1024),
     csrfGuard,
     authMiddleware,
     sessionCreateLimit,
@@ -130,6 +147,7 @@ async function main() {
   );
   app.use(
     "/api/project",
+    bodyLimit(512 * 1024),
     csrfGuard,
     authMiddleware,
     mutationLimit,
@@ -139,6 +157,7 @@ async function main() {
   // /api/execute router (which handles the base path POST /).
   app.use(
     "/api/execute/tests",
+    bodyLimit(512 * 1024),
     csrfGuard,
     authMiddleware,
     mutationLimit,
@@ -146,6 +165,7 @@ async function main() {
   );
   app.use(
     "/api/execute",
+    bodyLimit(512 * 1024),
     csrfGuard,
     authMiddleware,
     mutationLimit,
@@ -154,13 +174,14 @@ async function main() {
   // AI routes mount their own auth + rate-limit per-route because
   // `/api/ai/validate-key` is public while `/ask`, `/models`, `/summarize`
   // are authenticated. See routes/ai.ts.
-  app.use("/api/ai", csrfGuard, aiRouter);
+  app.use("/api/ai", bodyLimit(1024 * 1024), csrfGuard, aiRouter);
 
   // Phase 18b: per-user state in Supabase Postgres (preferences, progress,
   // editor project). Auth + rate-limit gated; all DB writes scope by
   // req.userId, RLS enforces the same as defense-in-depth.
   app.use(
     "/api/user",
+    bodyLimit(1024 * 1024),
     csrfGuard,
     authMiddleware,
     mutationLimit,

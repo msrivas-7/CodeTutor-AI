@@ -22,10 +22,12 @@ import { config } from "../config.js";
  *      `Access-Control-Allow-Origin` for the offending origin. Our own
  *      frontend attaches this header on every mutating fetch.
  *
- *   2. `Origin` header match against `config.corsOrigin`. The browser always
- *      sets Origin on cross-origin POSTs; checking it catches same-browser
- *      attacks where a script somehow sends the custom header (it can't,
- *      but belt-and-suspenders costs nothing).
+ *   2. `Origin` header match against `config.corsOrigin`. Browsers always
+ *      set Origin on cross-origin POSTs and — as of Phase 20-P1 — we require
+ *      it on same-origin mutations too (Fetch spec ships Origin on every
+ *      non-GET/HEAD in modern browsers). Rejecting missing Origin closes the
+ *      narrow window where a crafted same-host tool could spoof the custom
+ *      header without setting Origin.
  *
  * Applied only to mutating methods (POST/PUT/PATCH/DELETE). GETs are safe
  * by convention — the backend never mutates state on GET.
@@ -42,12 +44,11 @@ export function csrfGuard(req: Request, res: Response, next: NextFunction) {
     return res.status(403).json({ error: "missing CSRF header" });
   }
 
+  // Phase 20-P1: Origin must be present AND allowlisted. Previously we
+  // only enforced the match when Origin was set, which left a same-host
+  // loophole — any non-browser caller could omit Origin and still mutate.
   const origin = req.get("origin");
-  // A missing Origin happens for same-origin same-tab navigations; browsers
-  // always set it for cross-origin requests (including cross-origin POSTs).
-  // If Origin is present, it must match. If it's absent and the custom
-  // header is present, we trust the custom-header layer.
-  if (origin !== undefined && origin !== config.corsOrigin) {
+  if (!origin || origin !== config.corsOrigin) {
     return res.status(403).json({ error: "origin not allowed" });
   }
 

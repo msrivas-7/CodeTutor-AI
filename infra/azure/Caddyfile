@@ -7,9 +7,32 @@
 # domain, this becomes two site blocks (apex + www) and this file is the
 # single place to edit.
 
+# Phase 20-P1: force HTTPS at the edge. Caddy's automatic-HTTPS redirect
+# covers the :80 → :443 jump for configured sites, but declaring the
+# redirect explicitly keeps the behavior obvious to future readers and
+# survives Caddy upgrades where auto-redirect gets scoped differently.
+http://codetutor-ai-vm.eastus2.cloudapp.azure.com {
+	redir https://{host}{uri} permanent
+}
+
 codetutor-ai-vm.eastus2.cloudapp.azure.com {
-	reverse_proxy backend:4000
+	reverse_proxy backend:4000 {
+		# Phase 20-P1: disable response buffering for SSE streams. The
+		# tutor's /api/ai/ask/stream endpoint sends newline-delimited
+		# events; without flush_interval the proxy can hold a 4 KB buffer
+		# and the learner sees chunks land in bursts instead of typing-
+		# speed token-by-token.
+		flush_interval -1
+	}
 	encode gzip
+
+	# Phase 20-P1: HSTS. Helmet sets this on backend JSON responses, but
+	# Caddy's own 404/502/connection-reset pages bypass the backend —
+	# without this header at the edge, a browser that first hits an error
+	# has no way to know the origin should have been HTTPS-only. 1 year +
+	# includeSubDomains + preload makes us eligible for the browser
+	# preload list once the custom domain lands.
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
 
 	log {
 		output stdout
