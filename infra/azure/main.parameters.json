@@ -5,7 +5,7 @@
     "location": { "value": "eastus2" },
     "vmName": { "value": "codetutor-ai-vm" },
     "adminUsername": { "value": "codetutor" },
-    "vmSize": { "value": "Standard_B1s" },
+    "vmSize": { "value": "Standard_B2s" },
     "osDiskSizeGB": { "value": 32 },
     "alertEmail": { "value": "msrivas4017@gmail.com" }
   }

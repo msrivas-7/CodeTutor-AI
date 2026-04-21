@@ -1,0 +1,18 @@
+# Caddy reverse-proxies the backend and terminates TLS. LE issues a cert for
+# the Azure-provided FQDN — no custom DNS required, no ACME email needed
+# (Caddy creates a per-site anonymous account when email is unset).
+#
+# The FQDN is hardcoded because it is tied to the VM's public IP DNS label
+# and changes only if we provision a different VM. If/when we add a custom
+# domain, this becomes two site blocks (apex + www) and this file is the
+# single place to edit.
+
+codetutor-ai-vm.eastus2.cloudapp.azure.com {
+	reverse_proxy backend:4000
+	encode gzip
+
+	log {
+		output stdout
+		format console
+	}
+}

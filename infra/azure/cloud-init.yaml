@@ -1,0 +1,198 @@
+#cloud-config
+# First-boot VM bootstrap. Installs Docker + Azure CLI, clones the repo,
+# pulls secrets from Key Vault via the VM's managed identity, builds the
+# compose images (locally until Phase 19c publishes to GHCR), and hands
+# long-running lifecycle to a systemd unit.
+#
+# Templated at deploy time by main.bicep:
+#   {{KV_NAME}}       — Key Vault name to read secrets from
+#   {{VM_FQDN}}       — Caddy cert hostname
+#   {{SWA_HOSTNAME}}  — set as backend CORS_ORIGIN
+#   {{REPO_URL}}      — public repo to clone (no auth needed)
+#   {{BACKEND_IMAGE}} — GHCR tag the backend service pulls (post-19c)
+#   {{RUNNER_IMAGE}}  — GHCR tag for the runner image
+#   {{ADMIN_EMAIL}}   — LE registration address + Caddy contact
+
+package_update: true
+package_upgrade: false
+
+packages:
+  - ca-certificates
+  - curl
+  - gnupg
+  - git
+  - jq
+  - unattended-upgrades
+
+write_files:
+  # Refresh /opt/codetutor/.env from Key Vault. Runs at boot (ExecStartPre)
+  # and daily (timer) so rotated secrets land without manual SSH. Atomic
+  # swap via mktemp + mv so a partial write never reaches the service.
+  - path: /usr/local/bin/refresh-env
+    permissions: '0755'
+    owner: root:root
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+
+      KV_NAME="{{KV_NAME}}"
+      ENV_FILE=/opt/codetutor/.env
+      TMP=$(mktemp)
+      chmod 0600 "$TMP"
+
+      # Managed-identity login. --allow-no-subscriptions: the VM MI has no
+      # subscription-level role, only KV secret reads, so skip sub hydrate.
+      az login --identity --allow-no-subscriptions >/dev/null
+
+      fetch() {
+        az keyvault secret show --vault-name "$KV_NAME" --name "$1" \
+          --query value -o tsv
+      }
+
+      # No heredocs — YAML indent-stripping would break the closing delimiter.
+      # Plain echoes into a grouped redirect keep this robust.
+      {
+        echo "SUPABASE_URL=$(fetch SUPABASE-URL)"
+        echo "SUPABASE_SERVICE_ROLE_KEY=$(fetch SUPABASE-SERVICE-ROLE-KEY)"
+        echo "DATABASE_URL=$(fetch DATABASE-URL)"
+        echo "BYOK_ENCRYPTION_KEY=$(fetch BYOK-ENCRYPTION-KEY)"
+        echo "VITE_SUPABASE_URL=$(fetch VITE-SUPABASE-URL)"
+        echo "VITE_SUPABASE_ANON_KEY=$(fetch VITE-SUPABASE-ANON-KEY)"
+        # Non-secret prod config. CORS locked to the SWA hostname; rate
+        # limits back to prod-tight values (dev's 500/2000/500 headroom
+        # was for the parallel e2e workers, not real traffic).
+        echo "BACKEND_PORT=4000"
+        echo "BACKEND_BIND=127.0.0.1"
+        echo "CORS_ORIGIN=https://{{SWA_HOSTNAME}}"
+        echo "BACKEND_IMAGE={{BACKEND_IMAGE}}"
+        echo "RUNNER_IMAGE={{RUNNER_IMAGE}}"
+        echo "DOCKER_HOST=tcp://socket-proxy:2375"
+        echo "WORKSPACE_ROOT=/workspace-root"
+        echo "WORKSPACE_HOST_PATH=/opt/codetutor/temp/sessions"
+        echo "SESSION_CREATE_RATE_LIMIT_MAX=30"
+        echo "MUTATION_RATE_LIMIT_MAX=120"
+        echo "AI_RATE_LIMIT_MAX=60"
+        echo "VM_FQDN={{VM_FQDN}}"
+        echo "ADMIN_EMAIL={{ADMIN_EMAIL}}"
+      } > "$TMP"
+
+      chown codetutor:codetutor "$TMP"
+      mv "$TMP" "$ENV_FILE"
+
+  - path: /etc/systemd/system/codetutor-ai.service
+    permissions: '0644'
+    owner: root:root
+    content: |
+      [Unit]
+      Description=CodeTutor AI backend stack
+      Requires=docker.service
+      After=docker.service network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=simple
+      User=codetutor
+      Group=codetutor
+      WorkingDirectory=/opt/codetutor
+      # Re-pull secrets on every start — covers rotation + first boot.
+      ExecStartPre=/usr/local/bin/refresh-env
+      ExecStart=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env up
+      ExecStop=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env down
+      Restart=on-failure
+      RestartSec=30
+      # First boot downloads images / builds locally, so allow plenty of time.
+      TimeoutStartSec=900
+
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /etc/systemd/system/codetutor-ai-refresh-env.service
+    permissions: '0644'
+    owner: root:root
+    content: |
+      [Unit]
+      Description=Refresh CodeTutor .env from Key Vault (idempotent)
+
+      [Service]
+      Type=oneshot
+      User=codetutor
+      Group=codetutor
+      WorkingDirectory=/opt/codetutor
+      ExecStart=/usr/local/bin/refresh-env
+      # `up -d` is a no-op if env is unchanged; restarts the affected
+      # services if any value rotated.
+      ExecStartPost=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env up -d
+
+  - path: /etc/systemd/system/codetutor-ai-refresh-env.timer
+    permissions: '0644'
+    owner: root:root
+    content: |
+      [Unit]
+      Description=Daily refresh of CodeTutor .env from Key Vault
+
+      [Timer]
+      OnCalendar=daily
+      RandomizedDelaySec=1h
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+
+runcmd:
+  # Wait for any in-progress apt/dpkg operation to release its lock. Ubuntu's
+  # apt-daily.service systemd timer fires on boot and can race runcmd here,
+  # producing "Could not get lock /var/lib/dpkg/lock-frontend" and a silently
+  # failed azure-cli install. Poll the two lock paths until both are free.
+  - |
+    for i in $(seq 1 120); do
+      if ! fuser /var/lib/dpkg/lock-frontend /var/lib/apt/lists/lock >/dev/null 2>&1; then
+        break
+      fi
+      echo "waiting for apt lock (attempt $i/120)..."
+      sleep 5
+    done
+
+  # --- Docker CE from Docker's apt repo ---
+  - install -m 0755 -d /etc/apt/keyrings
+  - curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+  - chmod a+r /etc/apt/keyrings/docker.gpg
+  - |
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu noble stable" > /etc/apt/sources.list.d/docker.list
+  - apt-get update
+  - DEBIAN_FRONTEND=noninteractive apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+  # --- Azure CLI (Microsoft apt repo) ---
+  # Re-wait for lock in case apt-daily fired again between the docker install
+  # above and now. The install script runs apt internally and won't retry.
+  - |
+    for i in $(seq 1 120); do
+      if ! fuser /var/lib/dpkg/lock-frontend /var/lib/apt/lists/lock >/dev/null 2>&1; then
+        break
+      fi
+      echo "waiting for apt lock before az-cli install (attempt $i/120)..."
+      sleep 5
+    done
+  - curl -sL https://aka.ms/InstallAzureCLIDeb | bash
+
+  # --- App user setup ---
+  - usermod -aG docker codetutor
+  - install -o codetutor -g codetutor -m 0755 -d /opt/codetutor
+  - sudo -u codetutor git clone {{REPO_URL}} /opt/codetutor
+  - install -o codetutor -g codetutor -m 0755 -d /opt/codetutor/temp/sessions
+
+  # --- Populate .env from KV before anything starts ---
+  - /usr/local/bin/refresh-env
+
+  # --- Pre-build images so first `compose up` doesn't block on network ---
+  # Once 19c publishes to GHCR this becomes a pull-through cache warm-up.
+  - cd /opt/codetutor && sudo -u codetutor docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env build backend runner-image
+
+  # --- Enable systemd lifecycle ---
+  - systemctl daemon-reload
+  - systemctl enable --now codetutor-ai.service
+  - systemctl enable --now codetutor-ai-refresh-env.timer
+
+  # --- Security: auto-apply Ubuntu security patches (reboots at 03:00 if needed) ---
+  - dpkg-reconfigure -f noninteractive unattended-upgrades
+
+final_message: "codetutor-ai-vm cloud-init complete in $UPTIME seconds"

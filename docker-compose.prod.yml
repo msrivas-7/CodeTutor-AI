@@ -1,0 +1,45 @@
+# Prod override applied on top of docker-compose.yml.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up
+#
+# What this changes:
+# - Points backend at the GHCR image. Pre-19c GHCR push, the base `build:`
+#   still resolves, so first boot can build locally; once 19c publishes to
+#   GHCR, compose pulls instead.
+# - Replaces the frontend service with a tiny no-op — Azure Static Web Apps
+#   hosts the real frontend in prod; on the B1s VM the 200 MB vite dev
+#   server is both wasted and unnecessary.
+# - Adds Caddy as the HTTPS terminator in front of the backend. Caddy
+#   obtains a Let's Encrypt cert for the VM's cloudapp.azure.com FQDN on
+#   first start and auto-renews on its own schedule.
+# - `restart: unless-stopped` on long-running services so in-container
+#   crashes bounce quickly without waiting for systemd to recycle the
+#   whole compose stack.
+
+services:
+  backend:
+    image: ${BACKEND_IMAGE:-ghcr.io/msrivas-7/codetutor-backend:latest}
+    restart: unless-stopped
+
+  frontend:
+    image: busybox:1.37
+    command: ["true"]
+    restart: "no"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infra/azure/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+
+volumes:
+  caddy_data:
+  caddy_config:

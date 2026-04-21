@@ -1,0 +1,7 @@
+{
+  "files.associations": {
+    "Caddyfile": "plaintext",
+    "cloud-init.yaml": "yaml",
+    "*.bicep": "bicep"
+  }
+}

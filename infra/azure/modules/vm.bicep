@@ -13,6 +13,28 @@ param nicId string
 param logAnalyticsWorkspaceId string
 param tags object
 
+// cloud-init template variables — substituted into the embedded YAML before
+// it's base64-passed into VM customData. Changing any of these requires the
+// VM to be recreated (customData is first-boot only).
+param keyVaultName string
+param vmFqdn string
+param swaHostname string
+param repoUrl string
+param backendImage string
+param runnerImage string
+param adminEmail string
+
+var cloudInitTemplate = loadTextContent('../cloud-init.yaml')
+var cloudInitResolved = replace(replace(replace(replace(replace(replace(replace(
+  cloudInitTemplate,
+  '{{KV_NAME}}', keyVaultName),
+  '{{VM_FQDN}}', vmFqdn),
+  '{{SWA_HOSTNAME}}', swaHostname),
+  '{{REPO_URL}}', repoUrl),
+  '{{BACKEND_IMAGE}}', backendImage),
+  '{{RUNNER_IMAGE}}', runnerImage),
+  '{{ADMIN_EMAIL}}', adminEmail)
+
 resource vm 'Microsoft.Compute/virtualMachines@2024-07-01' = {
   name: vmName
   location: location
@@ -36,6 +58,7 @@ resource vm 'Microsoft.Compute/virtualMachines@2024-07-01' = {
     osProfile: {
       computerName: vmName
       adminUsername: adminUsername
+      customData: base64(cloudInitResolved)
       linuxConfiguration: {
         disablePasswordAuthentication: true
         ssh: {

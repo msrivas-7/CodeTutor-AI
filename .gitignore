@@ -24,7 +24,9 @@ temp/sessions/*
 .codetutor-ai-terminals
 
 # Editor / tooling
-.vscode/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
 .idea/
 .claude/
 .agents/

@@ -1,5 +1,5 @@
 // CodeTutor AI — Azure production infrastructure.
-// Single-VM topology: Ubuntu B1s runs the backend stack (docker compose),
+// Single-VM topology: Ubuntu B2s runs the backend stack (docker compose),
 // SWA hosts the frontend, Key Vault holds all runtime secrets, Log Analytics
 // captures diagnostics, and Azure Monitor alerts email on VM unavailability.
 //
@@ -29,8 +29,8 @@ param adminPublicKey string
 @description('CIDR permitted to SSH into the VM (port 22). Keep tight; rotate if the admin laptop IP changes.')
 param sshSourceIp string
 
-@description('VM SKU. B1s fits on VS Enterprise monthly credits and handles 3-5 concurrent sessions.')
-param vmSize string = 'Standard_B1s'
+@description('VM SKU. B2s (2 vCPU / 4 GB) is needed so first-boot docker builds of the backend image do not OOM; runtime-only would fit on B1s.')
+param vmSize string = 'Standard_B2s'
 
 @description('OS disk size in GB.')
 param osDiskSizeGB int = 32
@@ -40,6 +40,15 @@ param alertEmail string = 'msrivas4017@gmail.com'
 
 @description('Object ID of the principal that should have Key Vault Secrets Officer access for bootstrap secret seeding (run `az ad signed-in-user show --query id -o tsv`).')
 param bootstrapPrincipalObjectId string
+
+@description('Public git URL the VM clones on first boot. Must not require auth.')
+param repoUrl string = 'https://github.com/msrivas-7/CodeTutor-AI.git'
+
+@description('GHCR tag for the backend image. Pre-19c this is the target for local builds; post-19c it is pulled.')
+param backendImage string = 'ghcr.io/msrivas-7/codetutor-backend:latest'
+
+@description('GHCR tag for the runner image. Backend spawns session containers from this.')
+param runnerImage string = 'ghcr.io/msrivas-7/codetutor-runner:latest'
 
 var tags = {
   project: 'codetutor'
@@ -89,9 +98,23 @@ module keyvault 'modules/keyvault.bicep' = {
 }
 
 // ---------------------------------------------------------------------------
-// VM: Ubuntu 24.04 LTS, system-assigned MI, SSH-only, cloud-init injected
-// in 19b. For 19a we deploy with an empty custom data so the VM boots bare
-// and can be iterated on without reprovisioning.
+// Static Web App for the frontend. Declared before the VM because the VM's
+// cloud-init bakes the SWA hostname into backend CORS_ORIGIN.
+// ---------------------------------------------------------------------------
+module swa 'modules/swa.bicep' = {
+  name: 'swa'
+  params: {
+    location: 'eastus2'
+    name: 'codetutor-ai-swa'
+    tags: tags
+  }
+}
+
+// ---------------------------------------------------------------------------
+// VM: Ubuntu 24.04 LTS, system-assigned MI, SSH-only. cloud-init provisions
+// Docker + Azure CLI + the compose stack on first boot and hands lifecycle
+// to a systemd unit. Template vars (KV name, SWA host, etc.) are substituted
+// into cloud-init.yaml before base64-encoding into customData.
 // ---------------------------------------------------------------------------
 module vm 'modules/vm.bicep' = {
   name: 'vm'
@@ -105,6 +128,13 @@ module vm 'modules/vm.bicep' = {
     nicId: network.outputs.nicId
     logAnalyticsWorkspaceId: monitoring.outputs.workspaceId
     tags: tags
+    keyVaultName: keyvault.outputs.name
+    vmFqdn: network.outputs.fqdn
+    swaHostname: swa.outputs.defaultHostname
+    repoUrl: repoUrl
+    backendImage: backendImage
+    runnerImage: runnerImage
+    adminEmail: alertEmail
   }
 }
 
@@ -128,20 +158,6 @@ module vmKvAccess 'modules/vm-kv-access.bicep' = {
   params: {
     keyVaultName: keyvault.outputs.name
     principalId: vm.outputs.principalId
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Static Web App for the frontend. Created unlinked; connect to the GitHub
-// repo via the SWA GitHub App after deploy (that flow auto-generates the
-// workflow file). Free SKU — no bandwidth charges under 100 GB/mo.
-// ---------------------------------------------------------------------------
-module swa 'modules/swa.bicep' = {
-  name: 'swa'
-  params: {
-    location: 'eastus2'
-    name: 'codetutor-ai-swa'
-    tags: tags
   }
 }
 

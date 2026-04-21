@@ -13,7 +13,7 @@ See [the roadmap plan](../../docs/) for the full Phase 19 context.
 | `main.bicep` | Top-level template — calls the modules. |
 | `main.parameters.json` | Non-secret parameter values (region, VM size, etc). |
 | `modules/network.bicep` | VNet, NSG, Standard public IP (with `cloudapp.azure.com` FQDN), NIC. |
-| `modules/vm.bicep` | Ubuntu 24.04 B1s + system-assigned MI + Azure Monitor Agent + DCR. |
+| `modules/vm.bicep` | Ubuntu 24.04 B2s + system-assigned MI + Azure Monitor Agent + DCR. |
 | `modules/keyvault.bicep` | RBAC-mode KV + Secrets Officer role for bootstrap principal. |
 | `modules/monitoring.bicep` | Log Analytics workspace + action group. |
 | `modules/vm-health-alert.bicep` | Activity log alert on VM ResourceHealth. |
