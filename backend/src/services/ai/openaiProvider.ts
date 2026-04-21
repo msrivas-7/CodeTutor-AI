@@ -19,6 +19,7 @@ import {
   buildGuidedUserTurn,
 } from "./guidedPromptBuilder.js";
 import type { AIMessage } from "./provider.js";
+import { aiTokensConsumed } from "../metrics.js";
 
 const OPENAI_BASE = "https://api.openai.com/v1";
 
@@ -269,6 +270,11 @@ export const openaiProvider: AIProvider = {
           }
         : undefined;
 
+    if (usage) {
+      aiTokensConsumed.inc({ model: params.model, kind: "input" }, usage.inputTokens);
+      aiTokensConsumed.inc({ model: params.model, kind: "output" }, usage.outputTokens);
+    }
+
     return { sections, raw, usage };
   },
 
@@ -397,6 +403,8 @@ export const openaiProvider: AIProvider = {
         const u = evt.response?.usage;
         if (typeof u?.input_tokens === "number" && typeof u?.output_tokens === "number") {
           usage = { inputTokens: u.input_tokens, outputTokens: u.output_tokens };
+          aiTokensConsumed.inc({ model: params.model, kind: "input" }, u.input_tokens);
+          aiTokensConsumed.inc({ model: params.model, kind: "output" }, u.output_tokens);
         }
       }
     };

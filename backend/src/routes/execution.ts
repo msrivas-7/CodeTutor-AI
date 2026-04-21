@@ -5,6 +5,7 @@ import { requireActiveSession } from "../services/session/requireActiveSession.j
 import { runProject } from "../services/execution/router.js";
 import { languageSchema } from "../services/execution/commands.js";
 import type { ExecutionBackend } from "../services/execution/backends/index.js";
+import { execDuration } from "../services/metrics.js";
 
 // `language` is validated against the shared languageSchema so an unknown
 // language is rejected at the Zod layer — no downstream `isLanguage` branch.
@@ -28,11 +29,20 @@ export function createExecutionRouter(backend: ExecutionBackend): Router {
 
     try {
       const session = requireActiveSession(sessionId, userId);
+      const started = Date.now();
       const result = await runProject(backend, {
         handle: session.handle,
         language,
         stdin,
       });
+      // Wall-clock covers compile + run + FS checks — what a caller sees as
+      // "how long did my run take". ok label is boolean-ish (Prom labels are
+      // strings) so the series splits into passing vs failing runs for
+      // quick `rate(.{ok="false"})` queries.
+      execDuration.observe(
+        { language, ok: result.exitCode === 0 ? "true" : "false" },
+        (Date.now() - started) / 1000,
+      );
       touchSession(sessionId);
       res.json(result);
     } catch (err) {

@@ -9,6 +9,7 @@ import { createExecuteTestsRouter } from "./routes/executeTests.js";
 import { aiRouter } from "./routes/ai.js";
 import { userDataRouter } from "./routes/userData.js";
 import { feedbackRouter } from "./routes/feedback.js";
+import { metricsRouter } from "./routes/metrics.js";
 import { csrfGuard } from "./middleware/csrfGuard.js";
 import { authMiddleware } from "./middleware/authMiddleware.js";
 import { bodyLimit } from "./middleware/bodyLimit.js";
@@ -130,6 +131,12 @@ async function main() {
     result.ms = Date.now() - start;
     res.status(result.ok ? 200 : 503).json(result);
   });
+
+  // Phase 20-P2: Prometheus exposition. Unauthenticated by design — data is
+  // aggregate-only (session count, token totals, exec histogram), no scraper
+  // is wired yet, and Prom convention is a public `/metrics`. Mounted
+  // before the auth chain for the same reason /api/health is.
+  app.use("/api/metrics", metricsRouter);
 
   // Middleware chain per route group (Phase 18a):
   //
