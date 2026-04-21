@@ -24,7 +24,12 @@ Write code, run it in a sandboxed environment, and get structured help when you'
 
 <br />
 
-<img src="frontend/public/og-image.png" alt="CodeTutor AI — three-pane workspace: lesson instructions on the left, code editor in the middle, AI tutor on the right with structured explanation, example, and pitfalls sections." width="900" />
+<table>
+<tr>
+<td width="50%"><img src="frontend/public/og-image.png" alt="CodeTutor AI start page — Open Editor and Guided Course options with the tagline 'Write code, run it in a sandbox, and learn with an AI tutor — all in the browser.'" /></td>
+<td width="50%"><img src="frontend/public/readme-hero.png" alt="CodeTutor AI — three-pane workspace: lesson instructions on the left, code editor in the middle, AI tutor on the right with structured explanation, example, and pitfalls sections." /></td>
+</tr>
+</table>
 
 </div>
 
