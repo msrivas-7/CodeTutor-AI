@@ -1,0 +1,12 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "location": { "value": "eastus2" },
+    "vmName": { "value": "codetutor-ai-vm" },
+    "adminUsername": { "value": "codetutor" },
+    "vmSize": { "value": "Standard_B1s" },
+    "osDiskSizeGB": { "value": 32 },
+    "alertEmail": { "value": "msrivas4017@gmail.com" }
+  }
+}
