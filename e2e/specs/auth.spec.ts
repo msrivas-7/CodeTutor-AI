@@ -112,6 +112,72 @@ test.describe("auth flow", () => {
     });
   });
 
+  test("Phase 20-P2: login with unverified email shows 'Confirm your email' panel", async ({ page }) => {
+    if (!SERVICE_KEY) {
+      test.skip(true, "SUPABASE_SERVICE_ROLE_KEY required for admin-create");
+      return;
+    }
+    // GoTrue returns `email_not_confirmed` (HTTP 400) when a user who signed
+    // up via email/password tries to sign in before clicking the verification
+    // link. Before this fix the raw error message ("Email not confirmed") went
+    // into a red alert with no resend path. LoginPage now catches the
+    // AuthError code and swaps in the dedicated unverified-email panel —
+    // this test locks that in.
+    //
+    // We admin-create with `email_confirm: false` so no email is sent (the
+    // flag is a state, not an action — it just marks the user as unverified).
+    // The password grant attempt also doesn't hit SMTP. The only SMTP-touching
+    // step is clicking "Resend", which we intercept via page.route mirroring
+    // the magic-link resend test above — keeps the test safe to run against
+    // dev Supabase which is still on the 2/hr sandbox mailer.
+    const email = uniqueEmail("unverified");
+    const admin = createClient(SUPABASE_URL, SERVICE_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const { error: createErr } = await admin.auth.admin.createUser({
+      email,
+      password: PASSWORD,
+      email_confirm: false,
+    });
+    expect(createErr).toBeNull();
+
+    let resendCalls = 0;
+    await page.route("**/auth/v1/resend**", async (route) => {
+      resendCalls += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ data: {}, error: null }),
+      });
+    });
+
+    await page.goto("/login");
+    await page.getByLabel(/email/i).fill(email);
+    await page.getByLabel("Password", { exact: true }).fill(PASSWORD);
+    await page.getByRole("button", { name: /^sign in$/i }).click();
+
+    // Raw error should NOT surface — the panel takes over instead.
+    await expect(page.getByRole("heading", { name: /confirm your email/i })).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.getByText(email)).toBeVisible();
+    await expect(page.getByText(/email not confirmed/i)).toHaveCount(0);
+
+    // Resend button is wired up and fires the resend endpoint.
+    const resend = page.getByRole("button", { name: /resend confirmation email/i });
+    await expect(resend).toBeVisible();
+    await resend.click();
+    await expect.poll(() => resendCalls).toBe(1);
+    await expect(page.getByRole("button", { name: /resend in \d+s/i })).toBeVisible({
+      timeout: 5_000,
+    });
+
+    // Back-to-sign-in restores the password form (so the user isn't trapped
+    // on the panel if they want to try a different account).
+    await page.getByRole("button", { name: /back to sign in/i }).click();
+    await expect(page.getByRole("button", { name: /^sign in$/i })).toBeVisible();
+  });
+
   test("unauthenticated visit to / redirects to /login", async ({ page }) => {
     await page.goto("/");
     await expect(page).toHaveURL(/\/login$/);

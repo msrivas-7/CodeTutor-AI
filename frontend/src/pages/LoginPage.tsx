@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { isAuthError } from "@supabase/supabase-js";
 import { AuthShell } from "../auth/AuthShell";
 import { OAuthButtons } from "../auth/OAuthButtons";
 import { PasswordField } from "../auth/PasswordField";
@@ -7,7 +8,7 @@ import { ResendEmailButton } from "../auth/ResendEmailButton";
 import { isValidEmail } from "../auth/emailValidation";
 import { useAuthStore } from "../auth/authStore";
 
-type Mode = "password" | "magic-link" | "magic-link-sent";
+type Mode = "password" | "magic-link" | "magic-link-sent" | "unverified-email";
 
 export default function LoginPage() {
   const nav = useNavigate();
@@ -16,6 +17,7 @@ export default function LoginPage() {
   const loading = useAuthStore((s) => s.loading);
   const signInWithPassword = useAuthStore((s) => s.signInWithPassword);
   const signInWithMagicLink = useAuthStore((s) => s.signInWithMagicLink);
+  const resendSignupConfirmation = useAuthStore((s) => s.resendSignupConfirmation);
   const clearError = useAuthStore((s) => s.clearError);
 
 
@@ -49,6 +51,16 @@ export default function LoginPage() {
         (location.state as { from?: { pathname: string } } | null)?.from?.pathname ?? "/";
       nav(to, { replace: true });
     } catch (e) {
+      // GoTrue returns `email_not_confirmed` when a user who signed up via
+      // email/password tries to sign in before clicking the verification
+      // link. The raw message ("Email not confirmed") in a red alert leaves
+      // them stuck — no resend path, no guidance. Route into the dedicated
+      // unverified-email panel, which mirrors the signup "check your inbox"
+      // screen and reuses the same resend helper.
+      if (isAuthError(e) && e.code === "email_not_confirmed") {
+        setMode("unverified-email");
+        return;
+      }
       setErr((e as Error).message);
     } finally {
       setSubmitting(false);
@@ -69,6 +81,37 @@ export default function LoginPage() {
       setSubmitting(false);
     }
   };
+
+  if (mode === "unverified-email") {
+    return (
+      <AuthShell
+        title="Confirm your email"
+        subtitle={`Your account exists, but ${email} hasn't been verified yet. Check your inbox for the confirmation link — we can resend it if it's missing.`}
+        footer={
+          <button
+            type="button"
+            onClick={() => {
+              setMode("password");
+              setErr(null);
+            }}
+            className="text-accent hover:underline"
+          >
+            Back to sign in
+          </button>
+        }
+      >
+        <p className="text-center text-[11px] text-muted">
+          The link expires in an hour. Spam folder is worth a check too.
+        </p>
+        <div className="mt-3 flex justify-center">
+          <ResendEmailButton
+            onResend={() => resendSignupConfirmation(email.trim())}
+            label="confirmation email"
+          />
+        </div>
+      </AuthShell>
+    );
+  }
 
   if (mode === "magic-link-sent") {
     return (
