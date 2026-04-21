@@ -50,6 +50,9 @@ param backendImage string = 'ghcr.io/msrivas-7/codetutor-backend:latest'
 @description('GHCR tag for the runner image. Backend spawns session containers from this.')
 param runnerImage string = 'ghcr.io/msrivas-7/codetutor-runner:latest'
 
+@description('Custom mail domain for outbound Supabase auth emails. DNS records for this domain are added to the operator-managed DNS provider (Wix, for msrivas.com) after the ACS module deploys — see infra/azure/README.md. Uses a `mail.` subdomain because the apex (`codetutor.msrivas.com`) is already a CNAME to the SWA and DNS forbids TXT records at a CNAME name.')
+param mailDomain string = 'mail.codetutor.msrivas.com'
+
 var tags = {
   project: 'codetutor'
   environment: 'prod'
@@ -176,6 +179,20 @@ module vmKvAccess 'modules/vm-kv-access.bicep' = {
 }
 
 // ---------------------------------------------------------------------------
+// Azure Communication Services — Email (Phase 20-P2). Outbound SMTP for
+// Supabase Auth (signup verify / password reset / magic link). Replaces
+// Supabase's default sandbox mailer (2 emails/hr cap). Custom domain —
+// operator adds DNS records at Wix post-deploy; see README.md.
+// ---------------------------------------------------------------------------
+module acsEmail 'modules/acsEmail.bicep' = {
+  name: 'acs-email'
+  params: {
+    tags: tags
+    mailDomain: mailDomain
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Azure Backup (Phase 20-P0 #2): weekly OS-disk snapshot, 4-week retention.
 // Vault + policy are declared here; enrolling the VM as a protected item is
 // a one-time `az backup protection enable-for-vm` step (see README.md). LRS
@@ -197,3 +214,7 @@ output swaName string = swa.outputs.name
 output logAnalyticsWorkspaceName string = monitoring.outputs.workspaceName
 output backupVaultName string = backup.outputs.vaultName
 output backupPolicyName string = backup.outputs.policyName
+output acsCommunicationServiceName string = acsEmail.outputs.communicationServiceName
+output acsEmailServiceName string = acsEmail.outputs.emailServiceName
+output mailDomainName string = acsEmail.outputs.mailDomainName
+output mailFrom string = acsEmail.outputs.mailFrom
