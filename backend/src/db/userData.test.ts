@@ -18,6 +18,10 @@ const prefs = await import("./preferences.js");
 const courses = await import("./courseProgress.js");
 const lessons = await import("./lessonProgress.js");
 const editor = await import("./editorProject.js");
+// BYOK round-trips go through the real crypto module on purpose — we want
+// to catch a config mismatch (BYOK_ENCRYPTION_KEY missing / wrong length)
+// the same way a startup boot would.
+const byok = await import("../services/crypto/byok.js");
 
 let dbReachable = false;
 const userIds: string[] = [];
@@ -131,6 +135,73 @@ describe("db/preferences", () => {
   });
 });
 
+describe("db/preferences — BYOK key round-trip", () => {
+  it("getOpenAIKey returns null when no key has ever been set", async () => {
+    if (!dbReachable) return;
+    const userId = await mkUser();
+    expect(await prefs.getOpenAIKey(userId)).toBeNull();
+  });
+
+  it("setOpenAIKey on a never-seen user inserts the row; getOpenAIKey returns plaintext", async () => {
+    if (!dbReachable) return;
+    const userId = await mkUser();
+    const plaintext = "sk-test-unit-aaaaaaaaaaaaaaaaaaaa";
+    await prefs.setOpenAIKey(userId, plaintext);
+    expect(await prefs.getOpenAIKey(userId)).toBe(plaintext);
+  });
+
+  it("setOpenAIKey flips hasOpenaiKey to true without touching other preference columns", async () => {
+    if (!dbReachable) return;
+    const userId = await mkUser();
+    await prefs.upsertPreferences(userId, { persona: "beginner", theme: "light" });
+    const before = await prefs.getPreferences(userId);
+    expect(before.hasOpenaiKey).toBe(false);
+
+    await prefs.setOpenAIKey(userId, "sk-another-key-bbbbbbbbbbbbbbbbbbbb");
+    const after = await prefs.getPreferences(userId);
+    expect(after.hasOpenaiKey).toBe(true);
+    // Scalar columns survive the encryption upsert.
+    expect(after.persona).toBe("beginner");
+    expect(after.theme).toBe("light");
+  });
+
+  it("setOpenAIKey overwrites a prior key (last write wins)", async () => {
+    if (!dbReachable) return;
+    const userId = await mkUser();
+    await prefs.setOpenAIKey(userId, "sk-first-key-000000000000000000");
+    await prefs.setOpenAIKey(userId, "sk-second-key-1111111111111111111");
+    expect(await prefs.getOpenAIKey(userId)).toBe("sk-second-key-1111111111111111111");
+  });
+
+  it("clearOpenAIKey nulls cipher + nonce and flips hasOpenaiKey back to false", async () => {
+    if (!dbReachable) return;
+    const userId = await mkUser();
+    await prefs.setOpenAIKey(userId, "sk-clear-me-ccccccccccccccccccccc");
+    expect((await prefs.getPreferences(userId)).hasOpenaiKey).toBe(true);
+
+    await prefs.clearOpenAIKey(userId);
+    expect(await prefs.getOpenAIKey(userId)).toBeNull();
+    expect((await prefs.getPreferences(userId)).hasOpenaiKey).toBe(false);
+  });
+
+  it("stored cipher+nonce decrypt only under the owning userId (AAD binding end-to-end)", async () => {
+    if (!dbReachable) return;
+    const userA = await mkUser();
+    const userB = await mkUser();
+    await prefs.setOpenAIKey(userA, "sk-owner-only-dddddddddddddddddd");
+
+    // Pull the raw ciphertext columns for userA and attempt to decrypt under
+    // userB's id. The AAD binding must make this throw — a row-copy attack
+    // (A's cipher pasted into B's row) would surface here.
+    const rows = await db()<
+      Array<{ cipher: Buffer; nonce: Buffer }>
+    >`SELECT openai_api_key_cipher AS cipher, openai_api_key_nonce AS nonce
+        FROM public.user_preferences WHERE user_id = ${userA}`;
+    expect(rows[0].cipher).not.toBeNull();
+    expect(() => byok.decryptKey(rows[0].cipher, rows[0].nonce, userB)).toThrow();
+  });
+});
+
 describe("db/courseProgress", () => {
   it("list is empty for fresh user; upsert inserts a row", async () => {
     if (!dbReachable) return;
@@ -223,6 +294,72 @@ describe("db/lessonProgress", () => {
     expect(remaining).toHaveLength(1);
     expect(remaining[0].courseId).toBe("js");
   });
+
+  it("deleteLessonProgress scoped by lessonId removes only the single row", async () => {
+    if (!dbReachable) return;
+    const userId = await mkUser();
+    await lessons.upsertLessonProgress(userId, "py", "l1", {});
+    await lessons.upsertLessonProgress(userId, "py", "l2", {});
+    const deleted = await lessons.deleteLessonProgress(userId, "py", "l1");
+    expect(deleted).toBe(1);
+    const remaining = await lessons.listLessonProgress(userId, "py");
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0].lessonId).toBe("l2");
+  });
+
+  it("deleteLessonProgress for a nonexistent row returns 0", async () => {
+    if (!dbReachable) return;
+    const userId = await mkUser();
+    expect(await lessons.deleteLessonProgress(userId, "py", "ghost")).toBe(0);
+    expect(await lessons.deleteLessonProgress(userId, "ghost-course")).toBe(0);
+  });
+
+  it("practiceExerciseCode jsonb round-trips and a later patch replaces it wholesale", async () => {
+    if (!dbReachable) return;
+    const userId = await mkUser();
+    const first = { "ex1": { "main.py": "print('a')" } };
+    const r1 = await lessons.upsertLessonProgress(userId, "py", "l1", {
+      practiceExerciseCode: first,
+    });
+    expect(r1.practiceExerciseCode).toEqual(first);
+
+    const second = { "ex2": { "main.py": "print('b')" } };
+    const r2 = await lessons.upsertLessonProgress(userId, "py", "l1", {
+      practiceExerciseCode: second,
+    });
+    // CASE WHEN practiceExerciseCode !== undefined THEN replace — so "ex1"
+    // should be gone, not merged. This is the invariant that keeps practice
+    // mode from accumulating stale exercise buffers.
+    expect(r2.practiceExerciseCode).toEqual(second);
+  });
+
+  it("practiceCompletedIds persists; omitting from a later patch preserves prior value", async () => {
+    if (!dbReachable) return;
+    const userId = await mkUser();
+    await lessons.upsertLessonProgress(userId, "py", "l1", {
+      practiceCompletedIds: ["ex1", "ex2"],
+    });
+    // Bump an unrelated counter without touching practiceCompletedIds —
+    // COALESCE should preserve the prior array.
+    const bumped = await lessons.upsertLessonProgress(userId, "py", "l1", {
+      runCount: 7,
+    });
+    expect(bumped.practiceCompletedIds).toEqual(["ex1", "ex2"]);
+    expect(bumped.runCount).toBe(7);
+  });
+
+  it("lastCode = null via CASE branch clears the jsonb (distinct from 'omitted')", async () => {
+    if (!dbReachable) return;
+    const userId = await mkUser();
+    await lessons.upsertLessonProgress(userId, "py", "l1", {
+      lastCode: { "main.py": "x = 1" },
+    });
+    // Explicit null in patch → CASE WHEN lastCode !== undefined → write null.
+    const cleared = await lessons.upsertLessonProgress(userId, "py", "l1", {
+      lastCode: null,
+    });
+    expect(cleared.lastCode).toBeNull();
+  });
 });
 
 describe("db/editorProject", () => {
@@ -267,5 +404,50 @@ describe("db/editorProject", () => {
     });
     expect(second.files).toEqual({ "b.py": "2" });
     expect(second.stdin).toBe("hello");
+  });
+
+  it("getEditorProject defaults are the documented shape (never-seen user)", async () => {
+    if (!dbReachable) return;
+    const userId = await mkUser();
+    const p = await editor.getEditorProject(userId);
+    expect(p.language).toBe("python");
+    expect(p.files).toEqual({});
+    expect(p.activeFile).toBeNull();
+    expect(p.openTabs).toEqual([]);
+    expect(p.fileOrder).toEqual([]);
+    expect(p.stdin).toBe("");
+  });
+
+  it("save with null activeFile persists null (not the empty string)", async () => {
+    if (!dbReachable) return;
+    const userId = await mkUser();
+    const saved = await editor.saveEditorProject(userId, {
+      language: "python",
+      files: {},
+      activeFile: null,
+      openTabs: [],
+      fileOrder: [],
+      stdin: "",
+    });
+    expect(saved.activeFile).toBeNull();
+    const refetched = await editor.getEditorProject(userId);
+    expect(refetched.activeFile).toBeNull();
+  });
+
+  it("save with empty files + empty arrays round-trips", async () => {
+    if (!dbReachable) return;
+    const userId = await mkUser();
+    const saved = await editor.saveEditorProject(userId, {
+      language: "javascript",
+      files: {},
+      activeFile: null,
+      openTabs: [],
+      fileOrder: [],
+      stdin: "",
+    });
+    expect(saved.files).toEqual({});
+    expect(saved.openTabs).toEqual([]);
+    expect(saved.fileOrder).toEqual([]);
+    expect(saved.language).toBe("javascript");
   });
 });
