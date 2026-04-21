@@ -116,6 +116,11 @@ export interface AIAskParams {
   // Phase 5 — optional span of the editor the student wants the tutor to
   // focus on (captured via Cmd+K in Monaco).
   selection?: EditorSelection | null;
+  // Caller's abort signal. The provider wires it into upstream fetch + SSE
+  // read loop; when it fires (client disconnect, request-wide deadline) the
+  // OpenAI call is cancelled so we stop burning the user's tokens and free
+  // the response slot. Non-stream `ask` also honors it.
+  signal?: AbortSignal;
   // Guided learning mode — when present, the tutor uses lesson-aware prompting.
   lessonContext?: {
     courseId: string;

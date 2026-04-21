@@ -131,14 +131,14 @@ export async function getOpenAIKey(userId: string): Promise<string | null> {
   if (rows.length === 0) return null;
   const { cipher, nonce } = rows[0];
   if (!cipher || !nonce) return null;
-  return decryptKey(cipher, nonce);
+  return decryptKey(cipher, nonce, userId);
 }
 
 export async function setOpenAIKey(
   userId: string,
   key: string,
 ): Promise<void> {
-  const { cipher, nonce } = encryptKey(key);
+  const { cipher, nonce } = encryptKey(key, userId);
   const sql = db();
   await sql`
     INSERT INTO public.user_preferences (

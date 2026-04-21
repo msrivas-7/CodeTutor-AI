@@ -24,7 +24,7 @@ HEALTH_INTERVAL=3
 
 as_codetutor() { sudo -u codetutor "$@"; }
 
-cd /opt/codetutor
+cd /opt/codetutor || { echo "DEPLOY_FAILED: /opt/codetutor missing"; exit 1; }
 echo "prior HEAD: $PREV_SHA"
 
 # Snapshot the currently-running image as :rollback before pulling new :latest.

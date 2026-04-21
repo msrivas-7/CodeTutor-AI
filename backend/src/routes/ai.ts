@@ -5,6 +5,42 @@ import { languageSchema } from "../services/execution/commands.js";
 import { authMiddleware } from "../middleware/authMiddleware.js";
 import { aiRateLimit } from "../middleware/aiRateLimit.js";
 import { getOpenAIKey } from "../db/preferences.js";
+import { config } from "../config.js";
+
+// Wire a per-request AbortController to (a) a config-driven deadline and
+// (b) the response's `close` event, so OpenAI calls stop burning tokens
+// the moment the client disconnects or the deadline hits. Returns the
+// signal plus a cleanup fn; call cleanup on successful completion so the
+// timer doesn't sit in the event loop for 90s after we're done.
+function requestAbortSignal(res: Response): {
+  signal: AbortSignal;
+  cleanup: () => void;
+  reason: () => "timeout" | "client-close" | null;
+} {
+  const controller = new AbortController();
+  let reason: "timeout" | "client-close" | null = null;
+  const timer = setTimeout(() => {
+    if (!controller.signal.aborted) {
+      reason = "timeout";
+      controller.abort();
+    }
+  }, config.aiRequestTimeoutMs);
+  const onClose = () => {
+    if (!controller.signal.aborted) {
+      reason = "client-close";
+      controller.abort();
+    }
+  };
+  res.on("close", onClose);
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      clearTimeout(timer);
+      res.off("close", onClose);
+    },
+    reason: () => reason,
+  };
+}
 
 export const aiRouter = Router();
 
@@ -160,6 +196,7 @@ aiRouter.post("/ask", ...authed, async (req, res, next) => {
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.issues.map((i) => i.message).join("; ") });
   }
+  const abort = requestAbortSignal(res);
   try {
     const result = await openaiProvider.ask({
       key,
@@ -177,10 +214,16 @@ aiRouter.post("/ask", ...authed, async (req, res, next) => {
       persona: parsed.data.persona,
       selection: parsed.data.selection ?? null,
       lessonContext: parsed.data.lessonContext ?? null,
+      signal: abort.signal,
     });
     res.json(result);
   } catch (err) {
+    // Client-close: response is already gone, no point forwarding to the
+    // error handler. Timeout: pass through so the client sees a 5xx.
+    if (abort.reason() === "client-close") return;
     next(err);
+  } finally {
+    abort.cleanup();
   }
 });
 
@@ -207,50 +250,57 @@ aiRouter.post("/ask/stream", ...authed, async (req, res) => {
     res.end();
   };
 
-  // Detect client disconnect via `res.on("close")` — not `req.on("close")`,
-  // which Node fires as soon as the request body has been fully read (even if
-  // the socket is still open for our response). Using req here caused every
-  // upstream event to be dropped as "client already disconnected".
+  // `requestAbortSignal` fires on res.on("close") — same signal used pre-P0
+  // to detect client disconnect — AND on the request-wide deadline. The
+  // provider forwards the signal to its upstream fetch, so when it fires we
+  // stop draining OpenAI's stream. Handlers still check `closed` before
+  // writing, since the reader can emit a last delta after abort.
   let closed = false;
+  const abort = requestAbortSignal(res);
   res.on("close", () => {
     closed = true;
   });
 
-  await openaiProvider.askStream(
-    {
-      key,
-      model: parsed.data.model,
-      question: parsed.data.question,
-      files: parsed.data.files,
-      activeFile: parsed.data.activeFile,
-      language: parsed.data.language,
-      lastRun: parsed.data.lastRun ?? null,
-      history: parsed.data.history,
-      stdin: parsed.data.stdin ?? null,
-      diffSinceLastTurn: parsed.data.diffSinceLastTurn ?? null,
-      runsSinceLastTurn: parsed.data.runsSinceLastTurn,
-      editsSinceLastTurn: parsed.data.editsSinceLastTurn,
-      persona: parsed.data.persona,
-      selection: parsed.data.selection ?? null,
-      lessonContext: parsed.data.lessonContext ?? null,
-    },
-    {
-      onDelta: (chunk) => {
-        if (closed) return;
-        send({ delta: chunk });
+  try {
+    await openaiProvider.askStream(
+      {
+        key,
+        model: parsed.data.model,
+        question: parsed.data.question,
+        files: parsed.data.files,
+        activeFile: parsed.data.activeFile,
+        language: parsed.data.language,
+        lastRun: parsed.data.lastRun ?? null,
+        history: parsed.data.history,
+        stdin: parsed.data.stdin ?? null,
+        diffSinceLastTurn: parsed.data.diffSinceLastTurn ?? null,
+        runsSinceLastTurn: parsed.data.runsSinceLastTurn,
+        editsSinceLastTurn: parsed.data.editsSinceLastTurn,
+        persona: parsed.data.persona,
+        selection: parsed.data.selection ?? null,
+        lessonContext: parsed.data.lessonContext ?? null,
+        signal: abort.signal,
       },
-      onDone: (raw, sections, usage) => {
-        if (closed) return;
-        send({ done: true, raw, sections, usage });
-        done();
-      },
-      onError: (message) => {
-        if (closed) return;
-        send({ error: message });
-        done();
-      },
-    }
-  );
+      {
+        onDelta: (chunk) => {
+          if (closed) return;
+          send({ delta: chunk });
+        },
+        onDone: (raw, sections, usage) => {
+          if (closed) return;
+          send({ done: true, raw, sections, usage });
+          done();
+        },
+        onError: (message) => {
+          if (closed) return;
+          send({ error: message });
+          done();
+        },
+      }
+    );
+  } finally {
+    abort.cleanup();
+  }
 });
 
 aiRouter.post("/summarize", ...authed, async (req, res, next) => {

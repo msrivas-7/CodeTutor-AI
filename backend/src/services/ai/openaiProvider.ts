@@ -73,6 +73,20 @@ async function openaiFetch(path: string, key: string, init?: RequestInit): Promi
   });
 }
 
+// Node's fetch throws a DOMException with name="AbortError" (or TypeError
+// whose `cause` is an AbortError) when the passed signal aborts. Some older
+// Node minors also surface the raw "aborted" message from undici — match
+// all three so callers can cleanly swallow abort without treating it as an
+// upstream failure.
+function isAbortError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as { name?: string; cause?: { name?: string }; message?: string };
+  if (e.name === "AbortError") return true;
+  if (e.cause?.name === "AbortError") return true;
+  if (typeof e.message === "string" && /abort/i.test(e.message)) return true;
+  return false;
+}
+
 async function parseError(res: Response): Promise<string> {
   try {
     const body = (await res.json()) as { error?: { message?: string } };
@@ -199,6 +213,7 @@ export const openaiProvider: AIProvider = {
     const res = await openaiFetch("/responses", params.key, {
       method: "POST",
       body: JSON.stringify(body),
+      signal: params.signal,
     });
     if (!res.ok) {
       const err = await parseError(res);
@@ -327,8 +342,13 @@ export const openaiProvider: AIProvider = {
       res = await openaiFetch("/responses", params.key, {
         method: "POST",
         body: JSON.stringify(body),
+        signal: params.signal,
       });
     } catch (err) {
+      if (isAbortError(err)) {
+        console.log(`[openai] stream aborted before headers`);
+        return;
+      }
       handlers.onError((err as Error).message);
       return;
     }
@@ -402,6 +422,10 @@ export const openaiProvider: AIProvider = {
         }
       }
     } catch (err) {
+      if (isAbortError(err)) {
+        console.log(`[openai] stream aborted after ${Date.now() - started}ms`);
+        return;
+      }
       handlers.onError((err as Error).message);
       return;
     }

@@ -43,6 +43,11 @@ export const config = {
     max: num(process.env.AI_RATE_LIMIT_MAX, 60),
   },
 
+  // Deadline for a single AI call to finish. Bounds how long we hold an
+  // OpenAI response slot and keep a user's tokens burning if the upstream
+  // stalls or the client disappears. Covers both /ask and /ask/stream.
+  aiRequestTimeoutMs: num(process.env.AI_REQUEST_TIMEOUT_MS, 90_000),
+
   // Phase 17 / H-A2: per-IP throttle on the mutating routes (session
   // lifecycle, snapshot, execute). Session creation is tighter because it's
   // the expensive op (spawns a container). The normal mutation bucket is
