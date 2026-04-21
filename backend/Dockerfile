@@ -1,4 +1,21 @@
-FROM node:20-bookworm-slim
+# Multi-stage so the runtime image ships only compiled JS + prod deps.
+# Builder installs dev + prod deps to run `tsc`, then the runtime stage
+# re-installs with --omit=dev and copies dist/ across.
+
+# ---------- builder ----------
+FROM node:20-bookworm-slim AS builder
+
+WORKDIR /build
+
+COPY backend/package.json backend/package-lock.json* ./
+RUN npm ci --no-audit --no-fund
+
+COPY backend/tsconfig.json ./
+COPY backend/src ./src
+RUN npm run build
+
+# ---------- runtime ----------
+FROM node:20-bookworm-slim AS runtime
 
 # gosu drops privileges in the entrypoint after the chown. Backend runs as
 # `app` (system user, no shell, UID <1000); only the chown line in
@@ -11,11 +28,12 @@ RUN apt-get update \
 
 WORKDIR /app
 
-COPY backend/package.json backend/package-lock.json* ./
-RUN npm install --no-audit --no-fund
+ENV NODE_ENV=production
 
-COPY backend/tsconfig.json ./
-COPY backend/src ./src
+COPY backend/package.json backend/package-lock.json* ./
+RUN npm ci --omit=dev --no-audit --no-fund
+
+COPY --from=builder /build/dist ./dist
 
 RUN chown -R app:app /app
 
@@ -25,4 +43,4 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 EXPOSE 4000
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
-CMD ["npx", "tsx", "src/index.ts"]
+CMD ["node", "dist/index.js"]

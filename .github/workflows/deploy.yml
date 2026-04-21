@@ -1,0 +1,168 @@
+name: Deploy (prod)
+
+# Push-to-main deploy pipeline for the Azure VM stack.
+# - backend/** changes  -> build + push codetutor-backend to GHCR, pull on VM, restart service
+# - runner-image/** changes -> build + push codetutor-runner to GHCR, pull on VM (no restart; new sessions use it)
+#
+# Auth: OIDC federation with an Azure SP scoped to codetutor-ai-prod-rg.
+# No long-lived Azure creds; GHCR push uses the workflow's built-in GITHUB_TOKEN.
+#
+# First deploy creates the GHCR packages as private. Flip them public manually
+# (UI or `gh api --method PATCH /user/packages/container/<name>/visibility -f visibility=public`)
+# so the VM can pull anonymously.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'runner-image/**'
+      - 'docker-compose.yml'
+      - 'docker-compose.prod.yml'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+    inputs:
+      service:
+        description: 'Which image to rebuild + redeploy'
+        required: true
+        default: 'backend'
+        type: choice
+        options:
+          - backend
+          - runner-image
+          - both
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+permissions:
+  id-token: write   # needed for azure/login OIDC exchange
+  contents: read
+  packages: write   # GHCR push
+
+env:
+  BACKEND_IMAGE: ghcr.io/msrivas-7/codetutor-backend
+  RUNNER_IMAGE: ghcr.io/msrivas-7/codetutor-runner
+  AZURE_RG: codetutor-ai-prod-rg
+  AZURE_VM: codetutor-ai-vm
+
+jobs:
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      runner: ${{ steps.filter.outputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+              - 'docker-compose.yml'
+              - 'docker-compose.prod.yml'
+            runner:
+              - 'runner-image/**'
+
+  build-backend:
+    name: Build backend + deploy
+    needs: changes
+    if: |
+      needs.changes.outputs.backend == 'true' ||
+      (github.event_name == 'workflow_dispatch' && contains(fromJSON('["backend", "both"]'), inputs.service))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build + push backend image
+        # Context is repo root (not ./backend) because the Dockerfile COPYs
+        # paths like `backend/package.json` — matching how docker-compose
+        # builds on the VM (context: .).
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./backend/Dockerfile
+          push: true
+          tags: |
+            ${{ env.BACKEND_IMAGE }}:${{ github.sha }}
+            ${{ env.BACKEND_IMAGE }}:latest
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,scope=backend,mode=max
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Pull new backend image on VM + restart service
+        # az vm run-command reports "Succeeded" on invocation even if the inner
+        # script fails, so we grep for a sentinel at the end of the script.
+        run: |
+          out=$(az vm run-command invoke \
+            -g "$AZURE_RG" -n "$AZURE_VM" \
+            --command-id RunShellScript \
+            --scripts 'set -e; cd /opt/codetutor && sudo -u codetutor docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env pull backend && systemctl restart codetutor-ai.service && sleep 10 && systemctl is-active codetutor-ai.service && echo DEPLOY_OK' \
+            --query "value[0].message" -o tsv)
+          echo "$out"
+          echo "$out" | grep -q DEPLOY_OK || { echo "::error::deploy sentinel missing - deploy failed on VM"; exit 1; }
+
+  build-runner:
+    name: Build runner-image + push
+    needs: changes
+    if: |
+      needs.changes.outputs.runner == 'true' ||
+      (github.event_name == 'workflow_dispatch' && contains(fromJSON('["runner-image", "both"]'), inputs.service))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build + push runner image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./runner-image
+          push: true
+          tags: |
+            ${{ env.RUNNER_IMAGE }}:${{ github.sha }}
+            ${{ env.RUNNER_IMAGE }}:latest
+          cache-from: type=gha,scope=runner
+          cache-to: type=gha,scope=runner,mode=max
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Pull new runner image on VM (no restart; new sessions pick it up)
+        run: |
+          out=$(az vm run-command invoke \
+            -g "$AZURE_RG" -n "$AZURE_VM" \
+            --command-id RunShellScript \
+            --scripts 'set -e; cd /opt/codetutor && sudo -u codetutor docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env pull runner-image && echo DEPLOY_OK' \
+            --query "value[0].message" -o tsv)
+          echo "$out"
+          echo "$out" | grep -q DEPLOY_OK || { echo "::error::deploy sentinel missing - deploy failed on VM"; exit 1; }
