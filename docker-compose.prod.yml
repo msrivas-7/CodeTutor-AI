@@ -21,6 +21,12 @@ services:
   backend:
     image: ${BACKEND_IMAGE:-ghcr.io/msrivas-7/codetutor-backend:latest}
     restart: unless-stopped
+    environment:
+      # Phase 19e: canonical prod frontend origin. Custom domain beats the
+      # SWA default hostname (which is still served, but not CORS-allowed —
+      # direct visitors see the app but API calls fail by design). The
+      # CORS_ORIGIN line in refresh-env's .env file is shadowed by this.
+      CORS_ORIGIN: "https://codetutor.msrivas.com"
 
   frontend:
     image: busybox:1.37

@@ -58,12 +58,13 @@ write_files:
         echo "BYOK_ENCRYPTION_KEY=$(fetch BYOK-ENCRYPTION-KEY)"
         echo "VITE_SUPABASE_URL=$(fetch VITE-SUPABASE-URL)"
         echo "VITE_SUPABASE_ANON_KEY=$(fetch VITE-SUPABASE-ANON-KEY)"
-        # Non-secret prod config. CORS locked to the SWA hostname; rate
-        # limits back to prod-tight values (dev's 500/2000/500 headroom
+        # Non-secret prod config. CORS locked to the canonical custom
+        # domain (shadowed by docker-compose.prod.yml's backend env block);
+        # rate limits back to prod-tight values (dev's 500/2000/500 headroom
         # was for the parallel e2e workers, not real traffic).
         echo "BACKEND_PORT=4000"
         echo "BACKEND_BIND=127.0.0.1"
-        echo "CORS_ORIGIN=https://{{SWA_HOSTNAME}}"
+        echo "CORS_ORIGIN=https://codetutor.msrivas.com"
         echo "BACKEND_IMAGE={{BACKEND_IMAGE}}"
         echo "RUNNER_IMAGE={{RUNNER_IMAGE}}"
         echo "DOCKER_HOST=tcp://socket-proxy:2375"
