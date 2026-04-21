@@ -31,9 +31,14 @@ COPY frontend/ ./
 ARG VITE_BACKEND_URL
 ARG VITE_SUPABASE_URL
 ARG VITE_SUPABASE_ANON_KEY
+# Phase 20-P1: bake the deploying git sha into the bundle so feedback
+# submissions (and, later, Sentry/LogRocket) can pin a report to the exact
+# commit. Falls back to "dev" in the client when absent.
+ARG VITE_APP_SHA
 ENV VITE_BACKEND_URL=${VITE_BACKEND_URL}
 ENV VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
 ENV VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY}
+ENV VITE_APP_SHA=${VITE_APP_SHA}
 
 RUN npm run build
 

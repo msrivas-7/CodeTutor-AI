@@ -58,6 +58,14 @@ export interface ExecutionBackend {
    */
   ensureReady(): Promise<void>;
 
+  /**
+   * Liveness probe. Throws if the backend cannot talk to its runtime (for
+   * local-docker: the docker socket / socket-proxy is unreachable). Used by
+   * `/api/health/deep` so alerting can fire when the VM has lost docker
+   * before learners see a session-create 500.
+   */
+  ping(): Promise<void>;
+
   createSession(spec: RuntimeSpec): Promise<SessionHandle>;
   isAlive(handle: SessionHandle): Promise<boolean>;
   destroy(handle: SessionHandle): Promise<void>;

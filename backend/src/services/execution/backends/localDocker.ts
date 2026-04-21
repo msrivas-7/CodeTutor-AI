@@ -43,6 +43,14 @@ export class LocalDockerBackend implements ExecutionBackend {
     this.docker = new Docker();
   }
 
+  async ping(): Promise<void> {
+    // Liveness probe for /api/health/deep. `docker.ping()` hits `/_ping` on
+    // the socket-proxy, which is one of the endpoints the proxy allowlists
+    // (PING=1 in docker-compose.prod.yml). Throws on connection refused,
+    // non-200, or socket errors — the caller turns that into a 503.
+    await this.docker.ping();
+  }
+
   async ensureReady(): Promise<void> {
     this.hostWorkspaceRoot = await this.resolveHostWorkspaceRoot();
     console.log(`[local-docker] host workspace root: ${this.hostWorkspaceRoot}`);

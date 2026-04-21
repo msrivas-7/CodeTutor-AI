@@ -27,6 +27,7 @@ function makeFakeBackend(): ExecutionBackend {
   const backend: ExecutionBackend = {
     kind: "test-fake",
     async ensureReady() {},
+    async ping() {},
     async createSession(spec) {
       const h: SessionHandle = { sessionId: spec.sessionId, __kind: "fake" };
       handles.set(spec.sessionId, h);

@@ -94,6 +94,7 @@ services:
         VITE_BACKEND_URL: "${VITE_BACKEND_URL:-http://backend:4000}"
         VITE_SUPABASE_URL: "${VITE_SUPABASE_URL}"
         VITE_SUPABASE_ANON_KEY: "${VITE_SUPABASE_ANON_KEY}"
+        VITE_APP_SHA: "${VITE_APP_SHA:-dev}"
     # VITE_* are read by vite.config.ts at dev-server startup (for vite.config
     # itself) and injected into import.meta.env for the browser bundle. In dev
     # mode Vite picks up any VITE_* process env var, so we surface the three

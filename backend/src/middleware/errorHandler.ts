@@ -11,10 +11,12 @@ export class HttpError extends Error {
   }
 }
 
-export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
+export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
   if (err instanceof ZodError) {
     const detail = err.issues.map((i) => i.message).join("; ");
-    console.error("[error] 400 (zod)", detail);
+    console.error(
+      JSON.stringify({ level: "warn", t: new Date().toISOString(), id: req.id, status: 400, err: "zod", detail }),
+    );
     res.status(400).json({ error: detail });
     return;
   }
@@ -23,7 +25,15 @@ export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
     // token — expected on sign-out, fresh tab, expired session). Skip the
     // log so authMiddleware doesn't turn into a noise source.
     if (err.status !== 401) {
-      console.error(`[error] ${err.status}`, err.message);
+      console.error(
+        JSON.stringify({
+          level: "warn",
+          t: new Date().toISOString(),
+          id: req.id,
+          status: err.status,
+          err: err.message,
+        }),
+      );
     }
     res.status(err.status).json({ error: err.message });
     return;
@@ -38,14 +48,33 @@ export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
     err instanceof Error &&
     (err as { type?: string }).type === "entity.too.large"
   ) {
-    console.error("[error] 413", err.message);
+    console.error(
+      JSON.stringify({
+        level: "warn",
+        t: new Date().toISOString(),
+        id: req.id,
+        status: 413,
+        err: err.message,
+      }),
+    );
     res.status(413).json({ error: "payload too large" });
     return;
   }
   // 500 is the path for *unexpected* errors — the message often contains
   // internal details (file paths, SQL, stack fragments) that should not leak
-  // to the client. Log the full error server-side; return a generic string.
+  // to the client. Log the full error server-side; return a generic string
+  // plus the request id so a support ticket can map back to this log line.
   const message = err instanceof Error ? err.message : String(err);
-  console.error("[error] 500", message, err instanceof Error ? err.stack : "");
-  res.status(500).json({ error: "Internal error" });
+  const stack = err instanceof Error ? err.stack : "";
+  console.error(
+    JSON.stringify({
+      level: "error",
+      t: new Date().toISOString(),
+      id: req.id,
+      status: 500,
+      err: message,
+      stack,
+    }),
+  );
+  res.status(500).json({ error: "Internal error", requestId: req.id });
 };

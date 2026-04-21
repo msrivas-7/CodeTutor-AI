@@ -8,15 +8,20 @@ import { createExecutionRouter } from "./routes/execution.js";
 import { createExecuteTestsRouter } from "./routes/executeTests.js";
 import { aiRouter } from "./routes/ai.js";
 import { userDataRouter } from "./routes/userData.js";
+import { feedbackRouter } from "./routes/feedback.js";
 import { csrfGuard } from "./middleware/csrfGuard.js";
 import { authMiddleware } from "./middleware/authMiddleware.js";
 import { bodyLimit } from "./middleware/bodyLimit.js";
+import { requestId } from "./middleware/requestId.js";
+import { requestLogger } from "./middleware/requestLogger.js";
 import {
   mutationLimit,
   sessionCreateLimit,
 } from "./middleware/mutationRateLimit.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { makeExecutionBackend } from "./services/execution/backends/index.js";
+import type { ExecutionBackend } from "./services/execution/backends/types.js";
+import { db } from "./db/client.js";
 import {
   initSessionManager,
   startSweeper,
@@ -70,55 +75,61 @@ async function main() {
   // rejection is cheap even under abuse.
   app.use(express.json({ limit: "1mb" }));
 
-  // Lightweight request log for session + AI routes so we can trace lifecycle.
-  // Phase 17 / M-A3: learner code (snapshot files, execute stdin, harness
-  // tests) never hits the log as raw text — only shape summaries. AI bodies
-  // stay fully redacted (they carry the OpenAI key header).
-  app.use((req, _res, next) => {
-    const isSession = req.path.startsWith("/api/session");
-    const isExec = req.path === "/api/execute" || req.path === "/api/execute/tests";
-    const isSnapshot = req.path === "/api/project/snapshot";
-    const isAi = req.path.startsWith("/api/ai");
-    const isUser = req.path.startsWith("/api/user");
-    if (!isSession && !isExec && !isSnapshot && !isAi && !isUser) return next();
-    let body = "";
-    if (req.path === "/api/session/ping" || isAi) {
-      body = "(redacted)";
-    } else if (isUser) {
-      // Shape-only: never log learner code or openai keys stored in prefs.
-      body = req.method === "GET" ? "(get)" : `(${req.method.toLowerCase()})`;
-    } else if (isSnapshot) {
-      const files = (req.body?.files as unknown[] | undefined) ?? [];
-      body = JSON.stringify({
-        sessionId: req.body?.sessionId,
-        files: files.length,
-      });
-    } else if (req.path === "/api/execute") {
-      const stdin = (req.body?.stdin as string | null | undefined) ?? null;
-      body = JSON.stringify({
-        sessionId: req.body?.sessionId,
-        language: req.body?.language,
-        stdin: stdin === null ? null : `<${stdin.length} chars>`,
-      });
-    } else if (req.path === "/api/execute/tests") {
-      const tests = (req.body?.tests as unknown[] | undefined) ?? [];
-      body = JSON.stringify({
-        sessionId: req.body?.sessionId,
-        language: req.body?.language,
-        tests: tests.length,
-      });
-    } else {
-      body = JSON.stringify(req.body ?? {});
-    }
-    console.log(`[req] ${req.method} ${req.path} ${body}`);
-    next();
-  });
-
-  app.get("/api/health", (_req, res) => {
-    res.json({ ok: true, uptime: process.uptime() });
-  });
+  // Phase 20-P1: correlation id + structured completion log. Order matters —
+  // requestId sets req.id before anything else (including errorHandler)
+  // might want to reference it; requestLogger's finish hook runs after the
+  // response body is sent so it captures the final status + duration.
+  app.use(requestId);
+  app.use(requestLogger);
 
   const executionBackend = makeExecutionBackend();
+
+  app.get("/api/health", (_req, res) => {
+    // Trimmed to `{ ok: true }` — no process.uptime leak (Phase 20-P2 nit).
+    res.json({ ok: true });
+  });
+
+  // Phase 20-P1: deep probe for alerting. Touches both downstream dependencies
+  // the backend cannot function without — Postgres (user state, BYOK
+  // ciphertext) and the docker socket-proxy (every session spawn). Any
+  // failure returns 503 so the VM-level alert fires before learners see the
+  // backend try-and-fail to create a session. `/api/health` remains the
+  // cheap "process is alive" probe; this one is deliberately heavier and
+  // should be polled less often.
+  app.get("/api/health/deep", async (_req, res) => {
+    const start = Date.now();
+    const result: {
+      ok: boolean;
+      db: "ok" | "fail";
+      docker: "ok" | "fail";
+      errors?: string[];
+      ms?: number;
+    } = { ok: true, db: "ok", docker: "ok" };
+    const errors: string[] = [];
+    await Promise.all([
+      (async () => {
+        try {
+          await db()`SELECT 1`;
+        } catch (err) {
+          result.db = "fail";
+          result.ok = false;
+          errors.push(`db: ${(err as Error).message}`);
+        }
+      })(),
+      (async () => {
+        try {
+          await executionBackend.ping();
+        } catch (err) {
+          result.docker = "fail";
+          result.ok = false;
+          errors.push(`docker: ${(err as Error).message}`);
+        }
+      })(),
+    ]);
+    if (errors.length > 0) result.errors = errors;
+    result.ms = Date.now() - start;
+    res.status(result.ok ? 200 : 503).json(result);
+  });
 
   // Middleware chain per route group (Phase 18a):
   //
@@ -188,6 +199,18 @@ async function main() {
     userDataRouter,
   );
 
+  // Phase 20-P1: user-reported feedback (bug / idea / other + opt-in
+  // diagnostics). Same middleware stack as /api/user — authed, mutation-
+  // limited, 16 KB body (4 KB text + 8 KB diag + slack).
+  app.use(
+    "/api/feedback",
+    bodyLimit(16 * 1024),
+    csrfGuard,
+    authMiddleware,
+    mutationLimit,
+    feedbackRouter,
+  );
+
   app.use(errorHandler);
 
   // Backend-specific startup prep (local-docker: resolve host workspace root,
@@ -210,15 +233,43 @@ async function main() {
     console.log(`[startup] execution backend: ${executionBackend.kind}`);
   });
 
-  const shutdown = async (signal: string) => {
+  const shutdown = async (signal: string, exitCode: number) => {
     console.log(`[shutdown] received ${signal}`);
     server.close();
-    await shutdownAllSessions();
-    process.exit(0);
+    await shutdownAllSessions().catch((e) =>
+      console.error("[shutdown] session teardown failed:", e),
+    );
+    process.exit(exitCode);
   };
-  process.on("SIGINT", () => shutdown("SIGINT"));
-  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT", 0));
+  process.on("SIGTERM", () => shutdown("SIGTERM", 0));
+
+  // Phase 20-P1: catch-all for async errors nothing above caught. Without
+  // these, an unhandled dockerode or postgres rejection crashes the VM
+  // immediately and orphans running sessions. Log structured, then exit
+  // via the shutdown path so `docker compose restart-policy` picks us back
+  // up and the next Caddy request just sees a brief 502.
+  //
+  // These never throw a second time on their own — the handler must be
+  // defensive; a panic inside the panic handler would loop.
+  process.on("unhandledRejection", (reason) => {
+    const message = reason instanceof Error ? reason.stack ?? reason.message : String(reason);
+    console.error(
+      JSON.stringify({ level: "error", t: new Date().toISOString(), err: "unhandledRejection", message }),
+    );
+    void shutdown("unhandledRejection", 1);
+  });
+  process.on("uncaughtException", (err) => {
+    console.error(
+      JSON.stringify({ level: "error", t: new Date().toISOString(), err: "uncaughtException", message: err.stack ?? err.message }),
+    );
+    void shutdown("uncaughtException", 1);
+  });
 }
+
+// Module re-exports for tests that need to build a deep-health probe
+// against a mock backend without pulling all of main().
+export type { ExecutionBackend };
 
 main().catch((err) => {
   console.error("[fatal]", err);

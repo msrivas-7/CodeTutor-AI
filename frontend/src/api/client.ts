@@ -363,6 +363,16 @@ export const api = {
   summarizeHistory: (body: { model: string; history: AIMessage[] }) =>
     post<{ summary: string }>("/api/ai/summarize", body),
   listOpenAIModels: () => get<{ models: AIModel[] }>("/api/ai/models"),
+
+  // Phase 20-P1: global feedback channel. Body is always non-empty plaintext;
+  // diagnostics is opt-in and passed through verbatim (the client is the
+  // authoritative shape). Returns the row id so the UI can mention it in
+  // the thank-you screen (useful for support tickets that reference it).
+  submitFeedback: (body: {
+    body: string;
+    category: "bug" | "idea" | "other";
+    diagnostics?: Record<string, string | number | boolean | null>;
+  }) => post<{ id: string; createdAt: string }>("/api/feedback", body),
   askAIStream: async (
     body: AskStreamRequest,
     handlers: AskStreamHandlers
