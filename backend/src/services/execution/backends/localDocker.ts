@@ -47,6 +47,12 @@ export class LocalDockerBackend implements ExecutionBackend {
     this.hostWorkspaceRoot = await this.resolveHostWorkspaceRoot();
     console.log(`[local-docker] host workspace root: ${this.hostWorkspaceRoot}`);
 
+    // No sessions exist yet at boot, so any dir under workspaceRoot is an
+    // orphan from a crashed/killed prior process (shutdownAllSessions only
+    // runs on graceful SIGTERM). Purge them so the bind-mount doesn't grow
+    // forever. Empty/missing root is a no-op.
+    await purgeOrphanWorkspaces(this.opts.workspaceRoot);
+
     try {
       await this.docker.getImage(this.opts.runnerImage).inspect();
       console.log(`[local-docker] runner image ready: ${this.opts.runnerImage}`);
@@ -419,6 +425,37 @@ async function removeWorkspaceDir(dir: string): Promise<void> {
       await new Promise((r) => setTimeout(r, 150 * (attempt + 1)));
     }
   }
+}
+
+/**
+ * Remove every child of `workspaceRoot` (but not the root itself — its inode
+ * is the bind-mount target and must stay stable). Called from ensureReady()
+ * to reap dirs left behind when a prior backend process died without running
+ * shutdownAllSessions (hard kill, OOM, `docker compose down -t 0`, crash).
+ * The root not existing is a no-op; per-entry errors are logged and skipped
+ * so one bad dir doesn't block startup.
+ */
+async function purgeOrphanWorkspaces(workspaceRoot: string): Promise<void> {
+  let entries: string[];
+  try {
+    entries = await fs.readdir(workspaceRoot);
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
+    console.warn(`[local-docker] purgeOrphanWorkspaces readdir failed: ${(err as Error).message}`);
+    return;
+  }
+  if (entries.length === 0) return;
+  await Promise.all(
+    entries.map(async (name) => {
+      const target = path.posix.join(workspaceRoot, name);
+      try {
+        await fs.rm(target, { recursive: true, force: true });
+      } catch (err) {
+        console.warn(`[local-docker] could not purge orphan ${target}: ${(err as Error).message}`);
+      }
+    }),
+  );
+  console.log(`[local-docker] purged ${entries.length} orphan workspace(s) from prior run`);
 }
 
 /**

@@ -15,9 +15,10 @@ build/
 *.log
 *.tsbuildinfo
 
-# Per-session workspaces written by backend at runtime
-temp/sessions/*
-!temp/sessions/.gitkeep
+# Per-session workspaces written by backend at runtime. Directory is created
+# on demand by docker-compose (bind-mount source), cloud-init, and the
+# backend's createSession(); no tracked placeholder needed.
+temp/sessions/
 
 # Terminal window IDs recorded by start.sh for stop.sh to close
 .ai-code-editor-terminals

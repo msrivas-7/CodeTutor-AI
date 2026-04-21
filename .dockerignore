@@ -4,6 +4,5 @@
 **/.git
 **/.vscode
 **/.idea
-temp/sessions/*
-!temp/sessions/.gitkeep
+temp/sessions/
 .env
