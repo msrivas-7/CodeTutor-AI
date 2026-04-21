@@ -13,7 +13,7 @@ import { useSessionLifecycle } from "../hooks/useSessionLifecycle";
 import { useGlobalShortcuts } from "../hooks/useGlobalShortcuts";
 import { useEditorProjectPersistence } from "../hooks/useEditorProjectPersistence";
 import { useAIStore } from "../state/aiStore";
-import { useProjectStore, consumePendingEditorStdin } from "../state/projectStore";
+import { useProjectStore, consumePendingEditorStdin, starterStdin } from "../state/projectStore";
 import { useRunStore } from "../state/runStore";
 import { SettingsModal } from "../components/SettingsModal";
 import { UserMenu } from "../components/UserMenu";
@@ -55,9 +55,14 @@ export default function EditorPage() {
     switchProjectContext("editor");
     // Persisted stdin (if any) was captured during auth-time editor-project
     // hydration; consume it here so the first Editor visit after sign-in
-    // seeds it. Null falls back to the starter stdin for the current lang.
+    // seeds it. Falls back to the current language's starter stdin so a
+    // cold /editor visit (no persisted project yet) still ships the
+    // starter's example input — without this fallback, switchRunContext
+    // coalesces stdin to "" and the starter prints its "no input" branch.
     const pendingStdin = consumePendingEditorStdin();
-    switchRunContext("editor", pendingStdin !== null ? { stdin: pendingStdin } : undefined);
+    const effectiveStdin =
+      pendingStdin !== null ? pendingStdin : starterStdin(useProjectStore.getState().language);
+    switchRunContext("editor", { stdin: effectiveStdin });
   }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
   const [leftW, setLeftW] = usePersistedNumber(LS_LEFT, DEFAULTS.left);

@@ -123,6 +123,12 @@ export class LocalDockerBackend implements ExecutionBackend {
         //    (e.g. writing into /etc or /usr/local).
         //  - Tmpfs /tmp: compiler toolchains need a writable /tmp for object
         //    files; tmpfs is in-memory, size-capped, and vanishes on stop.
+        //    `exec` is REQUIRED because the compiled-language run phase
+        //    writes the binary under /tmp/out (see commands.ts) and then
+        //    executes it. Docker's default tmpfs options include `noexec`,
+        //    which would surface as `sh: 1: /tmp/out: Permission denied` for
+        //    every Go/Rust/C/C++ run. `nosuid,nodev` keep the host-side
+        //    hardening that the noexec default was part of.
         //  - Ulimits (nofile): cap open FDs at 256 per process. We rely on
         //    PidsLimit (above) for fork-bomb protection rather than a nproc
         //    ulimit — RLIMIT_NPROC is per-uid on the host and would be
@@ -131,7 +137,7 @@ export class LocalDockerBackend implements ExecutionBackend {
         //    uses cgroups and is correctly scoped to a single container.
         CapDrop: ["ALL"],
         ReadonlyRootfs: true,
-        Tmpfs: { "/tmp": "size=64m,mode=1777" },
+        Tmpfs: { "/tmp": "rw,exec,nosuid,nodev,size=64m,mode=1777" },
         Ulimits: [{ Name: "nofile", Soft: 256, Hard: 256 }],
         SecurityOpt: ["no-new-privileges"],
       },
