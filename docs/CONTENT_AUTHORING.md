@@ -323,3 +323,7 @@ Hints do not auto-reveal. The tutor panel surfaces them on the learner's ask or 
 - `required_file_contains` pattern doesn't match the solution source — verify-solutions failure.
 
 Fix the rule or fix the solution — don't commit the mismatch.
+
+---
+
+<sub>Copyright &copy; 2026 Mehul Srivastava. All rights reserved. See [LICENSE](../LICENSE).</sub>

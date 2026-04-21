@@ -9,10 +9,13 @@
 Write code, run it in a sandboxed environment, and get structured help when you're stuck.
 
 <br />
+
+### [Try it live → codetutor.msrivas.com](https://codetutor.msrivas.com)
+
 <br />
 
-[![Languages](https://img.shields.io/badge/9_Languages-Python_%7C_JS_%7C_TS_%7C_C_%7C_C++_%7C_Java_%7C_Go_%7C_Rust_%7C_Ruby-38bdf8?style=flat-square)](https://github.com/msrivas-7/CodeTutor-AI)
-[![Docker](https://img.shields.io/badge/Runs_in-Docker-2496ED?style=flat-square&logo=docker&logoColor=white)](https://www.docker.com/products/docker-desktop/)
+[![Languages](https://img.shields.io/badge/9_Languages-Python_%7C_JS_%7C_TS_%7C_C_%7C_C++_%7C_Java_%7C_Go_%7C_Rust_%7C_Ruby-38bdf8?style=flat-square)](https://codetutor.msrivas.com)
+[![Azure](https://img.shields.io/badge/Hosted_on-Azure-0078D4?style=flat-square&logo=microsoftazure&logoColor=white)](https://codetutor.msrivas.com)
 [![OpenAI](https://img.shields.io/badge/AI_Tutor-OpenAI-412991?style=flat-square&logo=openai&logoColor=white)](https://platform.openai.com/api-keys)
 
 <br />
@@ -93,73 +96,11 @@ Write code, run it in a sandboxed environment, and get structured help when you'
 
 ---
 
-## Getting Started
+## Get Started
 
-<table>
-<tr>
-<td>
+Head to **[codetutor.msrivas.com](https://codetutor.msrivas.com)** and sign in with Google or GitHub. The editor and run-code work right away; bring your own [OpenAI API key](https://platform.openai.com/api-keys) to unlock the AI tutor.
 
-**Prerequisites**
-
-</td>
-<td>
-
-[Git](https://git-scm.com/downloads), [Docker Desktop](https://www.docker.com/products/docker-desktop/) (running), and Supabase credentials — request the dev bundle from the repo owner or point at your own fork's project (see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md#first-time-setup-auth-stack)). Optional: [OpenAI API key](https://platform.openai.com/api-keys) for the AI tutor.
-
-</td>
-</tr>
-</table>
-
-### macOS / Linux
-
-```bash
-git clone https://github.com/msrivas-7/CodeTutor-AI.git
-cd codetutor-ai
-cp .env.example .env                                   # fill in Supabase creds
-cp frontend/.env.development.example frontend/.env.development.local
-./start.sh          # first build ~2-3 min, then ~10s
-```
-
-### Windows
-
-```powershell
-git clone https://github.com/msrivas-7/CodeTutor-AI.git
-cd codetutor-ai
-Copy-Item .env.example .env                            # fill in Supabase creds
-Copy-Item frontend/.env.development.example frontend/.env.development.local
-powershell -ExecutionPolicy Bypass -File .\start.ps1
-```
-
-<br />
-
-> First launch builds Docker images (~2-3 min). After that, startup takes ~10 seconds.
-> Open **http://localhost:5173** and you're in. Stop with `./stop.sh` or `.\stop.ps1`.
-
-### System requirements
-
-| | Minimum |
-| --- | --- |
-| **RAM** | ~4 GB free while running |
-| **Disk** | ~2 GB for Docker images (first build only) |
-| **Network** | Internet for first build. After that, only the AI tutor needs internet. |
-
----
-
-<details>
-<summary><strong>Troubleshooting</strong></summary>
-
-<br />
-
-| Problem | Fix |
-| --- | --- |
-| "Cannot connect to the Docker daemon" | Docker Desktop isn't running. Open it and wait for the icon to settle. |
-| "Bind mount failed" (Windows) | Docker Desktop > Settings > Resources > File Sharing > enable your drive. |
-| Port 4000/5173 in use | Stop the other process, or remap ports in `docker-compose.yml`. |
-| "running scripts is disabled" (Windows) | Use the full command: `powershell -ExecutionPolicy Bypass -File .\start.ps1` |
-| First build is slow | Expected (~2-3 min). Subsequent launches use cache (~10s). |
-| Nothing at localhost:5173 | Give it 10s for the Vite dev server to warm up. |
-
-</details>
+For development setup, architecture notes, and content authoring, see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ---
 

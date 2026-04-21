@@ -44,7 +44,7 @@ function buildSteps(runPhrase: string, askPhrase: string): CoachStep[] {
     {
       targetKey: "runButton",
       title: "Run Your Code",
-      body: `Click this to run your code in a sandboxed Docker container. You can also press ${runPhrase}.`,
+      body: `Click this to run your code in a sandboxed container. You can also press ${runPhrase}.`,
       position: "bottom",
     },
     {

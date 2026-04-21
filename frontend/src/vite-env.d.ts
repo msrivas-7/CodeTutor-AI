@@ -1,8 +1,8 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
-  /** Supabase project API URL (Phase 18a). Dev defaults to the local stack
-   * on http://localhost:54321; prod is `https://<ref>.supabase.co`. */
+  /** Supabase project API URL. `https://<ref>.supabase.co` — dev points at
+   * `codetutor-dev`, prod at `codetutor-prod` (Phase 18d cloud-only model). */
   readonly VITE_SUPABASE_URL: string;
   /** Publishable (anon) key. Safe to ship in the bundle — the real secret
    * lives on Supabase's side and is never exposed to the browser. */

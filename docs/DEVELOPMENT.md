@@ -1,10 +1,12 @@
 # Development
 
+Internal developer reference for running CodeTutor AI locally. The hosted product lives at [codetutor.msrivas.com](https://codetutor.msrivas.com); this doc is about the dev loop that feeds it.
+
 ## First-time setup (auth stack)
 
 The project uses **Supabase cloud** for auth + Postgres — no local Supabase CLI install, no local stack to boot. There are two Supabase projects on one cloud account: `codetutor-dev` (dev + CI/E2E) and `codetutor-prod` (production). Real credentials are gitignored; committed `.example` files document the shape.
 
-**Getting credentials (contributors).** Request the `codetutor-dev` credential bundle from the repo owner (see the project's `README.md` for contact). If you're forking, create your own Supabase project and use its values.
+Credentials for `codetutor-dev` are held by the project owner. The production project (`codetutor-prod`) is only reachable from the CI deploy pipeline and the VM's managed-identity-sourced Key Vault — never populate a local env file with prod keys.
 
 **Populate env files on disk (all gitignored):**
 
@@ -228,3 +230,7 @@ Two paths, depending on whether you want a frozen scripted state or a realistic 
 **End-user Export/Import for portable demo state.** If you've built up a specific progress state by hand and want to reproduce it on another machine (or share it with a teammate for bug repro), use **Settings → General → Progress → Export progress**. The JSON round-trips through the same allow-listed keys as the dev switcher — API keys, theme, and layout preferences are never included. Import replaces current progress and reloads.
 
 **When to ship dev mode to external users.** Don't. Dev mode is a production-safe no-op (tree-shaken from the prod bundle), but the shortcut + Developer tab are aimed at developers. For guided demos to non-developers, either pre-seed the browser with the profile you want before they sit down, or walk them through the real flow.
+
+---
+
+<sub>Copyright &copy; 2026 Mehul Srivastava. All rights reserved. See [LICENSE](../LICENSE).</sub>

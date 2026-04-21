@@ -40,7 +40,7 @@ export function SessionErrorBanner() {
       <div className="min-w-0 flex-1">
         <div className="font-semibold">Session lost</div>
         <div className="truncate text-[11px] opacity-80">
-          {error || "Couldn't reach the code runner."} Check that Docker is running, then retry.
+          {error || "Couldn't reach the code runner."} Retry in a moment, or refresh if the problem persists.
         </div>
       </div>
       <button

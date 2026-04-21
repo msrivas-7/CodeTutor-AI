@@ -86,7 +86,7 @@ export default function StartPage() {
       </div>
 
       <footer className="border-t border-border bg-panel/60 px-4 py-2 text-center text-[10px] text-faint">
-        CodeTutor AI — local-first, sandboxed, open source
+        CodeTutor AI © 2026 Mehul Srivastava — All rights reserved
       </footer>
 
       {showWelcome && (

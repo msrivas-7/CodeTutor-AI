@@ -145,7 +145,9 @@ codetutor-ai/
 
 ## Shipping posture
 
-Local dev is **not** local-deployment. Long-term the product runs frontend on the learner's device (PWA/Electron) and backend + sandbox in cloud (ECS Fargate / ACI / AKS). The backend never holds the raw Docker socket; it talks to `socket-proxy` over TCP (dockerode via `DOCKER_HOST`), and the proxy enforces an API allowlist. `ExecutionBackend` is the seam the cloud impls drop into without touching routes or session code.
+The product ships as a hosted SaaS at **[codetutor.msrivas.com](https://codetutor.msrivas.com)**. Frontend is served by Azure Static Web Apps; backend + runner sandbox run on an Azure VM (`Standard_B2s`) in `codetutor-ai-prod-rg`, fronted by Caddy with Let's Encrypt TLS at `codetutor-ai-vm.eastus2.cloudapp.azure.com`. Auth + data live in the `codetutor-prod` Supabase cloud project; BYOK master key lives in `codetutor-ai-kv` and is delivered to the VM at systemd start via managed identity. Images are hosted on GHCR and rolled out by `.github/workflows/deploy.yml` (OIDC → `az vm run-command`).
+
+The backend never holds the raw Docker socket; it talks to `socket-proxy` over TCP (dockerode via `DOCKER_HOST`), and the proxy enforces an API allowlist. `ExecutionBackend` is the seam future cloud-runner impls (ACI / ECS Fargate / AKS) drop into without touching routes or session code — the current posture runs the runner pool on the same VM but can split out horizontally when concurrent sessions grow past single-host capacity.
 
 ## Security posture
 
@@ -174,3 +176,7 @@ Defense-in-depth layers on top of the `ExecutionBackend` + socket-proxy seam. Ea
 | JS driver sandbox | `vm.createContext` exposes a minimal globals set (no `require`, `process`, `Buffer`, `module`) — documented as a module loader, *not* a security boundary. The runner container is the actual sandbox (Phase 17 / M-A4). | Same impl |
 | Request logging | `/api/project/snapshot` and `/api/execute*` bodies redact to shape-only (file count, stdin length, test count); `/api/ai/*` prompts redact to length + intent, with full prompts gated behind `DEBUG_PROMPTS=1` (Phase 17 / M-A3). | Same |
 | LAN exposure | Ports bound to `127.0.0.1` only | No-op in cloud (private VPC) |
+
+---
+
+<sub>Copyright &copy; 2026 Mehul Srivastava. All rights reserved. See [LICENSE](../LICENSE).</sub>
