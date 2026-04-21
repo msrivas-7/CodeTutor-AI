@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { api } from "../api/client";
+import { api, API_BASE } from "../api/client";
 import { useSessionStore } from "../state/sessionStore";
 import { useAuthStore } from "../auth/authStore";
 
@@ -97,7 +97,7 @@ export function useSessionLifecycle() {
       // let the backend sweeper reap the session if the token isn't hot.
       const token = useAuthStore.getState().session?.access_token;
       if (!token) return;
-      void fetch("/api/session/end", {
+      void fetch(`${API_BASE}/api/session/end`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

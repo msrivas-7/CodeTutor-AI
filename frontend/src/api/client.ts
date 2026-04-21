@@ -5,6 +5,11 @@
 const JSON_HEADERS = { "Content-Type": "application/json" };
 const CSRF_HEADER = { "X-Requested-With": "codetutor" };
 
+// Phase 19d: on SWA the frontend runs on a separate origin from the VM, so
+// `/api/*` must resolve to the VM's absolute URL. In dev this is empty and
+// `/api/*` stays same-origin (Vite proxies — see vite.config.ts).
+export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
+
 import { supabase } from "../auth/supabaseClient";
 
 // Phase 18a: attach the Supabase access token to every backend request so
@@ -39,7 +44,7 @@ async function handle401(res: Response): Promise<void> {
 
 async function post<T>(path: string, body?: unknown, extraHeaders?: Record<string, string>): Promise<T> {
   const auth = await authHeaders();
-  const res = await fetch(path, {
+  const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
     headers: { ...JSON_HEADERS, ...CSRF_HEADER, ...auth, ...(extraHeaders ?? {}) },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -53,7 +58,7 @@ async function post<T>(path: string, body?: unknown, extraHeaders?: Record<strin
 
 async function patch<T>(path: string, body: unknown): Promise<T> {
   const auth = await authHeaders();
-  const res = await fetch(path, {
+  const res = await fetch(`${API_BASE}${path}`, {
     method: "PATCH",
     headers: { ...JSON_HEADERS, ...CSRF_HEADER, ...auth },
     body: JSON.stringify(body),
@@ -67,7 +72,7 @@ async function patch<T>(path: string, body: unknown): Promise<T> {
 
 async function put<T>(path: string, body: unknown): Promise<T> {
   const auth = await authHeaders();
-  const res = await fetch(path, {
+  const res = await fetch(`${API_BASE}${path}`, {
     method: "PUT",
     headers: { ...JSON_HEADERS, ...CSRF_HEADER, ...auth },
     body: JSON.stringify(body),
@@ -81,7 +86,7 @@ async function put<T>(path: string, body: unknown): Promise<T> {
 
 async function del<T>(path: string): Promise<T> {
   const auth = await authHeaders();
-  const res = await fetch(path, {
+  const res = await fetch(`${API_BASE}${path}`, {
     method: "DELETE",
     headers: { ...CSRF_HEADER, ...auth },
   });
@@ -94,7 +99,7 @@ async function del<T>(path: string): Promise<T> {
 
 async function get<T>(path: string, extraHeaders?: Record<string, string>): Promise<T> {
   const auth = await authHeaders();
-  const res = await fetch(path, { headers: { ...auth, ...(extraHeaders ?? {}) } });
+  const res = await fetch(`${API_BASE}${path}`, { headers: { ...auth, ...(extraHeaders ?? {}) } });
   if (!res.ok) {
     await handle401(res);
     throw new Error(`${path} failed: ${res.status} ${await res.text()}`);
@@ -263,7 +268,7 @@ export const api = {
   ): Promise<{ ok: true } | { ok: false; status: number; error: string }> => {
     try {
       const auth = await authHeaders();
-      const res = await fetch("/api/session/ping", {
+      const res = await fetch(`${API_BASE}/api/session/ping`, {
         method: "POST",
         headers: { ...JSON_HEADERS, ...CSRF_HEADER, ...auth },
         body: JSON.stringify({ sessionId }),
@@ -338,7 +343,7 @@ export const api = {
     let res: Response;
     try {
       const auth = await authHeaders();
-      res = await fetch("/api/ai/ask/stream", {
+      res = await fetch(`${API_BASE}/api/ai/ask/stream`, {
         method: "POST",
         headers: { ...JSON_HEADERS, ...CSRF_HEADER, ...auth },
         body: JSON.stringify(body),

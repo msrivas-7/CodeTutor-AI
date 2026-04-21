@@ -1,0 +1,66 @@
+name: Deploy frontend (SWA)
+
+# Builds frontend/ via Vite and uploads to Azure Static Web Apps.
+# VITE_* build args are baked into the bundle at build time, so they must
+# be set on this workflow — SWA "Application settings" are runtime-only
+# (for linked Functions / managed APIs), not build-time for static assets.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/azure-static-web-apps.yml'
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    branches: [main]
+    paths:
+      - 'frontend/**'
+  workflow_dispatch:
+
+concurrency:
+  group: swa-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write   # SWA action leaves preview URL comment on PRs
+
+jobs:
+  build-and-deploy:
+    if: github.event_name != 'pull_request' || github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    name: Build + upload to SWA
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+          lfs: false
+
+      - name: Build + deploy
+        uses: Azure/static-web-apps-deploy@v1
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_API_BASE_URL: https://codetutor-ai-vm.eastus2.cloudapp.azure.com
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: upload
+          # Paths are relative to repo root. Oryx (SWA's build runner) picks
+          # up package.json in app_location, runs `npm ci` + `npm run build`,
+          # then uploads output_location's contents.
+          app_location: "frontend"
+          output_location: "dist"
+          skip_api_build: true
+
+  close-pr:
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    name: Close preview environment
+    steps:
+      - name: Close preview
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          action: close
