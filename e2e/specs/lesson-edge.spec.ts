@@ -6,7 +6,12 @@ import { expect, test } from "../fixtures/auth";
 
 import { mockAllAI } from "../fixtures/aiMocks";
 import { setMonacoValue, waitForMonacoReady } from "../fixtures/monaco";
-import { loadProfile, markOnboardingDone, seedLessonProgress } from "../fixtures/profiles";
+import {
+  loadProfile,
+  markOnboardingDone,
+  seedCompletedLessons,
+  seedLessonProgress,
+} from "../fixtures/profiles";
 import { readLessonSolution } from "../fixtures/solutions";
 import * as S from "../utils/selectors";
 
@@ -19,6 +24,9 @@ test.describe("lesson edge cases", () => {
 
   test("input-output lesson: stdin tab text feeds input() at runtime", async ({ page }) => {
     await loadProfile(page, "empty");
+    // useLessonLoader now bounces direct URLs that skip prereqs; input-output
+    // depends on `variables`. Seed the direct prereq so the guard lets us in.
+    await seedCompletedLessons(page, COURSE_ID, ["variables"]);
     await page.goto(`/learn/course/${COURSE_ID}/lesson/input-output`);
     await waitForMonacoReady(page);
     await expect(S.lessonRunButton(page)).toBeEnabled({ timeout: 30_000 });

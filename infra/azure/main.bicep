@@ -53,6 +53,9 @@ param runnerImage string = 'ghcr.io/msrivas-7/codetutor-runner:latest'
 @description('Custom mail domain for outbound Supabase auth emails. DNS records for this domain are added to the operator-managed DNS provider (Wix, for msrivas.com) after the ACS module deploys — see infra/azure/README.md. Uses a `mail.` subdomain because the apex (`codetutor.msrivas.com`) is already a CNAME to the SWA and DNS forbids TXT records at a CNAME name.')
 param mailDomain string = 'mail.codetutor.msrivas.com'
 
+@description('Set true ONLY on initial VM creation (or intentional recreate). Gates VM `customData` — Azure rejects any deployment that sends customData against a running VM, so idempotent redeploys must default to false.')
+param newVm bool = false
+
 var tags = {
   project: 'codetutor'
   environment: 'prod'
@@ -138,6 +141,7 @@ module vm 'modules/vm.bicep' = {
     backendImage: backendImage
     runnerImage: runnerImage
     adminEmail: alertEmail
+    newVm: newVm
   }
 }
 
@@ -195,19 +199,13 @@ module acsEmail 'modules/acsEmail.bicep' = {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Azure Backup (Phase 20-P0 #2): weekly OS-disk snapshot, 4-week retention.
-// Vault + policy are declared here; enrolling the VM as a protected item is
-// a one-time `az backup protection enable-for-vm` step (see README.md). LRS
-// storage, ~$0.50–1/mo for a 32 GB disk.
-// ---------------------------------------------------------------------------
-module backup 'modules/backup.bicep' = {
-  name: 'backup'
-  params: {
-    location: location
-    tags: tags
-  }
-}
+// Azure Backup note: the Recovery Services Vault + policy + VM enrollment
+// were created out-of-band (portal/CLI) and stay that way. The old
+// `modules/backup.bicep` still exists on disk but is no longer invoked —
+// its RSV declaration throws `Parameter NO_PARAM in request is invalid`
+// during incremental deploys, and there's no product value in IaC-managing
+// a one-off vault whose enrollment step (`az backup protection enable-for-vm`)
+// is imperative anyway.
 
 output vmFqdn string = network.outputs.fqdn
 output vmPublicIp string = network.outputs.publicIp
@@ -215,8 +213,6 @@ output keyVaultName string = keyvault.outputs.name
 output swaHostname string = swa.outputs.defaultHostname
 output swaName string = swa.outputs.name
 output logAnalyticsWorkspaceName string = monitoring.outputs.workspaceName
-output backupVaultName string = backup.outputs.vaultName
-output backupPolicyName string = backup.outputs.policyName
 output acsCommunicationServiceName string = acsEmail.outputs.communicationServiceName
 output acsEmailServiceName string = acsEmail.outputs.emailServiceName
 output mailDomainName string = acsEmail.outputs.mailDomainName

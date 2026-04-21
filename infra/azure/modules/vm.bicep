@@ -24,6 +24,12 @@ param backendImage string
 param runnerImage string
 param adminEmail string
 
+// customData is osProfile-immutable after first boot — Azure rejects any
+// deployment that tries to set it on a running VM, even to the same value.
+// Default false so idempotent incremental deploys don't trip; flip true on
+// the initial create (or when intentionally recreating the VM).
+param newVm bool = false
+
 var cloudInitTemplate = loadTextContent('../cloud-init.yaml')
 var cloudInitResolved = replace(replace(replace(replace(replace(replace(replace(
   cloudInitTemplate,
@@ -55,10 +61,13 @@ resource vm 'Microsoft.Compute/virtualMachines@2024-07-01' = {
         managedDisk: { storageAccountType: 'Premium_LRS' }
       }
     }
-    osProfile: {
+    // `customData` is only set on first VM create — see `newVm` param header.
+    // `union()` keeps the base properties and merges in customData only when
+    // the caller opts in, so idempotent redeploys don't include the immutable
+    // field at all.
+    osProfile: union({
       computerName: vmName
       adminUsername: adminUsername
-      customData: base64(cloudInitResolved)
       linuxConfiguration: {
         disablePasswordAuthentication: true
         ssh: {
@@ -70,7 +79,7 @@ resource vm 'Microsoft.Compute/virtualMachines@2024-07-01' = {
           ]
         }
       }
-    }
+    }, newVm ? { customData: base64(cloudInitResolved) } : {})
     networkProfile: {
       networkInterfaces: [ { id: nicId } ]
     }
