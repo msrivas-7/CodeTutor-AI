@@ -26,6 +26,7 @@ import { OutputPanel } from "../../../components/OutputPanel";
 import { Splitter } from "../../../components/Splitter";
 import { SettingsModal } from "../../../components/SettingsModal";
 import { UserMenu } from "../../../components/UserMenu";
+import { FeedbackButton } from "../../../components/FeedbackButton";
 import { SessionErrorBanner } from "../../../components/SessionErrorBanner";
 import { SessionRestartBanner } from "../../../components/SessionRestartBanner";
 import { NarrowViewportGate } from "../../../components/NarrowViewportGate";
@@ -810,6 +811,7 @@ export default function LessonPage() {
               Next →
             </button>
           )}
+          <FeedbackButton />
           <UserMenu />
         </div>
       </header>

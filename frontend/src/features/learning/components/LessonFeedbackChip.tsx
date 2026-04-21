@@ -4,9 +4,9 @@ import { api } from "../../../api/client";
 import { buildDiagnostics } from "../../../components/FeedbackModal";
 
 // Phase 20-P1 follow-up: contextual feedback chip shown on LessonCompletePanel.
-// The persistent FeedbackButton remains the "I have a complaint right now"
-// escape hatch; this chip harvests the quieter "that was confusing but I
-// wouldn't have clicked Feedback on my own" signal at peak context.
+// The persistent Feedback button in the header remains the "I have a complaint
+// right now" escape hatch; this chip harvests the quieter "that was confusing
+// but I wouldn't have clicked Feedback on my own" signal at peak context.
 //
 // Phase 20-P2 upgrade: the mood click now ALSO fires a fire-and-forget POST
 // that persists a mood-only row — so we never drop the learner's signal when
@@ -17,18 +17,17 @@ import { buildDiagnostics } from "../../../components/FeedbackModal";
 // error: a chip click shouldn't spam a toast, and the modal follow-up is
 // itself a retry surface.
 //
-// Session-scoped: once the learner has recorded a mood OR submitted from
-// the modal in a given tab, sessionStorage remembers the fact and subsequent
-// lesson completions don't re-nag them. Dismissing (clicking nothing) does
-// NOT set the flag — they'll see it again on the next lesson complete,
-// which is fine because it's passive. Key name matches the privacy contract
-// (no PII).
+// The chip shows on EVERY lesson-complete render — even re-completions and
+// subsequent lessons in the same tab. After a learner submits on a given
+// completion we collapse the chip so the post-submit panel doesn't re-prompt
+// them with "How was this lesson?"; next completion remounts and asks again.
+// This is deliberate: different lessons surface different issues, and an
+// already-completed lesson attempted again means the learner came back to it,
+// which is itself useful signal.
 
 const FeedbackModalLazy = lazy(() =>
   import("../../../components/FeedbackModal").then((m) => ({ default: m.FeedbackModal })),
 );
-
-export const LESSON_FEEDBACK_SESSION_KEY = "feedback-chip-submitted";
 
 export type LessonFeedbackMood = "good" | "okay" | "bad";
 
@@ -50,37 +49,20 @@ interface LessonFeedbackChipProps {
   lessonTitle: string;
 }
 
-function alreadySubmittedThisSession(): boolean {
-  try {
-    return sessionStorage.getItem(LESSON_FEEDBACK_SESSION_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
 export function LessonFeedbackChip({ lessonId, lessonTitle }: LessonFeedbackChipProps) {
   const location = useLocation();
-  const [hidden, setHidden] = useState(() => alreadySubmittedThisSession());
+  const [hidden, setHidden] = useState(false);
   const [openMood, setOpenMood] = useState<LessonFeedbackMood | null>(null);
   // Tracks that the mood-only POST already fired for this chip render so
   // React StrictMode's double-invoke doesn't double-insert in dev.
   const firedMoodRef = useRef(false);
-  // Tracks a successful modal submit within this component's lifetime so
-  // close collapses the chip even if sessionStorage is blocked (private mode).
+  // Tracks a successful submit within this component's lifetime so close
+  // collapses the chip (prevents the same panel re-prompting after Thanks).
   const submittedRef = useRef(false);
 
   if (hidden) return null;
 
   const selected = LESSON_FEEDBACK_MOODS.find((m) => m.mood === openMood);
-
-  function markSessionSubmitted() {
-    try {
-      sessionStorage.setItem(LESSON_FEEDBACK_SESSION_KEY, "1");
-    } catch {
-      // sessionStorage unavailable (e.g. Safari private mode pre-2022).
-      // submittedRef still covers the close-after-submit path below.
-    }
-  }
 
   function handleMoodClick(mood: LessonFeedbackMood, category: "bug" | "other") {
     setOpenMood(mood);
@@ -105,7 +87,6 @@ export function LessonFeedbackChip({ lessonId, lessonTitle }: LessonFeedbackChip
       })
       .then(() => {
         submittedRef.current = true;
-        markSessionSubmitted();
       })
       .catch(() => {
         // Swallow — see component header. Don't toast here.
@@ -114,15 +95,12 @@ export function LessonFeedbackChip({ lessonId, lessonTitle }: LessonFeedbackChip
 
   function handleSubmitted() {
     submittedRef.current = true;
-    markSessionSubmitted();
   }
 
   function handleClose() {
-    // Closing after a successful submit is how we collapse the chip row
-    // itself — we don't want the same "How was this lesson?" prompt to
-    // re-appear next to the just-dismissed "Thanks" flow. submittedRef is
-    // also flipped by the mood-only POST, so the chip collapses even if
-    // the learner opened+cancelled the modal without sending a note.
+    // Collapsing the chip after a successful submit prevents the post-submit
+    // panel from immediately re-prompting "How was this lesson?" — a jarring
+    // UX after the Thanks state. Next lesson-complete remounts fresh.
     if (submittedRef.current) {
       setHidden(true);
     }

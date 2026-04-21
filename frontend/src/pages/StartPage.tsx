@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { WelcomeOverlay } from "../components/WelcomeOverlay";
 import { UserMenu } from "../components/UserMenu";
+import { FeedbackButton } from "../components/FeedbackButton";
 import { usePreferencesStore } from "../state/preferencesStore";
 
 export default function StartPage() {
@@ -22,6 +23,7 @@ export default function StartPage() {
   return (
     <div className="relative flex h-full flex-col bg-bg text-ink">
       <div className="absolute right-4 top-3 z-10 flex items-center gap-2">
+        <FeedbackButton />
         <UserMenu />
       </div>
       <div className="flex flex-1 flex-col items-center justify-center px-6">

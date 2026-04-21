@@ -1,10 +1,12 @@
 import { lazy, Suspense, useState } from "react";
 import { useAuthStore } from "../auth/authStore";
 
-// Phase 20-P1: global feedback affordance. Mounted once by App.tsx so it
-// floats over every authenticated page (start, editor, lesson, dashboard).
-// Hidden while signed-out — the backend route requires auth and we don't
-// want to collect rows we can't attribute.
+// Phase 20-P1: global feedback affordance, rendered inline in each page's
+// top bar next to UserMenu. (Pre-Phase-20-P2 this was a fixed bottom-left
+// pill floated by App.tsx — it covered content on narrow editor panes and
+// the file tree; the header placement keeps it always-visible without
+// overlapping.) Hidden while signed-out — the backend route requires auth
+// and we don't want to collect rows we can't attribute.
 //
 // Modal is lazy-loaded so the submit-feedback code path doesn't live in the
 // first bundle; most learners never click this button in a session.
@@ -24,11 +26,12 @@ export function FeedbackButton() {
         onClick={() => setOpen(true)}
         aria-label="Give feedback"
         data-testid="feedback-button"
-        className="fixed bottom-3 left-3 z-40 inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-panel/95 px-3.5 py-1.5 text-xs font-medium text-accent shadow-lg backdrop-blur transition hover:bg-accent/10 hover:text-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        title="Report a bug or share an idea"
+        className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-[11px] font-medium text-muted transition hover:bg-elevated hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       >
         <svg
-          width="14"
-          height="14"
+          width="12"
+          height="12"
           viewBox="0 0 16 16"
           fill="currentColor"
           aria-hidden="true"

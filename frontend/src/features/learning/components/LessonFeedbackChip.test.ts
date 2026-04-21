@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  LESSON_FEEDBACK_MOODS,
-  LESSON_FEEDBACK_SESSION_KEY,
-} from "./LessonFeedbackChip";
+import { LESSON_FEEDBACK_MOODS } from "./LessonFeedbackChip";
 
 // Pin the mood → category mapping. The chip lies next to "Lesson Complete!"
 // so mis-categorising 😕 as "other" would silently hide every "that was
@@ -30,13 +27,5 @@ describe("LESSON_FEEDBACK_MOODS", () => {
     const labels = LESSON_FEEDBACK_MOODS.map((m) => m.label);
     expect(new Set(labels).size).toBe(labels.length);
     for (const l of labels) expect(l.length).toBeGreaterThan(0);
-  });
-});
-
-describe("LESSON_FEEDBACK_SESSION_KEY", () => {
-  it("uses a stable non-PII session flag name", () => {
-    // If this drifts, a learner who already submitted in this tab will see
-    // the chip again. Guard against accidental rename.
-    expect(LESSON_FEEDBACK_SESSION_KEY).toBe("feedback-chip-submitted");
   });
 });

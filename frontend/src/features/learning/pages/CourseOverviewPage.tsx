@@ -6,6 +6,7 @@ import { useProgressStore } from "../stores/progressStore";
 import { useAuthStore } from "../../../auth/authStore";
 import { LessonList } from "../components/LessonList";
 import { UserMenu } from "../../../components/UserMenu";
+import { FeedbackButton } from "../../../components/FeedbackButton";
 import { Modal } from "../../../components/Modal";
 import type { ProgressStatus } from "../types";
 
@@ -87,6 +88,7 @@ export default function CourseOverviewPage() {
           {course?.title ?? "Course"}
         </h1>
         <div className="ml-auto flex items-center gap-2">
+          <FeedbackButton />
           <UserMenu />
         </div>
       </header>

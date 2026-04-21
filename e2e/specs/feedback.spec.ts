@@ -1,7 +1,9 @@
 // Phase 20-P1: feedback flow. Covers the three things only an end-to-end run
 // can prove:
-//   1. The persistent FeedbackButton is mounted on every authed page and a
-//      click opens the modal.
+//   1. The header FeedbackButton is mounted on every authed page and a
+//      click opens the modal. (Phase 20-P2: moved from a floating bottom-left
+//      pill into each page's top bar next to UserMenu — it was covering
+//      content on the editor/lesson pages.)
 //   2. Submitting with the opt-in "Attach page context" box unchecked still
 //      succeeds and the backend row lands with an empty diagnostics blob.
 //   3. Checking the disclosure reveals the exact keys documented to the user,
@@ -67,8 +69,8 @@ test.describe("feedback modal", () => {
     await page.getByRole("radio", { name: /idea/i }).click();
     // Fill the textarea.
     await page.getByLabel(/feedback message/i).fill(marker);
-    // Submit (scope to the modal — the floating FeedbackButton shares the
-    // "Send feedback" accessible name so the page-wide lookup is ambiguous).
+    // Submit (scope to the modal — the modal heading is also "Send feedback"
+    // so the page-wide lookup is ambiguous).
     const dialog = page.getByRole("dialog");
     await Promise.all([
       page.waitForResponse((res) => res.url().endsWith("/api/feedback") && res.status() === 201),
@@ -91,7 +93,10 @@ test.describe("feedback modal", () => {
     await page.getByLabel(/feedback message/i).fill("route keys check");
     await page.getByLabel(/attach diagnostic context/i).check();
     await page.getByRole("button", { name: /what.?s included/i }).click();
-    const pre = page.locator("pre").first();
+    // Scope to the dialog — the editor page has its own <pre id="output-panel-body">
+    // that appears earlier in the DOM than the portal'd modal, so a
+    // page-wide .first() would grab the OutputPanel placeholder instead.
+    const pre = page.getByRole("dialog").locator("pre").first();
     await expect(pre).toBeVisible();
     const text = (await pre.textContent()) ?? "";
     // The six documented keys — if this ever drifts, either fix the copy in

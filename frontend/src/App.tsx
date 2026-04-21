@@ -1,7 +1,6 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import { lazy, Suspense } from "react";
 import { StorageQuotaBanner } from "./components/StorageQuotaBanner";
-import { FeedbackButton } from "./components/FeedbackButton";
 import { RequireAuth } from "./auth/RequireAuth";
 import { HydrationGate } from "./auth/HydrationGate";
 
@@ -33,7 +32,6 @@ export default function App() {
   return (
     <Suspense fallback={<Loading />}>
       <StorageQuotaBanner />
-      <FeedbackButton />
       <Routes>
         {/* Public auth routes. RequireAuth itself redirects here when
             an unauthenticated user tries to access a protected route. */}

@@ -17,6 +17,7 @@ import { useProjectStore, consumePendingEditorStdin, starterStdin } from "../sta
 import { useRunStore } from "../state/runStore";
 import { SettingsModal } from "../components/SettingsModal";
 import { UserMenu } from "../components/UserMenu";
+import { FeedbackButton } from "../components/FeedbackButton";
 import { SessionErrorBanner } from "../components/SessionErrorBanner";
 import { SessionRestartBanner } from "../components/SessionRestartBanner";
 import { NarrowViewportGate } from "../components/NarrowViewportGate";
@@ -125,6 +126,7 @@ export default function EditorPage() {
         <div className="flex items-center gap-4">
           <Toolbar langPickerRef={langPickerRef} runButtonRef={runButtonRef} />
           <StatusBadge />
+          <FeedbackButton />
           <UserMenu />
         </div>
       </header>
