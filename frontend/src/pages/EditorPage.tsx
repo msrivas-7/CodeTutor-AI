@@ -20,6 +20,7 @@ import { UserMenu } from "../components/UserMenu";
 import { FeedbackButton } from "../components/FeedbackButton";
 import { SessionErrorBanner } from "../components/SessionErrorBanner";
 import { SessionRestartBanner } from "../components/SessionRestartBanner";
+import { SessionReplacedModal } from "../components/SessionReplacedModal";
 import { NarrowViewportGate } from "../components/NarrowViewportGate";
 import { EditorCoach } from "../components/EditorCoach";
 import { usePreferencesStore } from "../state/preferencesStore";
@@ -133,6 +134,7 @@ export default function EditorPage() {
 
       <SessionErrorBanner />
       <SessionRestartBanner />
+      <SessionReplacedModal />
 
       <main className="flex min-h-0 flex-1 overflow-hidden">
         {filesCollapsed ? (

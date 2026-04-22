@@ -167,6 +167,34 @@ export async function upsertLessonProgress(
   return rowToLesson(rows[0]);
 }
 
+/**
+ * QA-M4: reap lesson_progress rows that look like abandoned drive-bys — a
+ * `startLesson` call fired the insert when the learner hit the URL, but no
+ * engagement signal (run, hint, time spent, saved code) followed. If the
+ * row is still "in_progress" after 24h with all bookkeeping at zero we
+ * treat it as a ghost and delete it. Leaving it in place is not just clutter
+ * — it silently self-unlocks prereq-locked lessons because `existingStatus`
+ * in the prereq guard reads as "in_progress", so the learner's next visit
+ * bypasses the bounce. Hourly sweeper run; bounded blast radius because
+ * the WHERE clause is conservative — any evidence of engagement keeps the
+ * row.
+ */
+export async function reapAbandonedLessonProgress(): Promise<number> {
+  const sql = db();
+  const rows = await sql`
+    DELETE FROM public.lesson_progress
+     WHERE status = 'in_progress'
+       AND run_count = 0
+       AND hint_count = 0
+       AND attempt_count <= 1
+       AND time_spent_ms = 0
+       AND (last_code IS NULL OR last_code::text = 'null')
+       AND updated_at < now() - interval '24 hours'
+     RETURNING lesson_id
+  `;
+  return rows.length;
+}
+
 export async function deleteLessonProgress(
   userId: string,
   courseId: string,

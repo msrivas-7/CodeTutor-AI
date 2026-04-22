@@ -151,7 +151,24 @@ export interface AIAskResult {
 export interface AIStreamHandlers {
   onDelta(chunk: string): void;
   onDone(raw: string, sections: TutorSections, usage?: TokenUsage): void;
-  onError(message: string): void;
+  // `status` carries the upstream HTTP status when the failure came from
+  // the provider (e.g. 401 from OpenAI on bad key). Absent for transport
+  // errors or parse failures where no status exists. Route handlers use
+  // this to decide whether to trip the provider-auth kill flag.
+  onError(message: string, status?: number): void;
+}
+
+// Error class thrown by the AI provider when an upstream HTTP call fails.
+// Routes inspect `.status` to decide whether to trip the platform-auth kill
+// flag (401 on a platform key → flip the flag; anything else → pass through).
+// Callers that don't care about status can treat it as a plain `Error`.
+export class AIProviderError extends Error {
+  status?: number;
+  constructor(message: string, status?: number) {
+    super(message);
+    this.name = "AIProviderError";
+    this.status = status;
+  }
 }
 
 export interface AIProvider {

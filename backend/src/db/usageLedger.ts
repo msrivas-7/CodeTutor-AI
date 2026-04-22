@@ -49,6 +49,38 @@ export function startOfUtcDay(now: Date = new Date()): Date {
 // L1: platform questions counted toward the learner-visible 30/day counter.
 // /summarize writes rows with counts_toward_quota=false, so this count is
 // stable against unseen summarize calls.
+//
+// H-2 serialization: the caller wraps this inside a transaction that takes
+// `pg_advisory_xact_lock(hashtext(user_id)::bigint)` so two concurrent
+// resolveAICredential calls for the same user (multi-tab race) observe a
+// consistent count. Without the lock, tab A reads 29 just before tab B
+// reads 29, both proceed, and both write rows → user consumes 31/30. The
+// lock is per-user so cross-user throughput is unaffected.
+export async function countPlatformQuestionsTodayLocked(
+  userId: string,
+  since: Date,
+): Promise<number> {
+  const sql = db();
+  // sql.begin executes inside a transaction; pg_advisory_xact_lock is
+  // automatically released at COMMIT/ROLLBACK so no explicit release needed.
+  const result = await sql.begin(async (tx) => {
+    await tx`SELECT pg_advisory_xact_lock(hashtext(${userId})::bigint)`;
+    const rows = await tx<Array<{ n: number }>>`
+      SELECT COUNT(*)::int AS n
+        FROM public.ai_usage_ledger
+       WHERE funding_source = 'platform'
+         AND counts_toward_quota = true
+         AND user_id = ${userId}
+         AND created_at >= ${since}
+    `;
+    return rows[0]?.n ?? 0;
+  });
+  return result as number;
+}
+
+// Unlocked variant retained for tests + non-cap-enforcing callers that
+// just need a quick read. The cap-enforcement path MUST use the locked
+// variant — a stale count here bypasses the per-user cap.
 export async function countPlatformQuestionsToday(
   userId: string,
   since: Date,

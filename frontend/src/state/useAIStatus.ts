@@ -68,12 +68,27 @@ async function fetchFresh(): Promise<AIStatusResponse | null> {
 // Reset on sign-out so the next user on the same tab doesn't inherit the
 // previous user's status blob. Bumping `epoch` also orphans any inflight
 // response issued for the signed-out user.
+//
+// QA-M9: also treat USER_UPDATED (e.g. email change, profile metadata) and
+// TOKEN_REFRESHED as epoch-bumping events. The underlying user may be the
+// same, but the backend's view of the JWT just changed — if a stale
+// pre-refresh response is in flight when the refresh lands, we'd surface
+// the old status against a token the server might reject. Bumping the
+// epoch drops the stale response; re-fetching re-hydrates with the new
+// token automatically via the axios interceptor.
 supabase.auth.onAuthStateChange((event) => {
   if (event === "SIGNED_OUT") {
     epoch++;
     cached = null;
     inflight = null;
     for (const fn of subscribers) fn(null);
+    return;
+  }
+  if (event === "USER_UPDATED" || event === "TOKEN_REFRESHED") {
+    epoch++;
+    cached = null;
+    inflight = null;
+    void fetchFresh();
   }
 });
 

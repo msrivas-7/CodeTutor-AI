@@ -12,6 +12,7 @@ import { UserMenu } from "../../../components/UserMenu";
 import { FeedbackButton } from "../../../components/FeedbackButton";
 import { SessionErrorBanner } from "../../../components/SessionErrorBanner";
 import { SessionRestartBanner } from "../../../components/SessionRestartBanner";
+import { SessionReplacedModal } from "../../../components/SessionReplacedModal";
 import { NarrowViewportGate } from "../../../components/NarrowViewportGate";
 import { Modal } from "../../../components/Modal";
 import { LessonCompletePanel } from "../components/LessonCompletePanel";
@@ -245,6 +246,7 @@ export default function LessonPage() {
 
       <SessionErrorBanner />
       <SessionRestartBanner />
+      <SessionReplacedModal />
 
       {loader.loading ? (
         <div

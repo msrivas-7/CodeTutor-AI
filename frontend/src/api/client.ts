@@ -52,6 +52,41 @@ async function handle401(res: Response): Promise<void> {
   }
 }
 
+// QA-H3: registry of in-flight fetches keyed by sessionId so a rebind that
+// returns a *different* id can abort them atomically. Without this, a
+// snapshot/execute/status call fired before the rebind lands with the old
+// sessionId in its body, the backend 404s it, and the UI flashes a spurious
+// "session not found" error against a session that was just successfully
+// recreated under a new id.
+const sessionAbortRegistry = new Map<string, Set<AbortController>>();
+
+function registerSessionRequest(sessionId: string): AbortController {
+  const ctrl = new AbortController();
+  let bucket = sessionAbortRegistry.get(sessionId);
+  if (!bucket) {
+    bucket = new Set();
+    sessionAbortRegistry.set(sessionId, bucket);
+  }
+  bucket.add(ctrl);
+  return ctrl;
+}
+
+function releaseSessionRequest(sessionId: string, ctrl: AbortController): void {
+  const bucket = sessionAbortRegistry.get(sessionId);
+  if (!bucket) return;
+  bucket.delete(ctrl);
+  if (bucket.size === 0) sessionAbortRegistry.delete(sessionId);
+}
+
+export function abortSessionRequests(sessionId: string): number {
+  const bucket = sessionAbortRegistry.get(sessionId);
+  if (!bucket) return 0;
+  const n = bucket.size;
+  for (const ctrl of bucket) ctrl.abort();
+  sessionAbortRegistry.delete(sessionId);
+  return n;
+}
+
 async function post<T>(path: string, body?: unknown, extraHeaders?: Record<string, string>): Promise<T> {
   const auth = await authHeaders();
   const res = await fetch(`${API_BASE}${path}`, {
@@ -291,42 +326,151 @@ export interface AskStreamHandlers {
 }
 
 export const api = {
-  startSession: () => post<{ sessionId: string }>("/api/session"),
+  startSession: () =>
+    post<{ sessionId: string; backendBootId?: string }>("/api/session"),
   rebindSession: (sessionId: string) =>
-    post<{ sessionId: string; reused: boolean }>("/api/session/rebind", { sessionId }),
+    post<{ sessionId: string; reused: boolean; backendBootId?: string }>(
+      "/api/session/rebind",
+      { sessionId },
+    ),
   // Returns a result object so callers (the heartbeat loop) can distinguish
   // 404 "session is gone" from transient network errors without parsing
   // thrown messages.
   pingSession: async (
-    sessionId: string
-  ): Promise<{ ok: true } | { ok: false; status: number; error: string }> => {
+    sessionId: string,
+  ): Promise<
+    | { ok: true; backendBootId?: string }
+    | {
+        ok: false;
+        status: number;
+        error: string;
+        backendBootId?: string;
+      }
+  > => {
+    const ctrl = registerSessionRequest(sessionId);
     try {
       const auth = await authHeaders();
       const res = await fetch(`${API_BASE}/api/session/ping`, {
         method: "POST",
         headers: { ...JSON_HEADERS, ...CSRF_HEADER, ...auth },
         body: JSON.stringify({ sessionId }),
+        signal: ctrl.signal,
       });
-      if (res.ok) return { ok: true };
+      if (res.ok) {
+        const body = (await res.json().catch(() => null)) as {
+          backendBootId?: string;
+        } | null;
+        return { ok: true, backendBootId: body?.backendBootId };
+      }
       await handle401(res);
       const text = await res.text().catch(() => "");
-      return { ok: false, status: res.status, error: text || `HTTP ${res.status}` };
+      // QA-L5: a 404 that comes from a cold backend includes a bootId that
+      // differs from the one the frontend cached on its last successful
+      // start/rebind. Parse it out of the JSON body so the heartbeat hook
+      // can diff them without string-sniffing.
+      let backendBootId: string | undefined;
+      try {
+        const body = JSON.parse(text) as { backendBootId?: string };
+        backendBootId = body.backendBootId;
+      } catch {
+        /* body wasn't JSON (e.g. proxy HTML) — leave bootId undefined */
+      }
+      return {
+        ok: false,
+        status: res.status,
+        error: text || `HTTP ${res.status}`,
+        backendBootId,
+      };
     } catch (err) {
       return { ok: false, status: 0, error: (err as Error).message };
+    } finally {
+      releaseSessionRequest(sessionId, ctrl);
     }
   },
   endSession: (sessionId: string) => post<{ ok: boolean }>("/api/session/end", { sessionId }),
-  sessionStatus: (sessionId: string) =>
-    get<{ alive: boolean; containerAlive: boolean; lastSeen: number }>(
-      `/api/session/${sessionId}/status`
-    ),
+  sessionStatus: async (sessionId: string) => {
+    const ctrl = registerSessionRequest(sessionId);
+    try {
+      const auth = await authHeaders();
+      const res = await fetch(`${API_BASE}/api/session/${sessionId}/status`, {
+        headers: { ...auth },
+        signal: ctrl.signal,
+      });
+      if (!res.ok) {
+        await handle401(res);
+        await throwApiError(res, `/api/session/${sessionId}/status`);
+      }
+      return (await res.json()) as {
+        alive: boolean;
+        containerAlive: boolean;
+        lastSeen: number;
+      };
+    } finally {
+      releaseSessionRequest(sessionId, ctrl);
+    }
+  },
   health: () => get<{ ok: boolean; uptime: number }>("/api/health"),
-  snapshotProject: (sessionId: string, files: ProjectFile[]) =>
-    post<{ ok: boolean; fileCount: number }>("/api/project/snapshot", { sessionId, files }),
-  execute: (sessionId: string, language: Language, stdin?: string) =>
-    post<RunResult>("/api/execute", { sessionId, language, stdin }),
-  executeTests: (sessionId: string, language: Language, tests: FunctionTest[]) =>
-    post<ExecuteTestsResponse>("/api/execute/tests", { sessionId, language, tests }),
+  snapshotProject: async (sessionId: string, files: ProjectFile[]) => {
+    const ctrl = registerSessionRequest(sessionId);
+    try {
+      const auth = await authHeaders();
+      const res = await fetch(`${API_BASE}/api/project/snapshot`, {
+        method: "POST",
+        headers: { ...JSON_HEADERS, ...CSRF_HEADER, ...auth },
+        body: JSON.stringify({ sessionId, files }),
+        signal: ctrl.signal,
+      });
+      if (!res.ok) {
+        await handle401(res);
+        await throwApiError(res, "/api/project/snapshot");
+      }
+      return (await res.json()) as { ok: boolean; fileCount: number };
+    } finally {
+      releaseSessionRequest(sessionId, ctrl);
+    }
+  },
+  execute: async (sessionId: string, language: Language, stdin?: string) => {
+    const ctrl = registerSessionRequest(sessionId);
+    try {
+      const auth = await authHeaders();
+      const res = await fetch(`${API_BASE}/api/execute`, {
+        method: "POST",
+        headers: { ...JSON_HEADERS, ...CSRF_HEADER, ...auth },
+        body: JSON.stringify({ sessionId, language, stdin }),
+        signal: ctrl.signal,
+      });
+      if (!res.ok) {
+        await handle401(res);
+        await throwApiError(res, "/api/execute");
+      }
+      return (await res.json()) as RunResult;
+    } finally {
+      releaseSessionRequest(sessionId, ctrl);
+    }
+  },
+  executeTests: async (
+    sessionId: string,
+    language: Language,
+    tests: FunctionTest[],
+  ) => {
+    const ctrl = registerSessionRequest(sessionId);
+    try {
+      const auth = await authHeaders();
+      const res = await fetch(`${API_BASE}/api/execute/tests`, {
+        method: "POST",
+        headers: { ...JSON_HEADERS, ...CSRF_HEADER, ...auth },
+        body: JSON.stringify({ sessionId, language, tests }),
+        signal: ctrl.signal,
+      });
+      if (!res.ok) {
+        await handle401(res);
+        await throwApiError(res, "/api/execute/tests");
+      }
+      return (await res.json()) as ExecuteTestsResponse;
+    } finally {
+      releaseSessionRequest(sessionId, ctrl);
+    }
+  },
 
   // ── Phase 18b user-data endpoints ─────────────────────────────────
   getPreferences: () => get<UserPreferences>("/api/user/preferences"),
@@ -454,6 +598,36 @@ export const api = {
     body: AskStreamRequest,
     handlers: AskStreamHandlers
   ): Promise<void> => {
+    // QA-H2: no-chunk watchdog. If the SSE stream produces no data for
+    // STREAM_STALL_MS, abort the fetch and surface it as an error — a
+    // silently-dead TCP connection would otherwise leave the UI spinner
+    // up indefinitely (caddy + socket-proxy reset tends to manifest this
+    // way). Each successful read resets the timer.
+    const STREAM_STALL_MS = 30_000;
+    // Chain the caller's signal into our own controller so the watchdog
+    // can abort independently of the caller. AbortSignal.any exists but
+    // isn't in every target; wire it manually.
+    const streamCtrl = new AbortController();
+    const bridgeAbort = () => streamCtrl.abort();
+    if (handlers.signal) {
+      if (handlers.signal.aborted) streamCtrl.abort();
+      else handlers.signal.addEventListener("abort", bridgeAbort, { once: true });
+    }
+    let stalled = false;
+    let stallTimer: ReturnType<typeof setTimeout> | null = null;
+    const kickWatchdog = () => {
+      if (stallTimer) clearTimeout(stallTimer);
+      stallTimer = setTimeout(() => {
+        stalled = true;
+        streamCtrl.abort();
+      }, STREAM_STALL_MS);
+    };
+    const clearWatchdog = () => {
+      if (stallTimer) clearTimeout(stallTimer);
+      stallTimer = null;
+      if (handlers.signal) handlers.signal.removeEventListener("abort", bridgeAbort);
+    };
+
     let res: Response;
     try {
       const auth = await authHeaders();
@@ -461,14 +635,16 @@ export const api = {
         method: "POST",
         headers: { ...JSON_HEADERS, ...CSRF_HEADER, ...auth },
         body: JSON.stringify(body),
-        signal: handlers.signal,
+        signal: streamCtrl.signal,
       });
     } catch (err) {
+      clearWatchdog();
       handlers.onError((err as Error).message);
       return;
     }
 
     if (!res.ok || !res.body) {
+      clearWatchdog();
       await handle401(res);
       const text = await res.text().catch(() => "");
       handlers.onError(text || `HTTP ${res.status}`);
@@ -478,10 +654,12 @@ export const api = {
     const reader = res.body.getReader();
     const decoder = new TextDecoder("utf-8");
     let buf = "";
+    kickWatchdog();
     try {
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
+        kickWatchdog();
         buf += decoder.decode(value, { stream: true });
         let sep: number;
         while ((sep = buf.indexOf("\n\n")) !== -1) {
@@ -507,6 +685,7 @@ export const api = {
             continue;
           }
           if (evt.error) {
+            clearWatchdog();
             handlers.onError(evt.error);
             return;
           }
@@ -514,13 +693,23 @@ export const api = {
             handlers.onDelta(evt.delta);
           }
           if (evt.done) {
+            clearWatchdog();
             handlers.onDone(evt.raw ?? "", evt.sections ?? {}, evt.usage);
             return;
           }
         }
       }
+      clearWatchdog();
     } catch (err) {
-      if ((err as Error).name === "AbortError") return;
+      clearWatchdog();
+      // QA-H2: when the watchdog fires we abort streamCtrl, which surfaces
+      // here as an AbortError. Distinguish that from a caller-initiated
+      // abort (user clicked Stop) — the former is a user-visible error,
+      // the latter is expected.
+      if ((err as Error).name === "AbortError") {
+        if (stalled) handlers.onError("stream stalled — no response for 30s");
+        return;
+      }
       handlers.onError((err as Error).message);
     }
   },

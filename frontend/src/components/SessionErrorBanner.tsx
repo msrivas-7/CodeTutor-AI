@@ -21,7 +21,11 @@ export function SessionErrorBanner() {
       const { sessionId } = await api.startSession();
       setSession(sessionId);
     } catch (err) {
+      // QA-C3: setError no longer flips phase; do both explicitly so the
+      // banner stays up (phase==="error") instead of dropping back to
+      // "starting" while the underlying session is still missing.
       setError((err as Error).message);
+      setPhase("error");
     } finally {
       setRetrying(false);
     }

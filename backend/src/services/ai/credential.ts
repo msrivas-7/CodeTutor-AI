@@ -25,7 +25,7 @@ import { config } from "../../config.js";
 import { getOpenAIKey } from "../../db/preferences.js";
 import { isDenylisted } from "../../db/denylist.js";
 import {
-  countPlatformQuestionsToday,
+  countPlatformQuestionsTodayLocked,
   startOfUtcDay,
   sumPlatformCostLifetimeForUser,
   sumPlatformCostTodayForUser,
@@ -83,13 +83,44 @@ const globalCache: { today: CacheEntry<number> | null } = { today: null };
 const userDailyCache = new Map<string, CacheEntry<number>>();
 const userLifetimeCache = new Map<string, CacheEntry<number>>();
 
-// Auth-failure kill flag. The route or provider sets this when OpenAI
-// returns 401 for the platform key; until the operator rotates the key,
-// subsequent calls short-circuit instead of re-burning on every request.
+// Auth-failure kill flag. The route sets this when OpenAI returns 401 for
+// the platform key; until the operator rotates the key (or the TTL probe
+// window elapses) subsequent calls short-circuit instead of re-burning on
+// every request. Tracks the moment the flag was flipped so:
+//   - /api/health/deep can show "how long has platform auth been broken?"
+//   - a probe path can auto-clear after AUTO_UNSTICK_MS so a transient
+//     401 (provider blip, rare but observed) doesn't require human action
+// The admin POST /unstick clears the flag immediately for the "we rotated
+// the key, unstick now" case.
 let providerAuthFailed = false;
+let providerAuthFailedAt = 0;
+
+// After 30 minutes, allow a single probe request through. If that request
+// also 401s, the flag flips back on; if it succeeds, the flag stays cleared.
+// The TTL must be long enough that we don't flap on a genuine bad-key
+// deployment (operator needs time to notice + rotate) but short enough that
+// a provider-side transient auth glitch doesn't require manual intervention.
+const AUTO_UNSTICK_MS = 30 * 60 * 1000;
 
 export function markPlatformAuthFailed(): void {
   providerAuthFailed = true;
+  providerAuthFailedAt = Date.now();
+}
+
+export function clearPlatformAuthFailed(): void {
+  providerAuthFailed = false;
+  providerAuthFailedAt = 0;
+}
+
+/**
+ * Read-only view for /api/health/deep and admin tooling. Returns `null` when
+ * the platform key is healthy and a structured record when it's tripped.
+ * `sinceMs` is the millisecond age of the failure, useful for alerting
+ * policies that want "still broken after 5 minutes → page oncall."
+ */
+export function getPlatformAuthStatus(): { failedAt: number; sinceMs: number } | null {
+  if (!providerAuthFailed) return null;
+  return { failedAt: providerAuthFailedAt, sinceMs: Date.now() - providerAuthFailedAt };
 }
 
 async function cachedGlobalToday(since: Date): Promise<number> {
@@ -135,6 +166,7 @@ export function __resetCredentialCachesForTests(): void {
   userLifetimeCache.clear();
   globalCache.today = null;
   providerAuthFailed = false;
+  providerAuthFailedAt = 0;
 }
 
 function endOfUtcDay(since: Date): Date {
@@ -187,7 +219,20 @@ export async function resolveAICredential(userId: string): Promise<AICredential>
 
   // Provider-auth kill: if we've already observed a 401 from OpenAI on the
   // platform key, no point re-burning requests until the operator rotates.
-  if (providerAuthFailed) return none("provider_auth_failed");
+  // After AUTO_UNSTICK_MS we let one probe through — on success the flag
+  // auto-clears via the ledger's finish-row path, on another 401 the route
+  // flips it straight back on. Keeps transient provider blips self-healing
+  // without leaving a genuinely dead key burning requests.
+  if (providerAuthFailed) {
+    if (Date.now() - providerAuthFailedAt < AUTO_UNSTICK_MS) {
+      return none("provider_auth_failed");
+    }
+    // Silent probe window — fall through to normal resolution. If the probe
+    // 401s again the route re-marks; we reset the timestamp here so probe
+    // attempts are spaced AUTO_UNSTICK_MS apart rather than streaming in
+    // burst from every concurrent request that hit the window boundary.
+    providerAuthFailedAt = Date.now();
+  }
 
   const dayStart = startOfUtcDay();
   const dayEnd = endOfUtcDay(dayStart);
@@ -217,7 +262,11 @@ export async function resolveAICredential(userId: string): Promise<AICredential>
   // L1: the learner-visible 30/day counter. Only rows with
   // counts_toward_quota=true contribute, so system-initiated /summarize
   // calls don't drain the visible budget.
-  const questionsToday = await countPlatformQuestionsToday(userId, dayStart);
+  //
+  // H-2: the locked variant wraps the count in a per-user advisory xact
+  // lock so multi-tab Ask clicks don't all observe the same pre-insert
+  // count. Cross-user concurrency is unaffected.
+  const questionsToday = await countPlatformQuestionsTodayLocked(userId, dayStart);
   if (questionsToday >= config.freeTier.dailyQuestions) {
     return none("free_exhausted", dayEnd);
   }

@@ -33,6 +33,7 @@ vi.mock("../../db/usageLedger.js", () => ({
     return d;
   },
   countPlatformQuestionsToday: vi.fn(async () => 0),
+  countPlatformQuestionsTodayLocked: vi.fn(async () => 0),
   sumPlatformCostTodayForUser: vi.fn(async () => 0),
   sumPlatformCostLifetimeForUser: vi.fn(async () => 0),
   sumPlatformCostTodayGlobal: vi.fn(async () => 0),
@@ -52,6 +53,7 @@ beforeEach(() => {
   vi.mocked(getOpenAIKey).mockReset().mockResolvedValue(null);
   vi.mocked(isDenylisted).mockReset().mockResolvedValue(false);
   vi.mocked(ledger.countPlatformQuestionsToday).mockReset().mockResolvedValue(0);
+  vi.mocked(ledger.countPlatformQuestionsTodayLocked).mockReset().mockResolvedValue(0);
   vi.mocked(ledger.sumPlatformCostTodayForUser).mockReset().mockResolvedValue(0);
   vi.mocked(ledger.sumPlatformCostLifetimeForUser).mockReset().mockResolvedValue(0);
   vi.mocked(ledger.sumPlatformCostTodayGlobal).mockReset().mockResolvedValue(0);
@@ -103,14 +105,14 @@ describe("resolveAICredential", () => {
   });
 
   it("L1 free_exhausted: user past the daily question counter", async () => {
-    vi.mocked(ledger.countPlatformQuestionsToday).mockResolvedValueOnce(30);
+    vi.mocked(ledger.countPlatformQuestionsTodayLocked).mockResolvedValueOnce(30);
     const c = await resolveAICredential("u-1");
     expect(c.source).toBe("none");
     if (c.source === "none") expect(c.reason).toBe("free_exhausted");
   });
 
   it("success: returns platform source with remainingToday computed from questions", async () => {
-    vi.mocked(ledger.countPlatformQuestionsToday).mockResolvedValueOnce(3);
+    vi.mocked(ledger.countPlatformQuestionsTodayLocked).mockResolvedValueOnce(3);
     const c = await resolveAICredential("u-1");
     expect(c.source).toBe("platform");
     if (c.source === "platform") {

@@ -13,9 +13,11 @@ import { completionRuleSchema } from "../schema/lessonRuleSchema.js";
 import {
   resolveAICredential,
   invalidateUsageCaches,
+  markPlatformAuthFailed,
   type AICredential,
   type CredentialNoneReason,
 } from "../services/ai/credential.js";
+import { AIProviderError } from "../services/ai/provider.js";
 import {
   isPlatformAllowedModel,
   priceUsd,
@@ -358,6 +360,17 @@ aiRouter.post("/ask", async (req, res, next) => {
     });
     res.json(result);
   } catch (err) {
+    // S-3: if OpenAI 401s on the platform key, trip the kill flag so every
+    // subsequent caller short-circuits to the "paused" 503 path instead of
+    // burning the same bad request. Only fires on the platform branch —
+    // a BYOK 401 is the user's problem, not a platform-wide outage.
+    if (
+      cred.source === "platform" &&
+      err instanceof AIProviderError &&
+      err.status === 401
+    ) {
+      markPlatformAuthFailed();
+    }
     // Client-close: response is already gone, no point forwarding to the
     // error handler. Timeout: pass through so the client sees a 5xx.
     if (abort.reason() === "client-close") return;
@@ -399,6 +412,13 @@ aiRouter.post("/ask/stream", async (req, res) => {
   // stop draining OpenAI's stream. Handlers still check `closed` before
   // writing, since the reader can emit a last delta after abort.
   let closed = false;
+  // QA-H4: track whether a terminal event (done/error) fired so we can
+  // detect the abort path (provider silently returned after upstream
+  // cancellation). Without this, a client Stop / network drop / timeout
+  // leaves no ledger trace at all — which both obscures abuse shapes
+  // (start-cancel-retry spam) and makes "where did my request go?"
+  // support threads unanswerable.
+  let terminalFired = false;
   const abort = requestAbortSignal(res);
   res.on("close", () => {
     closed = true;
@@ -431,6 +451,7 @@ aiRouter.post("/ask/stream", async (req, res) => {
           send({ delta: chunk });
         },
         onDone: async (raw, sections, usage) => {
+          terminalFired = true;
           const inTok = usage?.inputTokens ?? 0;
           const outTok = usage?.outputTokens ?? 0;
           const { costUsd, priceVersion } = safePrice(
@@ -455,7 +476,13 @@ aiRouter.post("/ask/stream", async (req, res) => {
           send({ done: true, raw, sections, usage });
           done();
         },
-        onError: async (message) => {
+        onError: async (message, status) => {
+          terminalFired = true;
+          // S-3: stream path mirror of the /ask 401 trap. Same platform-only
+          // guard — a BYOK 401 must not take down the platform path.
+          if (cred.source === "platform" && status === 401) {
+            markPlatformAuthFailed();
+          }
           await safeWriteUsage(userId, {
             model: parsed.data.model,
             fundingSource: cred.source,
@@ -474,6 +501,26 @@ aiRouter.post("/ask/stream", async (req, res) => {
         },
       }
     );
+    // QA-H4: provider returned without firing a terminal handler. That's
+    // the abort path — either the client disconnected (res close) or the
+    // backend deadline fired. Write an aborted ledger row so the request
+    // is accounted for. countsTowardQuota=false because the learner
+    // didn't actually receive help; zero tokens because OpenAI doesn't
+    // emit partial usage on abort.
+    if (!terminalFired) {
+      await safeWriteUsage(userId, {
+        model: parsed.data.model,
+        fundingSource: cred.source,
+        route: "ask_stream",
+        countsTowardQuota: false,
+        inputTokens: 0,
+        outputTokens: 0,
+        costUsd: 0,
+        priceVersion: 1,
+        status: "aborted",
+        requestId,
+      });
+    }
   } finally {
     abort.cleanup();
   }
@@ -528,6 +575,15 @@ aiRouter.post("/summarize", async (req, res, next) => {
     });
     res.json({ summary: result.summary });
   } catch (err) {
+    // S-3: /summarize uses the same platform key; a 401 here is just as
+    // indicative of a dead key as one from /ask. Same platform-only guard.
+    if (
+      cred.source === "platform" &&
+      err instanceof AIProviderError &&
+      err.status === 401
+    ) {
+      markPlatformAuthFailed();
+    }
     next(err);
   }
 });

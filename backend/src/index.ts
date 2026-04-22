@@ -30,6 +30,12 @@ import {
   startSweeper,
   shutdownAllSessions,
 } from "./services/session/sessionManager.js";
+import { reapAbandonedLessonProgress } from "./db/lessonProgress.js";
+import {
+  clearPlatformAuthFailed,
+  getPlatformAuthStatus,
+} from "./services/ai/credential.js";
+import { timingSafeEqual } from "node:crypto";
 
 async function main() {
   // Validate env-sourced config before any wiring. Prefer a loud, fast failure
@@ -104,9 +110,15 @@ async function main() {
       ok: boolean;
       db: "ok" | "fail";
       docker: "ok" | "fail";
+      // S-3: carry the platform-auth kill-flag state. Separate field from
+      // `ok` so a dead platform key doesn't flip the probe to 503 — that
+      // would page oncall for what is actually "free tier is paused." A
+      // dedicated scheduled-query alert (bucket 6) watches this field.
+      platformAuth: "ok" | "failed";
+      platformAuthSinceMs?: number;
       errors?: string[];
       ms?: number;
-    } = { ok: true, db: "ok", docker: "ok" };
+    } = { ok: true, db: "ok", docker: "ok", platformAuth: "ok" };
     const errors: string[] = [];
     await Promise.all([
       (async () => {
@@ -128,9 +140,51 @@ async function main() {
         }
       })(),
     ]);
+    const authStatus = getPlatformAuthStatus();
+    if (authStatus) {
+      result.platformAuth = "failed";
+      result.platformAuthSinceMs = authStatus.sinceMs;
+    }
     if (errors.length > 0) result.errors = errors;
     result.ms = Date.now() - start;
     res.status(result.ok ? 200 : 503).json(result);
+  });
+
+  // S-3 / QA-C4: admin break-glass. When operator rotates the platform key
+  // after a 401, the kill flag stays on until the 30-min probe window
+  // elapses — this endpoint lets them clear it immediately. Gated on
+  // METRICS_TOKEN (same posture as /api/metrics); no token → loopback only.
+  // On success the next /api/ai/ask will attempt upstream normally.
+  app.post("/api/admin/unstick-platform-auth", (req, res) => {
+    const expected = config.metricsToken;
+    if (expected && expected.length > 0) {
+      const header = req.headers.authorization ?? "";
+      const prefix = "Bearer ";
+      if (!header.startsWith(prefix)) {
+        return res.status(401).json({ error: "unauthorized" });
+      }
+      const provided = header.slice(prefix.length);
+      const providedBuf = Buffer.from(provided);
+      const expectedBuf = Buffer.from(expected);
+      if (
+        providedBuf.length !== expectedBuf.length ||
+        !timingSafeEqual(providedBuf, expectedBuf)
+      ) {
+        return res.status(401).json({ error: "unauthorized" });
+      }
+    } else {
+      const ip = req.ip ?? "";
+      const isLoopback =
+        ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
+      if (!isLoopback) return res.status(403).json({ error: "forbidden" });
+    }
+    const before = getPlatformAuthStatus();
+    clearPlatformAuthFailed();
+    console.log(
+      `[admin] platform-auth kill flag cleared` +
+        (before ? ` (was failing for ${before.sinceMs}ms)` : " (was already ok)"),
+    );
+    res.json({ ok: true, wasFailed: !!before });
   });
 
   // Phase 20-P2: Prometheus exposition. Phase 20-P3 gate: router enforces
@@ -254,6 +308,29 @@ async function main() {
 
   initSessionManager(executionBackend);
   startSweeper();
+
+  // QA-M4: hourly reap of abandoned lesson_progress rows. A drive-by URL
+  // visit calls startLesson, which writes an in_progress row even when the
+  // learner never engages. Left unreaped these ghosts silently self-unlock
+  // prereq-locked lessons on the learner's next visit (the guard reads
+  // existingStatus='in_progress' and skips the bounce). One-shot now so a
+  // backend restart purges promptly, then every hour. All zero-engagement
+  // rows older than 24h get deleted — see reapAbandonedLessonProgress
+  // for the conservative WHERE clause.
+  const LESSON_REAP_MS = 60 * 60 * 1000;
+  void reapAbandonedLessonProgress()
+    .then((n) => {
+      if (n) console.log(`[lesson-reaper] purged ${n} abandoned in_progress row(s) on startup`);
+    })
+    .catch((err) => console.error("[lesson-reaper] startup sweep failed:", err));
+  const lessonReaper = setInterval(() => {
+    void reapAbandonedLessonProgress()
+      .then((n) => {
+        if (n) console.log(`[lesson-reaper] purged ${n} abandoned in_progress row(s)`);
+      })
+      .catch((err) => console.error("[lesson-reaper] sweep failed:", err));
+  }, LESSON_REAP_MS);
+  lessonReaper.unref?.();
 
   const server = app.listen(config.port, () => {
     console.log(`[startup] backend listening on :${config.port}`);

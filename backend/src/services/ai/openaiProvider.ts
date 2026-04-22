@@ -1,10 +1,11 @@
-import type {
-  AIAskParams,
-  AIAskResult,
-  AIModel,
-  AIProvider,
-  AIStreamHandlers,
-  TutorSections,
+import {
+  AIProviderError,
+  type AIAskParams,
+  type AIAskResult,
+  type AIModel,
+  type AIProvider,
+  type AIStreamHandlers,
+  type TutorSections,
 } from "./provider.js";
 import {
   SUMMARIZE_SYSTEM_PROMPT,
@@ -228,7 +229,7 @@ export const openaiProvider: AIProvider = {
     if (!res.ok) {
       const err = await parseError(res);
       console.log(`[openai] ask error status=${res.status} body=${clip(err, 300)}`);
-      throw new Error(err);
+      throw new AIProviderError(err, res.status);
     }
 
     // The Responses API returns `output_text` as a convenience concat of all
@@ -314,7 +315,7 @@ export const openaiProvider: AIProvider = {
     if (!res.ok) {
       const err = await parseError(res);
       console.log(`[openai] summarize error status=${res.status} body=${clip(err, 200)}`);
-      throw new Error(err);
+      throw new AIProviderError(err, res.status);
     }
     const json = (await res.json()) as {
       output_text?: string;
@@ -390,7 +391,7 @@ export const openaiProvider: AIProvider = {
     if (!res.ok || !res.body) {
       const err = await parseError(res);
       console.log(`[openai] stream error status=${res.status} body=${clip(err, 300)}`);
-      handlers.onError(err);
+      handlers.onError(err, res.status);
       return;
     }
 

@@ -27,6 +27,12 @@ export interface UseTutorAskOpts {
   // panel uses this to plan a background summarize pass and ship a trimmed
   // window; guided mode omits it and ships the full turn-by-turn history.
   beforeSend?: (ctx: { history: AIMessage[] }) => AIMessage[] | undefined;
+  // Fires exactly once per ask, after the stream terminates. `ok: true` means
+  // the assistant returned a response (onDone); `ok: false` means error /
+  // cancel / abort / thrown. Used for side-effects bound to the ask outcome
+  // — e.g. the guided panel's hint counter only commits on success, so the
+  // student doesn't burn a hint on a 500 they never saw.
+  onAskComplete?: (outcome: { ok: boolean }) => void;
 }
 
 export interface UseTutorAskResult {
@@ -101,6 +107,7 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
         selection: selectionForTurn,
       });
 
+      let askOk = false;
       await api.askAIStream(body, {
         signal: controller.signal,
         onDelta: (chunk) => {
@@ -111,6 +118,7 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
           pushAssistant(finalRaw || raw, sections, usage);
           clearStream();
           committed = true;
+          askOk = true;
         },
         onError: (message) => {
           setAskError(message);
@@ -121,13 +129,17 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
 
       // Abort path: askAIStream returns without firing onDone/onError. Commit
       // partial text so the student keeps the context rather than losing it.
+      // An aborted ask still counts as "not ok" for outcome-bound side-effects
+      // (e.g. hint rollback) — the student pressed Stop or walked away.
       if (!committed && controller.signal.aborted && raw.trim()) {
         pushAssistant(raw, parsePartialTutor(raw));
         clearStream();
       }
+      opts.onAskComplete?.({ ok: askOk });
     } catch (err) {
       setAskError((err as Error).message);
       clearStream();
+      opts.onAskComplete?.({ ok: false });
     } finally {
       setAsking(false);
       abortRef.current = null;

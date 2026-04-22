@@ -17,6 +17,43 @@ export interface RunTestsOptions {
   timeoutMs?: number;
 }
 
+// QA-M11: bounded replay cache for per-run HMAC nonces. Each runTests call
+// generates a fresh 32-byte CSPRNG nonce, so duplicate-across-runs is already
+// astronomically unlikely — but a CSPRNG degradation, clone-process bug, or
+// a regression that lets the same nonce reach two runs would silently allow
+// an attacker to replay an envelope captured from a prior run. Tracking every
+// issued nonce (capped at MAX_NONCE_CACHE with FIFO eviction) lets us refuse
+// to re-issue one. Memory cost: ~64 B × 10k ≈ 640 KB, trivial.
+const MAX_NONCE_CACHE = 10_000;
+const issuedNonces = new Set<string>();
+
+function claimFreshNonce(): string {
+  // 32-byte CSPRNG — collision probability per draw is 2^-256. Loop is
+  // purely defensive; in practice the first attempt always wins.
+  for (let i = 0; i < 4; i++) {
+    const nonce = crypto.randomBytes(32).toString("hex");
+    if (!issuedNonces.has(nonce)) {
+      if (issuedNonces.size >= MAX_NONCE_CACHE) {
+        const oldest = issuedNonces.values().next().value as string | undefined;
+        if (oldest !== undefined) issuedNonces.delete(oldest);
+      }
+      issuedNonces.add(nonce);
+      return nonce;
+    }
+  }
+  // Four CSPRNG collisions in a row means something is very wrong with the
+  // entropy source — fail closed rather than silently fall through.
+  throw new Error(
+    "runHarness: could not draw a fresh nonce after 4 attempts — possible CSPRNG failure",
+  );
+}
+
+// Test-only hook: reset the cache between unit tests so one case doesn't
+// poison another. Not exported from the package barrel.
+export function __resetReplayCacheForTests(): void {
+  issuedNonces.clear();
+}
+
 /**
  * Language-agnostic harness runner. Writes the backend's temp files into the
  * workspace, execs the backend's command inside the session container, parses
@@ -53,7 +90,7 @@ export async function runTests(
   const files = harness.prepareFiles(tests);
   const filePaths = files.map((f) => f.name);
 
-  const nonce = crypto.randomBytes(32).toString("hex");
+  const nonce = claimFreshNonce();
   // Give each child subprocess enough time for a golden solution's slowest
   // test but leave headroom under the wall-clock cap so the parent's own
   // envelope-emit has time to run.

@@ -14,6 +14,7 @@ import {
   countFailsByVisibility,
   selectCompletionRulesForCheck,
   shouldAutoEnterPractice,
+  shouldBouncePrereq,
 } from "./lessonGuards";
 
 // Phase 20-P1: confetti respects `prefers-reduced-motion`. Lifted out of
@@ -232,11 +233,19 @@ export function useLessonValidator({
     setValidation(v);
     setHasChecked(true);
     if (!v.passed) {
-      setFailedCheckCount((c) => c + 1);
-      if (latestReport && functionTests.length > 0) {
-        const { visibleFails, hiddenFails } = countFailsByVisibility(latestReport);
-        if (visibleFails > 0) setFailedVisibleTests((c) => c + 1);
-        else if (hiddenFails > 0) setFailedHiddenTests((c) => c + 1);
+      // QA-H5: a harness error (docker exec hiccup, network timeout) surfaces
+      // as v.passed=false + testReport.harnessError. That's infrastructure
+      // noise — not the learner struggling. Only genuine validation
+      // outcomes (expected_stdout mismatch, real test failures) bump the
+      // counters that drive the coach nudges.
+      const harnessErrored = Boolean(latestReport?.harnessError);
+      if (!harnessErrored) {
+        setFailedCheckCount((c) => c + 1);
+        if (latestReport && functionTests.length > 0) {
+          const { visibleFails, hiddenFails } = countFailsByVisibility(latestReport);
+          if (visibleFails > 0) setFailedVisibleTests((c) => c + 1);
+          else if (hiddenFails > 0) setFailedHiddenTests((c) => c + 1);
+        }
       }
       const fail = pickFirstFailure(latestReport);
       if (fail) {
@@ -390,6 +399,30 @@ export function useLessonValidator({
 
   const handleResetLessonProgress = useCallback(() => {
     if (!lesson || !courseId || !lessonId) return;
+    // QA-M4: re-check prereqs before the mutating startLesson at the bottom
+    // of this handler. Reset sets existingStatus → not_started, so if a
+    // prereq was since reset too (or a course update re-locked this lesson),
+    // the guard must fire and bounce — otherwise startLesson would write a
+    // fresh in_progress row that self-unlocks a lesson the learner isn't
+    // entitled to. resetLessonProgress has already cleared the old row in
+    // memory + fired the server patch, so we must check prereq state from
+    // the post-reset snapshot.
+    const progressState = useProgressStore.getState();
+    const completedIds =
+      progressState.courseProgress[courseId]?.completedLessonIds ?? [];
+    if (
+      shouldBouncePrereq({
+        lessonPrerequisiteIds: lesson.prerequisiteLessonIds,
+        completedLessonIds: completedIds,
+        existingStatus: "not_started",
+      })
+    ) {
+      // No direct reset → skip the mutating startLesson; the user is about
+      // to be bounced by the loader on the next navigate anyway. Still clear
+      // the editor state so a stale view doesn't linger until navigation.
+      setConfirmResetLesson(false);
+      return;
+    }
     resetLessonProgress(learnerId, courseId, lessonId);
     const files: Record<string, string> = {};
     const order: string[] = [];

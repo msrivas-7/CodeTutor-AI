@@ -45,6 +45,14 @@ export class LocalDockerBackend implements ExecutionBackend {
   private docker: Docker;
   private hostWorkspaceRoot: string | null = null;
   private execSem: Semaphore;
+  // QA-C2: per-session serializer for replaceSnapshot. Two concurrent
+  // /snapshot calls on the same session previously raced each other on
+  // readdir + rm + writeFiles, which could leave the workspace with a
+  // mix of files from both snapshots (one rm deletes a file the other
+  // just wrote) or EEXIST from overlapping writeFiles. The Map chains
+  // snapshot work per sessionId; entries self-evict when their promise
+  // is the current tail.
+  private snapshotChains = new Map<string, Promise<void>>();
 
   constructor(private readonly opts: LocalDockerBackendOptions) {
     this.docker = new Docker();
@@ -349,7 +357,36 @@ export class LocalDockerBackend implements ExecutionBackend {
     handle: SessionHandle,
     files: WorkspaceFile[],
   ): Promise<void> {
+    // QA-C2: serialize per session. Two parallel /snapshot calls on the
+    // same session used to race — both would readdir + rm + writeFiles
+    // against the same workspace, producing EEXIST, partial state, or
+    // missing files. Chain the next call onto the previous one so the
+    // second snapshot only starts rm-ing after the first finishes writing.
+    // Cross-session snapshots still run concurrently (different sessionId
+    // → different chain key).
     const h = this.cast(handle);
+    const prior = this.snapshotChains.get(h.sessionId);
+    const next = (prior ?? Promise.resolve())
+      // Swallow prior errors so a failed snapshot doesn't poison every
+      // subsequent call; the prior caller already saw the rejection.
+      .catch(() => {})
+      .then(() => this.doReplaceSnapshot(h, files));
+    this.snapshotChains.set(h.sessionId, next);
+    try {
+      await next;
+    } finally {
+      // Only delete if we're still the tail — another call might have
+      // already replaced us, and its entry must survive.
+      if (this.snapshotChains.get(h.sessionId) === next) {
+        this.snapshotChains.delete(h.sessionId);
+      }
+    }
+  }
+
+  private async doReplaceSnapshot(
+    h: LocalDockerHandle,
+    files: WorkspaceFile[],
+  ): Promise<void> {
     // Wipe workspace contents — but not the directory itself: the runner
     // container has a bind mount on this path and recreating the directory
     // would invalidate the mount's inode.
@@ -368,7 +405,7 @@ export class LocalDockerBackend implements ExecutionBackend {
         return fs.rm(child, { recursive: true, force: true });
       }),
     );
-    await this.writeFiles(handle, files);
+    await this.writeFiles(h, files);
   }
 
   // --- Host-path discovery (local-docker-specific) ------------------------

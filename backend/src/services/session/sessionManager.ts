@@ -28,6 +28,19 @@ export interface SessionRecord {
 
 const sessions = new Map<string, SessionRecord>();
 
+/**
+ * QA-L5: a per-process boot identifier. Included in every session route
+ * response so the frontend can tell "my session was individually reaped"
+ * (same bootId, 404 on ping) from "the whole process restarted and took
+ * every session with it" (different bootId). Without the distinction the
+ * frontend treats both as ordinary 404→rebind, which is fine for the first
+ * ping but starts to loop if many tabs all race a cold backend — each tab's
+ * rebind would compete for cap slots on a process that's still booting
+ * dependencies. On a mismatch the frontend instead shows the replaced-
+ * session modal and waits for the user to click Retry.
+ */
+export const BACKEND_BOOT_ID = nanoid();
+
 let backend: ExecutionBackend | null = null;
 
 /**

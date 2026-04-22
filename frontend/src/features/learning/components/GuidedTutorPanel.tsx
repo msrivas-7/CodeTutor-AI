@@ -71,6 +71,12 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
   const [exhaustionDismissed, setExhaustionDismissed] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // QA-C1: hint-counter rollback. The Hint button stages intent here at
+  // click-time instead of incrementing the counter directly. If the ask
+  // succeeds (onAskComplete ok=true) we commit the bump; on error / cancel /
+  // abort we drop it. Without this, a student who hit 429 or Stop would
+  // burn hint capacity for help they never saw.
+  const pendingHintRef = useRef<boolean>(false);
 
   // Phase 20-P4: BYOK wins; otherwise mirror what ai-status tells us.
   const effectiveSource: "byok" | "platform" | "none" =
@@ -104,6 +110,12 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
   }, [focusComposerNonce]);
 
   const { submitAsk, cancelAsk } = useTutorAsk({
+    onAskComplete: ({ ok }) => {
+      if (pendingHintRef.current) {
+        pendingHintRef.current = false;
+        if (ok) incrementHint(lessonMeta.courseId, lessonMeta.id);
+      }
+    },
     buildBody: ({ question, files, diffSinceLastTurn, historyForSend, selection }) => ({
       // Platform users have no selectedModel — backend locks them to
       // `gpt-4.1-nano` via the allowlist, so we pass that name verbatim.
@@ -283,8 +295,8 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
                               "I'm really stuck. Walk me through the approach step by step.",
                             ];
                             const idx = Math.min(hintLevel, prompts.length - 1);
+                            pendingHintRef.current = true;
                             setPendingAsk(prompts[idx]);
-                            incrementHint(lessonMeta.courseId, lessonMeta.id);
                           }}
                           disabled={asking}
                           aria-label={`${hintLevel === 0 ? "Hint" : hintLevel === 1 ? "Stronger hint" : "Show approach"} — level ${hintLevel + 1} of 3`}
