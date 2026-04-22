@@ -189,10 +189,19 @@ function none(
   };
 }
 
-export async function resolveAICredential(userId: string): Promise<AICredential> {
+export async function resolveAICredential(
+  userId: string,
+  // P-M7: /ai-status fetches BYOK cipher + paid-interest flag in a single
+  // PK lookup via getAIStatusPrefs, so it already has the decrypted key
+  // when it calls us. Accept it here to skip the redundant getOpenAIKey
+  // round-trip. `undefined` = caller didn't prefetch (AI routes); `null` =
+  // prefetched and user has no BYOK key; string = prefetched key.
+  prefetchedByok?: string | null,
+): Promise<AICredential> {
   // L0: BYOK always wins. If the user has pasted their own key, we never
   // touch the platform path — their spend is their meter.
-  const byok = await getOpenAIKey(userId);
+  const byok =
+    prefetchedByok !== undefined ? prefetchedByok : await getOpenAIKey(userId);
   if (byok) {
     return {
       source: "byok",

@@ -32,9 +32,9 @@ import { resolveAICredential } from "../services/ai/credential.js";
 import { isDenylisted } from "../db/denylist.js";
 import {
   deletePaidAccessInterest,
-  hasShownPaidAccessInterest,
   upsertPaidAccessInterest,
 } from "../db/paidAccessInterest.js";
+import { getAIStatusPrefs } from "../db/preferences.js";
 import { aiExhaustionCtaClicks } from "../services/metrics.js";
 
 export const aiStatusRouter = Router();
@@ -42,10 +42,14 @@ export const aiStatusRouter = Router();
 aiStatusRouter.get("/ai-status", async (req, res, next) => {
   try {
     const userId = req.userId!;
-    const [cred, shownInterest] = await Promise.all([
-      resolveAICredential(userId),
-      hasShownPaidAccessInterest(userId),
-    ]);
+    // P-M7: single PK lookup on user_preferences returns both the decrypted
+    // BYOK key (if any) and the paid-interest presence flag. We then hand
+    // the prefetched key to resolveAICredential so it skips its own
+    // getOpenAIKey round-trip. Net: two user_preferences reads on every
+    // /ai-status poll collapse into one.
+    const prefs = await getAIStatusPrefs(userId);
+    const cred = await resolveAICredential(userId, prefs.openaiKey);
+    const shownInterest = prefs.hasShownPaidInterest;
     if (cred.source === "byok") {
       return res.json({
         source: "byok",

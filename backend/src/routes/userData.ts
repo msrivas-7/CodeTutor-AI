@@ -12,6 +12,7 @@ import {
   deleteCourseProgress,
 } from "../db/courseProgress.js";
 import {
+  addLessonTimes,
   listLessonProgress,
   upsertLessonProgress,
   deleteLessonProgress,
@@ -247,6 +248,49 @@ userDataRouter.get("/lessons", async (req, res, next) => {
   try {
     const rows = await listLessonProgress(requireUser(req), courseId);
     res.json({ lessons: rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// P-H4: batch heartbeat endpoint. The frontend client-accumulates lesson-time
+// ticks in memory and POSTs them on a slow cadence (periodic 60s + on
+// pagehide/visibilitychange via navigator.sendBeacon). Deltas are additive
+// — the DB path is INSERT...ON CONFLICT DO UPDATE SET time_spent_ms = ... +
+// ${delta}, not the COALESCE-set semantics the PATCH route uses. Cap per-
+// item at 5 minutes so a runaway tab can't post a gigantic delta; cap the
+// batch size so a malicious client can't make the server loop through
+// thousands of inserts per request.
+const heartbeatBody = z.object({
+  items: z
+    .array(
+      z.object({
+        courseId: slug("courseId"),
+        lessonId: slug("lessonId"),
+        // 5 min ceiling per item matches the client's MAX_DELTA from
+        // useLessonLoader so anything the client could legitimately post
+        // fits, but a 10-minute "I forgot to tab back" span is capped.
+        deltaMs: z.number().int().nonnegative().max(5 * 60 * 1000),
+      }),
+    )
+    .max(64),
+});
+
+userDataRouter.post("/lessons/heartbeat", async (req, res, next) => {
+  const parsed = heartbeatBody.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "invalid heartbeat batch" });
+  }
+  try {
+    const written = await addLessonTimes(
+      requireUser(req),
+      parsed.data.items.map((i) => ({
+        courseId: i.courseId,
+        lessonId: i.lessonId,
+        deltaMs: i.deltaMs,
+      })),
+    );
+    res.json({ written });
   } catch (err) {
     next(err);
   }

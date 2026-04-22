@@ -4,6 +4,11 @@ import type { Lesson } from "../types";
 import { loadAllLessonMetas, loadCourse, loadFullLesson } from "../content/courseLoader";
 import { conceptsAvailableBefore } from "../content/conceptGraph";
 import { loadSavedCode, useProgressStore } from "../stores/progressStore";
+import {
+  bufferLessonTime,
+  flushLessonHeartbeat,
+  installLessonHeartbeatLifecycle,
+} from "../stores/lessonHeartbeatBuffer";
 import { useAIStore } from "../../../state/aiStore";
 import { useProjectStore } from "../../../state/projectStore";
 import { useRunStore } from "../../../state/runStore";
@@ -184,8 +189,16 @@ export function useLessonLoader({
   // Time-spent tracking — tick only while the document is visible and the
   // lesson isn't yet complete. Caps deltas at 60s so a long hidden/suspended
   // span can't inflate time.
+  //
+  // P-H4: incrementLessonTime now only updates the in-memory store (for the
+  // smoothly-animating "Time spent" badge). The durable write goes through
+  // the lessonHeartbeatBuffer which batches deltas and flushes on a 60s
+  // cadence + pagehide/visibilitychange (via fetch keepalive). Net: ≤ 1
+  // server write per lesson per minute instead of every 30s tick, and a
+  // tab close flushes the in-flight delta instead of dropping it.
   useEffect(() => {
     if (!courseId || !lessonId || practiceMode) return;
+    const uninstall = installLessonHeartbeatLifecycle();
     let lastTick = Date.now();
     const TICK_MS = 30_000;
     const MAX_DELTA = 60_000;
@@ -198,6 +211,7 @@ export function useLessonLoader({
       if (current?.status === "completed") return;
       if (delta > 0 && document.visibilityState === "visible") {
         incrementLessonTime(courseId, lessonId, delta);
+        bufferLessonTime(courseId, lessonId, delta);
       }
     };
 
@@ -215,6 +229,10 @@ export function useLessonLoader({
       clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisibility);
       credit();
+      // Best-effort final flush on unmount so navigating to another lesson
+      // in the SPA doesn't leave the buffer sitting until the 60s tick.
+      void flushLessonHeartbeat();
+      uninstall();
     };
   }, [courseId, lessonId, practiceMode, incrementLessonTime]);
 

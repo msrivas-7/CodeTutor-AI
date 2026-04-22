@@ -500,6 +500,14 @@ export const api = {
       `/api/user/lessons/${encodeURIComponent(courseId)}/${encodeURIComponent(lessonId)}`,
       body,
     ),
+  // P-H4: batch heartbeat flush. Items are additive per-lesson delta ms;
+  // the backend adds each to the existing time_spent_ms. Used by the
+  // useLessonLoader tick loop + pagehide flush path. Returns {written} so
+  // tests can assert the DB saw the bump; the hook itself doesn't care.
+  sendLessonHeartbeat: (
+    items: Array<{ courseId: string; lessonId: string; deltaMs: number }>,
+  ) =>
+    post<{ written: number }>(`/api/user/lessons/heartbeat`, { items }),
   getEditorProject: () => get<EditorProjectResponse>("/api/user/editor-project"),
   saveEditorProject: (body: EditorProjectPayload) =>
     put<EditorProjectResponse>("/api/user/editor-project", body),

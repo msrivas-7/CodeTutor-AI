@@ -13,6 +13,7 @@ import { randomUUID } from "node:crypto";
 
 const { db, closeDb } = await import("./client.js");
 const pai = await import("./paidAccessInterest.js");
+const prefs = await import("./preferences.js");
 
 let dbReachable = false;
 const userIds: string[] = [];
@@ -68,10 +69,13 @@ beforeAll(async () => {
 afterAll(async () => {
   if (dbReachable && userIds.length) {
     const sql = db();
+    // The paid_access_interest and user_preferences rows FK-cascade via
+    // auth.users → but user_preferences doesn't cascade on delete today,
+    // so clear the denorm column explicitly before user cleanup.
+    await sql`DELETE FROM public.user_preferences WHERE user_id = ANY(${userIds}::uuid[])`;
     await sql`DELETE FROM auth.users WHERE id = ANY(${userIds}::uuid[])`;
   }
   await closeDb();
-  pai.__resetPaidInterestCacheForTests();
 });
 
 describe("db/paidAccessInterest", () => {
@@ -118,14 +122,48 @@ describe("db/paidAccessInterest", () => {
     expect(row?.click_count).toBe(2);
   });
 
-  it("delete removes the row and presence cache flips to false", async () => {
+  it("delete removes the row and the denormed user_preferences flag flips to false", async () => {
     if (!dbReachable) return;
     const userId = await mkUser();
     await pai.upsertPaidAccessInterest(userId);
-    expect(await pai.hasShownPaidAccessInterest(userId)).toBe(true);
+    // P-M7: presence flag is served from user_preferences.paid_access_shown_at
+    // so /ai-status can read it in the same PK lookup as the BYOK cipher.
+    expect((await prefs.getAIStatusPrefs(userId)).hasShownPaidInterest).toBe(true);
     await pai.deletePaidAccessInterest(userId);
-    expect(await pai.hasShownPaidAccessInterest(userId)).toBe(false);
+    expect((await prefs.getAIStatusPrefs(userId)).hasShownPaidInterest).toBe(false);
     expect(await readRow(userId)).toBeNull();
+  });
+
+  it("upsert mirrors paid_access_shown_at onto user_preferences", async () => {
+    if (!dbReachable) return;
+    const userId = await mkUser();
+    await pai.upsertPaidAccessInterest(userId);
+    const rows = await db()<Array<{ paid_access_shown_at: Date | null }>>`
+      SELECT paid_access_shown_at
+        FROM public.user_preferences
+       WHERE user_id = ${userId}
+    `;
+    expect(rows[0]?.paid_access_shown_at).toBeInstanceOf(Date);
+  });
+
+  it("repeat upserts preserve the first-click timestamp on user_preferences", async () => {
+    if (!dbReachable) return;
+    const userId = await mkUser();
+    await pai.upsertPaidAccessInterest(userId);
+    const firstRows = await db()<Array<{ paid_access_shown_at: Date | null }>>`
+      SELECT paid_access_shown_at FROM public.user_preferences WHERE user_id = ${userId}
+    `;
+    const first = firstRows[0]?.paid_access_shown_at;
+    expect(first).toBeInstanceOf(Date);
+    // Sleep a tick so now() would move forward if COALESCE is broken.
+    await new Promise((r) => setTimeout(r, 30));
+    await pai.upsertPaidAccessInterest(userId);
+    const secondRows = await db()<Array<{ paid_access_shown_at: Date | null }>>`
+      SELECT paid_access_shown_at FROM public.user_preferences WHERE user_id = ${userId}
+    `;
+    expect(secondRows[0]?.paid_access_shown_at?.toISOString()).toBe(
+      first?.toISOString(),
+    );
   });
 
   it("re-upsert after delete starts fresh with click_count=1", async () => {

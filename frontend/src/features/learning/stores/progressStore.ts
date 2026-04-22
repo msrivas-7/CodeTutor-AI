@@ -414,16 +414,24 @@ export const useProgressStore = create<ProgressState>()((set, get) => {
 
     incrementLessonTime(courseId, lessonId, deltaMs) {
       if (!Number.isFinite(deltaMs) || deltaMs <= 0) return;
-      patchLesson(
-        courseId,
-        lessonId,
-        (lp) => ({
-          ...lp,
-          timeSpentMs: (lp.timeSpentMs ?? 0) + deltaMs,
-          updatedAt: now(),
-        }),
-        (next) => ({ timeSpentMs: next.timeSpentMs ?? 0 }),
-      );
+      // P-H4: in-memory update only. The server write is owned by the
+      // lessonHeartbeatBuffer batcher (periodic + pagehide flush), which
+      // POSTs an additive delta to /api/user/lessons/heartbeat. We keep
+      // the local bump here so the "Time spent" badge animates smoothly
+      // between flushes.
+      const key = compositeKey(courseId, lessonId);
+      const current = get().lessonProgress[key];
+      if (!current) return;
+      set((s) => ({
+        lessonProgress: {
+          ...s.lessonProgress,
+          [key]: {
+            ...current,
+            timeSpentMs: (current.timeSpentMs ?? 0) + deltaMs,
+            updatedAt: now(),
+          },
+        },
+      }));
     },
 
     completePracticeExercise(courseId, lessonId, exerciseId) {

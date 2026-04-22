@@ -168,6 +168,69 @@ export async function upsertLessonProgress(
 }
 
 /**
+ * P-H4 (adversarial audit, bucket 4b): batch-additive heartbeat write. The
+ * frontend accumulates per-lesson ticks in memory and POSTs them on a slow
+ * cadence (periodic 60s + pagehide/visibilitychange via sendBeacon). Unlike
+ * upsertLessonProgress's COALESCE "set" semantics, this path increments —
+ * so two tabs flushing their own deltas within the same second both count.
+ *
+ * Items with deltaMs<=0 are silently dropped. Lessons with no existing row
+ * are inserted with time_spent_ms seeded from the delta (this mirrors what
+ * upsertLessonProgress does on first touch).
+ *
+ * Returns the count of rows actually written so the route can surface a
+ * 204 vs 202 on empty batches without an extra round-trip.
+ */
+export interface LessonHeartbeatItem {
+  courseId: string;
+  lessonId: string;
+  deltaMs: number;
+}
+
+export async function addLessonTimes(
+  userId: string,
+  items: LessonHeartbeatItem[],
+): Promise<number> {
+  if (items.length === 0) return 0;
+  const sql = db();
+  // One row per unique (courseId, lessonId) — the frontend de-dupes before
+  // posting, but we still fold-and-sum here so we're robust to a future
+  // caller that doesn't. One transaction so a partial failure rolls back
+  // all bumps; per-row COALESCE handles "first visit + heartbeat" where
+  // no lesson_progress row exists yet (we seed status='in_progress').
+  const merged = new Map<string, LessonHeartbeatItem>();
+  for (const it of items) {
+    if (!(it.deltaMs > 0)) continue;
+    const key = `${it.courseId}/${it.lessonId}`;
+    const prev = merged.get(key);
+    merged.set(key, {
+      courseId: it.courseId,
+      lessonId: it.lessonId,
+      deltaMs: (prev?.deltaMs ?? 0) + it.deltaMs,
+    });
+  }
+  if (merged.size === 0) return 0;
+  let written = 0;
+  await sql.begin(async (tx) => {
+    for (const it of merged.values()) {
+      await tx`
+        INSERT INTO public.lesson_progress (
+          user_id, course_id, lesson_id, status, time_spent_ms
+        )
+        VALUES (
+          ${userId}, ${it.courseId}, ${it.lessonId}, 'in_progress', ${it.deltaMs}
+        )
+        ON CONFLICT (user_id, course_id, lesson_id) DO UPDATE
+          SET time_spent_ms = public.lesson_progress.time_spent_ms + ${it.deltaMs},
+              updated_at    = now()
+      `;
+      written += 1;
+    }
+  });
+  return written;
+}
+
+/**
  * QA-M4: reap lesson_progress rows that look like abandoned drive-bys — a
  * `startLesson` call fired the insert when the learner hit the URL, but no
  * engagement signal (run, hint, time spent, saved code) followed. If the

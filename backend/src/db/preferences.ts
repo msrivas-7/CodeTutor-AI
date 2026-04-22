@@ -148,6 +148,42 @@ export async function getOpenAIKey(userId: string): Promise<string | null> {
   return decryptKey(cipher, nonce, userId);
 }
 
+// P-M7 (adversarial audit, bucket 4b): /ai-status needs BYOK presence +
+// the "has the user ever clicked the paid-access CTA?" flag on every
+// poll. Previously that was two round-trips against two different tables
+// (user_preferences + paid_access_interest); after the 20260422020000
+// migration, both signals live on user_preferences and a single PK
+// lookup returns everything the route needs. BYOK key material is
+// decrypted here so the route never handles nonce/cipher shapes.
+export interface AIStatusPrefs {
+  openaiKey: string | null;
+  hasShownPaidInterest: boolean;
+}
+
+export async function getAIStatusPrefs(userId: string): Promise<AIStatusPrefs> {
+  const sql = db();
+  const rows = await sql<
+    Array<{
+      cipher: Buffer | null;
+      nonce: Buffer | null;
+      paid_access_shown_at: Date | null;
+    }>
+  >`
+    SELECT openai_api_key_cipher AS cipher,
+           openai_api_key_nonce  AS nonce,
+           paid_access_shown_at
+      FROM public.user_preferences
+     WHERE user_id = ${userId}
+  `;
+  if (rows.length === 0) {
+    return { openaiKey: null, hasShownPaidInterest: false };
+  }
+  const { cipher, nonce, paid_access_shown_at } = rows[0];
+  const openaiKey =
+    cipher && nonce ? decryptKey(cipher, nonce, userId) : null;
+  return { openaiKey, hasShownPaidInterest: paid_access_shown_at !== null };
+}
+
 export async function setOpenAIKey(
   userId: string,
   key: string,

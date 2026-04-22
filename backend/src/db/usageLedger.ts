@@ -5,6 +5,13 @@
 // today's global platform $ (L4). Partial indexes in the migration keep all
 // four paths cheap (funding_source='platform' is the only labeled subset we
 // query aggregates over).
+//
+// P-H1 (adversarial audit, bucket 4b): L3 no longer scans the full per-user
+// ledger history. Every platform row also bumps public.user_ai_costs in the
+// same transaction, and sumPlatformCostLifetimeForUser reads the denorm
+// directly. The ledger remains the durable source of truth — the denorm is
+// always reconstructable from SUM(cost_usd) WHERE funding_source='platform'
+// if anything ever drifts.
 
 import { db } from "./client.js";
 
@@ -24,17 +31,33 @@ export interface WriteUsageRow {
 
 export async function writeUsageRow(row: WriteUsageRow): Promise<void> {
   const sql = db();
-  await sql`
-    INSERT INTO public.ai_usage_ledger (
-      user_id, model, funding_source, route, counts_toward_quota,
-      input_tokens, output_tokens, cost_usd, price_version,
-      status, request_id
-    ) VALUES (
-      ${row.userId}, ${row.model}, ${row.fundingSource}, ${row.route},
-      ${row.countsTowardQuota}, ${row.inputTokens}, ${row.outputTokens},
-      ${row.costUsd}, ${row.priceVersion}, ${row.status}, ${row.requestId}
-    )
-  `;
+  // P-H1: wrap the ledger INSERT and the user_ai_costs UPSERT in one tx so
+  // the denorm can never be ahead of the ledger (or vice versa). Only
+  // platform rows contribute to L3, so BYOK + zero-cost rows skip the
+  // denorm update — writing 0 would still bump updated_at for no reason.
+  await sql.begin(async (tx) => {
+    await tx`
+      INSERT INTO public.ai_usage_ledger (
+        user_id, model, funding_source, route, counts_toward_quota,
+        input_tokens, output_tokens, cost_usd, price_version,
+        status, request_id
+      ) VALUES (
+        ${row.userId}, ${row.model}, ${row.fundingSource}, ${row.route},
+        ${row.countsTowardQuota}, ${row.inputTokens}, ${row.outputTokens},
+        ${row.costUsd}, ${row.priceVersion}, ${row.status}, ${row.requestId}
+      )
+    `;
+    if (row.fundingSource === "platform" && row.costUsd > 0) {
+      await tx`
+        INSERT INTO public.user_ai_costs (user_id, lifetime_cost_usd, updated_at)
+        VALUES (${row.userId}, ${row.costUsd}, now())
+        ON CONFLICT (user_id) DO UPDATE
+          SET lifetime_cost_usd =
+                public.user_ai_costs.lifetime_cost_usd + EXCLUDED.lifetime_cost_usd,
+              updated_at        = now()
+      `;
+    }
+  });
 }
 
 // UTC day boundary. We normalize to midnight UTC so the daily quota counter
@@ -113,16 +136,18 @@ export async function sumPlatformCostTodayForUser(
   return Number(rows[0]?.total ?? 0);
 }
 
-// L3: per-user lifetime platform $ spend across ALL routes.
+// L3: per-user lifetime platform $ spend across ALL routes. P-H1: served
+// from the denorm table user_ai_costs, which writeUsageRow updates in the
+// same tx as every platform ledger row. New users with no ledger rows have
+// no denorm row either, so a missing row reads as $0 (not an error).
 export async function sumPlatformCostLifetimeForUser(
   userId: string,
 ): Promise<number> {
   const sql = db();
   const rows = await sql<Array<{ total: string | null }>>`
-    SELECT SUM(cost_usd)::text AS total
-      FROM public.ai_usage_ledger
-     WHERE funding_source = 'platform'
-       AND user_id = ${userId}
+    SELECT lifetime_cost_usd::text AS total
+      FROM public.user_ai_costs
+     WHERE user_id = ${userId}
   `;
   return Number(rows[0]?.total ?? 0);
 }

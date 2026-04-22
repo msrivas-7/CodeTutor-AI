@@ -360,6 +360,59 @@ describe("db/lessonProgress", () => {
     });
     expect(cleared.lastCode).toBeNull();
   });
+
+  // P-H4 (adversarial audit, bucket 4b): batch-additive heartbeat. Unlike
+  // upsertLessonProgress's COALESCE-set semantics, addLessonTimes bumps
+  // time_spent_ms by the provided delta. Two flushes in a row accumulate;
+  // a brand-new (courseId,lessonId) seeds a row with status='in_progress'.
+  it("addLessonTimes seeds a new row with the delta on first touch", async () => {
+    if (!dbReachable) return;
+    const userId = await mkUser();
+    const written = await lessons.addLessonTimes(userId, [
+      { courseId: "py", lessonId: "loops", deltaMs: 30_000 },
+    ]);
+    expect(written).toBe(1);
+    const rows = await lessons.listLessonProgress(userId, "py");
+    expect(rows).toHaveLength(1);
+    expect(rows[0].timeSpentMs).toBe(30_000);
+    expect(rows[0].status).toBe("in_progress");
+  });
+
+  it("addLessonTimes increments an existing row instead of overwriting", async () => {
+    if (!dbReachable) return;
+    const userId = await mkUser();
+    await lessons.upsertLessonProgress(userId, "py", "loops", {
+      status: "in_progress",
+      timeSpentMs: 60_000,
+    });
+    await lessons.addLessonTimes(userId, [
+      { courseId: "py", lessonId: "loops", deltaMs: 45_000 },
+    ]);
+    const [row] = await lessons.listLessonProgress(userId, "py");
+    expect(row.timeSpentMs).toBe(105_000);
+  });
+
+  it("addLessonTimes folds repeats for the same (course,lesson) in a single batch", async () => {
+    if (!dbReachable) return;
+    const userId = await mkUser();
+    await lessons.addLessonTimes(userId, [
+      { courseId: "py", lessonId: "l1", deltaMs: 10_000 },
+      { courseId: "py", lessonId: "l1", deltaMs: 15_000 },
+      { courseId: "py", lessonId: "l2", deltaMs: 5_000 },
+      { courseId: "py", lessonId: "l1", deltaMs: 0 }, // ignored
+      { courseId: "py", lessonId: "l1", deltaMs: -100 }, // ignored
+    ]);
+    const rows = await lessons.listLessonProgress(userId, "py");
+    const byLesson = Object.fromEntries(rows.map((r) => [r.lessonId, r.timeSpentMs]));
+    expect(byLesson.l1).toBe(25_000);
+    expect(byLesson.l2).toBe(5_000);
+  });
+
+  it("addLessonTimes([]) is a no-op that returns 0", async () => {
+    if (!dbReachable) return;
+    const userId = await mkUser();
+    expect(await lessons.addLessonTimes(userId, [])).toBe(0);
+  });
 });
 
 describe("db/editorProject", () => {
