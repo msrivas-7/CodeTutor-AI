@@ -83,13 +83,16 @@ write_files:
         echo "FREE_TIER_LIFETIME_USD_PER_USER=$(fetch_optional FREE-TIER-LIFETIME-USD-PER-USER)"
         echo "FREE_TIER_DAILY_USD_CAP=$(fetch_optional FREE-TIER-DAILY-USD-CAP)"
         echo "PLATFORM_OPENAI_API_KEY=$(fetch_optional PLATFORM-OPENAI-API-KEY)"
-        # Non-secret prod config. CORS locked to the canonical custom
-        # domain (shadowed by docker-compose.prod.yml's backend env block);
-        # rate limits back to prod-tight values (dev's 500/2000/500 headroom
-        # was for the parallel e2e workers, not real traffic).
+        # Non-secret prod config. CORS is sourced from KV (`CORS-ORIGIN`)
+        # so the frontend hostname is never hardcoded in the provisioning
+        # template — avoids the template/live-script drift that bit us when
+        # the custom domain was added post-provisioning and refresh-env on
+        # the live VM kept substituting the original SWA default. Rate
+        # limits back to prod-tight values (dev's 500/2000/500 headroom was
+        # for the parallel e2e workers, not real traffic).
         echo "BACKEND_PORT=4000"
         echo "BACKEND_BIND=127.0.0.1"
-        echo "CORS_ORIGIN=https://codetutor.msrivas.com"
+        echo "CORS_ORIGIN=$(fetch CORS-ORIGIN)"
         echo "BACKEND_IMAGE={{BACKEND_IMAGE}}"
         echo "RUNNER_IMAGE={{RUNNER_IMAGE}}"
         echo "DOCKER_HOST=tcp://socket-proxy:2375"
