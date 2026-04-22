@@ -71,6 +71,18 @@ write_files:
         # the endpoint is loopback-only (fine for prod today — no external
         # scraper). Seed it in KV when wiring in Prometheus.
         echo "METRICS_TOKEN=$(fetch_optional METRICS-TOKEN)"
+        # Phase 20-P4: Free AI tier. All six are fetched as optional so a
+        # first boot without these KV secrets (older envs, or a rebuild
+        # before P4 ships) still comes up cleanly — absent values just mean
+        # free tier stays off. assertConfigValid only requires the OpenAI
+        # key when ENABLE_FREE_TIER=1. To flip the feature on: rotate the
+        # ENABLE-FREE-TIER secret to "1" and re-run refresh-env.
+        echo "ENABLE_FREE_TIER=$(fetch_optional ENABLE-FREE-TIER)"
+        echo "FREE_TIER_DAILY_QUESTIONS=$(fetch_optional FREE-TIER-DAILY-QUESTIONS)"
+        echo "FREE_TIER_DAILY_USD_PER_USER=$(fetch_optional FREE-TIER-DAILY-USD-PER-USER)"
+        echo "FREE_TIER_LIFETIME_USD_PER_USER=$(fetch_optional FREE-TIER-LIFETIME-USD-PER-USER)"
+        echo "FREE_TIER_DAILY_USD_CAP=$(fetch_optional FREE-TIER-DAILY-USD-CAP)"
+        echo "PLATFORM_OPENAI_API_KEY=$(fetch_optional PLATFORM-OPENAI-API-KEY)"
         # Non-secret prod config. CORS locked to the canonical custom
         # domain (shadowed by docker-compose.prod.yml's backend env block);
         # rate limits back to prod-tight values (dev's 500/2000/500 headroom
