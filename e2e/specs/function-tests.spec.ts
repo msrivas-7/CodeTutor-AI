@@ -57,7 +57,13 @@ test.describe("function tests", () => {
     await loadProfile(page, "capstone-first-fail");
     await page.goto(`/learn/course/${COURSE_ID}/lesson/${CAPSTONE}`);
     await waitForMonacoReady(page);
-    await expect(S.lessonRunButton(page)).toBeEnabled({ timeout: 30_000 });
+    // 60s (not the default 30s) because these two specs are often the first
+    // per-worker to need an active session, and on a cold CI Docker daemon
+    // the first createContainer can take >30s. Retries pass because the
+    // daemon is warm by then; this bump absorbs the cold-start outlier
+    // without hiding real latency regressions (60s is still well under the
+    // 90s spec-level timeout).
+    await expect(S.lessonRunButton(page)).toBeEnabled({ timeout: 60_000 });
 
     // Plug in the golden solution so every visible test passes.
     await setMonacoValue(page, readLessonSolution(COURSE_ID, CAPSTONE));
@@ -78,7 +84,8 @@ test.describe("function tests", () => {
     await loadProfile(page, "capstone-first-fail");
     await page.goto(`/learn/course/${COURSE_ID}/lesson/${CAPSTONE}`);
     await waitForMonacoReady(page);
-    await expect(S.lessonRunButton(page)).toBeEnabled({ timeout: 30_000 });
+    // See :60 — same cold-start budget applies.
+    await expect(S.lessonRunButton(page)).toBeEnabled({ timeout: 60_000 });
 
     await page.getByRole("tab", { name: /^examples$/i }).click();
     const section = page.locator('section[aria-labelledby="examples-heading"]');

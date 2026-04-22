@@ -39,38 +39,6 @@ const SERVICE_KEY = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
 const STORAGE_KEY = "codetutor-auth";
 const PASSWORD = "E2E-Password-123!";
 
-// Backend origin for the warmup `POST /api/session` call below. Matches the
-// docker-compose publish (127.0.0.1:4000) in CI and local. Override via env
-// for setups that publish differently.
-const BACKEND_ORIGIN = process.env.E2E_BACKEND_ORIGIN ?? "http://localhost:4000";
-
-// Fire-and-forget warmup: issue `POST /api/session` the moment the worker's
-// user signs in. The response is ignored. The *point* is to pay the cold
-// `docker createContainer` cost during Playwright's browser-launch window
-// instead of on the critical path of the first `lessonRunButton` assertion.
-//
-// On CI the runner image is built lazily during `docker compose up` with no
-// cross-run layer cache, so the first createContainer per worker consistently
-// blew past the spec's 30 s `toBeEnabled` timeout (see the prior
-// function-tests.spec.ts flakes). A warm daemon + cached image layers
-// cut subsequent starts to under a second.
-async function warmupSession(accessToken: string): Promise<void> {
-  try {
-    await fetch(`${BACKEND_ORIGIN}/api/session`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${accessToken}`,
-      },
-      body: "{}",
-    });
-  } catch {
-    // Warmup is best-effort. If the backend isn't ready yet the real
-    // test's session POST will retry — we're trading a guaranteed
-    // cold-start for a probabilistic warm one, not taking a dependency.
-  }
-}
-
 // Admin client — service_role, talks to /auth/v1/admin. NEVER expose this
 // key in the browser.
 const admin: SupabaseClient = createClient(SUPABASE_URL, SERVICE_KEY, {
@@ -186,12 +154,6 @@ export async function getWorkerUser(workerIndex: number): Promise<CachedUser> {
   const promise = (async () => {
     const userId = await createOrReuseUser(email);
     const session = await freshSession(email);
-    // Kick off the warmup in the background. We intentionally don't await
-    // it — Playwright's browser-launch + page-render steps happen in
-    // parallel with the backend's container spin-up, so by the time the
-    // first test navigates to a lesson page the daemon + runner image are
-    // already warm.
-    void warmupSession(session.access_token);
     return { email, userId, session };
   })();
   workerCache.set(workerIndex, promise);
