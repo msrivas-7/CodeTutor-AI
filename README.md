@@ -14,11 +14,11 @@ Write code, run it in a sandboxed container, and get structured help when you're
 
 <br />
 
+[![CI](https://github.com/msrivas-7/CodeTutor-AI/actions/workflows/ci.yml/badge.svg)](https://github.com/msrivas-7/CodeTutor-AI/actions/workflows/ci.yml)
+[![E2E](https://github.com/msrivas-7/CodeTutor-AI/actions/workflows/e2e.yml/badge.svg)](https://github.com/msrivas-7/CodeTutor-AI/actions/workflows/e2e.yml)
 [![Languages](https://img.shields.io/badge/9_Languages-Python_%7C_JS_%7C_TS_%7C_C_%7C_C++_%7C_Java_%7C_Go_%7C_Rust_%7C_Ruby-38bdf8?style=flat-square)](https://codetutor.msrivas.com)
 [![Azure](https://img.shields.io/badge/Hosted_on-Azure-0078D4?style=flat-square&logo=microsoftazure&logoColor=white)](https://codetutor.msrivas.com)
 [![OpenAI](https://img.shields.io/badge/AI_Tutor-OpenAI-412991?style=flat-square&logo=openai&logoColor=white)](https://platform.openai.com/api-keys)
-[![TypeScript](https://img.shields.io/badge/Built_with-TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Docker](https://img.shields.io/badge/Sandboxed-Docker-2496ED?style=flat-square&logo=docker&logoColor=white)](https://www.docker.com/)
 
 <br />
 
@@ -26,11 +26,8 @@ Write code, run it in a sandboxed container, and get structured help when you're
 
 <br />
 
-<sub><b>Start page</b> — pick a mode and get coding.</sub>
+**Most coding assistants solve the problem for you. CodeTutor AI teaches you to solve it yourself** — the tutor knows your lesson, your current code, and how many times you've tried, and escalates hints accordingly. You write the answer; it makes sure you understand why.
 
-<img src="frontend/public/og-image.png" alt="CodeTutor AI start page — Open Editor and Guided Course options with the tagline 'Write code, run it in a sandbox, and learn with an AI tutor — all in the browser.'" width="900" />
-
-<br />
 <br />
 
 <sub><b>Lesson workspace</b> — instructions, editor, and an AI tutor that guides without spoiling.</sub>
@@ -43,21 +40,25 @@ Write code, run it in a sandboxed container, and get structured help when you're
 
 ---
 
-## Why CodeTutor AI
-
-Most coding assistants solve the problem for you. CodeTutor AI is built the opposite way — it **teaches** you to solve it yourself. The tutor knows your lesson, your current code, and how many times you've tried, and escalates hints accordingly. You write the answer; it makes sure you understand why.
-
-Everything runs end-to-end in the browser: a Monaco editor on the left, an isolated Docker container executing your code on the right, and a structured tutor response (explanation · example · pitfalls) above it.
-
 ## Editor Mode
 
 > A full coding workspace across nine languages. Each comes with a starter project so you can jump right in.
 
 - **Professional editor** — syntax highlighting, autocomplete, multi-file projects, light + dark themes
 - **Instant run** — sandboxed container returns stdout, stderr, and execution time
-- **Highlight + ask** — select any code and press `Cmd+K` to ask the tutor about it
+- **Highlight + ask** — select any code and press <kbd>Cmd</kbd>+<kbd>K</kbd> / <kbd>Ctrl</kbd>+<kbd>K</kbd> to ask the tutor about it
 - **Dedicated stdin** — sample input pre-filled per language, or paste your own
 - **First-time tour** — walks you through the workspace on your first visit
+
+<div align="center">
+
+<br />
+
+<sub><b>Start page</b> — pick a mode and get coding.</sub>
+
+<img src="frontend/public/og-image.png" alt="CodeTutor AI start page — Open Editor and Guided Course options with the tagline 'Write code, run it in a sandbox, and learn with an AI tutor — all in the browser.'" width="720" />
+
+</div>
 
 ## Guided Learning
 
@@ -83,7 +84,7 @@ Everything runs end-to-end in the browser: a Monaco editor on the left, an isola
 </td>
 <td width="50%">
 
-**Highlight + ask** — select code and press <code>Cmd+K</code> / <code>Ctrl+K</code> to ask about it anywhere in the app.
+**Highlight + ask** — select code and press <kbd>Cmd</kbd>+<kbd>K</kbd> / <kbd>Ctrl</kbd>+<kbd>K</kbd> to ask about it anywhere in the app.
 
 </td>
 </tr>
@@ -117,6 +118,29 @@ Everything runs end-to-end in the browser: a Monaco editor on the left, an isola
 
 A full-stack TypeScript product shipping to real users at **[codetutor.msrivas.com](https://codetutor.msrivas.com)**.
 
+```mermaid
+flowchart LR
+    Browser["Browser<br/>React + Monaco"]
+
+    subgraph VM["Azure VM"]
+        BE["Backend<br/>Express + TS"]
+        SP["socket-proxy<br/>API allowlist"]
+        R["Runner container<br/>non-root · no network<br/>read-only rootfs"]
+    end
+
+    SB[("Supabase<br/>Auth + Postgres")]
+    AI["OpenAI<br/>Responses API"]
+    KV[["Key Vault"]]
+
+    Browser -->|"HTTPS / SSE"| BE
+    Browser -->|"Auth"| SB
+    BE -->|"JWKS + DB"| SB
+    BE -->|"tcp:2375"| SP
+    SP -->|"docker.sock"| R
+    BE -->|"Managed Identity"| KV
+    BE -->|"json_schema"| AI
+```
+
 | Layer | Stack |
 | --- | --- |
 | **Frontend** | React + Vite + Tailwind + Monaco + Zustand. React Router, SSE streaming, optimistic DB writes with server reconciliation. |
@@ -132,9 +156,12 @@ Full system design, security posture, and API surface: **[docs/ARCHITECTURE.md](
 
 ## Get started
 
+> [!TIP]
+> **You don't need to install anything.** Click the live link, sign in, and you're coding in seconds — a small daily allowance of tutor questions is included.
+
 ### Try it live
 
-Head to **[codetutor.msrivas.com](https://codetutor.msrivas.com)** and sign in with an email magic-link or Google OAuth. The editor and run-code work instantly; a small daily allowance of tutor questions is included, and you can drop in your own [OpenAI API key](https://platform.openai.com/api-keys) for unlimited tutor use.
+Head to **[codetutor.msrivas.com](https://codetutor.msrivas.com)** and sign in with an email magic-link or Google OAuth. The editor and run-code work instantly; drop in your own [OpenAI API key](https://platform.openai.com/api-keys) for unlimited tutor use.
 
 ### Build it locally
 
