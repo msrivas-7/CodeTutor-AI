@@ -6,7 +6,7 @@
 
 **Learn to code with an AI tutor that guides you — without giving away the answers.**
 <br />
-Write code, run it in a sandboxed environment, and get structured help when you're stuck.
+Write code, run it in a sandboxed container, and get structured help when you're stuck.
 
 <br />
 
@@ -17,10 +17,12 @@ Write code, run it in a sandboxed environment, and get structured help when you'
 [![Languages](https://img.shields.io/badge/9_Languages-Python_%7C_JS_%7C_TS_%7C_C_%7C_C++_%7C_Java_%7C_Go_%7C_Rust_%7C_Ruby-38bdf8?style=flat-square)](https://codetutor.msrivas.com)
 [![Azure](https://img.shields.io/badge/Hosted_on-Azure-0078D4?style=flat-square&logo=microsoftazure&logoColor=white)](https://codetutor.msrivas.com)
 [![OpenAI](https://img.shields.io/badge/AI_Tutor-OpenAI-412991?style=flat-square&logo=openai&logoColor=white)](https://platform.openai.com/api-keys)
+[![TypeScript](https://img.shields.io/badge/Built_with-TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Docker](https://img.shields.io/badge/Sandboxed-Docker-2496ED?style=flat-square&logo=docker&logoColor=white)](https://www.docker.com/)
 
 <br />
 
-[**Architecture**](docs/ARCHITECTURE.md) &nbsp;&bull;&nbsp; [**Development**](docs/DEVELOPMENT.md)
+[**Architecture**](docs/ARCHITECTURE.md) &nbsp;&bull;&nbsp; [**Development**](docs/DEVELOPMENT.md) &nbsp;&bull;&nbsp; [**Content authoring**](docs/CONTENT_AUTHORING.md)
 
 <br />
 
@@ -41,77 +43,102 @@ Write code, run it in a sandboxed environment, and get structured help when you'
 
 ---
 
+## Why CodeTutor AI
+
+Most coding assistants solve the problem for you. CodeTutor AI is built the opposite way — it **teaches** you to solve it yourself. The tutor knows your lesson, your current code, and how many times you've tried, and escalates hints accordingly. You write the answer; it makes sure you understand why.
+
+Everything runs end-to-end in the browser: a Monaco editor on the left, an isolated Docker container executing your code on the right, and a structured tutor response (explanation · example · pitfalls) above it.
+
 ## Editor Mode
 
-> A full coding workspace with 9 languages. Each language comes with a starter project so you can jump right in.
+> A full coding workspace across nine languages. Each comes with a starter project so you can jump right in.
 
-- **Write code** in a professional editor with syntax highlighting, autocomplete, and multi-file support
-- **Run instantly** in a sandboxed container — see output, errors, and execution time
-- **Ask the AI tutor** about your code — highlight a section and press `Cmd+K` to ask about it
-- **Provide input** via a dedicated stdin tab, pre-filled with sample data for each language
-- **First-time tour** walks you through the workspace on your first visit
+- **Professional editor** — syntax highlighting, autocomplete, multi-file projects, light + dark themes
+- **Instant run** — sandboxed container returns stdout, stderr, and execution time
+- **Highlight + ask** — select any code and press `Cmd+K` to ask the tutor about it
+- **Dedicated stdin** — sample input pre-filled per language, or paste your own
+- **First-time tour** — walks you through the workspace on your first visit
 
 ## Guided Learning
 
-> Two structured beginner courses: 12-lesson **Python Fundamentals** (through mini-project + two capstones) and 8-lesson **JavaScript Fundamentals** (through a habit-tracker mini-project). Instructions, starter code, and auto-validated exercises across both — powered by a shared content pipeline, per-language harness registry, and authoring scripts. _(More courses on the way.)_
+> Two structured beginner courses today: 12-lesson **Python Fundamentals** (through a mini-project + two capstones) and 8-lesson **JavaScript Fundamentals** (through a habit-tracker mini-project). Shared content pipeline, per-language test harness, and authoring scripts. _(More courses on the way.)_
 
-- **Learn by doing** — read the instructions, write code, run it, and check your work
-- **AI tutor that teaches, not solves** — knows your lesson context, gives escalating hints, and never spoils the answer
-- **Instant feedback** — "Check My Work" validates your code and shows what to fix. Pass to see a recap and practice challenges
-- **Example test cases** — capstone lessons expose visible example cases in an Examples tab. Run them any time to see how your function behaves before submitting; Check My Work also runs extra hidden cases
-- **Practice mode** — 30+ bite-sized challenges (3 per lesson) reinforce concepts with a different twist. Optional, tracked separately, visible per-lesson on the course page
-- **Progress that sticks** — your code, completions, and progress persist in the browser. Pick up where you left off — with a visible warning if your browser storage fills up so nothing is silently lost
-- **Guided onboarding** — contextual nudges help you figure out what to do next. A spotlight tour introduces the workspace on your first lesson
-- **Learning dashboard** — see your progress, what's next, recent activity, and which lessons might need review
+- **Learn by doing** — read, write, run, check your work. Loop.
+- **Tutor that teaches, not solves** — knows your lesson context, gives escalating hints, never spoils the answer
+- **Instant validation** — "Check My Work" runs your code against the lesson's completion rules and shows what to fix
+- **Visible + hidden tests** — capstone lessons show example test cases you can run any time; "Check My Work" also runs hidden cases
+- **Practice mode** — 30+ bite-sized challenges (3 per lesson) reinforce each concept with a different twist
+- **Progress that sticks** — code, completions, and progress save to your account and sync across devices
+- **Guided onboarding** — contextual nudges and a spotlight tour introduce the workspace on your first lesson
+- **Learning dashboard** — see what's next, recent activity, and lessons worth revisiting
 
-## Shared Features
+## Shared features
 
 <table>
 <tr>
 <td width="50%">
 
-**Adaptive AI tutor** — adjusts vocabulary and depth to your experience level (beginner, intermediate, advanced)
+**Adaptive AI tutor** — adjusts vocabulary and depth to your experience level (beginner, intermediate, advanced).
 
 </td>
 <td width="50%">
 
-**Highlight + ask** — select code and press <code>Cmd+K</code> / <code>Ctrl+K</code> to ask about it
+**Highlight + ask** — select code and press <code>Cmd+K</code> / <code>Ctrl+K</code> to ask about it anywhere in the app.
 
 </td>
 </tr>
 <tr>
 <td>
 
-**Stuckness detection** — repeated failures unlock stronger hints and concrete next steps
+**Stuckness detection** — repeated failures on the same step unlock stronger hints and concrete next steps.
 
 </td>
 <td>
 
-**Bring your own key** — uses your OpenAI API key, never stored on any server. Editor and run work without one
+**Tutor access** — signed-in learners get a small daily allowance on the hosted tier. Bring your own OpenAI key for unlimited use — encrypted at rest, never surfaced back. Editor and run always work without either.
 
 </td>
 </tr>
 <tr>
 <td>
 
-**Light & dark themes** — follows your system by default, or pick one in Settings. Editor and app chrome switch together
+**Light & dark themes** — follows your system by default, or pick one in Settings. Editor and app chrome switch together.
 
 </td>
 <td>
 
-**Accessible by default** — WCAG AA color contrast, keyboard-navigable splitters, full ARIA labeling on every interactive surface
+**Accessible by default** — WCAG AA contrast, keyboard-navigable splitters, full ARIA labeling on every interactive surface.
 
 </td>
 </tr>
 </table>
 
+## Under the hood
+
+A full-stack TypeScript product shipping to real users at **[codetutor.msrivas.com](https://codetutor.msrivas.com)**.
+
+| Layer | Stack |
+| --- | --- |
+| **Frontend** | React + Vite + Tailwind + Monaco + Zustand. React Router, SSE streaming, optimistic DB writes with server reconciliation. |
+| **Backend** | Node + Express + TypeScript. Auth + Postgres via Supabase. OpenAI Responses API with strict `json_schema` + intent classifier (debug · concept · howto · walkthrough · checkin). |
+| **Execution** | Per-session Docker runner container — non-root, `--network none`, read-only rootfs, CPU / memory / PID capped. Dockerode goes through a `socket-proxy` sidecar with an endpoint allowlist, not the raw socket. |
+| **Content pipeline** | File-based courses with Zod schemas, a concept graph (used-before-taught detection), per-language function-test harness with HMAC-signed result envelopes, and golden-solution verification in CI. |
+| **Infra** | Azure VM + Static Web Apps + Key Vault (managed-identity secret delivery); Caddy + Let's Encrypt TLS. GHCR images, OIDC deploys, Log Analytics + metric alerts + weekly VM backups. |
+| **Tests** | Vitest (unit) + content validation + Playwright (end-to-end, real Docker stack). |
+
+Full system design, security posture, and API surface: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
+
 ---
 
-## Get Started
+## Get started
 
-Head to **[codetutor.msrivas.com](https://codetutor.msrivas.com)** and sign in with Google or GitHub. The editor and run-code work right away; bring your own [OpenAI API key](https://platform.openai.com/api-keys) to unlock the AI tutor.
+### Try it live
 
-For development setup, architecture notes, and content authoring, see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Head to **[codetutor.msrivas.com](https://codetutor.msrivas.com)** and sign in with an email magic-link or Google OAuth. The editor and run-code work instantly; a small daily allowance of tutor questions is included, and you can drop in your own [OpenAI API key](https://platform.openai.com/api-keys) for unlimited tutor use.
+
+### Build it locally
+
+Full dev setup (Docker Desktop + Supabase project credentials + frontend/backend install) is documented in **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)**. Content authoring (lessons + practice exercises) is in **[docs/CONTENT_AUTHORING.md](docs/CONTENT_AUTHORING.md)**.
 
 ---
 

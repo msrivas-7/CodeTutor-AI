@@ -120,6 +120,17 @@ All optional — defaults work for local use. See [.env.example](../.env.example
 | `SUPABASE_SERVICE_ROLE_KEY` | **required for E2E** | `sb_secret_...` key. The e2e auth helper uses it to admin-create per-worker test users. **Never** set in prod; the backend only verifies tokens, it has no need for the service role. |
 | `DATABASE_URL` | **required** | Postgres transaction pooler URL from the Supabase project's database settings (port 6543). The backend sets `prepare: false` on the postgres.js pool because the transaction pooler recycles connections between transactions and does not support prepared statements. |
 | `BYOK_ENCRYPTION_KEY` | **required** | Master key used to encrypt each user's saved OpenAI API key at rest in `user_preferences` (AES-256-GCM envelope, per-row random nonce). 32 bytes, base64-encoded — generate with `openssl rand -base64 32`. Backend refuses to boot without it. Rotating invalidates every stored key; dev and prod MUST use different values. |
+| `ENABLE_FREE_TIER` | `0` | When `1`, signed-in learners without a BYOK key fall through to the operator's OpenAI key; when `0`, only BYOK callers reach the tutor. Acts as the nuclear kill-switch. |
+| `FREE_TIER_DAILY_QUESTIONS` | see `.env.example` | Per-user daily quota on operator-funded `/api/ai/ask` calls. `/api/ai/summarize` is metered for spend but excluded from this counter. |
+| `FREE_TIER_DAILY_USD_PER_USER` | see `.env.example` | Per-user daily spend cap on operator-funded calls. |
+| `FREE_TIER_LIFETIME_USD_PER_USER` | see `.env.example` | Per-user lifetime spend cap on operator-funded calls. |
+| `FREE_TIER_DAILY_USD_CAP` | see `.env.example` | Global daily spend circuit-breaker across all operator-funded callers. |
+| `PLATFORM_OPENAI_API_KEY` | required when `ENABLE_FREE_TIER=1` | Operator's OpenAI key. `assertConfigValid` refuses to boot if the flag is on and this is absent. |
+| `AI_REQUEST_TIMEOUT_MS` | `90000` | Deadline for a single `/ask` or `/ask/stream` call; shared between BYOK and operator-funded paths. |
+| `MAX_SESSIONS_PER_USER` | see `.env.example` | Ceiling on concurrent runner containers per user. |
+| `MAX_SESSIONS_GLOBAL` | see `.env.example` | Global ceiling on concurrent runner containers, sized to the VM's RAM budget. |
+| `DOCKER_EXEC_CONCURRENCY` | see `.env.example` | Semaphore on concurrent `docker exec` calls to keep interactive latency stable under load. |
+| `METRICS_TOKEN` | unset | When set, `/api/metrics` requires `Authorization: Bearer <token>`. When unset, `/api/metrics` accepts only loopback callers. |
 | `DEBUG_PROMPTS` | unset | When `1`, the AI provider logs full system + user turn text. Leave unset; learner code would otherwise reach the backend log. |
 
 ## Direct Docker Compose
@@ -137,9 +148,10 @@ Reach for these before copy-pasting — each one exists because the same pattern
 
 | Module | What it gives you |
 | --- | --- |
-| `frontend/src/util/layoutPrefs.ts` | `usePersistedNumber(key, default)` and `usePersistedFlag(key, default)` — drop-in `useState` replacements that persist to localStorage and route quota errors to the warning banner. `clamp(n, [min, max])` + `clampSide(n, [min, max])` for splitter/panel sizing. |
+| `frontend/src/util/layoutPrefs.ts` | `usePersistedNumber(key, default)` and `usePersistedFlag(key, default)` — drop-in `useState` replacements that read/write `preferencesStore.uiLayout` (debounced `PATCH /api/user/preferences` under the hood — see [preferencesStore.ts:215](../frontend/src/state/preferencesStore.ts#L215)). `clamp(n, [min, max])` + `clampSide(n, [min, max])` for splitter/panel sizing. |
 | `frontend/src/util/timings.ts` | Named durations for values shared across files (`COACH_AUTO_OPEN_MS`, `RESUME_TOAST_MS`). Only add here when ≥2 callsites want the same semantic value. |
-| `frontend/src/state/storageStore.ts` | `noteStorageQuotaError(err)` — React-free helper. Call from any `catch` around `localStorage.setItem`; sniffs `QuotaExceededError` + `NS_ERROR_DOM_QUOTA_REACHED` (Firefox) and flips the global banner flag. The banner itself (`StorageQuotaBanner`) is mounted once in `App.tsx`. |
+| `frontend/src/state/preferencesStore.ts` | Single source of truth for per-user preferences (persona, theme, openaiModel, onboarding flags, `uiLayout` bucket, `hasOpenaiKey` flag). Hydrates on sign-in from `GET /api/user/preferences`; `patch(body)` is optimistic-with-rollback. Use `useTheme()`, `usePersona()`, `useUiLayoutValue(path, fallback)`, `setUiLayoutValue(path, v)`, `markOnboardingDone(flag)` rather than reaching into the store directly. |
+| `frontend/src/state/useAIStatus.ts` | Module-scoped cache (30 s TTL) around `/api/user/ai-status`. `useAIStatus()` returns `{ status, refetch }`; `invalidateAIStatus()` is the imperative escape hatch for non-React callers (called after BYOK save/forget so the tutor surfaces pick up the new credential source immediately). |
 | `frontend/src/components/SelectionPreview.tsx` | Shared "selected code context" chip used by the editor and guided tutor panels. |
 | `frontend/src/features/learning/stores/progressStore.ts` → `updateLesson(lessonId, patch)` | Merge-patch a lesson's progress record. Prefer this over hand-rolled spreads. |
 
@@ -170,66 +182,15 @@ These resolve to CSS variables in [`src/index.css`](../frontend/src/index.css) a
 
 Contrast floor: all text on `panel` / `bg` meets WCAG AA (4.5:1). If you introduce a new foreground/background combination, check it with a contrast tool before shipping.
 
-## Dev Profile Switcher
+## Demoing / manual QA
 
-A dev-only "cheat code" system for manually verifying UI states without grinding through lessons. Entire system lives under `frontend/src/__dev__/` and is gated on `import.meta.env.DEV` so it's tree-shaken out of production bundles.
+Per-user state lives in Postgres, so the canonical way to land on a specific progress state is to sign in as one of the pre-seeded `codetutor-dev` users. See the "Dev test users" section at the top of this doc and the gitignored [`.dev-users.md`](../.dev-users.md) for the per-user scenarios.
 
-**How to use:**
+`backend/scripts/seed-dev-users.ts` is the source of truth. To add a scenario, edit the `SCENARIOS` array in that script and re-run `ALLOW_DEV_SEED=yes npm run seed:dev-users`.
 
-1. Press **`Cmd/Ctrl + Shift + Alt + D`** anywhere in the app to toggle dev mode. A violet toast confirms enable/disable. The first enable captures a snapshot of your real user state so you can always get back to it.
-2. Open **Settings** (gear icon). With dev mode on you'll see a **General | Developer** tab bar at the top.
-3. In the **Developer** tab, pick a profile from the dropdown and click **Apply**. The app reloads into that profile's state.
-4. Same shortcut again exits the active profile, restores the real snapshot, and hides the Developer tab.
+For free-play demos across reloads, sign in as `user2@test.com` (mid-course healthy) or `user5@test.com` (both courses complete) and interact freely — the next seed run resets their state.
 
-**Profiles:**
-
-| # | ID | Frozen | Scope | What it's for |
-| --- | --- | --- | --- | --- |
-| 1 | `fresh-install` | ✓ | — | Welcome spotlight → dashboard banner → lesson 1 nudge → workspace tour |
-| 2 | `welcomed-not-started` | ✓ | — | Dashboard "Ready to start coding?" banner |
-| 3 | `first-lesson-editing` | ✓ | Python | CoachRail edited-no-run nudge on Python `hello-world` |
-| 4 | `mid-course-healthy` | ✓ | Python + JS | Multi-course dashboard happy-path — both courses in progress with "Next up" + activity feed |
-| 5 | `stuck-on-lesson` | ✓ | Python | CoachRail many-fails nudge on Python `conditionals` |
-| 6 | `needs-help-dashboard` | ✓ | Python + JS | Dashboard Review card — 3 shaky Python entries + 2 clean JS lessons for multi-course shape |
-| 7 | `capstones-pending` | ✓ | Python + JS | JS fully complete, Python on `capstone-word-frequency` cold — Examples + Run examples flow |
-| 8 | `capstone-first-fail` | ✓ | Python | Broken `count_words` pre-seeded on Python capstone — FailedTestCallout + 2nd-fail "Ask tutor why" gate |
-| 9 | `all-complete` | ✓ | Python + JS | Both courses fully complete — all-green dashboard + celebration replay |
-| 10 | `sandbox` | ✗ | — | Free-play — persists across reloads under its own snapshot slot |
-
-The **Scope** column is a signal to screenshot authors: narrative-specific Python profiles stay Python-only because their story is tied to a specific Python lesson. Profiles labelled "Python + JS" seed state for both courses so the multi-course dashboard, review card, and celebration replay exercise real polyglot rendering rather than mocked state.
-
-**Frozen vs sandbox:**
-
-- **Frozen** profiles re-apply their canned seed on every page load (via the pre-hydration `bootstrap.ts` that runs before any Zustand store reads localStorage). Interact freely — the next refresh resets everything to the seed. Great for verifying one UI state repeatedly without drift.
-- **Sandbox** persists under `__dev__:sandboxSnapshot`. Switch away and back; your progress is preserved. Use for multi-step walkthroughs.
-
-**Safety:**
-
-- An allow-list in `applyProfile.ts` ensures OpenAI keys, theme, and UI size preferences are never touched when profiles swap.
-- Your pre-dev-mode state is captured once under `__dev__:realSnapshot`. Exiting dev mode always restores it.
-- Snapshot → clipboard and Paste snapshot (Developer tab) round-trip ad-hoc bug repro states. Paste validation rejects any key outside the allow-list.
-
-**Keyboard shortcut implementation note:** the listener uses `event.code === "KeyD"` (not `event.key`) because on macOS the Option modifier transforms `e.key` into a unicode symbol (`Option+D` → `∂`). The listener is registered with `capture: true` on `window` so it fires before Monaco's own keydown handlers.
-
-**Adding a profile:** edit [`frontend/src/__dev__/profiles.ts`](../frontend/src/__dev__/profiles.ts). Each profile returns a map of localStorage key → serialized value from `seedStorage()`. Only keys matching `OWNED_PREFIXES` (`learner:v1:`, `onboarding:v1:`) are ever written; any other key is dropped at apply time. Add a matching case to [`profiles.test.ts`](../frontend/src/__dev__/profiles.test.ts) if the profile encodes an invariant worth asserting (e.g., "exactly N shaky entries").
-
-## Demoing the product
-
-Two paths, depending on whether you want a frozen scripted state or a realistic walk-through.
-
-**Quick demo with dev profiles (recommended for screenshots, short videos, UI-state walkthroughs).** The shortcut is intentionally dev-only — it's your cheat code, not something end users ever see.
-
-1. `npm run dev` (or `./start.sh` for the full Docker stack).
-2. `Cmd/Ctrl + Shift + Alt + D` to enable dev mode.
-3. Open Settings → Developer tab, pick the profile that matches the story you're telling:
-   - `fresh-install` — first-run welcome spotlight, dashboard banner, workspace tour.
-   - `mid-course-healthy` — dashboard progress bar, "Next up", activity feed.
-   - `all-complete` — celebration + review replay.
-4. Frozen profiles snap back to their seed on every reload, so you can interact freely without drift between takes.
-
-**End-user Export/Import for portable demo state.** If you've built up a specific progress state by hand and want to reproduce it on another machine (or share it with a teammate for bug repro), use **Settings → General → Progress → Export progress**. The JSON round-trips through the same allow-listed keys as the dev switcher — API keys, theme, and layout preferences are never included. Import replaces current progress and reloads.
-
-**When to ship dev mode to external users.** Don't. Dev mode is a production-safe no-op (tree-shaken from the prod bundle), but the shortcut + Developer tab are aimed at developers. For guided demos to non-developers, either pre-seed the browser with the profile you want before they sit down, or walk them through the real flow.
+The dev-only **content-health dashboard** at `/dev/content` is still live (gated on `import.meta.env.DEV`, tree-shaken from prod). That is the only `__dev__/` surface that survived the Postgres migration.
 
 ---
 

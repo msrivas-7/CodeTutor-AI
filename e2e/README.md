@@ -1,6 +1,6 @@
 # CodeTutor AI — E2E Harness
 
-Playwright + TypeScript suite that drives the real product (Vite dev server + Dockerized backend + Python runner) to catch UI-integration regressions that unit tests miss: Monaco focus quirks, modal portals, SSE streaming, localStorage hydration, router navigation, backend round-trips.
+Playwright + TypeScript suite that drives the real product (Vite dev server + Dockerized backend + polyglot runner) to catch UI-integration regressions that unit tests miss: Monaco focus quirks, modal portals, SSE streaming, DB hydration, router navigation, backend round-trips.
 
 ## Prerequisites
 
@@ -16,13 +16,11 @@ npm install
 npx playwright install --with-deps chromium
 ```
 
-## Regenerate profile seeds (one-time or when `__dev__/profiles.ts` changes)
+## Profile seeds
 
-```bash
-npm run dump-seeds
-```
+`fixtures/seeds/<id>.json` holds each scenario's starting state (the original `__dev__` profile shape — `learner:v1:*` / `onboarding:v1:*` keys). `fixtures/profiles.ts` → `loadProfile(page, id)` parses the JSON and translates it into `PATCH /api/user/preferences` + `PATCH /api/user/courses/:id` + `PATCH /api/user/lessons/:course/:lesson` calls against the worker's pre-authed Supabase test user. The app then hydrates server-side state on the next `page.goto`.
 
-Writes each `__dev__` profile's `seedStorage()` output to `fixtures/seeds/<id>.json`. Seed JSONs are **committed** — tests consume them directly via `loadProfile(page, id)`. If a profile's canned state changes without a re-dump, tests will drift.
+The seeds are hand-authored JSON checked into the repo — no `dump-seeds` script anymore (the localStorage profile switcher that generated them was retired when state moved to Postgres). Edit them by hand when a scenario needs to change; `profiles.ts` is the sole consumer.
 
 ## Run
 
@@ -74,7 +72,7 @@ npm run test:real
 - **Mock OpenAI by default.** Real OpenAI only under `specs/real-api/**`.
 - **Backend harness runs for real** for function-tests specs — it's fast and proves the full stack agrees.
 - **Don't boot the stack per-test.** `docker compose up -d` is the developer's one-time setup. `globalSetup` fails loudly if it's not running.
-- **Use the dev profile seeds** to land deterministically on "mid-course healthy / capstone-first-fail / all-complete" instead of driving through N lessons per spec.
+- **Use `loadProfile(page, id)`** to land deterministically on "mid-course healthy / capstone-first-fail / all-complete" — it resets the worker user's DB rows then PATCHes the seed, so the next `page.goto` hydrates into the scenario without clicking through N lessons.
 - **Chromium only** for v1. Firefox/WebKit add 3× CI time with marginal value on a local-first desktop-only app.
 - **One behavior per test.** Keep tests tight — if two paths diverge (pass vs fail), they're two tests.
 
@@ -91,7 +89,7 @@ npm run test:real
 1. `npx playwright show-report` — HTML report includes trace viewer.
 2. `npx playwright test --trace on` — forces trace on every test (heavier, keep off by default).
 3. `--repeat-each=10` for a single spec to stress-test flakiness.
-4. Common culprits: Monaco not ready on first click (use `waitForMonacoReady`), SSE mock missing (check `page.route` was called before the action), profile seed out of date (`npm run dump-seeds`).
+4. Common culprits: Monaco not ready on first click (use `waitForMonacoReady`), SSE mock missing (check `page.route` was called before the action), seed JSON out of shape (inspect `fixtures/seeds/<id>.json`; `loadProfile` logs the PATCH failures).
 
 ## CI
 

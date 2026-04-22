@@ -1,10 +1,8 @@
-# Azure prod infrastructure (Phase 19a)
+# Azure prod infrastructure
 
 Single-VM topology for the CodeTutor AI prod environment. VM runs the backend
 stack via `docker compose`; Static Web Apps hosts the frontend; Key Vault
 holds all runtime secrets; Log Analytics + Azure Monitor alert on VM health.
-
-See [the roadmap plan](../../docs/) for the full Phase 19 context.
 
 ## Files
 
@@ -55,7 +53,8 @@ az deployment group create \
 ```
 
 Idempotent — re-run whenever `main.bicep` changes. The deployment prints the
-VM FQDN, public IP, KV name, and SWA hostname as outputs. Save them for 19b.
+VM FQDN, public IP, KV name, and SWA hostname as outputs. Save them for the
+cloud-init step.
 
 ## Seed Key Vault secrets (post-deploy)
 
@@ -71,7 +70,31 @@ az keyvault secret set --vault-name "$KV" --name DATABASE-URL              --val
 az keyvault secret set --vault-name "$KV" --name BYOK-ENCRYPTION-KEY       --value "..."
 az keyvault secret set --vault-name "$KV" --name VITE-SUPABASE-URL         --value "..."
 az keyvault secret set --vault-name "$KV" --name VITE-SUPABASE-ANON-KEY    --value "..."
+az keyvault secret set --vault-name "$KV" --name CORS-ORIGIN               --value "https://codetutor.msrivas.com"
 ```
+
+### Operator-funded tutor tier (optional)
+
+Seed these only when enabling the operator-funded allowance so signed-in
+learners without BYOK can reach the tutor on an operator-held OpenAI key.
+`refresh-env` reads each via `fetch_optional` — any one missing keeps the
+tier off. Cap values are chosen per deployment and documented in the
+private ops runbook, not here.
+
+```bash
+az keyvault secret set --vault-name "$KV" --name ENABLE-FREE-TIER                --value "0"
+az keyvault secret set --vault-name "$KV" --name FREE-TIER-DAILY-QUESTIONS       --value "..."
+az keyvault secret set --vault-name "$KV" --name FREE-TIER-DAILY-USD-PER-USER    --value "..."
+az keyvault secret set --vault-name "$KV" --name FREE-TIER-LIFETIME-USD-PER-USER --value "..."
+az keyvault secret set --vault-name "$KV" --name FREE-TIER-DAILY-USD-CAP         --value "..."
+az keyvault secret set --vault-name "$KV" --name PLATFORM-OPENAI-API-KEY         --value "sk-..."
+```
+
+`docker compose restart backend` is NOT sufficient after rotating any of
+these — it keeps the container's original env. Use
+`docker compose up -d --force-recreate backend` so compose re-reads `.env`.
+Verify with `docker exec codetutor-backend-1 printenv <VAR>` before
+declaring the rotation complete.
 
 `METRICS-TOKEN` is **optional**. When absent, `/api/metrics` is loopback-only
 (fine for the single-VM topology today — no external Prom scraper). Seed it
@@ -82,8 +105,8 @@ az keyvault secret set --vault-name "$KV" --name METRICS-TOKEN \
   --value "$(openssl rand -base64 32)"
 ```
 
-Secret names use hyphens (KV disallows underscores); 19b's `refresh-env`
-script maps them back to `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` /
+Secret names use hyphens (KV disallows underscores); the `refresh-env` script
+on the VM maps them back to `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` /
 etc. when writing the VM's `.env`.
 
 ## Enable VM backup (one-time, post-deploy)
@@ -122,10 +145,10 @@ az backup job list \
 `sshSourceIp` is locked to your current public IP. If it changes, re-deploy
 with the new CIDR — the NSG rule updates in place, no VM restart required.
 
-## Operational hardening (Phase 20-P1)
+## Operational hardening
 
 The cloud-init + alerts module cover the "no observability past heartbeat"
-and "OOM kills the box" gaps surfaced in the four-lens review:
+and "OOM kills the box" gaps:
 
 - **2 GB swap** + `vm.swappiness=10` added at first boot. B2s has no swap
   by default, so a single memory spike went straight to the OOM killer.
@@ -151,8 +174,11 @@ directly — no reliance on local cache surviving a VM rebuild.
 ## What this does NOT include
 
 - **VM provisioning** (cloud-init, systemd units, Caddy compose service) —
-  Phase 19b, in `infra/azure/cloud-init.yaml` + compose overrides.
-- **CI/CD** — Phase 19c, in `.github/workflows/deploy.yml`.
+  see `infra/azure/cloud-init.yaml` + compose overrides.
+- **CI/CD** — see `.github/workflows/deploy.yml`.
 - **SWA → repo linking** — use the portal's GitHub App flow after deploy;
   it auto-generates the deployment workflow.
-- **Custom domain** — deferred; Azure-provided FQDNs cover us.
+- **Custom domain** — `codetutor.msrivas.com` is the user-facing URL. Both
+  the apex CNAME (SWA) and the `CORS_ORIGIN` KV secret point at it. The
+  Azure-provided FQDNs (`*.azurestaticapps.net`,
+  `codetutor-ai-vm.eastus2.cloudapp.azure.com`) stay reachable as fallbacks.
