@@ -50,16 +50,6 @@ Write code, run it in a sandboxed container, and get structured help when you're
 - **Dedicated stdin** — sample input pre-filled per language, or paste your own
 - **First-time tour** — walks you through the workspace on your first visit
 
-<div align="center">
-
-<br />
-
-<sub><b>Start page</b> — pick a mode and get coding.</sub>
-
-<img src="frontend/public/og-image.png" alt="CodeTutor AI start page — Open Editor and Guided Course options with the tagline 'Write code, run it in a sandbox, and learn with an AI tutor — all in the browser.'" width="720" />
-
-</div>
-
 ## Guided Learning
 
 > Two structured beginner courses today: 12-lesson **Python Fundamentals** (through a mini-project + two capstones) and 8-lesson **JavaScript Fundamentals** (through a habit-tracker mini-project). Shared content pipeline, per-language test harness, and authoring scripts. _(More courses on the way.)_
@@ -120,25 +110,41 @@ A full-stack TypeScript product shipping to real users at **[codetutor.msrivas.c
 
 ```mermaid
 flowchart LR
-    Browser["Browser<br/>React + Monaco"]
+    U(("User<br/>Browser"))
+
+    SWA["Static Web Apps<br/>frontend bundle"]
 
     subgraph VM["Azure VM"]
+        direction TB
+        CD["Caddy<br/>TLS + reverse proxy"]
         BE["Backend<br/>Express + TS"]
         SP["socket-proxy<br/>API allowlist"]
-        R["Runner container<br/>non-root · no network<br/>read-only rootfs"]
+        RN["Runner · per session<br/>non-root · no network<br/>read-only rootfs"]
+        CD --> BE
+        BE -->|tcp:2375| SP
+        SP -->|docker.sock| RN
     end
 
     SB[("Supabase<br/>Auth + Postgres")]
     AI["OpenAI<br/>Responses API"]
-    KV[["Key Vault"]]
+    KV["Key Vault<br/>runtime secrets"]
 
-    Browser -->|"HTTPS / SSE"| BE
-    Browser -->|"Auth"| SB
-    BE -->|"JWKS + DB"| SB
-    BE -->|"tcp:2375"| SP
-    SP -->|"docker.sock"| R
-    BE -->|"Managed Identity"| KV
-    BE -->|"json_schema"| AI
+    U -->|HTTPS| SWA
+    U -->|HTTPS / SSE| CD
+    U -->|Auth| SB
+    BE -->|JWKS + DB| SB
+    BE -->|json_schema| AI
+    BE -.->|Managed Identity| KV
+
+    classDef user fill:#1e293b,stroke:#0f172a,color:#fff,stroke-width:2px
+    classDef azure fill:#0078d4,stroke:#005a9e,color:#fff,stroke-width:2px
+    classDef runner fill:#10b981,stroke:#047857,color:#fff,stroke-width:2px
+    classDef external fill:#475569,stroke:#334155,color:#fff,stroke-width:2px
+
+    class U user
+    class SWA,CD,BE,SP,KV azure
+    class RN runner
+    class SB,AI external
 ```
 
 | Layer | Stack |
