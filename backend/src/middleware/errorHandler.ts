@@ -5,7 +5,11 @@ import { ZodError } from "zod";
 // (404 not-found, 409 conflict, 422 unsupported). Anything else still falls
 // through to the generic 500.
 export class HttpError extends Error {
-  constructor(public readonly status: number, message: string) {
+  constructor(
+    public readonly status: number,
+    message: string,
+    public readonly headers?: Record<string, string>,
+  ) {
     super(message);
     this.name = "HttpError";
   }
@@ -48,6 +52,9 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
           err: err.message,
         }),
       );
+    }
+    if (err.headers) {
+      for (const [k, v] of Object.entries(err.headers)) res.setHeader(k, v);
     }
     res.status(err.status).json({ error: err.message });
     return;

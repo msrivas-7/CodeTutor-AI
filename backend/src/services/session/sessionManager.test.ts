@@ -166,12 +166,13 @@ describe("sessionManager ownership", () => {
 });
 
 describe("session caps (Phase 20-P3)", () => {
-  it("rejects the 3rd session per user with 429", async () => {
+  it("rejects the 3rd session per user with 429 and a Retry-After header", async () => {
     // Default MAX_SESSIONS_PER_USER=2 in config.ts.
     await startSession("heavy-user");
     await startSession("heavy-user");
     await expect(startSession("heavy-user")).rejects.toMatchObject({
       status: 429,
+      headers: { "Retry-After": "2" },
     });
   });
 
@@ -280,24 +281,32 @@ describe("zombie session reaping (Phase 20-P3)", () => {
     return { backend, live, destroyed };
   }
 
-  it("startSession reaps dead zombies before rejecting on the per-user cap", async () => {
+  it("cap-rejection fires a background reap; the next retry succeeds once the zombie is purged", async () => {
+    // P-M3: the reap no longer blocks the cap-rejection response. The first
+    // hit returns 429 immediately, a background reap kicks off, and the
+    // next retry (from the frontend, after Retry-After: 2) finds the
+    // zombie purged.
     const { backend, live, destroyed } = makeControlledBackend();
     initSessionManager(backend);
 
     const s1 = await startSession("victim");
     const s2 = await startSession("victim");
-    // Container for s1 dies out of band (OOM, docker crash). The record
-    // is still in the map so the cap would block a 3rd session.
-    live.delete(s1.id);
+    live.delete(s1.id); // container for s1 dies out of band
 
-    // Without reaping this would throw 429. With reaping, the zombie is
-    // purged and the 3rd session succeeds.
+    // First attempt after the cap was already hit — 429, reap is fire-and-
+    // forget so the zombie is still briefly in the map.
+    await expect(startSession("victim")).rejects.toMatchObject({ status: 429 });
+
+    // Wait for the background reap to complete (microtask + one async tick
+    // is enough because isAlive/destroy on the fake backend are synchronous).
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Zombie is gone; s2 (still live) is untouched; next attempt succeeds.
+    expect(destroyed.has(s1.id)).toBe(true);
+    expect(getSession(s1.id)).toBeUndefined();
+    expect(getSession(s2.id)?.userId).toBe("victim");
     const s3 = await startSession("victim");
     expect(s3.userId).toBe("victim");
-    expect(getSession(s1.id)).toBeUndefined();
-    expect(destroyed.has(s1.id)).toBe(true);
-    // s2 is still alive and still owned.
-    expect(getSession(s2.id)?.userId).toBe("victim");
   });
 
   it("startSession still throws 429 if all of the user's sessions are alive", async () => {
@@ -305,8 +314,39 @@ describe("zombie session reaping (Phase 20-P3)", () => {
     initSessionManager(backend);
     await startSession("heavy");
     await startSession("heavy");
-    // Both alive → reaper frees nothing → still 429.
+    // Both alive → reaper frees nothing → retry still 429 after tick.
     await expect(startSession("heavy")).rejects.toMatchObject({ status: 429 });
+    await new Promise((r) => setTimeout(r, 0));
+    await expect(startSession("heavy")).rejects.toMatchObject({ status: 429 });
+  });
+
+  it("coalesces concurrent cap-rejections into a single in-flight reap", async () => {
+    // P-M3 guardrail: 100 simultaneous retries on the cap-rejection path
+    // must not fan out 100 docker.isAlive calls. The reap promise should
+    // be shared — only one reap runs until it resolves.
+    const { backend } = makeControlledBackend();
+    let isAliveCalls = 0;
+    const wrapped: ExecutionBackend = {
+      ...backend,
+      async isAlive(h) {
+        isAliveCalls++;
+        return backend.isAlive(h);
+      },
+    };
+    initSessionManager(wrapped);
+    await startSession("victim");
+    await startSession("victim");
+
+    // Fire 20 concurrent rejected calls. Without coalescing this would be
+    // 20×2 = 40 isAlive calls; with coalescing it's 2 (one per live session
+    // in the first reap) and later retries short-circuit while it's running.
+    await Promise.all(
+      Array.from({ length: 20 }, () =>
+        startSession("victim").catch((e) => e),
+      ),
+    );
+    await new Promise((r) => setTimeout(r, 0));
+    expect(isAliveCalls).toBeLessThanOrEqual(2);
   });
 
   it("getSessionStatus purges the record when the container is dead", async () => {

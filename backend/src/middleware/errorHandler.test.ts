@@ -8,7 +8,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 
-import { errorHandler } from "./errorHandler.js";
+import { errorHandler, HttpError } from "./errorHandler.js";
 import { requestId } from "./requestId.js";
 
 let srv: Server;
@@ -88,5 +88,27 @@ describe("errorHandler secret scrubbing", () => {
     expect(res.status).toBe(500);
     const joined = read().join("\n");
     expect(joined).toContain("harmless failure");
+  });
+});
+
+describe("HttpError optional headers", () => {
+  it("applies headers (e.g. Retry-After) to the outgoing response", async () => {
+    // P-M3 (bucket 4a): session cap rejection throws HttpError(429, ..., {
+    // 'Retry-After': '2' }). The frontend uses that header to schedule the
+    // next retry without hammering the cap-check path.
+    thrown.push(new HttpError(429, "slow down", { "Retry-After": "2" }));
+    captureConsoleError();
+    const res = await fetch(`${base}/throw`);
+    expect(res.status).toBe(429);
+    expect(res.headers.get("retry-after")).toBe("2");
+    expect(await res.json()).toEqual({ error: "slow down" });
+  });
+
+  it("omits headers for HttpErrors constructed without them (unchanged legacy behavior)", async () => {
+    thrown.push(new HttpError(404, "not found"));
+    captureConsoleError();
+    const res = await fetch(`${base}/throw`);
+    expect(res.status).toBe(404);
+    expect(res.headers.get("retry-after")).toBeNull();
   });
 });

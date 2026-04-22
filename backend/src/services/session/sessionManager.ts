@@ -82,6 +82,30 @@ function countPerUser(userId: string): number {
  *   - `{ userId }`: only sessions for that user (per-user cap rescue)
  *   - `undefined`: every session (global cap rescue)
  */
+// P-M3: single in-flight reap per scope. The cap-rejection path used to
+// await a Promise.all of `docker.isAlive` across every candidate session,
+// turning every rejected /session request into a fan-out of Docker syscalls
+// on a host already at capacity. We now fire-and-forget a reap and return
+// 429 Retry-After: 2 immediately — the reaper runs in the background, the
+// next retry (2 s later per the header) finds the freed slot.
+let reapInFlightGlobal: Promise<number> | null = null;
+const reapInFlightPerUser = new Map<string, Promise<number>>();
+
+function kickReap(scope?: { userId: string }): void {
+  if (scope) {
+    if (reapInFlightPerUser.has(scope.userId)) return;
+    const p = reapDeadSessions(scope).finally(() => {
+      reapInFlightPerUser.delete(scope.userId);
+    });
+    reapInFlightPerUser.set(scope.userId, p);
+    return;
+  }
+  if (reapInFlightGlobal) return;
+  reapInFlightGlobal = reapDeadSessions().finally(() => {
+    reapInFlightGlobal = null;
+  });
+}
+
 async function reapDeadSessions(
   scope?: { userId: string },
 ): Promise<number> {
@@ -123,25 +147,28 @@ export async function startSession(
   // capacity exhaustion that won't resolve by retry. Both throw before we
   // touch Docker, so a rejected request is cheap.
   //
-  // Before rejecting, do a one-shot reap of dead zombies: an OOM-killed or
-  // crashed container would otherwise occupy a cap slot until the 45s
-  // sweeper tick, locking the real user out of their own account. This is
-  // the only place we inspect Docker synchronously per request, so cost
-  // stays bounded to the would-be-rejection path.
+  // P-M3: fire-and-forget reap of dead zombies. An OOM-killed or crashed
+  // container would otherwise occupy a cap slot until the 45s sweeper tick,
+  // locking the real user out of their own account. The previous code did an
+  // inline `await Promise.all(candidates.map(docker.isAlive))` on every
+  // cap-rejection, which fanned out Docker syscalls on a host already at
+  // capacity. We now kick the reap in the background and respond with
+  // Retry-After: 2 — the next retry finds the freed slot.
   if (countPerUser(userId) >= config.session.maxPerUser) {
-    await reapDeadSessions({ userId });
-    if (countPerUser(userId) >= config.session.maxPerUser) {
-      throw new HttpError(
-        429,
-        `session limit reached: max ${config.session.maxPerUser} per account`,
-      );
-    }
+    kickReap({ userId });
+    throw new HttpError(
+      429,
+      `session limit reached: max ${config.session.maxPerUser} per account`,
+      { "Retry-After": "2" },
+    );
   }
   if (sessions.size >= config.session.maxGlobal) {
-    await reapDeadSessions();
-    if (sessions.size >= config.session.maxGlobal) {
-      throw new HttpError(503, "server at capacity, try again shortly");
-    }
+    kickReap();
+    throw new HttpError(
+      503,
+      "server at capacity, try again shortly",
+      { "Retry-After": "5" },
+    );
   }
 
   // If the frontend asks to reuse an ID (orphan recovery), honor it as long
