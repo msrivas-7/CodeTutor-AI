@@ -101,56 +101,45 @@ A full-stack TypeScript product shipping to real users at **[codetutor.msrivas.c
   'theme': 'base',
   'themeVariables': {
     'fontFamily': '-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif',
-    'fontSize': '15px',
+    'fontSize': '14px',
     'primaryColor': '#1e293b',
     'primaryTextColor': '#f8fafc',
     'primaryBorderColor': '#334155',
     'lineColor': '#64748b',
-    'tertiaryColor': '#0f172a',
-    'tertiaryBorderColor': '#334155',
-    'tertiaryTextColor': '#e2e8f0',
     'clusterBkg': '#0f172a',
     'clusterBorder': '#334155'
   },
-  'flowchart': {
-    'curve': 'basis',
-    'htmlLabels': true,
-    'padding': 24,
-    'nodeSpacing': 80,
-    'rankSpacing': 100,
-    'diagramPadding': 20
-  }
+  'flowchart': { 'curve': 'basis', 'nodeSpacing': 55, 'rankSpacing': 70 }
 }}%%
-flowchart TB
-    U(("<b>User</b><br/><sub>Browser</sub>"))
+flowchart LR
+    U((User Browser))
+    SWA[Static Web Apps]
+    SB[(Supabase Auth + Postgres)]
+    AI[OpenAI Responses API]
+    KV[Key Vault]
 
-    SWA["<b>Static Web Apps</b><br/><sub>frontend bundle</sub>"]
-    SB[("<b>Supabase</b><br/><sub>Auth · Postgres</sub>")]
-    AI["<b>OpenAI</b><br/><sub>Responses API</sub>"]
-    KV["<b>Key Vault</b><br/><sub>runtime secrets</sub>"]
-
-    subgraph VM["&nbsp;&nbsp;Azure VM · Ubuntu 24.04&nbsp;&nbsp;"]
+    subgraph VM[Azure VM — Ubuntu 24.04]
         direction TB
-        CD["<b>Caddy</b><br/><sub>TLS · reverse proxy</sub>"]
+        CD[Caddy — TLS reverse proxy]
 
-        subgraph BECTR["&nbsp;&nbsp;Backend container · Express + TS&nbsp;&nbsp;"]
-            direction LR
-            API["HTTP / SSE<br/>routes"]
-            SM["<b>SessionManager</b><br/><sub>userId ↔ runnerId</sub>"]
-            EB["ExecutionBackend<br/><sub>Dockerode client</sub>"]
-            SW["Idle sweeper<br/><sub>45 s tick</sub>"]
+        subgraph BECTR[Backend container — Express + TS]
+            direction TB
+            API[HTTP / SSE routes]
+            SM[SessionManager]
+            EB[ExecutionBackend — Dockerode]
+            SW[Idle sweeper — 45 s tick]
             API --> SM
             SM --> EB
             SW -. reaps idle .-> SM
         end
 
-        SP["<b>socket-proxy</b><br/><sub>endpoint allowlist</sub>"]
+        SP[socket-proxy — endpoint allowlist]
 
-        subgraph POOL["&nbsp;&nbsp;Runner pool · one container per session&nbsp;&nbsp;"]
+        subgraph POOL[Runner pool — one container per session]
             direction TB
-            R1["Runner A<br/><sub>non-root · --network none<br/>read-only rootfs · caps dropped</sub>"]
-            R2["Runner B"]
-            R3["Runner …"]
+            R1[Runner A — non-root · no net · read-only]
+            R2[Runner B]
+            R3[Runner …]
         end
 
         CD --> API
@@ -160,12 +149,12 @@ flowchart TB
         SP --> R3
     end
 
-    U -->|HTTPS| SWA
+    U --> SWA
     U ==>|HTTPS / SSE| CD
-    U -.->|JWT| SB
-    BECTR -->|JWKS · DB| SB
+    U -.->|auth| SB
+    BECTR -->|JWKS + DB| SB
     BECTR -->|json_schema| AI
-    BECTR -. Managed Identity<br/>boot time .-> KV
+    BECTR -. Managed Identity .-> KV
 
     classDef user fill:#1e293b,stroke:#0f172a,color:#f8fafc,stroke-width:2px
     classDef edge fill:#0284c7,stroke:#0369a1,color:#fff,stroke-width:2px
