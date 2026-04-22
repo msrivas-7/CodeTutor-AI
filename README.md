@@ -100,8 +100,6 @@ A full-stack TypeScript product shipping to real users at **[codetutor.msrivas.c
 %%{init: {
   'theme': 'base',
   'themeVariables': {
-    'fontFamily': '-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif',
-    'fontSize': '14px',
     'primaryColor': '#1e293b',
     'primaryTextColor': '#f8fafc',
     'primaryBorderColor': '#334155',
@@ -109,37 +107,42 @@ A full-stack TypeScript product shipping to real users at **[codetutor.msrivas.c
     'clusterBkg': '#0f172a',
     'clusterBorder': '#334155'
   },
-  'flowchart': { 'curve': 'basis', 'nodeSpacing': 55, 'rankSpacing': 70 }
+  'flowchart': {
+    'curve': 'basis',
+    'htmlLabels': true,
+    'nodeSpacing': 55,
+    'rankSpacing': 70
+  }
 }}%%
 flowchart LR
-    U((User Browser))
-    SWA[Static Web Apps]
-    SB[(Supabase Auth + Postgres)]
-    AI[OpenAI Responses API]
-    KV[Key Vault]
+    U((User<br/>Browser))
+    SWA[Static Web Apps<br/>frontend bundle]
+    SB[(Supabase<br/>Auth + Postgres)]
+    AI[OpenAI<br/>Responses API]
+    KV[Key Vault<br/>runtime secrets]
 
-    subgraph VM[Azure VM — Ubuntu 24.04]
+    subgraph VM[Azure VM · Ubuntu 24.04]
         direction TB
-        CD[Caddy — TLS reverse proxy]
+        CD[Caddy<br/>TLS + reverse proxy]
 
-        subgraph BECTR[Backend container — Express + TS]
+        subgraph BECTR[Backend container · Express + TS]
             direction TB
             API[HTTP / SSE routes]
-            SM[SessionManager]
-            EB[ExecutionBackend — Dockerode]
-            SW[Idle sweeper — 45 s tick]
+            SM[SessionManager<br/>userId to runnerId]
+            EB[ExecutionBackend<br/>Dockerode client]
+            SW[Idle sweeper<br/>45 s tick]
             API --> SM
             SM --> EB
             SW -. reaps idle .-> SM
         end
 
-        SP[socket-proxy — endpoint allowlist]
+        SP[socket-proxy<br/>endpoint allowlist]
 
-        subgraph POOL[Runner pool — one container per session]
+        subgraph POOL[Runner pool · one per session]
             direction TB
-            R1[Runner A — non-root · no net · read-only]
+            R1[Runner A<br/>non-root · no net<br/>read-only rootfs]
             R2[Runner B]
-            R3[Runner …]
+            R3[Runner ...]
         end
 
         CD --> API
