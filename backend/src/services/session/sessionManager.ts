@@ -184,19 +184,18 @@ export function getSession(id: string): SessionRecord | undefined {
 }
 
 /**
- * Phase 18a: canonical ownership check. Throws HttpError(404) when the
- * session is unknown, HttpError(403) when it exists but belongs to someone
- * else. Returns the record on success. Centralizing this keeps the 404-vs-
- * 403 distinction consistent across routes and makes "who owns what" a
- * single grep-point for future auditors.
+ * Canonical ownership check. Returns 404 for both unknown-session and
+ * owner-mismatch to avoid an enumeration oracle (a 403 would let an
+ * attacker bisect the ID space by distinguishing "exists, not mine" from
+ * "does not exist"). A legitimate caller has their own sessionId and
+ * never sees a 404 for one they own.
  */
 export function requireOwnedSession(
   id: string,
   userId: string,
 ): SessionRecord {
   const s = sessions.get(id);
-  if (!s) throw new HttpError(404, "session not found");
-  if (s.userId !== userId) throw new HttpError(403, "session not owned by caller");
+  if (!s || s.userId !== userId) throw new HttpError(404, "session not found");
   return s;
 }
 
@@ -221,8 +220,9 @@ export function touchSession(id: string): void {
 
 export async function endSession(id: string, userId: string): Promise<boolean> {
   const s = sessions.get(id);
-  if (!s) return false;
-  if (s.userId !== userId) throw new HttpError(403, "session not owned by caller");
+  // Owner-mismatch collapses to the same "false" response as unknown-id so
+  // callers can't distinguish the two (enumeration-oracle defense).
+  if (!s || s.userId !== userId) return false;
   sessions.delete(id);
   if (s.handle) await requireBackend().destroy(s.handle);
   return true;
@@ -230,8 +230,9 @@ export async function endSession(id: string, userId: string): Promise<boolean> {
 
 export async function getSessionStatus(id: string, userId: string) {
   const s = sessions.get(id);
-  if (!s) return { alive: false, containerAlive: false, lastSeen: 0 };
-  if (s.userId !== userId) throw new HttpError(403, "session not owned by caller");
+  // Same rationale as endSession: return the "unknown" shape for both
+  // unknown-id and cross-user reads so the caller can't tell the difference.
+  if (!s || s.userId !== userId) return { alive: false, containerAlive: false, lastSeen: 0 };
   const containerAlive = s.handle ? await requireBackend().isAlive(s.handle) : false;
   if (!containerAlive) {
     // Phase 20-P3: the container died out from under us (OOM, docker

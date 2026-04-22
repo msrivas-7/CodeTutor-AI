@@ -37,6 +37,36 @@ jobs:
           npm ci
           npx tsc --noEmit
 
+  secret-scan:
+    name: Built-bundle secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Frontend — install & build
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+      # Fails the build if the Supabase service-role JWT (or its literal
+      # "role":"service_role" marker) ever lands in a shipped client bundle.
+      # The backend holds service-role; frontend never should. A bundler
+      # misconfig (e.g. an accidental `import` from a backend-only file, or
+      # a mis-named VITE_* env) would leak it silently without this gate.
+      - name: Scan dist/ for service-role markers
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          if grep -r -E '"role"\s*:\s*"service_role"|SUPABASE_SERVICE_ROLE_KEY' dist/; then
+            echo "::error::Frontend bundle contains a service-role marker. Refuse to ship."
+            exit 1
+          fi
+          echo "No service-role markers in frontend/dist."
+
   content-lint:
     name: Content lint
     runs-on: ubuntu-latest

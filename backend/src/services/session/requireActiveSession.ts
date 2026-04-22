@@ -7,8 +7,12 @@ import type { SessionHandle } from "../execution/backends/index.js";
 // (existence, ownership, runtime-ready) tuple in one place so a new route
 // can't accidentally omit one of the checks.
 //
-//   404 — session id unknown (expired / cleaned up)
-//   403 — session exists but was created by a different user (Phase 18a)
+//   404 — session id unknown (expired / cleaned up) OR owned by another user.
+//         We collapse the owner-mismatch case into a 404 to avoid leaking a
+//         session-id enumeration oracle — a 403 would confirm to an attacker
+//         that the id exists, which is enough to bisect-enumerate across the
+//         ID space. The legitimate caller already has their own sessionId;
+//         they never see 404 for a session they own.
 //   409 — session exists and is owned, but has no backend handle (teardown
 //         mid-flight)
 //
@@ -26,9 +30,8 @@ export function requireActiveSession(
   userId: string,
 ): ActiveSession {
   const session = getSession(sessionId);
-  if (!session) throw new HttpError(404, "session not found");
-  if (session.userId !== userId) {
-    throw new HttpError(403, "session not owned by caller");
+  if (!session || session.userId !== userId) {
+    throw new HttpError(404, "session not found");
   }
   if (!session.handle) {
     throw new HttpError(409, "session has no active runtime");

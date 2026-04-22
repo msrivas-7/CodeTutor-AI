@@ -3,8 +3,10 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { openaiProvider } from "../services/ai/openaiProvider.js";
 import { languageSchema } from "../services/execution/commands.js";
-import { authMiddleware } from "../middleware/authMiddleware.js";
-import { aiRateLimit } from "../middleware/aiRateLimit.js";
+import {
+  validateKeyUserRateLimit,
+  validateKeyGlobalRateLimit,
+} from "../middleware/aiRateLimit.js";
 import { getOpenAIKey } from "../db/preferences.js";
 import { config } from "../config.js";
 import { completionRuleSchema } from "../schema/lessonRuleSchema.js";
@@ -61,14 +63,10 @@ function requestAbortSignal(res: Response): {
 
 export const aiRouter = Router();
 
-// Every AI surface — including `validate-key` — requires a valid Supabase
-// session. Both call sites (SettingsPanel, TutorSetupWarning) live behind
-// RequireAuth, so there is no legitimate pre-auth caller. Gating it closes
-// the "free OpenAI key-validity oracle" finding (20-P3 security audit):
-// unauthenticated attackers could otherwise use this route to validate
-// stolen keys or burn our egress + IP rep. Rate-limiting is applied AFTER
-// auth so the per-user bucket sees the authenticated userId.
-const authed = [authMiddleware, aiRateLimit] as const;
+// authMiddleware + aiRateLimit are applied at the router mount in index.ts
+// so every path under /api/ai — including unknown subpaths — pays the same
+// auth + rate-limit price. /validate-key layers its own tighter sub-buckets
+// (see validateKeyUserRateLimit + validateKeyGlobalRateLimit).
 
 // Phase 18e: the user's OpenAI key lives encrypted in user_preferences.
 // Kept around for `validate-key` + `/models`, which are BYOK-only surfaces
@@ -202,18 +200,23 @@ const validateBody = z.object({
   key: z.string().min(1),
 });
 
-aiRouter.post("/validate-key", ...authed, async (req, res, next) => {
-  const parsed = validateBody.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "key required" });
-  try {
-    const result = await openaiProvider.validateKey(parsed.data.key);
-    res.json(result);
-  } catch (err) {
-    next(err);
-  }
-});
+aiRouter.post(
+  "/validate-key",
+  validateKeyUserRateLimit,
+  validateKeyGlobalRateLimit,
+  async (req, res, next) => {
+    const parsed = validateBody.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "key required" });
+    try {
+      const result = await openaiProvider.validateKey(parsed.data.key);
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
-aiRouter.get("/models", ...authed, async (req, res, next) => {
+aiRouter.get("/models", async (req, res, next) => {
   // /models is BYOK-only: the operator's list is fixed at allowlist.
   const key = await resolveByokKey(req, res);
   if (!key) return;
@@ -298,7 +301,7 @@ const summarizeBody = z.object({
   history: historySchema,
 });
 
-aiRouter.post("/ask", ...authed, async (req, res, next) => {
+aiRouter.post("/ask", async (req, res, next) => {
   const userId = req.userId!;
   const cred = await resolveCredentialOrRespond(req, res, "ask");
   if (!cred || cred.source === "none") return;
@@ -364,7 +367,7 @@ aiRouter.post("/ask", ...authed, async (req, res, next) => {
   }
 });
 
-aiRouter.post("/ask/stream", ...authed, async (req, res) => {
+aiRouter.post("/ask/stream", async (req, res) => {
   const userId = req.userId!;
   const cred = await resolveCredentialOrRespond(req, res, "ask_stream");
   if (!cred || cred.source === "none") return;
@@ -476,7 +479,7 @@ aiRouter.post("/ask/stream", ...authed, async (req, res) => {
   }
 });
 
-aiRouter.post("/summarize", ...authed, async (req, res, next) => {
+aiRouter.post("/summarize", async (req, res, next) => {
   const userId = req.userId!;
   const cred = await resolveCredentialOrRespond(req, res, "summarize");
   if (!cred || cred.source === "none") {

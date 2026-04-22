@@ -12,14 +12,17 @@ export class HttpError extends Error {
 }
 
 // Defense-in-depth: unknown-error paths (500s) serialize `err.message` and
-// `err.stack` straight into the log line. Some upstream SDK errors echo
-// request metadata that can include the OpenAI bearer token — e.g. a fetch
-// failure that formats the request headers. The error body returned to the
-// client is already generic ("Internal error" + requestId), so this only
-// guards logs. Pattern matches `sk-…` and `sk_…` (OpenAI uses both).
+// `err.stack` straight into the log line. Upstream SDKs sometimes echo
+// request metadata (auth headers) or DB/JWT strings in error objects; the
+// client sees only "Internal error" + requestId, so this guards logs.
 const OPENAI_KEY_PATTERN = /sk[-_][A-Za-z0-9_-]{20,}/g;
-function scrubOpenAIKey(s: string): string {
-  return s.replace(OPENAI_KEY_PATTERN, "sk-<redacted>");
+const JWT_PATTERN = /eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g;
+const POSTGRES_URL_PATTERN = /postgres(?:ql)?:\/\/[^\s"'<>]+/g;
+function scrubSecrets(s: string): string {
+  return s
+    .replace(OPENAI_KEY_PATTERN, "sk-<redacted>")
+    .replace(JWT_PATTERN, "<jwt-redacted>")
+    .replace(POSTGRES_URL_PATTERN, "postgres://<redacted>");
 }
 
 export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
@@ -83,8 +86,8 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
       t: new Date().toISOString(),
       id: req.id,
       status: 500,
-      err: scrubOpenAIKey(message),
-      stack: stack ? scrubOpenAIKey(stack) : stack,
+      err: scrubSecrets(message),
+      stack: stack ? scrubSecrets(stack) : stack,
     }),
   );
   res.status(500).json({ error: "Internal error", requestId: req.id });

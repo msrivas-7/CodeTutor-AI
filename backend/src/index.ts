@@ -13,6 +13,7 @@ import { feedbackRouter } from "./routes/feedback.js";
 import { metricsRouter } from "./routes/metrics.js";
 import { csrfGuard } from "./middleware/csrfGuard.js";
 import { authMiddleware } from "./middleware/authMiddleware.js";
+import { aiRateLimit } from "./middleware/aiRateLimit.js";
 import { bodyLimit } from "./middleware/bodyLimit.js";
 import { requestId } from "./middleware/requestId.js";
 import { requestLogger } from "./middleware/requestLogger.js";
@@ -49,17 +50,16 @@ async function main() {
   app.use(cors({ origin: config.corsOrigin }));
   // Defense-in-depth security headers: X-Content-Type-Options, Referrer-Policy,
   // X-Frame-Options, no-store on sensitive responses, etc. CSP is a strict
-  // default-src 'self' + an explicit allowance for the OpenAI endpoint that
-  // the backend proxies to (helmet applies CSP only to HTML responses, but
-  // if any accidental HTML ever leaks, the browser will refuse third-party
-  // script/style/frame loads). Inline styles are permitted because Monaco's
+  // default-src 'self'; the backend proxies every OpenAI call, so the browser
+  // never needs to connect to api.openai.com directly — it used to be in
+  // connect-src by accident. Inline styles are permitted because Monaco's
   // themed color tokens are injected via <style> tags at runtime.
   app.use(
     helmet({
       contentSecurityPolicy: {
         directives: {
           defaultSrc: ["'self'"],
-          connectSrc: ["'self'", "https://api.openai.com"],
+          connectSrc: ["'self'"],
           scriptSrc: ["'self'"],
           styleSrc: ["'self'", "'unsafe-inline'"],
           imgSrc: ["'self'", "data:"],
@@ -191,10 +191,19 @@ async function main() {
     mutationLimit,
     createExecutionRouter(executionBackend),
   );
-  // AI routes mount their own auth + rate-limit per-route because
-  // `/api/ai/validate-key` is public while `/ask`, `/models`, `/summarize`
-  // are authenticated. See routes/ai.ts.
-  app.use("/api/ai", bodyLimit(1024 * 1024), csrfGuard, aiRouter);
+  // All AI routes are authenticated (validate-key included, per routes/ai.ts
+  // comment on the `authed` guard). Lift authMiddleware + aiRateLimit to the
+  // router mount so that unknown subpaths (`/api/ai/foo`) still pay the same
+  // rate-limit price and can't be used to probe auth state for free.
+  // /validate-key gets an extra sub-bucket inside aiRouter.
+  app.use(
+    "/api/ai",
+    bodyLimit(1024 * 1024),
+    csrfGuard,
+    authMiddleware,
+    aiRateLimit,
+    aiRouter,
+  );
 
   // Phase 18b: per-user state in Supabase Postgres (preferences, progress,
   // editor project). Auth + rate-limit gated; all DB writes scope by

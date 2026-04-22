@@ -33,3 +33,29 @@ export const aiRateLimit = rateLimit({
   legacyHeaders: false,
   message: { error: "Too many AI requests; please slow down." },
 });
+
+// Sub-bucket for `/api/ai/validate-key`: far tighter than the general AI
+// limit (5/hour/user) because the route is a binary oracle on OpenAI key
+// validity. Without this a logged-in attacker could validate stolen keys
+// or burn the operator's egress at 60/min (the general bucket). Stacks on
+// top of `aiRateLimit` — both must pass.
+export const validateKeyUserRateLimit = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 5,
+  keyGenerator: bucketKey,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "Too many key-validation attempts; try again later." },
+});
+
+// Global ceiling on validate-key regardless of user — if 20 users each hit
+// their per-user 5/hr, that's still 100 validations/hr product-wide, which
+// is the right global floor for legitimate signup traffic.
+export const validateKeyGlobalRateLimit = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 100,
+  keyGenerator: () => "global",
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "Too many key-validation attempts globally; try again later." },
+});

@@ -82,13 +82,15 @@ describe("sessionManager ownership", () => {
     }
   });
 
-  it("requireOwnedSession throws 403 when another user's sessionId is used", async () => {
+  it("requireOwnedSession throws 404 (not 403) when another user's sessionId is used", async () => {
+    // Owner-mismatch collapses to 404 so the route can't be used to enumerate
+    // session ids. Legitimate owners never see this path.
     const s = await startSession("user-a");
     expect(() => requireOwnedSession(s.id, "user-b")).toThrow(HttpError);
     try {
       requireOwnedSession(s.id, "user-b");
     } catch (err) {
-      expect((err as HttpError).status).toBe(403);
+      expect((err as HttpError).status).toBe(404);
     }
   });
 
@@ -134,9 +136,13 @@ describe("sessionManager ownership", () => {
     expect(r.record.userId).toBe("user-b");
   });
 
-  it("endSession rejects cross-user teardown with 403 and leaves the session intact", async () => {
+  it("endSession treats cross-user teardown as an unknown session (returns false, session intact)", async () => {
+    // Owner-mismatch is indistinguishable from unknown-id to defeat an
+    // enumeration oracle. The caller gets `false`; the real owner's session
+    // stays intact.
     const s = await startSession("user-a");
-    await expect(endSession(s.id, "user-b")).rejects.toThrow(HttpError);
+    const ok = await endSession(s.id, "user-b");
+    expect(ok).toBe(false);
     expect(getSession(s.id)).toBeDefined();
   });
 
@@ -147,9 +153,10 @@ describe("sessionManager ownership", () => {
     expect(getSession(s.id)).toBeUndefined();
   });
 
-  it("getSessionStatus rejects cross-user reads with 403", async () => {
+  it("getSessionStatus returns the unknown-session shape on cross-user reads", async () => {
     const s = await startSession("user-a");
-    await expect(getSessionStatus(s.id, "user-b")).rejects.toThrow(HttpError);
+    const status = await getSessionStatus(s.id, "user-b");
+    expect(status).toEqual({ alive: false, containerAlive: false, lastSeen: 0 });
   });
 
   it("getSessionStatus reports { alive: false } for an unknown id without throwing", async () => {

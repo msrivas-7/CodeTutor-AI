@@ -44,12 +44,14 @@ test.describe("security posture", () => {
     // helmet defaults: SAMEORIGIN for X-Frame-Options, no-referrer for Referrer-Policy.
     expect(headers["x-frame-options"]?.toUpperCase()).toBe("SAMEORIGIN");
     expect(headers["referrer-policy"]).toBeTruthy();
-    // Strict CSP: self default with api.openai.com explicitly allowed for
-    // connect-src. If this ever loosens, the snapshot fails and the author
-    // has to justify the widening.
+    // Strict CSP: self default, connect-src locked to self. The backend
+    // proxies every OpenAI call so the browser never needs to talk to
+    // api.openai.com directly. If this ever loosens, the snapshot fails and
+    // the author has to justify the widening.
     const csp = headers["content-security-policy"] ?? "";
     expect(csp).toContain("default-src 'self'");
-    expect(csp).toContain("https://api.openai.com");
+    expect(csp).toContain("connect-src 'self'");
+    expect(csp).not.toContain("api.openai.com");
     expect(csp).toContain("frame-ancestors 'none'");
 
     await ctx.dispose();

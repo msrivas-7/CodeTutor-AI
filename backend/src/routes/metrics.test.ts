@@ -75,6 +75,16 @@ describe("GET /api/metrics — token branch (METRICS_TOKEN set)", () => {
     expect(res.status).toBe(401);
   });
 
+  it("401s on a token with different length without throwing (timingSafeEqual length guard)", async () => {
+    // timingSafeEqual throws on mismatched lengths; the handler must length-
+    // check first. A short token hits that guard — if this ever becomes a
+    // 500 it means the guard regressed and we're leaking via exception type.
+    const res = await fetch(`${base}/api/metrics`, {
+      headers: { Authorization: "Bearer x" },
+    });
+    expect(res.status).toBe(401);
+  });
+
   it("200s and returns Prom text when Authorization matches METRICS_TOKEN", async () => {
     const res = await fetch(`${base}/api/metrics`, {
       headers: { Authorization: `Bearer ${CONFIGURED_TOKEN}` },

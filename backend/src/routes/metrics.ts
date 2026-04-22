@@ -1,4 +1,5 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
+import { timingSafeEqual } from "node:crypto";
 import { registry } from "../services/metrics.js";
 import { config } from "../config.js";
 
@@ -24,11 +25,11 @@ function gateMetrics(req: Request, res: Response, next: NextFunction) {
       return res.status(401).json({ error: "unauthorized" });
     }
     const provided = header.slice(prefix.length);
-    // Length check first so timingSafeEqual (which throws on length mismatch)
-    // doesn't leak via exception type.
+    const providedBuf = Buffer.from(provided);
+    const expectedBuf = Buffer.from(expected);
     if (
-      provided.length !== expected.length ||
-      !Buffer.from(provided).equals(Buffer.from(expected))
+      providedBuf.length !== expectedBuf.length ||
+      !timingSafeEqual(providedBuf, expectedBuf)
     ) {
       return res.status(401).json({ error: "unauthorized" });
     }

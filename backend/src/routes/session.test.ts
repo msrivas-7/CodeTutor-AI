@@ -189,12 +189,17 @@ describe("POST /api/session/ping — ownership", () => {
 });
 
 describe("GET /api/session/:id/status — ownership", () => {
-  it("returns 403 when another user queries an existing session's status", async () => {
+  it("returns alive=false (not 403) when another user queries an existing session's status", async () => {
+    // Parity with endSession / requireOwnedSession: cross-user lookups return
+    // the unknown-session shape so an attacker can't distinguish "exists,
+    // not mine" from "does not exist".
     const ownerRes = await req("u-owner", "/api/session", { method: "POST" });
     const owner = (await ownerRes.json()) as { sessionId: string };
 
     const res = await req("u-attacker", `/api/session/${owner.sessionId}/status`);
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { alive: boolean };
+    expect(body.alive).toBe(false);
   });
 
   it("returns alive=false for an unknown session id", async () => {

@@ -336,7 +336,7 @@ test.describe("auth backend", () => {
     expect(res.status()).toBe(401);
   });
 
-  test("cross-user session access is rejected with 403", async () => {
+  test("cross-user session access is silently ignored (no oracle)", async () => {
     if (!SERVICE_KEY) {
       test.skip(true, "SUPABASE_SERVICE_ROLE_KEY required for admin-create");
       return;
@@ -407,9 +407,9 @@ test.describe("auth backend", () => {
     expect(rebindBody.sessionId).not.toBe(sessionId);
     expect(rebindBody.reused).toBe(false);
 
-    // End is the right surface for asserting ownership — B ending A's
-    // session must still 403 (no oracle concern there; B is destroying
-    // state so we want a loud failure).
+    // End also collapses cross-user into the unknown-id shape (200 { ok: false })
+    // so a cross-user probe can't distinguish "exists, not mine" from "doesn't
+    // exist". A's session is left intact — B's request is a silent no-op.
     const endRes = await ctx.post(`${BACKEND}/api/session/end`, {
       headers: {
         "X-Requested-With": "codetutor",
@@ -418,7 +418,20 @@ test.describe("auth backend", () => {
       data: { sessionId },
       failOnStatusCode: false,
     });
-    expect(endRes.status()).toBe(403);
+    expect(endRes.status()).toBe(200);
+    const endBody = await endRes.json();
+    expect(endBody.ok).toBe(false);
+
+    // Verify A's session is still alive — B's cross-user end was a no-op.
+    const statusRes = await ctx.get(`${BACKEND}/api/session/${sessionId}/status`, {
+      headers: {
+        "X-Requested-With": "codetutor",
+        Authorization: `Bearer ${tokenA}`,
+      },
+    });
+    expect(statusRes.status()).toBe(200);
+    const statusBody = await statusRes.json();
+    expect(statusBody.alive).toBe(true);
 
     // Clean up B's freshly minted session.
     await ctx.post(`${BACKEND}/api/session/end`, {

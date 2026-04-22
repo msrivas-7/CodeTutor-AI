@@ -55,9 +55,18 @@ vi.mock("../services/ai/credential.js", async () => {
   };
 });
 
-vi.mock("../middleware/aiRateLimit.js", () => ({
-  aiRateLimit: (_req: express.Request, _res: express.Response, next: express.NextFunction) => next(),
-}));
+vi.mock("../middleware/aiRateLimit.js", () => {
+  const passthrough = (
+    _req: express.Request,
+    _res: express.Response,
+    next: express.NextFunction,
+  ) => next();
+  return {
+    aiRateLimit: passthrough,
+    validateKeyUserRateLimit: passthrough,
+    validateKeyGlobalRateLimit: passthrough,
+  };
+});
 
 // Replace the real JWKS-verifying middleware with one that mirrors the fake
 // auth pattern in userData.test.ts / feedback.test.ts — read x-test-user
@@ -109,14 +118,13 @@ function validAskBody(overrides: Record<string, unknown> = {}) {
 }
 
 beforeAll(async () => {
+  // Mirror the real index.ts mount: authMiddleware is lifted to the router
+  // level, not attached per-route. We pass it via the mocked module so
+  // x-test-user is the single source of identity.
+  const { authMiddleware } = await import("../middleware/authMiddleware.js");
   const app = express();
   app.use(express.json());
-  app.use((req, _res, next) => {
-    const u = req.header("x-test-user");
-    if (u) req.userId = u;
-    next();
-  });
-  app.use("/api/ai", aiRouter);
+  app.use("/api/ai", authMiddleware, aiRouter);
   app.use(errorHandler);
   await new Promise<void>((resolve) => {
     srv = app.listen(0, "127.0.0.1", () => resolve());
