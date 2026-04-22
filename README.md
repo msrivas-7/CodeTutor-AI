@@ -101,7 +101,7 @@ A full-stack TypeScript product shipping to real users at **[codetutor.msrivas.c
   'theme': 'base',
   'themeVariables': {
     'fontFamily': '-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif',
-    'fontSize': '14px',
+    'fontSize': '15px',
     'primaryColor': '#1e293b',
     'primaryTextColor': '#f8fafc',
     'primaryBorderColor': '#334155',
@@ -112,32 +112,42 @@ A full-stack TypeScript product shipping to real users at **[codetutor.msrivas.c
     'clusterBkg': '#0f172a',
     'clusterBorder': '#334155'
   },
-  'flowchart': { 'curve': 'basis', 'htmlLabels': true, 'padding': 12 }
+  'flowchart': {
+    'curve': 'basis',
+    'htmlLabels': true,
+    'padding': 24,
+    'nodeSpacing': 80,
+    'rankSpacing': 100,
+    'diagramPadding': 20
+  }
 }}%%
-flowchart LR
+flowchart TB
     U(("<b>User</b><br/><sub>Browser</sub>"))
 
     SWA["<b>Static Web Apps</b><br/><sub>frontend bundle</sub>"]
+    SB[("<b>Supabase</b><br/><sub>Auth · Postgres</sub>")]
+    AI["<b>OpenAI</b><br/><sub>Responses API</sub>"]
+    KV["<b>Key Vault</b><br/><sub>runtime secrets</sub>"]
 
-    subgraph VM["&nbsp;Azure VM · Ubuntu 24.04&nbsp;"]
+    subgraph VM["&nbsp;&nbsp;Azure VM · Ubuntu 24.04&nbsp;&nbsp;"]
         direction TB
         CD["<b>Caddy</b><br/><sub>TLS · reverse proxy</sub>"]
 
-        subgraph BECTR["&nbsp;Backend container · Express + TS&nbsp;"]
-            direction TB
-            API["HTTP / SSE routes"]
+        subgraph BECTR["&nbsp;&nbsp;Backend container · Express + TS&nbsp;&nbsp;"]
+            direction LR
+            API["HTTP / SSE<br/>routes"]
             SM["<b>SessionManager</b><br/><sub>userId ↔ runnerId</sub>"]
             EB["ExecutionBackend<br/><sub>Dockerode client</sub>"]
-            SW["Idle sweeper<br/><sub>45 s tick · reaps idle</sub>"]
+            SW["Idle sweeper<br/><sub>45 s tick</sub>"]
             API --> SM
             SM --> EB
-            SW -. prunes .-> SM
+            SW -. reaps idle .-> SM
         end
 
         SP["<b>socket-proxy</b><br/><sub>endpoint allowlist</sub>"]
 
-        subgraph POOL["&nbsp;Runner pool · one container per session&nbsp;"]
-            direction LR
+        subgraph POOL["&nbsp;&nbsp;Runner pool · one container per session&nbsp;&nbsp;"]
+            direction TB
             R1["Runner A<br/><sub>non-root · --network none<br/>read-only rootfs · caps dropped</sub>"]
             R2["Runner B"]
             R3["Runner …"]
@@ -149,10 +159,6 @@ flowchart LR
         SP --> R2
         SP --> R3
     end
-
-    SB[("<b>Supabase</b><br/><sub>Auth · Postgres</sub>")]
-    AI["<b>OpenAI</b><br/><sub>Responses API</sub>"]
-    KV["<b>Key Vault</b><br/><sub>runtime secrets</sub>"]
 
     U -->|HTTPS| SWA
     U ==>|HTTPS / SSE| CD
