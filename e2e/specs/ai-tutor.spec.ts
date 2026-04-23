@@ -402,6 +402,54 @@ test.describe("AI tutor", () => {
     await expect(page.getByRole("button", { name: /^ask$/i })).toBeVisible({ timeout: 5_000 });
   });
 
+  test("editor-page AssistantPanel: exhausted + dismissed disables composer + shows reset-time hint", async ({
+    page,
+  }) => {
+    // Regression guard: editor AssistantPanel's textarea + Ask button used
+    // to stay fully enabled even when source=none. A learner who dismissed
+    // the ExhaustionCard could type + click Ask and get a silent no-op from
+    // useTutorAsk's !configured early-return. Now we mirror GuidedTutorPanel:
+    // textarea disabled, Ask disabled, placeholder shows reset time.
+    const resetAt = new Date(Date.now() + 2 * 60 * 60 * 1000 + 30 * 60 * 1000).toISOString();
+    await page.route("**/api/user/ai-status", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          source: "none",
+          reason: "free_exhausted",
+          remainingToday: null,
+          capToday: null,
+          resetAtUtc: resetAt,
+          hasShownPaidInterest: false,
+        }),
+      });
+    });
+    await loadProfile(page, "empty");
+    await page.goto("/editor");
+    await waitForMonacoReady(page);
+
+    // ExhaustionCard visible first.
+    await expect(page.getByText(/used today's free tutor questions/i)).toBeVisible({
+      timeout: 10_000,
+    });
+    // Dismiss → composer replaces the card.
+    await page.getByRole("button", { name: /^Dismiss$/i }).click();
+    await expect(page.getByText(/used today's free tutor questions/i)).toBeHidden();
+
+    // The composer must be visibly disabled AND the placeholder must name
+    // the reset window so the learner understands why.
+    const input = page.getByRole("textbox", { name: /ask/i }).first();
+    await expect(input).toBeDisabled();
+    await expect(input).toHaveAttribute("placeholder", /free tutor resets in 2h \d+m/i);
+
+    // Ask button stays disabled even if we try to jam text in (can't, it's
+    // disabled — but belt-and-suspenders, force-fill via page.fill which
+    // ignores the disabled state in Playwright).
+    const askBtn = page.getByRole("button", { name: /^ask$/i });
+    await expect(askBtn).toBeDisabled();
+  });
+
   test("editor-page AssistantPanel ask round-trip (mocked)", async ({ page }) => {
     await loadProfile(page, "empty");
     await seedApiKey(page, { key: "sk-test-e2e-padding-12345", model: "gpt-4o-mini" });

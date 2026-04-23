@@ -11,7 +11,7 @@ interface ExhaustionCardProps {
   onDismiss: () => void;
 }
 
-function formatReset(resetAtUtc: string | null): string {
+export function formatReset(resetAtUtc: string | null): string {
   if (!resetAtUtc) return "at midnight UTC";
   const ms = Math.max(0, new Date(resetAtUtc).getTime() - Date.now());
   if (ms === 0) return "now";

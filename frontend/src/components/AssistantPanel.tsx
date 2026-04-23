@@ -18,7 +18,7 @@ import {
 } from "./TutorResponseViews";
 import { TutorSetupWarning } from "./TutorSetupWarning";
 import { FreeTierPill } from "./FreeTierPill";
-import { ExhaustionCard } from "./ExhaustionCard";
+import { ExhaustionCard, formatReset } from "./ExhaustionCard";
 import { SelectionPreview } from "./SelectionPreview";
 import { useShortcutLabels } from "../util/platform";
 
@@ -352,9 +352,29 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={handleKey}
-          placeholder={activeSelection ? "Ask about the selection…" : "Ask about your project…"}
+          // Gate the composer on `configured` — mirror of GuidedTutorPanel's
+          // behaviour. Previously this textarea was always enabled even when
+          // source=none (quota exhausted, platform paused, denylisted,
+          // missing BYOK key), and the Ask button below was only gated on
+          // `!draft.trim()` — so a user could type, click Ask, and get a
+          // silent no-op from useTutorAsk's early-return. That felt broken.
+          //
+          // Placeholder branches in order of specificity: selection > not
+          // configured & exhausted (show reset time) > not configured &
+          // no-key (existing copy) > configured (normal).
+          placeholder={
+            activeSelection
+              ? "Ask about the selection…"
+              : !configured && exhausted
+                ? `Free tutor resets ${formatReset(aiStatus?.resetAtUtc ?? null)}`
+                : !configured
+                  ? "Configure API key first"
+                  : "Ask about your project…"
+          }
+          disabled={!configured}
           rows={3}
-          className="w-full resize-none rounded-md border border-border bg-elevated px-2.5 py-2 text-xs text-ink transition placeholder:text-faint focus:border-accent/60"
+          aria-label="Ask the tutor"
+          className="w-full resize-none rounded-md border border-border bg-elevated px-2.5 py-2 text-xs text-ink transition placeholder:text-faint focus:border-accent/60 disabled:cursor-not-allowed disabled:bg-elevated/40 disabled:opacity-50"
         />
         <div className="mt-1.5 flex items-center justify-between gap-2 text-[10px] text-faint">
           <div
@@ -383,7 +403,7 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
           ) : (
             <button
               onClick={handleAsk}
-              disabled={!draft.trim()}
+              disabled={!draft.trim() || !configured}
               className="rounded-md bg-accent px-3 py-1 text-[11px] font-semibold text-bg transition hover:bg-accentMuted disabled:cursor-not-allowed disabled:bg-elevated disabled:text-faint"
             >
               Ask

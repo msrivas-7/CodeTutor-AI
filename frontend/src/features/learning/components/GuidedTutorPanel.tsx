@@ -15,7 +15,7 @@ import {
 } from "../../../components/TutorResponseViews";
 import { TutorSetupWarning } from "../../../components/TutorSetupWarning";
 import { FreeTierPill } from "../../../components/FreeTierPill";
-import { ExhaustionCard } from "../../../components/ExhaustionCard";
+import { ExhaustionCard, formatReset } from "../../../components/ExhaustionCard";
 import { SelectionPreview } from "../../../components/SelectionPreview";
 import { useShortcutLabels } from "../../../util/platform";
 import { useProgressStore } from "../stores/progressStore";
@@ -377,7 +377,15 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={activeSelection ? "Ask about the selection…" : configured ? "Ask about this lesson..." : "Configure API key first"}
+              placeholder={
+                activeSelection
+                  ? "Ask about the selection…"
+                  : configured
+                    ? "Ask about this lesson..."
+                    : exhausted
+                      ? `Free tutor resets ${formatReset(aiStatus?.resetAtUtc ?? null)}`
+                      : "Configure API key first"
+              }
               disabled={!configured}
               rows={2}
               aria-label="Ask the tutor"
