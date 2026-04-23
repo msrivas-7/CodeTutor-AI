@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { motion } from "framer-motion"; // still used on the landing cards
 import { WelcomeOverlay } from "../components/WelcomeOverlay";
 import { UserMenu } from "../components/UserMenu";
 import { FeedbackButton } from "../components/FeedbackButton";
+import { AmbientGlyphField } from "../components/AmbientGlyphField";
+import { StaggerReveal, StaggerItem } from "../components/StaggerReveal";
 import { usePreferencesStore } from "../state/preferencesStore";
 import { useProgressStore } from "../features/learning/stores/progressStore";
 import { listPublicCourses, loadAllLessonMetas } from "../features/learning/content/courseLoader";
@@ -86,24 +89,27 @@ export default function StartPage() {
 
   return (
     <div className="relative flex h-full flex-col bg-bg text-ink">
+      <AmbientGlyphField />
       <div className="absolute right-4 top-3 z-10 flex items-center gap-2">
         <FeedbackButton />
         <UserMenu />
       </div>
-      <div className="flex flex-1 flex-col items-center justify-center px-6">
-        <div ref={headerRef} className="mb-10 flex flex-col items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-accent to-violet text-lg font-bold text-bg shadow-glow">
-            AI
+      <StaggerReveal className="flex flex-1 flex-col items-center justify-center px-6">
+        <StaggerItem>
+          <div ref={headerRef} className="mb-10 flex flex-col items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-accent to-violet text-lg font-bold text-bg shadow-glow">
+              AI
+            </div>
+            <h1 className="text-2xl font-bold tracking-tight">CodeTutor AI</h1>
+            <p className="max-w-md text-center text-sm text-muted">
+              Write code, run it in a sandbox, and learn with an AI tutor —
+              all in the browser.
+            </p>
           </div>
-          <h1 className="text-2xl font-bold tracking-tight">CodeTutor AI</h1>
-          <p className="max-w-md text-center text-sm text-muted">
-            Write code, run it in a sandbox, and learn with an AI tutor —
-            all in the browser.
-          </p>
-        </div>
+        </StaggerItem>
 
         {resumeTarget && resumeTarget.nextLesson && (
-          <div className="mb-6 w-full max-w-2xl">
+          <StaggerItem className="mb-6 w-full max-w-2xl">
             <ResumeLearningCard
               courseTitle={resumeTarget.course.title}
               progress={resumeTarget.progress}
@@ -114,14 +120,17 @@ export default function StartPage() {
                 )
               }
             />
-          </div>
+          </StaggerItem>
         )}
 
-        <div className="grid w-full max-w-2xl gap-4 sm:grid-cols-2">
-          <button
+        <StaggerItem className="grid w-full max-w-2xl gap-4 sm:grid-cols-2">
+          <motion.button
             ref={editorRef}
             onClick={() => nav("/editor")}
-            className="group flex flex-col items-start gap-3 rounded-xl border border-border bg-panel p-6 text-left shadow-sm transition hover:border-accent/50 hover:shadow-glow focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            whileHover={{ y: -6, scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            transition={{ type: "spring", stiffness: 300, damping: 22 }}
+            className="group flex flex-col items-start gap-3 rounded-xl border border-border bg-panel p-6 text-left shadow-sm transition-[border-color,box-shadow] hover:border-accent/50 hover:shadow-glow focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent/10 text-accent transition group-hover:bg-accent/20">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -139,12 +148,15 @@ export default function StartPage() {
             <span className="mt-auto text-[11px] font-medium text-accent transition sm:opacity-0 sm:group-hover:opacity-100">
               Launch editor →
             </span>
-          </button>
+          </motion.button>
 
-          <button
+          <motion.button
             ref={guidedRef}
             onClick={() => nav("/learn")}
-            className="group flex flex-col items-start gap-3 rounded-xl border border-border bg-panel p-6 text-left shadow-sm transition hover:border-violet/50 hover:shadow-glow focus:outline-none focus-visible:ring-2 focus-visible:ring-violet"
+            whileHover={{ y: -6, scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            transition={{ type: "spring", stiffness: 300, damping: 22 }}
+            className="group flex flex-col items-start gap-3 rounded-xl border border-border bg-panel p-6 text-left shadow-sm transition-[border-color,box-shadow] hover:border-violet/50 hover:shadow-glow focus:outline-none focus-visible:ring-2 focus-visible:ring-violet"
           >
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-violet/10 text-violet transition group-hover:bg-violet/20">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -162,9 +174,9 @@ export default function StartPage() {
             <span className="mt-auto text-[11px] font-medium text-violet transition sm:opacity-0 sm:group-hover:opacity-100">
               Start learning →
             </span>
-          </button>
-        </div>
-      </div>
+          </motion.button>
+        </StaggerItem>
+      </StaggerReveal>
 
       <footer className="border-t border-border bg-panel/60 px-4 py-2 text-center text-[10px] text-faint">
         CodeTutor AI © 2026 Mehul Srivastava — All rights reserved

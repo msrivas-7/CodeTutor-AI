@@ -94,16 +94,6 @@ export function HydrationGate({ children }: { children: ReactNode }) {
   const completed = steps.filter(Boolean).length;
   const progress = completed / steps.length;
 
-  // Surface which dependency is outstanding — not mission-critical, but
-  // it makes the loader feel purposeful instead of mysterious.
-  const detail = !prefsHydrated
-    ? "Loading your preferences…"
-    : !progressHydrated
-      ? "Loading your progress…"
-      : !editorHydrated
-        ? "Loading your editor project…"
-        : "Almost done…";
-
   const retry = () => {
     const g = bumpGen();
     void usePreferencesStore.getState().hydrate(g);
@@ -150,12 +140,18 @@ export function HydrationGate({ children }: { children: ReactNode }) {
 
   if (stillLoading) {
     const slow = elapsed >= SLOW_MS && !dataReady;
+    // Automation (Playwright, Selenium, etc.) sets navigator.webdriver=true.
+    // Skip AuthLoader's MIN_VISIBLE_MS floor in that case so e2e specs
+    // don't each eat 6s waiting for the decorative reveal. Real users
+    // keep the full choreographed intro.
+    const isAutomated =
+      typeof navigator !== "undefined" && navigator.webdriver === true;
     return (
       <div className="flex h-full flex-col bg-bg" data-testid="hydration-gate">
         <AuthLoader
           progress={progress}
-          detail={detail}
           done={dataReady}
+          enforceMinDuration={!isAutomated}
           onMinDurationReached={() => setMinElapsed(true)}
         />
         {slow && (

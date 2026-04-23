@@ -317,7 +317,7 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
         })}
         {asking && (
           pending && hasTutorContent(pending.sections)
-            ? <TutorResponseView sections={pending.sections} disabled />
+            ? <TutorResponseView sections={pending.sections} disabled streaming />
             : <ThinkingSkeleton />
         )}
         {askError && (

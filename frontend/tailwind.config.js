@@ -62,12 +62,18 @@ export default {
           "0%": { transform: "translateX(0%)" },
           "100%": { transform: "translateX(400%)" },
         },
+        // Typewriter caret blink — crisp on/off via step-end easing.
+        blink: {
+          "0%, 49%": { opacity: "1" },
+          "50%, 100%": { opacity: "0" },
+        },
       },
       animation: {
         shimmer: "shimmer 2.2s linear infinite",
         pulseDot: "pulseDot 1.6s ease-in-out infinite",
         fadeInUp: "fadeInUp 180ms ease-out",
         "loader-shimmer": "loader-shimmer 1.2s ease-in-out infinite",
+        blink: "blink 1s step-end infinite",
       },
     },
   },

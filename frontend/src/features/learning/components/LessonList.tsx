@@ -1,5 +1,13 @@
+import { motion } from "framer-motion";
 import type { LessonMeta, ProgressStatus } from "../types";
 import { LessonProgressBadge } from "./LessonProgressBadge";
+
+// Rows reveal in sequence on first mount — each ~80ms behind the previous
+// so a 12-lesson course finishes around 1s and the reveal is actually
+// visible, not a flash. Capped at 1.2s for long lists. Framer short-
+// circuits to 0 under prefers-reduced-motion automatically.
+const ROW_STAGGER_MS = 80;
+const MAX_STAGGER_MS = 1200;
 
 interface LessonListProps {
   lessons: LessonMeta[];
@@ -29,8 +37,16 @@ export function LessonList({ lessons, progressMap, completedIds, practiceProgres
             : `Practice ${pp.done}/${pp.total}`
           : "Unlocks after completing the lesson";
 
+        const delay = Math.min(idx * ROW_STAGGER_MS, MAX_STAGGER_MS) / 1000;
+
         return (
-          <li key={lesson.id}>
+          <motion.li
+            key={lesson.id}
+            initial={{ opacity: 0, y: 14, x: -8 }}
+            animate={{ opacity: 1, y: 0, x: 0 }}
+            transition={{ duration: 0.45, delay, ease: [0.22, 1, 0.36, 1] }}
+            whileHover={locked ? undefined : { x: 4 }}
+          >
             <div className={`flex items-stretch rounded-lg transition ${
               locked ? "" : "hover:bg-elevated/60"
             }`}>
@@ -119,7 +135,7 @@ export function LessonList({ lessons, progressMap, completedIds, practiceProgres
                 </button>
               )}
             </div>
-          </li>
+          </motion.li>
         );
       })}
     </ol>

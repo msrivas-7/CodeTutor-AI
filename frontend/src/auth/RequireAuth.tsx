@@ -20,12 +20,16 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   if (loading) {
     // Indeterminate progress here — we don't know how long Supabase's
     // session restore will take. HydrationGate takes over with a
-    // determinate bar as soon as `loading` flips false.
+    // determinate bar as soon as `loading` flips false. Skip the
+    // MIN_VISIBLE_MS floor under automation so e2e specs don't each
+    // eat the full reveal window.
+    const isAutomated =
+      typeof navigator !== "undefined" && navigator.webdriver === true;
     return (
       <AuthLoader
         testId="require-auth-loader"
         label="Welcome back"
-        detail="Restoring your session…"
+        enforceMinDuration={!isAutomated}
       />
     );
   }

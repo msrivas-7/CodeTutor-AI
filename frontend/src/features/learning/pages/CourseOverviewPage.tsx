@@ -5,6 +5,9 @@ import { loadCourse, loadAllLessonMetas } from "../content/courseLoader";
 import { useProgressStore } from "../stores/progressStore";
 import { useAuthStore } from "../../../auth/authStore";
 import { LessonList } from "../components/LessonList";
+import { AnimatedProgressBar } from "../components/AnimatedProgressBar";
+import { AmbientGlyphField } from "../../../components/AmbientGlyphField";
+import { StaggerReveal, StaggerItem } from "../../../components/StaggerReveal";
 import { UserMenu } from "../../../components/UserMenu";
 import { FeedbackButton } from "../../../components/FeedbackButton";
 import { Modal } from "../../../components/Modal";
@@ -72,7 +75,7 @@ export default function CourseOverviewPage() {
       : 0;
 
   return (
-    <div className="flex h-full flex-col bg-bg text-ink">
+    <div className="relative flex h-full flex-col bg-bg text-ink">
       <header className="flex items-center gap-3 border-b border-border bg-panel/80 px-4 py-2 backdrop-blur">
         <button
           onClick={() => nav("/learn")}
@@ -93,7 +96,8 @@ export default function CourseOverviewPage() {
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto">
+      <AmbientGlyphField />
+      <div className="relative z-10 flex-1 overflow-y-auto">
         {loading ? (
           <div
             className="mx-auto max-w-2xl px-6 py-6"
@@ -124,12 +128,14 @@ export default function CourseOverviewPage() {
             </ul>
           </div>
         ) : course ? (
-          <div className="mx-auto max-w-2xl px-6 py-6">
-            <p className="mb-4 text-xs leading-relaxed text-muted">
-              {course.description}
-            </p>
+          <StaggerReveal className="mx-auto max-w-2xl px-6 py-6">
+            <StaggerItem>
+              <p className="mb-4 text-xs leading-relaxed text-muted">
+                {course.description}
+              </p>
+            </StaggerItem>
 
-            <div className="mb-6 rounded-lg border border-border bg-panel/60 px-4 py-3">
+            <StaggerItem className="mb-6 rounded-lg border border-border bg-panel/60 px-4 py-3">
               <div className="mb-1.5 flex items-center justify-between">
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-muted">
                   Progress
@@ -158,59 +164,50 @@ export default function CourseOverviewPage() {
                   )}
                 </div>
               </div>
-              <div
-                className="h-2 overflow-hidden rounded-full bg-elevated"
-                role="progressbar"
-                aria-valuenow={pct}
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-label={`Course progress: ${completedIds.length} of ${lessons.length} lessons completed`}
-              >
-                <div
-                  className="h-full rounded-full bg-violet transition-all"
-                  style={{ width: `${pct}%` }}
-                />
-              </div>
+              <AnimatedProgressBar
+                pct={pct}
+                height={8}
+                fillClassName="bg-violet"
+                trackClassName="bg-elevated"
+                ariaLabel={`Course progress: ${completedIds.length} of ${lessons.length} lessons completed`}
+              />
               {practiceGrandTotal > 0 && (
-                <div
-                  className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-elevated/60"
-                  role="progressbar"
-                  aria-valuenow={practicePct}
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-label={`Practice progress: ${practiceDoneTotal} of ${practiceGrandTotal} exercises done`}
-                >
-                  <div
-                    className="h-full rounded-full bg-gradient-to-r from-violet/70 to-accent/70 transition-all"
-                    style={{ width: `${practicePct}%` }}
-                    title={`${practiceDoneTotal}/${practiceGrandTotal} practice exercises`}
+                <div className="mt-1.5" title={`${practiceDoneTotal}/${practiceGrandTotal} practice exercises`}>
+                  <AnimatedProgressBar
+                    pct={practicePct}
+                    height={6}
+                    fillClassName="bg-gradient-to-r from-violet/70 to-accent/70"
+                    trackClassName="bg-elevated/60"
+                    ariaLabel={`Practice progress: ${practiceDoneTotal} of ${practiceGrandTotal} exercises done`}
                   />
                 </div>
               )}
-            </div>
+            </StaggerItem>
 
             {completedIds.length === 0 && (!cp || cp.status === "not_started") && lessons.length > 0 && (
-              <div className="mb-5 flex items-center gap-3 rounded-lg border border-accent/20 bg-accent/5 px-4 py-3">
+              <StaggerItem className="mb-5 flex items-center gap-3 rounded-lg border border-accent/20 bg-accent/5 px-4 py-3">
                 <span className="text-lg">👇</span>
                 <p className="text-xs leading-relaxed text-ink/80">
                   Start with <strong>Lesson 1</strong> — each lesson builds on the last. Click a lesson to open it.
                 </p>
-              </div>
+              </StaggerItem>
             )}
 
-            <LessonList
-              lessons={lessons}
-              progressMap={progressMap}
-              completedIds={completedIds}
-              practiceProgressMap={practiceProgressMap}
-              onSelect={(lessonId) =>
-                nav(`/learn/course/${courseId}/lesson/${lessonId}`)
-              }
-              onSelectPractice={(lessonId) =>
-                nav(`/learn/course/${courseId}/lesson/${lessonId}?mode=practice`)
-              }
-            />
-          </div>
+            <StaggerItem>
+              <LessonList
+                lessons={lessons}
+                progressMap={progressMap}
+                completedIds={completedIds}
+                practiceProgressMap={practiceProgressMap}
+                onSelect={(lessonId) =>
+                  nav(`/learn/course/${courseId}/lesson/${lessonId}`)
+                }
+                onSelectPractice={(lessonId) =>
+                  nav(`/learn/course/${courseId}/lesson/${lessonId}?mode=practice`)
+                }
+              />
+            </StaggerItem>
+          </StaggerReveal>
         ) : (
           <div className="flex items-center justify-center py-20 text-sm text-muted">
             Course not found

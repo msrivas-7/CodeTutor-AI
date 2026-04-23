@@ -1,3 +1,4 @@
+import { motion } from "framer-motion";
 import type { Course, CourseProgress } from "../types";
 
 interface CourseCardProps {
@@ -13,9 +14,12 @@ export function CourseCard({ course, progress, lessonCount, onOpen }: CourseCard
   const status = progress?.status ?? "not_started";
 
   return (
-    <button
+    <motion.button
       onClick={onOpen}
-      className="group flex flex-col items-start gap-3 rounded-xl border border-border bg-panel p-6 text-left transition hover:border-violet/50 hover:shadow-glow"
+      whileHover={{ y: -6, scale: 1.02 }}
+      whileTap={{ scale: 0.98 }}
+      transition={{ type: "spring", stiffness: 300, damping: 22 }}
+      className="group flex flex-col items-start gap-3 rounded-xl border border-border bg-panel p-6 text-left transition-[border-color,box-shadow] hover:border-violet/50 hover:shadow-glow"
     >
       <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-violet/10 text-violet transition group-hover:bg-violet/20">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -44,6 +48,6 @@ export function CourseCard({ course, progress, lessonCount, onOpen }: CourseCard
       <span className="text-[11px] font-medium text-violet transition sm:opacity-0 sm:group-hover:opacity-100">
         {status === "not_started" ? "Start course →" : status === "completed" ? "Review →" : "Continue →"}
       </span>
-    </button>
+    </motion.button>
   );
 }

@@ -5,6 +5,9 @@ import { listPublicCourses, loadAllLessonMetas } from "../content/courseLoader";
 import { useProgressStore, loadAllLessonProgress } from "../stores/progressStore";
 import { useAuthStore } from "../../../auth/authStore";
 import { CourseCard } from "../components/CourseCard";
+import { ProgressRing } from "../components/ProgressRing";
+import { AmbientGlyphField } from "../../../components/AmbientGlyphField";
+import { StaggerReveal, StaggerItem } from "../../../components/StaggerReveal";
 import { UserMenu } from "../../../components/UserMenu";
 import { FeedbackButton } from "../../../components/FeedbackButton";
 import { pickShakyLessons, formatTimeSpent } from "../utils/mastery";
@@ -120,8 +123,9 @@ export default function LearningDashboardPage() {
   }
 
   return (
-    <div className="flex h-full flex-col bg-bg text-ink">
-      <header className="flex items-center gap-3 border-b border-border bg-panel/80 px-4 py-2 backdrop-blur">
+    <div className="relative flex h-full flex-col bg-bg text-ink">
+      <AmbientGlyphField />
+      <header className="relative z-10 flex items-center gap-3 border-b border-border bg-panel/80 px-4 py-2 backdrop-blur">
         <button
           onClick={() => nav("/")}
           className="rounded px-2 py-1 text-xs text-muted transition hover:bg-elevated hover:text-ink"
@@ -138,7 +142,7 @@ export default function LearningDashboardPage() {
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="relative z-10 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-3xl px-6 py-8">
           {loading ? (
             <div
@@ -177,10 +181,10 @@ export default function LearningDashboardPage() {
               ))}
             </div>
           ) : (
-            <>
+            <StaggerReveal>
               {/* First-visit welcome — shown when no course has been started */}
               {activeCourse && (!activeProgress || activeProgress.status === "not_started") && (
-                <div className="mb-8 rounded-xl border border-violet/20 bg-gradient-to-br from-violet/5 to-accent/5 p-6">
+                <StaggerItem className="mb-8 rounded-xl border border-violet/20 bg-gradient-to-br from-violet/5 to-accent/5 p-6">
                   <div className="flex items-start gap-4">
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-accent to-violet text-sm font-bold text-bg shadow-glow">
                       AI
@@ -198,30 +202,28 @@ export default function LearningDashboardPage() {
                       </button>
                     </div>
                   </div>
-                </div>
+                </StaggerItem>
               )}
 
               {/* Progress summary + next lesson CTA */}
               {activeCourse && activeProgress && activeProgress.status !== "not_started" && (
-                <div className="mb-8 rounded-xl border border-border bg-panel p-5">
+                <StaggerItem className="mb-8 rounded-xl border border-border bg-panel p-5">
                   <div className="flex items-start justify-between gap-4">
-                    <div className="min-w-0 flex-1">
-                      <h2 className="text-base font-bold">{activeCourse.course.title}</h2>
-                      <p className="mt-1 text-sm text-muted">
-                        {activeProgress.status === "completed" ? (
-                          <>You completed all {totalCount} lessons!</>
-                        ) : (
-                          <>You've completed <span className="font-semibold text-ink">{completedCount}</span> of {totalCount} lessons</>
-                        )}
-                      </p>
-                      <div className="mt-3 flex items-center gap-3">
-                        <div className="h-2 flex-1 rounded-full bg-elevated">
-                          <div
-                            className="h-full rounded-full bg-gradient-to-r from-accent to-violet transition-all"
-                            style={{ width: `${pct}%` }}
-                          />
-                        </div>
-                        <span className="text-xs font-semibold text-muted">{pct}%</span>
+                    <div className="flex min-w-0 flex-1 items-center gap-4">
+                      <ProgressRing
+                        pct={pct}
+                        size={64}
+                        label={`${pct}% of ${activeCourse.course.title} complete`}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <h2 className="text-base font-bold">{activeCourse.course.title}</h2>
+                        <p className="mt-1 text-sm text-muted">
+                          {activeProgress.status === "completed" ? (
+                            <>You completed all {totalCount} lessons!</>
+                          ) : (
+                            <>You've completed <span className="font-semibold text-ink">{completedCount}</span> of {totalCount} lessons</>
+                          )}
+                        </p>
                       </div>
                     </div>
                     {nextLesson && (
@@ -246,17 +248,23 @@ export default function LearningDashboardPage() {
                       </div>
                     </div>
                   )}
-                </div>
+                </StaggerItem>
               )}
 
-              {/* Recent activity */}
+              {/* Recent activity — inner StaggerReveal so each row
+                  cascades in sequence instead of the whole block popping
+                  as one. Kicks off once the outer stagger reaches this
+                  section (framer variants propagate through the tree). */}
               {recentActivity.length > 0 && (
-                <div className="mb-8">
+                <StaggerItem className="mb-8">
                   <h2 className="mb-3 text-sm font-bold text-muted">Recent Activity</h2>
-                  <div className="space-y-2">
+                  <StaggerReveal nested className="space-y-2">
                     {recentActivity.map((lp) => (
-                      <button
+                      <StaggerItem
                         key={lp.lessonId}
+                        className="flex w-full"
+                      >
+                      <button
                         onClick={() => nav(`/learn/course/${lp.courseId}/lesson/${lp.lessonId}`)}
                         className="flex w-full items-center gap-3 rounded-lg border border-border bg-panel/60 px-4 py-2.5 text-left transition hover:border-accent/30 hover:bg-panel"
                       >
@@ -283,14 +291,15 @@ export default function LearningDashboardPage() {
                           <span className="text-[10px] text-faint">{timeAgo(lp.updatedAt)}</span>
                         </div>
                       </button>
+                      </StaggerItem>
                     ))}
-                  </div>
-                </div>
+                  </StaggerReveal>
+                </StaggerItem>
               )}
 
               {/* Might need review — mastery-driven */}
               {shakyLessons.length > 0 && (
-                <div className="mb-8">
+                <StaggerItem className="mb-8">
                   <h2 className="mb-3 text-sm font-bold text-muted">Might Need Review</h2>
                   <div className="rounded-xl border border-warn/20 bg-warn/5 p-4">
                     <p className="mb-3 text-[11px] leading-relaxed text-warn/80">
@@ -344,43 +353,48 @@ export default function LearningDashboardPage() {
                       })}
                     </div>
                   </div>
-                </div>
+                </StaggerItem>
               )}
 
-              {/* Courses grid */}
-              <h2 className="mb-4 text-sm font-bold text-muted">All Courses</h2>
-              {courses.length === 0 ? (
-                <div
-                  role="status"
-                  aria-live="polite"
-                  className="rounded-xl border border-border bg-panel p-6 text-center"
-                >
-                  <p className="text-sm font-semibold text-ink">No courses available yet</p>
-                  <p className="mt-1.5 text-xs leading-relaxed text-muted">
-                    Something went wrong loading the course catalog. Reload the page,
-                    or check your internet connection if this keeps happening.
-                  </p>
-                  <button
-                    onClick={() => window.location.reload()}
-                    className="mt-3 rounded-md bg-accent px-3 py-1.5 text-[11px] font-semibold text-bg transition hover:bg-accent/90"
+              {/* Courses grid — nested StaggerReveal so each course card
+                  cascades in turn. Keeps the "All Courses" heading on
+                  its own beat, then the grid fills cell by cell. */}
+              <StaggerItem>
+                <h2 className="mb-4 text-sm font-bold text-muted">All Courses</h2>
+                {courses.length === 0 ? (
+                  <div
+                    role="status"
+                    aria-live="polite"
+                    className="rounded-xl border border-border bg-panel p-6 text-center"
                   >
-                    Reload
-                  </button>
-                </div>
-              ) : (
-                <div className="grid gap-4 sm:grid-cols-2">
-                  {courses.map(({ course, lessons }) => (
-                    <CourseCard
-                      key={course.id}
-                      course={course}
-                      progress={courseProgressMap[course.id] ?? null}
-                      lessonCount={lessons.length}
-                      onOpen={() => nav(`/learn/course/${course.id}`)}
-                    />
-                  ))}
-                </div>
-              )}
-            </>
+                    <p className="text-sm font-semibold text-ink">No courses available yet</p>
+                    <p className="mt-1.5 text-xs leading-relaxed text-muted">
+                      Something went wrong loading the course catalog. Reload the page,
+                      or check your internet connection if this keeps happening.
+                    </p>
+                    <button
+                      onClick={() => window.location.reload()}
+                      className="mt-3 rounded-md bg-accent px-3 py-1.5 text-[11px] font-semibold text-bg transition hover:bg-accent/90"
+                    >
+                      Reload
+                    </button>
+                  </div>
+                ) : (
+                  <StaggerReveal nested className="grid gap-4 sm:grid-cols-2">
+                    {courses.map(({ course, lessons }) => (
+                      <StaggerItem key={course.id}>
+                        <CourseCard
+                          course={course}
+                          progress={courseProgressMap[course.id] ?? null}
+                          lessonCount={lessons.length}
+                          onOpen={() => nav(`/learn/course/${course.id}`)}
+                        />
+                      </StaggerItem>
+                    ))}
+                  </StaggerReveal>
+                )}
+              </StaggerItem>
+            </StaggerReveal>
           )}
         </div>
       </div>

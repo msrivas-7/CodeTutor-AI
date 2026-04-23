@@ -8,6 +8,22 @@ import type {
   TutorWalkStep,
 } from "../types";
 
+// Typewriter caret. Rendered at the end of the currently-streaming
+// section's text so the learner sees "the tutor is still typing" without
+// us faking the stream rate. Earlier iteration (per-word fade-in) failed
+// because real stream speed puts dozens of words inside one animation
+// window — everything fades in simultaneously and the rhythm is lost.
+// A single blinking caret matches the mental model users already have
+// for "AI is typing" and doesn't lie about cadence.
+function StreamingCaret() {
+  return (
+    <span
+      className="ml-[1px] inline-block h-[1em] w-[2px] -translate-y-[2px] animate-blink bg-accent align-middle"
+      aria-hidden="true"
+    />
+  );
+}
+
 export type Tone =
   | "think"
   | "check"
@@ -80,7 +96,21 @@ const INTENT_LABEL: Record<TutorIntent, string> = {
   checkin: "Check-in",
 };
 
-export function SectionView({ label, text, tone }: { label: string; text: string; tone: Tone }) {
+export function SectionView({
+  label,
+  text,
+  tone,
+  isStreamingTail,
+}: {
+  label: string;
+  text: string;
+  tone: Tone;
+  // True only for the section currently receiving stream deltas (the last
+  // populated section in render order while streaming is in flight).
+  // When true, a blinking caret renders after the text to signal "still
+  // typing." All other sections — committed or pre-stream — render plain.
+  isStreamingTail?: boolean;
+}) {
   const t = TONE[tone];
   const order = useProjectStore((s) => s.order);
   const revealAt = useProjectStore((s) => s.revealAt);
@@ -96,6 +126,7 @@ export function SectionView({ label, text, tone }: { label: string; text: string
       </div>
       <div className="whitespace-pre-wrap text-xs leading-relaxed text-ink/90">
         {linkifyRefs(text, order, revealAt)}
+        {isStreamingTail && <StreamingCaret />}
       </div>
     </div>
   );
@@ -299,14 +330,41 @@ export function TutorResponseView({
   sections,
   onAsk,
   disabled,
+  streaming,
 }: {
   sections: TutorSections;
   onAsk?: (q: string) => void;
   disabled?: boolean;
+  // When true, a blinking caret renders at the end of whichever prose
+  // section is currently last-populated in render order (i.e. the one
+  // OpenAI is actively streaming text into). Callers pass this for the
+  // in-flight `pending` message only; committed messages render plain.
+  streaming?: boolean;
 }) {
   if (!hasTutorContent(sections)) {
     return <div className="text-xs italic text-faint">(empty response)</div>;
   }
+
+  // Determine which section (if any) should host the caret — reverse of
+  // the render order so later sections win. JSON streams top-to-bottom
+  // so the latest-mounted section is the tail.
+  const tailKey: string | null = streaming
+    ? sections.pitfalls
+      ? "pitfalls"
+      : sections.strongerHint
+        ? "strongerHint"
+        : sections.nextStep
+          ? "nextStep"
+          : sections.hint
+            ? "hint"
+            : sections.example
+              ? "example"
+              : sections.explain
+                ? "explain"
+                : sections.diagnose
+                  ? "diagnose"
+                  : null
+    : null;
 
   return (
     <div className="flex flex-col gap-2">
@@ -320,13 +378,28 @@ export function TutorResponseView({
         </div>
       )}
       {sections.diagnose && (
-        <SectionView label="What I think" text={sections.diagnose} tone="think" />
+        <SectionView
+          label="What I think"
+          text={sections.diagnose}
+          tone="think"
+          isStreamingTail={tailKey === "diagnose"}
+        />
       )}
       {sections.explain && (
-        <SectionView label="Explanation" text={sections.explain} tone="explain" />
+        <SectionView
+          label="Explanation"
+          text={sections.explain}
+          tone="explain"
+          isStreamingTail={tailKey === "explain"}
+        />
       )}
       {sections.example && (
-        <SectionView label="Example" text={sections.example} tone="example" />
+        <SectionView
+          label="Example"
+          text={sections.example}
+          tone="example"
+          isStreamingTail={tailKey === "example"}
+        />
       )}
       {sections.walkthrough && sections.walkthrough.length > 0 && (
         <WalkthroughView steps={sections.walkthrough} />
@@ -338,19 +411,37 @@ export function TutorResponseView({
           disabled={disabled}
         />
       )}
-      {sections.hint && <SectionView label="Hint" text={sections.hint} tone="hint" />}
+      {sections.hint && (
+        <SectionView
+          label="Hint"
+          text={sections.hint}
+          tone="hint"
+          isStreamingTail={tailKey === "hint"}
+        />
+      )}
       {sections.nextStep && (
-        <SectionView label="Next step" text={sections.nextStep} tone="step" />
+        <SectionView
+          label="Next step"
+          text={sections.nextStep}
+          tone="step"
+          isStreamingTail={tailKey === "nextStep"}
+        />
       )}
       {sections.strongerHint && (
         <SectionView
           label="Stronger hint"
           text={sections.strongerHint}
           tone="stronger"
+          isStreamingTail={tailKey === "strongerHint"}
         />
       )}
       {sections.pitfalls && (
-        <SectionView label="Pitfalls" text={sections.pitfalls} tone="pitfall" />
+        <SectionView
+          label="Pitfalls"
+          text={sections.pitfalls}
+          tone="pitfall"
+          isStreamingTail={tailKey === "pitfalls"}
+        />
       )}
       {sections.comprehensionCheck && (
         <ComprehensionCheckView
