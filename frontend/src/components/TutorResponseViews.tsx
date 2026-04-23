@@ -36,8 +36,8 @@ const TONE: Record<
   },
   hint: {
     border: "border-warn/50",
-    accent: "text-warn",
-    pill: "bg-warn/10 text-warn",
+    accent: "text-warnInk",
+    pill: "bg-warn/10 text-warnInk",
     icon: "✦",
   },
   step: {
@@ -66,8 +66,8 @@ const TONE: Record<
   },
   pitfall: {
     border: "border-warn/50",
-    accent: "text-warn",
-    pill: "bg-warn/10 text-warn",
+    accent: "text-warnInk",
+    pill: "bg-warn/10 text-warnInk",
     icon: "⚠",
   },
 };

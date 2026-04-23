@@ -55,9 +55,19 @@ interface WelcomeOverlayProps {
 export function WelcomeOverlay({ refs, onDismiss }: WelcomeOverlayProps) {
   const [step, setStep] = useState(0);
   const [targetRect, setTargetRect] = useState<DOMRect | null>(null);
+  const previouslyFocused = useRef<HTMLElement | null>(null);
 
   const currentStep = STEPS[step];
   const targetEl = currentStep ? refs[currentStep.refKey] : null;
+
+  // A3: capture focus on mount, restore on unmount so keyboard users land
+  // back where they came from once the onboarding tour closes.
+  useEffect(() => {
+    previouslyFocused.current = document.activeElement as HTMLElement | null;
+    return () => {
+      previouslyFocused.current?.focus?.();
+    };
+  }, []);
 
   useEffect(() => {
     if (!targetEl) {
@@ -88,6 +98,15 @@ export function WelcomeOverlay({ refs, onDismiss }: WelcomeOverlayProps) {
     markWelcomeDone();
     onDismiss();
   }, [onDismiss]);
+
+  // A3: Esc dismisses the tour — matches every other modal/dialog in the app.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") dismiss();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [dismiss]);
 
   if (!targetRect || !currentStep) return null;
 

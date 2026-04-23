@@ -36,7 +36,7 @@ export function FreeTierPill({ remaining, cap, resetAtUtc }: FreeTierPillProps) 
 
   const amber = cap > 0 && remaining / cap < 0.2;
   const cls = amber
-    ? "border-warn/40 bg-warn/10 text-warn"
+    ? "border-warn/40 bg-warn/10 text-warnInk"
     : "border-accent/40 bg-accent/10 text-accent";
 
   return (

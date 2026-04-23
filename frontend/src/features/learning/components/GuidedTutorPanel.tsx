@@ -211,9 +211,10 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
             <button
               onClick={onCollapse}
               title="Collapse tutor"
+              aria-label="Collapse tutor"
               className="rounded p-1 text-muted transition hover:bg-elevated hover:text-ink"
             >
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
                 <path d="M10.5 3.5L6 8l4.5 4.5L12 11 9 8l3-3z" />
               </svg>
             </button>
@@ -221,7 +222,15 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
         </div>
       </header>
 
-      <div ref={scrollRef} className="flex-1 space-y-3 overflow-auto p-3">
+      <div
+        ref={scrollRef}
+        role="log"
+        aria-live="polite"
+        aria-relevant="additions text"
+        aria-atomic="false"
+        aria-label="Tutor conversation"
+        className="flex-1 space-y-3 overflow-auto p-3"
+      >
         {!configured && !exhausted && (
           <TutorSetupWarning
             onOpenSettings={onOpenSettings}
@@ -300,7 +309,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
                           disabled={asking}
                           aria-label={`${hintLevel === 0 ? "Hint" : hintLevel === 1 ? "Stronger hint" : "Show approach"} — level ${hintLevel + 1} of 3`}
                           title={`Hint ${hintLevel + 1} of 3 — gentler first, stronger on each tap`}
-                          className="flex items-center gap-1 rounded-full border border-warn/40 bg-warn/10 px-2 py-[2px] text-[10px] font-medium text-warn transition hover:bg-warn/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-warn disabled:cursor-not-allowed disabled:opacity-50"
+                          className="flex items-center gap-1 rounded-full border border-warn/40 bg-warn/10 px-2 py-[2px] text-[10px] font-medium text-warnInk transition hover:bg-warn/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-warn disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           <span aria-hidden="true">💡</span>
                           <span>{hintLevel === 0 ? "Hint" : hintLevel === 1 ? "Stronger hint" : "Show approach"}</span>

@@ -81,14 +81,14 @@ export function UsageChip({
 
 export function ThinkingSkeleton() {
   return (
-    <div className="flex flex-col gap-2">
-      <div className="rounded-md border-l-2 border-accent/30 bg-elevated/40 px-3 py-2">
+    <div role="status" aria-label="Tutor is thinking" className="flex flex-col gap-2">
+      <div aria-hidden="true" className="rounded-md border-l-2 border-accent/30 bg-elevated/40 px-3 py-2">
         <div className="mb-2 h-3 w-24 skeleton" />
         <div className="mb-1 h-2.5 w-full skeleton" />
         <div className="mb-1 h-2.5 w-11/12 skeleton" />
         <div className="h-2.5 w-3/4 skeleton" />
       </div>
-      <div className="rounded-md border-l-2 border-success/30 bg-elevated/40 px-3 py-2">
+      <div aria-hidden="true" className="rounded-md border-l-2 border-success/30 bg-elevated/40 px-3 py-2">
         <div className="mb-2 h-3 w-28 skeleton" />
         <div className="mb-1 h-2.5 w-5/6 skeleton" />
         <div className="h-2.5 w-2/3 skeleton" />

@@ -35,6 +35,7 @@ export function LessonCompletePanel({
       onClose={onDismiss}
       role="alertdialog"
       labelledBy="lesson-complete-title"
+      describedBy="lesson-complete-desc"
       position="center"
       panelClassName="mx-4 w-full max-w-md rounded-xl border border-success/30 bg-panel p-6 shadow-xl"
     >

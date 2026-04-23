@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { usePreferencesStore } from "../../../state/preferencesStore";
-import { usePersistedFlag, usePersistedNumber } from "../../../util/layoutPrefs";
+import { usePersistedFlag, usePersistedNumber, useNarrowViewport } from "../../../util/layoutPrefs";
 import { COACH_AUTO_OPEN_MS } from "../../../util/timings";
 
 const LS_OUT_H = "ui:lesson:outputH";
@@ -34,6 +34,18 @@ export function useLessonLayout({ lessonReady }: UseLessonLayoutArgs) {
   const [tutorW, setTutorW] = usePersistedNumber(LS_TUTOR_W, LESSON_LAYOUT_DEFAULTS.tutor);
   const [instrCollapsed, setInstrCollapsed] = usePersistedFlag(LS_INSTR_COLLAPSED, false);
   const [tutorCollapsed, setTutorCollapsed] = usePersistedFlag(LS_TUTOR_COLLAPSED, false);
+
+  // A20: below 1024 px three columns starve the editor. Auto-collapse the
+  // tutor rail once on mount — instructions + editor stay visible. Users
+  // can still expand the tutor manually if they want it.
+  const narrow = useNarrowViewport(1024);
+  const autoCollapsedRef = useRef(false);
+  useEffect(() => {
+    if (narrow && !autoCollapsedRef.current) {
+      autoCollapsedRef.current = true;
+      setTutorCollapsed(true);
+    }
+  }, [narrow, setTutorCollapsed]);
 
   const [showSettings, setShowSettings] = useState(false);
   const [resetMenuOpen, setResetMenuOpen] = useState(false);

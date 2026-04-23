@@ -19,6 +19,7 @@ export default {
         accentMuted: "rgb(var(--color-accent-muted) / <alpha-value>)",
         success: "rgb(var(--color-success) / <alpha-value>)",
         warn: "rgb(var(--color-warn) / <alpha-value>)",
+        warnInk: "rgb(var(--color-warn-ink) / <alpha-value>)",
         danger: "rgb(var(--color-danger) / <alpha-value>)",
         violet: "rgb(var(--color-violet) / <alpha-value>)",
       },

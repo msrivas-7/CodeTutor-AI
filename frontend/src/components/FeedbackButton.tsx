@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useRef, useState } from "react";
 import { useAuthStore } from "../auth/authStore";
 
 // Phase 20-P1: global feedback affordance, rendered inline in each page's
@@ -18,10 +18,12 @@ const FeedbackModalLazy = lazy(() =>
 export function FeedbackButton() {
   const user = useAuthStore((s) => s.user);
   const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
   if (!user) return null;
   return (
     <>
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen(true)}
         aria-label="Give feedback"
@@ -42,7 +44,15 @@ export function FeedbackButton() {
       </button>
       {open && (
         <Suspense fallback={null}>
-          <FeedbackModalLazy onClose={() => setOpen(false)} />
+          <FeedbackModalLazy
+            onClose={() => {
+              setOpen(false);
+              // A10: Modal's built-in focus-restore relies on the trigger
+              // still existing — it does here, but explicit re-focus guards
+              // against SR edge cases where restore loses the element.
+              triggerRef.current?.focus();
+            }}
+          />
         </Suspense>
       )}
     </>

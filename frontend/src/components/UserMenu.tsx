@@ -187,7 +187,18 @@ export function UserMenu({ className }: { className?: string } = {}) {
           </button>
         </div>
       )}
-      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
+      {showSettings && (
+        <SettingsModal
+          onClose={() => {
+            setShowSettings(false);
+            // A10: the menu item that opened Settings is no longer in the
+            // DOM (dropdown closed on open), so Modal's generic focus-
+            // restore has nothing to return to. Park focus back on the
+            // trigger explicitly so keyboard users aren't stranded.
+            triggerRef.current?.focus();
+          }}
+        />
+      )}
     </div>
   );
 }

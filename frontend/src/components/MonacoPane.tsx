@@ -92,6 +92,15 @@ function defineThemes(monaco: Monaco) {
   });
 }
 
+// A5: Monaco's cursor + scroll animations aren't covered by our global CSS
+// `prefers-reduced-motion` rule because they're driven by canvas/JS inside the
+// editor. Resolve the OS-level preference once at mount so the options object
+// below can disable them for users who opt out.
+const reducedMotion =
+  typeof window !== "undefined" &&
+  typeof window.matchMedia === "function" &&
+  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
 export function MonacoPane() {
   // P-C1: scoped selectors — a no-arg `useProjectStore()` re-renders on every
   // file-tree reorder / tab change, dragging Monaco through a full re-render
@@ -107,19 +116,27 @@ export function MonacoPane() {
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
   const theme = useEffectiveTheme();
 
-  const applyReveal = (t: RevealTarget) => {
+  // A14: track the last-applied reveal ticket so activeFile-driven re-runs of
+  // the effect don't steal focus back into Monaco after the user has clicked
+  // away (e.g. switching tabs after a tutor code-ref reveal). Fresh reveals
+  // still focus the editor; replays do not.
+  const lastRevealTicket = useRef<number | null>(null);
+
+  const applyReveal = (t: RevealTarget, { focus }: { focus: boolean }) => {
     const ed = editorRef.current;
     if (!ed) return;
     const line = Math.max(1, t.line);
     const column = Math.max(1, t.column ?? 1);
     ed.revealLineInCenter(line);
     ed.setPosition({ lineNumber: line, column });
-    ed.focus();
+    if (focus) ed.focus();
   };
 
   useEffect(() => {
     if (pendingReveal && pendingReveal.path === activeFile) {
-      applyReveal(pendingReveal);
+      const isFresh = lastRevealTicket.current !== pendingReveal.ticket;
+      applyReveal(pendingReveal, { focus: isFresh });
+      lastRevealTicket.current = pendingReveal.ticket;
     }
   }, [pendingReveal, activeFile]);
 
@@ -127,9 +144,12 @@ export function MonacoPane() {
     editorRef.current = editor;
     // Apply any pending reveal recorded before this editor instance existed —
     // typical when clicking a ref that switches the active file, which
-    // remounts the Editor (we key on activeFile).
+    // remounts the Editor (we key on activeFile). Fresh reveals still focus
+    // the editor; replays of an already-applied ticket do not (A14).
     if (pendingReveal && pendingReveal.path === activeFile) {
-      applyReveal(pendingReveal);
+      const isFresh = lastRevealTicket.current !== pendingReveal.ticket;
+      applyReveal(pendingReveal, { focus: isFresh });
+      lastRevealTicket.current = pendingReveal.ticket;
     }
 
     const captureSelection = () => {
@@ -217,9 +237,13 @@ export function MonacoPane() {
         wordWrap: "on",
         renderWhitespace: "selection",
         renderLineHighlight: "all",
-        smoothScrolling: true,
-        cursorBlinking: "smooth",
-        cursorSmoothCaretAnimation: "on",
+        smoothScrolling: !reducedMotion,
+        cursorBlinking: reducedMotion ? "solid" : "smooth",
+        cursorSmoothCaretAnimation: reducedMotion ? "off" : "on",
+        // A4: name the editor region so SR announcements include the file
+        // path, and let Monaco speak inline suggestions as the user types.
+        ariaLabel: `Code editor for ${activeFile}`,
+        screenReaderAnnounceInlineSuggestion: true,
         padding: { top: 12, bottom: 12 },
         scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 },
         guides: { indentation: true, bracketPairs: true },

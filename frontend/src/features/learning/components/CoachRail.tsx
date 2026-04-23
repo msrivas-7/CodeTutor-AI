@@ -56,7 +56,12 @@ export function CoachRail(props: CoachRailProps) {
   if (!nudge) return null;
 
   return (
-    <div className="mb-3 flex items-start gap-2 rounded-lg border border-accent/20 bg-accent/5 px-3 py-2 text-xs leading-relaxed text-ink/80">
+    <div
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+      className="mb-3 flex items-start gap-2 rounded-lg border border-accent/20 bg-accent/5 px-3 py-2 text-xs leading-relaxed text-ink/80"
+    >
       <span className="shrink-0 text-sm" aria-hidden="true">{nudge.icon}</span>
       <span className="flex-1">{nudge.message}</span>
       <button

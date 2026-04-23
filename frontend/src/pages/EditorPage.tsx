@@ -27,9 +27,10 @@ import { SessionErrorBanner } from "../components/SessionErrorBanner";
 import { SessionRestartBanner } from "../components/SessionRestartBanner";
 import { SessionReplacedModal } from "../components/SessionReplacedModal";
 import { NarrowViewportGate } from "../components/NarrowViewportGate";
+import { SkipToContent } from "../components/SkipToContent";
 import { EditorCoach } from "../components/EditorCoach";
 import { usePreferencesStore } from "../state/preferencesStore";
-import { clamp, clampSide, usePersistedNumber, usePersistedFlag } from "../util/layoutPrefs";
+import { clamp, clampSide, usePersistedNumber, usePersistedFlag, useNarrowViewport } from "../util/layoutPrefs";
 import { COACH_AUTO_OPEN_MS } from "../util/timings";
 
 const LS_LEFT = "ui:leftW";
@@ -81,6 +82,18 @@ export default function EditorPage() {
   const [showSettings, setShowSettings] = useState(false);
   const [showCoach, setShowCoach] = useState(false);
 
+  // A20: below 1024 px three columns are too tight. Auto-collapse the files
+  // rail once per mount so new arrivals on tablet see a usable two-column
+  // layout; user can still open it manually.
+  const narrow = useNarrowViewport(1024);
+  const autoCollapsedRef = useRef(false);
+  useEffect(() => {
+    if (narrow && !autoCollapsedRef.current) {
+      autoCollapsedRef.current = true;
+      setFilesCollapsed(true);
+    }
+  }, [narrow, setFilesCollapsed]);
+
   const langPickerRef = useRef<HTMLLabelElement>(null);
   const fileTreeRef = useRef<HTMLElement>(null);
   const editorRef = useRef<HTMLElement>(null);
@@ -98,6 +111,7 @@ export default function EditorPage() {
 
   return (
     <div className="flex h-full flex-col bg-bg text-ink">
+      <SkipToContent />
       <header className="flex items-center justify-between border-b border-border bg-panel/80 px-4 py-2 backdrop-blur">
         <div className="flex items-center gap-3">
           <button
@@ -141,14 +155,15 @@ export default function EditorPage() {
       <SessionRestartBanner />
       <SessionReplacedModal />
 
-      <main className="flex min-h-0 flex-1 overflow-hidden">
+      <main id="main-content" className="flex min-h-0 flex-1 overflow-hidden">
         {filesCollapsed ? (
           <button
             onClick={() => setFilesCollapsed(false)}
             title="Show files"
+            aria-label="Show files panel"
             className="flex w-6 shrink-0 flex-col items-center justify-start gap-2 border-r border-border bg-panel pt-3 text-muted transition hover:bg-elevated hover:text-ink"
           >
-            <span className="text-[12px]">▸</span>
+            <span className="text-[12px]" aria-hidden="true">▸</span>
             <span
               className="text-[10px] font-semibold uppercase tracking-wider"
               style={{ writingMode: "vertical-rl" }}

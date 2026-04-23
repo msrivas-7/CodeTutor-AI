@@ -8,6 +8,10 @@ interface ModalProps {
   // screen readers. Omit for alertdialog-style confirms where the entire body
   // is the announcement.
   labelledBy?: string;
+  // ID of the element that further describes the dialog (body copy or subtitle)
+  // for screen readers. Paired with labelledBy so SRs announce both the title
+  // and the descriptive line on focus.
+  describedBy?: string;
   // "alertdialog" is the right role for destructive confirms (Reset Lesson /
   // Reset Course) — it tells screen readers the dialog is interrupting with a
   // high-priority message that requires a response.
@@ -28,6 +32,7 @@ export function Modal({
   onClose,
   children,
   labelledBy,
+  describedBy,
   role = "dialog",
   panelClassName = "w-full max-w-md rounded-xl border border-border bg-panel p-5 shadow-xl",
   position = "top",
@@ -109,6 +114,7 @@ export function Modal({
         role={role}
         aria-modal="true"
         aria-labelledby={labelledBy}
+        aria-describedby={describedBy}
         tabIndex={-1}
         className={panelClassName}
       >

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CoachBubble } from "./CoachBubble";
 import { useShortcutLabels } from "../../../util/platform";
 import {
@@ -81,9 +81,19 @@ export function WorkspaceCoach({ refs, onComplete }: WorkspaceCoachProps) {
   const [targetRect, setTargetRect] = useState<DOMRect | null>(null);
   const keys = useShortcutLabels();
   const STEPS = useMemo(() => buildSteps(keys.runPhrase), [keys]);
+  const previouslyFocused = useRef<HTMLElement | null>(null);
 
   const currentStep = STEPS[step];
   const targetEl = currentStep ? refs[currentStep.targetKey] : null;
+
+  // A6: capture focus on mount, restore on unmount so keyboard users return
+  // to whatever was focused before the coach took over.
+  useEffect(() => {
+    previouslyFocused.current = document.activeElement as HTMLElement | null;
+    return () => {
+      previouslyFocused.current?.focus?.();
+    };
+  }, []);
 
   useEffect(() => {
     if (!targetEl) {
@@ -128,6 +138,15 @@ export function WorkspaceCoach({ refs, onComplete }: WorkspaceCoachProps) {
     markDone();
     onComplete();
   }, [onComplete]);
+
+  // A6: Esc dismisses the coach — matches the Modal + WelcomeOverlay pattern.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") dismiss();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [dismiss]);
 
   if (!targetRect || !currentStep) return null;
 

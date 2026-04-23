@@ -19,6 +19,7 @@ import { SessionErrorBanner } from "../../../components/SessionErrorBanner";
 import { SessionRestartBanner } from "../../../components/SessionRestartBanner";
 import { SessionReplacedModal } from "../../../components/SessionReplacedModal";
 import { NarrowViewportGate } from "../../../components/NarrowViewportGate";
+import { SkipToContent } from "../../../components/SkipToContent";
 import { Modal } from "../../../components/Modal";
 import { LessonCompletePanel } from "../components/LessonCompletePanel";
 import { WorkspaceCoach } from "../components/WorkspaceCoach";
@@ -135,6 +136,7 @@ export default function LessonPage() {
 
   return (
     <div className="flex h-full flex-col bg-bg text-ink">
+      <SkipToContent />
       <header className="flex items-center gap-3 border-b border-border bg-panel/80 px-4 py-2 backdrop-blur">
         <button
           onClick={() => nav(`/learn/course/${courseId}`)}
@@ -285,15 +287,16 @@ export default function LessonPage() {
           </div>
         </div>
       ) : lesson ? (
-        <div className="flex min-h-0 flex-1 overflow-hidden">
+        <main id="main-content" className="flex min-h-0 flex-1 overflow-hidden">
           {/* Instructions panel — collapsible */}
           {layout.instrCollapsed ? (
             <button
               onClick={() => layout.setInstrCollapsed(false)}
               title="Show instructions"
+              aria-label="Show instructions panel"
               className="flex w-6 shrink-0 flex-col items-center justify-start gap-2 border-r border-border bg-panel pt-3 text-muted transition hover:bg-elevated hover:text-ink"
             >
-              <span className="text-[12px]">▸</span>
+              <span className="text-[12px]" aria-hidden="true">▸</span>
               <span
                 className="text-[10px] font-semibold uppercase tracking-wider"
                 style={{ writingMode: "vertical-rl" }}
@@ -631,9 +634,10 @@ export default function LessonPage() {
             <button
               onClick={() => layout.setTutorCollapsed(false)}
               title="Show tutor"
+              aria-label="Show tutor panel"
               className="flex w-6 shrink-0 flex-col items-center justify-start gap-2 border-l border-border bg-panel pt-3 text-muted transition hover:bg-elevated hover:text-ink"
             >
-              <span className="text-[12px]">◂</span>
+              <span className="text-[12px]" aria-hidden="true">◂</span>
               <span
                 className="text-[10px] font-semibold uppercase tracking-wider"
                 style={{ writingMode: "vertical-rl" }}
@@ -671,7 +675,7 @@ export default function LessonPage() {
               </aside>
             </>
           )}
-        </div>
+        </main>
       ) : (
         <div className="flex flex-1 items-center justify-center text-sm text-muted">
           Lesson not found

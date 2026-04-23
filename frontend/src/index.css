@@ -20,6 +20,7 @@
   --color-accent-muted: 14 165 233;
   --color-success: 52 211 153;
   --color-warn: 251 191 36;
+  --color-warn-ink: 251 191 36;
   --color-danger: 248 113 113;
   --color-violet: 192 132 252;
   --scroll-thumb: 31 42 68;
@@ -39,6 +40,7 @@
   --color-accent-muted: 3 105 161;
   --color-success: 5 150 105;
   --color-warn: 217 119 6;
+  --color-warn-ink: 180 83 9;
   --color-danger: 220 38 38;
   --color-violet: 147 51 234;
   --scroll-thumb: 203 213 225;
@@ -106,4 +108,17 @@ code, pre, .font-mono {
 /* Visible focus ring for buttons/inputs without the blue default outline. */
 :where(button, input, select, textarea):focus-visible {
   @apply outline-none ring-2 ring-accent/60 ring-offset-1 ring-offset-bg;
+}
+
+/* A5: honor user's OS-level reduced-motion preference. Disables decorative
+   shimmer / pulse / fadeInUp animations plus CSS transitions and smooth
+   scroll. Monaco's cursor-smooth / smoothScrolling options are disabled
+   separately in MonacoPane via matchMedia. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

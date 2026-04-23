@@ -235,9 +235,10 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
             <button
               onClick={onCollapse}
               title="Collapse tutor"
+              aria-label="Collapse tutor"
               className="rounded p-1 text-muted transition hover:bg-elevated hover:text-ink"
             >
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
                 <path d="M10.5 3.5L6 8l4.5 4.5L12 11 9 8l3-3z" />
               </svg>
             </button>
@@ -245,7 +246,15 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
         </div>
       </div>
 
-      <div ref={scrollRef} className="flex-1 space-y-3 overflow-auto p-3">
+      <div
+        ref={scrollRef}
+        role="log"
+        aria-live="polite"
+        aria-relevant="additions text"
+        aria-atomic="false"
+        aria-label="Tutor conversation"
+        className="flex-1 space-y-3 overflow-auto p-3"
+      >
         {!configured && !exhausted && (
           <TutorSetupWarning
             onOpenSettings={onOpenSettings}

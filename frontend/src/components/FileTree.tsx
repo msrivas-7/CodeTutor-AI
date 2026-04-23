@@ -67,13 +67,14 @@ export function FileTree({ onCollapse }: { onCollapse?: () => void }) {
           </button>
           <button
             title="New file"
+            aria-label="New file"
             onClick={() => {
               setCreating(true);
               setNewName("");
             }}
             className="rounded p-1 text-muted transition hover:bg-elevated hover:text-ink"
           >
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
               <path d="M7 2v5H2v2h5v5h2V9h5V7H9V2H7z" />
             </svg>
           </button>
@@ -81,9 +82,10 @@ export function FileTree({ onCollapse }: { onCollapse?: () => void }) {
             <button
               onClick={onCollapse}
               title="Collapse files"
+              aria-label="Collapse files"
               className="rounded p-1 text-muted transition hover:bg-elevated hover:text-ink"
             >
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
                 <path d="M5.5 3.5L10 8l-4.5 4.5L4 11l3-3-3-3z" />
               </svg>
             </button>

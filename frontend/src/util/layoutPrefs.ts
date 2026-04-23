@@ -1,9 +1,31 @@
-import { useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   setUiLayoutValue,
   useUiLayoutValue,
   usePreferencesStore,
 } from "../state/preferencesStore";
+
+// A20: layouts below 1024 px cram three columns into a space better suited
+// to two. Tracks the OS-level viewport breakpoint reactively so pages can
+// auto-collapse a rail on narrow viewports.
+export function useNarrowViewport(maxPx: number = 1024): boolean {
+  const [narrow, setNarrow] = useState(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return false;
+    }
+    return window.matchMedia(`(max-width: ${maxPx}px)`).matches;
+  });
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return;
+    }
+    const mq = window.matchMedia(`(max-width: ${maxPx}px)`);
+    const onChange = (e: MediaQueryListEvent) => setNarrow(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, [maxPx]);
+  return narrow;
+}
 
 // Phase 18b: layout prefs (panel widths, collapsed flags) live in the
 // user_preferences.ui_layout jsonb bucket instead of localStorage. The two
