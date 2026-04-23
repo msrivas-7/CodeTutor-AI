@@ -69,6 +69,14 @@ export function Splitter({
       tabIndex={0}
       aria-orientation={orientation === "vertical" ? "vertical" : "horizontal"}
       aria-label={label ?? (orientation === "vertical" ? "Resize panel width" : "Resize panel height")}
+      // WAI-ARIA: a focusable separator is a "window splitter" and requires
+      // aria-valuenow. We don't track the exact percentage (the parent owns
+      // px width), so 50 is a stable placeholder that tells assistive tech
+      // "this is a resizer, mid-range by default." Re-thread the real value
+      // if we ever expose the numeric panel size via props.
+      aria-valuenow={50}
+      aria-valuemin={0}
+      aria-valuemax={100}
       onPointerDown={handlePointerDown}
       onKeyDown={handleKeyDown}
       onDoubleClick={onDoubleClick}

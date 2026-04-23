@@ -482,6 +482,62 @@ test.describe("free AI tier", () => {
   // ── Extended coverage (pre-flip): every blocked reason, every threshold,
   // every transition, every error path. See plan §"Round 6" for the matrix.
 
+  test("platform key recovers: provider_auth_failed → platform resumes tutor", async ({
+    page,
+  }) => {
+    // Audit gap #3 (hazy-wishing-wren bucket 10): recovery path for the
+    // platform-key 401 kill-switch. Sequence:
+    //  1. Backend marks auth failed → /ai-status flips to provider_auth_failed.
+    //  2. UI shows paused copy + paid-interest CTA; composer is disabled.
+    //  3. Operator unsticks (or AUTO_UNSTICK_MS probe succeeds) → next
+    //     /ai-status returns `source: platform` with a fresh counter.
+    //  4. UI clears the paused surface; composer re-enables; the next ask
+    //     streams without hitting the stale kill-switch.
+    // Regression would be: the UI never re-subscribes to a post-recovery
+    // /ai-status, or a cached paused state persists past the flip.
+    const resetAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    await mockAIStatusSequence(page, [
+      // Paused.
+      {
+        source: "none",
+        reason: "provider_auth_failed",
+        remainingToday: null,
+        capToday: null,
+        resetAtUtc: null,
+      },
+      // Recovered — backend flipped the flag off, learner gets their count.
+      { source: "platform", remainingToday: 30, capToday: 30, resetAtUtc: resetAt },
+      // Post-ask decrement so the pill animation locks in.
+      { source: "platform", remainingToday: 29, capToday: 30, resetAtUtc: resetAt },
+    ]);
+    await mockTutorResponse(page, "lesson-explain");
+
+    await loadProfile(page, "empty");
+    await page.goto(`/learn/course/${COURSE_ID}/lesson/${LESSON_ID}`);
+    await waitForMonacoReady(page);
+
+    // Phase 1: paused.
+    await expect(page.getByText(/Free tutor is paused/i)).toBeVisible();
+
+    // Phase 2: force a status refetch by reloading the page. The
+    // mockAIStatusSequence advances to the next body on each call, so the
+    // recovery body is served on this reload.
+    await page.reload();
+    await waitForMonacoReady(page);
+
+    // Paused copy is gone; platform pill is back with fresh 30/30.
+    await expect(page.getByText(/Free tutor is paused/i)).toHaveCount(0);
+    await expect(page.getByText(/30\/30/)).toBeVisible({ timeout: 10_000 });
+
+    // Phase 3: composer accepts a new ask. Pill decrements to 29/30 on
+    // onDone.
+    const input = page.getByRole("textbox", { name: /ask/i }).first();
+    await expect(input).toBeEnabled();
+    await input.fill("post-recovery question");
+    await input.press("Enter");
+    await expect(page.getByText(/29\/30/)).toBeVisible({ timeout: 5_000 });
+  });
+
   test("provider_auth_failed renders paused copy + CTA", async ({ page }) => {
     // Operator's OpenAI key was revoked upstream. UI must show the generic
     // paused copy (no leaked reason) and the paid-interest CTA.

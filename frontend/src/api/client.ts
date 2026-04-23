@@ -688,6 +688,12 @@ export const api = {
     const reader = res.body.getReader();
     const decoder = new TextDecoder("utf-8");
     let buf = "";
+    // QA gap #2: the reader can EOF cleanly without a terminal `{done:true}`
+    // frame if the reverse proxy resets mid-stream (caddy flap, socket-proxy
+    // restart). Track whether any terminal frame was seen; if the loop exits
+    // without one, surface an error so the retry affordance renders rather
+    // than silently clearing the asking-indicator.
+    let terminalFrameSeen = false;
     kickWatchdog();
     try {
       while (true) {
@@ -719,6 +725,7 @@ export const api = {
             continue;
           }
           if (evt.error) {
+            terminalFrameSeen = true;
             clearWatchdog();
             handlers.onError(evt.error);
             return;
@@ -727,6 +734,7 @@ export const api = {
             handlers.onDelta(evt.delta);
           }
           if (evt.done) {
+            terminalFrameSeen = true;
             clearWatchdog();
             handlers.onDone(evt.raw ?? "", evt.sections ?? {}, evt.usage);
             return;
@@ -734,6 +742,13 @@ export const api = {
         }
       }
       clearWatchdog();
+      if (!terminalFrameSeen) {
+        // Stream closed cleanly but without a done/error frame — proxy
+        // reset, backend crash, or truncated response. Surface this so the
+        // retry affordance renders; otherwise the learner sees the asking
+        // indicator clear with no output and no way to recover.
+        handlers.onError("stream ended without completion — please retry");
+      }
     } catch (err) {
       clearWatchdog();
       // QA-H2: when the watchdog fires we abort streamCtrl, which surfaces

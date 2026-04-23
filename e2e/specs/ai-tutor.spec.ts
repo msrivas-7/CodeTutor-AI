@@ -138,6 +138,109 @@ test.describe("AI tutor", () => {
     await expect(page.getByText(/all hints used/i)).toBeVisible({ timeout: 10_000 });
   });
 
+  test("hint counter does NOT advance when the hint stream fails (pendingHintRef rollback)", async ({
+    page,
+  }) => {
+    // Audit gap #5 (hazy-wishing-wren bucket 10): the Hint button stages
+    // `pendingHintRef = true` on click and only commits hintCount++ on
+    // onAskComplete(ok=true). A 500 mid-stream must leave hintCount intact
+    // — the learner saw no help, so they shouldn't pay a hint credit.
+    // Regression path: an eager increment in the onClick, or a stale ref
+    // that commits regardless of `ok`. Either drains capacity on pure
+    // backend errors.
+    //
+    // Since progress is persisted server-side (Postgres, not localStorage),
+    // we intercept the PATCH /api/user/lessons/... call and count how many
+    // times the body carried a `hintCount` key. The Zustand store is an
+    // in-memory snapshot — the PATCH is the load-bearing durable write.
+
+    const hintPatches: unknown[] = [];
+    await page.route(
+      "**/api/user/lessons/python-fundamentals/hello-world",
+      async (route) => {
+        if (route.request().method() === "PATCH") {
+          try {
+            const body = JSON.parse(route.request().postData() ?? "{}");
+            if ("hintCount" in body) hintPatches.push(body);
+          } catch {
+            /* skip */
+          }
+        }
+        await route.fallback();
+      },
+    );
+
+    await loadProfile(page, "first-lesson-editing");
+    await seedApiKey(page, { key: "sk-test-e2e-padding-12345", model: "gpt-4o-mini" });
+    await mockTutorQueue(page, ["first-turn-concept", "error-500"]);
+
+    await page.goto(`/learn/course/${COURSE_ID}/lesson/hello-world`);
+    await waitForMonacoReady(page);
+    await configureTutorKey(page, "sk-test-e2e-padding-12345");
+
+    await S.tutorInput(page).fill("I'm stuck on this.");
+    await page.getByRole("button", { name: /^ask$/i }).click();
+    const hintL1 = page.getByRole("button", { name: /hint — level 1 of 3/i });
+    await expect(hintL1).toBeVisible({ timeout: 10_000 });
+    await hintL1.click();
+
+    // Error frame renders with a Try-again affordance — proves the stream
+    // completed with ok=false (onAskComplete fired, pendingHintRef cleared).
+    await expect(
+      page.getByRole("button", { name: /retry the last question/i }),
+    ).toBeVisible({ timeout: 10_000 });
+
+    // Give any trailing PATCH a beat to fire before we sample.
+    await page.waitForTimeout(250);
+    expect(hintPatches, "no hintCount patch must be sent on ask failure").toEqual([]);
+  });
+
+  test("hint counter DOES advance when the hint stream succeeds (control)", async ({
+    page,
+  }) => {
+    // Companion to the rollback test: on success, hintCount MUST bump by 1.
+    // Both signs of the boolean are worth locking — a rollback test alone
+    // passes if the increment never happened at all.
+    const hintPatches: Array<{ hintCount: number }> = [];
+    await page.route(
+      "**/api/user/lessons/python-fundamentals/hello-world",
+      async (route) => {
+        if (route.request().method() === "PATCH") {
+          try {
+            const body = JSON.parse(route.request().postData() ?? "{}");
+            if ("hintCount" in body) hintPatches.push(body);
+          } catch {
+            /* skip */
+          }
+        }
+        await route.fallback();
+      },
+    );
+
+    await loadProfile(page, "first-lesson-editing");
+    await seedApiKey(page, { key: "sk-test-e2e-padding-12345", model: "gpt-4o-mini" });
+    await mockTutorQueue(page, ["first-turn-concept", "hint-level-1"]);
+
+    await page.goto(`/learn/course/${COURSE_ID}/lesson/hello-world`);
+    await waitForMonacoReady(page);
+    await configureTutorKey(page, "sk-test-e2e-padding-12345");
+
+    await S.tutorInput(page).fill("I'm stuck.");
+    await page.getByRole("button", { name: /^ask$/i }).click();
+    const hintL1 = page.getByRole("button", { name: /hint — level 1 of 3/i });
+    await expect(hintL1).toBeVisible({ timeout: 10_000 });
+    await hintL1.click();
+    await expect(
+      page.getByRole("button", { name: /stronger hint — level 2 of 3/i }),
+    ).toBeVisible({ timeout: 10_000 });
+
+    await expect
+      .poll(() => hintPatches.length, { timeout: 3_000 })
+      .toBeGreaterThanOrEqual(1);
+    // The optimistic PATCH sends the NEW absolute value (hintCount: 1).
+    expect(hintPatches[0].hintCount).toBe(1);
+  });
+
   test("ActionChips: clicking 'explain more' submits a follow-up request", async ({ page }) => {
     await loadProfile(page, "empty");
     await seedApiKey(page, { key: "sk-test-e2e-padding-12345", model: "gpt-4o-mini" });
@@ -202,6 +305,67 @@ test.describe("AI tutor", () => {
     await expect(
       page.getByText(/516\s*tokens/i).first(),
     ).toBeVisible({ timeout: 10_000 });
+  });
+
+  test("SSE stream interrupted mid-response (no done frame) surfaces partial or error, never silent", async ({
+    page,
+  }) => {
+    // Audit gap #2 (hazy-wishing-wren bucket 10): when a mid-stream TCP
+    // drop or reverse-proxy reset happens (caddy/socket-proxy flap is the
+    // usual real-world trigger), the SSE body ends without the terminal
+    // `{done: true}` frame. The contract: the learner must either see the
+    // partial content they did get OR a visible error — not a silent
+    // failure where the asking-indicator clears and nothing lands.
+    //
+    // We simulate the drop by responding with a valid 200 SSE body that
+    // contains deltas but no done/error frame. The client's reader hits
+    // EOF naturally; the UI code must handle that path.
+    await loadProfile(page, "empty");
+    await seedApiKey(page, { key: "sk-test-e2e-padding-12345", model: "gpt-4o-mini" });
+    await page.route("**/api/ai/ask/stream", async (route) => {
+      const truncated = [
+        'data: {"delta":"A variable "}\n\n',
+        'data: {"delta":"is a name "}\n\n',
+        // Note: no `done:true`, no `error`. Body just ends — as if the
+        // connection was reset mid-stream.
+      ].join("");
+      await route.fulfill({
+        status: 200,
+        headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
+        body: truncated,
+      });
+    });
+
+    await page.goto(`/learn/course/${COURSE_ID}/lesson/hello-world`);
+    await waitForMonacoReady(page);
+    await configureTutorKey(page, "sk-test-e2e-padding-12345");
+
+    await S.tutorInput(page).fill("What's a variable?");
+    await page.getByRole("button", { name: /^ask$/i }).click();
+
+    // Ask button must come back eventually — the asking-indicator should
+    // NOT hang forever. (Previously, the watchdog's 30s stall timer would
+    // eventually fire, but for a "clean EOF" like this one the loop
+    // breaks naturally.) We give it a reasonable ceiling.
+    await expect(page.getByRole("button", { name: /^ask$/i })).toBeVisible({
+      timeout: 10_000,
+    });
+
+    // Either the partial content landed, OR an error banner is visible
+    // with a retry affordance. Both are acceptable recoveries — a silent
+    // failure (neither) is the regression.
+    const partialAssistant = page.getByText(/A variable is a name/i).first();
+    const retry = page.getByRole("button", { name: /retry the last question/i });
+    // Race both expectations. Whichever surfaces first proves the UI did
+    // not swallow the drop silently.
+    await expect
+      .poll(
+        async () =>
+          (await partialAssistant.isVisible().catch(() => false)) ||
+          (await retry.isVisible().catch(() => false)),
+        { timeout: 10_000 },
+      )
+      .toBe(true);
   });
 
   test("streaming shows Stop button; clicking Stop cancels cleanly", async ({ page }) => {

@@ -6,13 +6,13 @@
 
 import { expect, test } from "../fixtures/auth";
 
-import { mockAllAI } from "../fixtures/aiMocks";
+import { mockAllAI, mockTutorQueue } from "../fixtures/aiMocks";
 import {
   getMonacoValue,
   setMonacoValue,
   waitForMonacoReady,
 } from "../fixtures/monaco";
-import { loadProfile, markOnboardingDone } from "../fixtures/profiles";
+import { loadProfile, markOnboardingDone, seedApiKey } from "../fixtures/profiles";
 import { readLessonSolution } from "../fixtures/solutions";
 import * as S from "../utils/selectors";
 import { expectLessonComplete } from "../utils/assertions";
@@ -326,6 +326,96 @@ test.describe("learning", () => {
     await expect(page.getByText(/completed all \d+ lessons/i).first()).toBeVisible({
       timeout: 10_000,
     });
+  });
+
+  test("browser back/forward restores per-lesson Monaco code + tutor thread", async ({
+    page,
+  }) => {
+    // Audit gap #10 (hazy-wishing-wren bucket 10): projectCache + chatCache
+    // are both module-scoped Maps keyed by the lesson context. Navigating
+    // forward saves a snapshot under the old key and restores the new key's
+    // snapshot (or boots an empty one). Browser back/forward is the acid
+    // test — the URL changes but no mount/unmount path is specifically
+    // wired to popstate. Regression would be: back restores the starter
+    // instead of the edit, or the tutor thread reads empty after back.
+    //
+    // IMPORTANT: navigate between lessons via SPA clicks, not page.goto.
+    // A full page reload clears the module-scoped Map and would mask a
+    // real cache regression behind the reload's DB-hydrate path.
+    await loadProfile(page, "mid-course-healthy");
+    await seedApiKey(page, { key: "sk-test-e2e-padding-12345", model: "gpt-4o-mini" });
+    await mockTutorQueue(page, ["first-turn-concept", "lesson-explain"]);
+
+    // Course overview gives us clickable lesson cards for SPA navigation.
+    await page.goto(`/learn/course/${COURSE_ID}`);
+    await page
+      .getByRole("button")
+      .filter({ hasText: /^hello, world/i })
+      .first()
+      .click();
+    await expect(page).toHaveURL(new RegExp(`/lesson/hello-world$`));
+    await waitForMonacoReady(page);
+
+    await setMonacoValue(page, "# EDIT-A\nprint('edit-a')\n");
+    const tutorInput = page.getByRole("textbox", { name: /ask/i }).first();
+    await tutorInput.fill("What is this lesson?");
+    await page.getByRole("button", { name: /^ask$/i }).click();
+    await expect(
+      page.getByText(/a function groups reusable steps under a name/i).first(),
+    ).toBeVisible({ timeout: 10_000 });
+
+    // Back to course list, then click Variables — still SPA navigation.
+    await page.getByRole("button", { name: /back to course/i }).click();
+    await expect(page).toHaveURL(new RegExp(`/course/${COURSE_ID}$`));
+    await page
+      .getByRole("button")
+      .filter({ hasText: /^variables/i })
+      .first()
+      .click();
+    await expect(page).toHaveURL(new RegExp(`/lesson/variables$`));
+    await waitForMonacoReady(page);
+
+    await setMonacoValue(page, "# EDIT-B\nprint('edit-b')\n");
+    await tutorInput.fill("What is a variable?");
+    await page.getByRole("button", { name: /^ask$/i }).click();
+    await expect(
+      page.getByText(/a variable is a name that points at a value/i).first(),
+    ).toBeVisible({ timeout: 10_000 });
+
+    // Back twice: once to the course list, once to hello-world.
+    await page.goBack();
+    await expect(page).toHaveURL(new RegExp(`/course/${COURSE_ID}$`));
+    await page.goBack();
+    await expect(page).toHaveURL(new RegExp(`/lesson/hello-world$`));
+    await waitForMonacoReady(page);
+
+    // Monaco + chat thread must be restored from the module-scoped caches.
+    await expect
+      .poll(() => getMonacoValue(page), { timeout: 5_000 })
+      .toContain("EDIT-A");
+    await expect(
+      page.getByText(/a function groups reusable steps under a name/i).first(),
+    ).toBeVisible();
+    await expect(
+      page.getByText(/a variable is a name that points at a value/i),
+    ).toHaveCount(0);
+
+    // Forward twice: back to variables.
+    await page.goForward();
+    await expect(page).toHaveURL(new RegExp(`/course/${COURSE_ID}$`));
+    await page.goForward();
+    await expect(page).toHaveURL(new RegExp(`/lesson/variables$`));
+    await waitForMonacoReady(page);
+
+    await expect
+      .poll(() => getMonacoValue(page), { timeout: 5_000 })
+      .toContain("EDIT-B");
+    await expect(
+      page.getByText(/a variable is a name that points at a value/i).first(),
+    ).toBeVisible();
+    await expect(
+      page.getByText(/a function groups reusable steps under a name/i),
+    ).toHaveCount(0);
   });
 
   test("completed lessons show check icon + unlock the next", async ({ page }) => {

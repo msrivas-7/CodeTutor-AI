@@ -93,6 +93,58 @@ test.describe("editor", () => {
     await expectStdoutContains(page, "switched");
   });
 
+  test("non-ASCII stdin round-trips through runner (emoji + CJK + Cyrillic)", async ({
+    page,
+  }) => {
+    // Audit gap #9 (hazy-wishing-wren bucket 10): the runner shells stdin
+    // through docker-exec. If any layer (compose, runner image, node's
+    // spawn stdin pipe, the readline that backs Python's input()) defaults
+    // to a non-UTF-8 locale or byte-level truncation, emoji and multi-byte
+    // codepoints will come out as mojibake or '?'. Regression here would be
+    // silently shipping a runner that can't round-trip a learner's own name.
+    await page.goto("/editor");
+    await waitForMonacoReady(page);
+    await expect(S.runButton(page)).toBeEnabled({ timeout: 30_000 });
+
+    await S.stdinTab(page).click();
+    const stdinBox = page.locator("#output-panel-body");
+    await stdinBox.click();
+    // Three codepoint families, one per line: compound emoji (ZWJ sequence),
+    // CJK ideographs, Cyrillic. `input()` reads one line each.
+    await stdinBox.fill("👨‍👩‍👧\n你好世界\nПривет");
+    await S.outputTab(page).click();
+
+    await setMonacoValue(
+      page,
+      "a = input()\nb = input()\nc = input()\nprint(f'[{a}][{b}][{c}]')\n",
+    );
+    await S.runButton(page).click();
+    // Single assertion covers all three — if any one mojibakes, the
+    // substring match fails.
+    await expectStdoutContains(page, "[👨‍👩‍👧][你好世界][Привет]");
+  });
+
+  test("non-ASCII source literals and identifiers run under the Python runner", async ({
+    page,
+  }) => {
+    // Python 3 allows non-ASCII identifiers. If the runner pipes source
+    // via a byte-stream that assumes Latin-1 (or if the temp file write
+    // happens without encoding='utf-8'), identifier declaration crashes
+    // with SyntaxError before the first print. Guard both the string
+    // literal path (output encoding) and the identifier path (source
+    // encoding) in one run.
+    await page.goto("/editor");
+    await waitForMonacoReady(page);
+    await expect(S.runButton(page)).toBeEnabled({ timeout: 30_000 });
+
+    await setMonacoValue(
+      page,
+      "# -*- coding: utf-8 -*-\nπ = 3.14159\nemoji = '🎉'\nprint(f'{emoji} π={π}')\n",
+    );
+    await S.runButton(page).click();
+    await expectStdoutContains(page, "🎉 π=3.14159");
+  });
+
   test("language switch shows confirm modal + cancel preserves code", async ({ page }) => {
     await page.goto("/editor");
     await waitForMonacoReady(page);

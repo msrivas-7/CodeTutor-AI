@@ -3,7 +3,7 @@
 // resolution branch without a real postgres. The cache invalidation helper
 // resets module state between specs.
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../config.js", () => ({
   config: {
@@ -129,5 +129,99 @@ describe("resolveAICredential", () => {
     const c = await resolveAICredential("u-1");
     expect(c.source).toBe("none");
     if (c.source === "none") expect(c.reason).toBe("provider_auth_failed");
+  });
+});
+
+describe("UTC day rollover", () => {
+  // Audit gap #6 (hazy-wishing-wren bucket 10): when wall-clock crosses
+  // midnight UTC the daily counter must reset cleanly — the ledger is
+  // queried with the NEW dayStart, not a module-cached stale one. A
+  // regression here would either (a) let a user skip the cap by waiting
+  // for midnight + getting the stale `dayStart` anyway, or (b) keep the
+  // cap tripped into a new day. We can't mess with the real ledger from
+  // a unit test, so we fake the wall clock with vi.setSystemTime and mock
+  // the count-by-`since` branch to simulate "yesterday had 30 rows,
+  // today has 0".
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("resetAtUtc on an exhausted user at 23:59:30Z points at the next midnight", async () => {
+    vi.setSystemTime(new Date("2026-04-22T23:59:30Z"));
+    vi.mocked(ledger.countPlatformQuestionsTodayLocked).mockResolvedValueOnce(30);
+    const c = await resolveAICredential("u-1");
+    expect(c.source).toBe("none");
+    if (c.source === "none") {
+      expect(c.reason).toBe("free_exhausted");
+      // resetAtUtc is endOfUtcDay(startOfUtcDay(now)) → 2026-04-23 00:00:00Z.
+      expect(c.resetAtUtc?.toISOString()).toBe("2026-04-23T00:00:00.000Z");
+    }
+  });
+
+  it("crossing midnight UTC re-reads ledger with the new dayStart; exhausted → fresh", async () => {
+    // Drive the ledger mock off the `since` arg so the same state transition
+    // that would happen in postgres (created_at >= new dayStart → 0 rows)
+    // happens here: yesterday counts 30, today counts 0.
+    vi.mocked(ledger.countPlatformQuestionsTodayLocked).mockImplementation(
+      async (_userId, since) => {
+        const day = since.toISOString().slice(0, 10);
+        if (day === "2026-04-22") return 30;
+        if (day === "2026-04-23") return 0;
+        return 0;
+      },
+    );
+
+    vi.setSystemTime(new Date("2026-04-22T23:59:59Z"));
+    const before = await resolveAICredential("u-1");
+    expect(before.source).toBe("none");
+    if (before.source === "none") expect(before.reason).toBe("free_exhausted");
+
+    // Tick past midnight. Invalidate the $ caches to mirror what
+    // invalidateUsageCaches() does post-write — the rollover test is
+    // about L1, not the L2/L3/L4 60s TTL behavior.
+    __resetCredentialCachesForTests();
+    vi.setSystemTime(new Date("2026-04-23T00:01:00Z"));
+
+    const after = await resolveAICredential("u-1");
+    expect(after.source).toBe("platform");
+    if (after.source === "platform") {
+      expect(after.remainingToday).toBe(30);
+      expect(after.capToday).toBe(30);
+      // New resetAtUtc is the following midnight (Apr 24), proving the
+      // resolver picked up the new dayStart.
+      expect(after.resetAtUtc.toISOString()).toBe("2026-04-24T00:00:00.000Z");
+    }
+  });
+
+  it("user clock manipulation can't bypass the cap — the query `since` is derived live each call", async () => {
+    // Belt-and-suspenders: if a learner spoofs their device clock forward,
+    // the backend still uses its own wall clock. Simulate: we call the
+    // resolver twice within the same UTC day (23:00 then 23:05); both calls
+    // must pass the SAME dayStart to the ledger. Regression would be reading
+    // a client-supplied timestamp or caching `dayStart` at a stale earlier
+    // value.
+    const sinceArgs: string[] = [];
+    vi.mocked(ledger.countPlatformQuestionsTodayLocked).mockImplementation(
+      async (_userId, since) => {
+        sinceArgs.push(since.toISOString());
+        return 5;
+      },
+    );
+
+    vi.setSystemTime(new Date("2026-04-22T23:00:00Z"));
+    await resolveAICredential("u-1");
+    // TTL: no cache on L1, so this call definitely re-queries.
+    vi.setSystemTime(new Date("2026-04-22T23:05:00Z"));
+    await resolveAICredential("u-1");
+
+    expect(sinceArgs).toEqual([
+      "2026-04-22T00:00:00.000Z",
+      "2026-04-22T00:00:00.000Z",
+    ]);
   });
 });

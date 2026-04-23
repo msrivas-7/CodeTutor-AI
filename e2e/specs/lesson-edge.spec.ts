@@ -88,6 +88,49 @@ test.describe("lesson edge cases", () => {
     ).toBeDisabled();
   });
 
+  test("prereq bounce does NOT create an in_progress lesson row", async ({ page }) => {
+    // Audit gap #8 (hazy-wishing-wren bucket 10): the prereq guard in
+    // useLessonLoader runs BEFORE startLesson() to avoid a self-unlock
+    // bug: if the guard ran after, a direct URL visit would PATCH the row
+    // to `in_progress`, and on the next page load the `existingStatus !==
+    // "not_started"` branch would wave the learner through. Regression
+    // here would be a silent security bypass of the entire prereq system
+    // by anyone who pastes a URL. Assert by intercepting: no PATCH that
+    // includes `status: "in_progress"` fires for the blocked lesson.
+    const inProgressPatches: unknown[] = [];
+    await page.route(
+      `**/api/user/lessons/${COURSE_ID}/variables`,
+      async (route) => {
+        if (route.request().method() === "PATCH") {
+          try {
+            const body = JSON.parse(route.request().postData() ?? "{}");
+            if (body.status === "in_progress") inProgressPatches.push(body);
+          } catch {
+            /* skip */
+          }
+        }
+        await route.fallback();
+      },
+    );
+
+    await loadProfile(page, "empty");
+    await page.goto(`/learn/course/${COURSE_ID}/lesson/variables`);
+
+    // Bounce landed.
+    await expect(page).toHaveURL(new RegExp(`/learn/course/${COURSE_ID}$`), {
+      timeout: 10_000,
+    });
+
+    // Give any stray async PATCH a beat before asserting. The guard's
+    // navigate() happens synchronously before startLesson; a regression
+    // would show up as a call here within the first second or two.
+    await page.waitForTimeout(1000);
+    expect(
+      inProgressPatches,
+      "prereq bounce must not write an in_progress row (would self-unlock on refresh)",
+    ).toEqual([]);
+  });
+
   test("resume toast: seeded lastCode triggers 'Your code was restored' banner", async ({
     page,
   }) => {
