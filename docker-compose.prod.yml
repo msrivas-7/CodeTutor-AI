@@ -42,7 +42,10 @@ services:
 
   # socket-proxy is defined in docker-compose.yml; this block merges limits
   # onto it only in prod. It's a ~5 MB haproxy — 64 MB is already 10x headroom.
+  # S-2 (bucket 7): without restart:unless-stopped a crash leaves dockerode
+  # calls 500ing + /api/health/deep returning 503 with no auto-heal.
   socket-proxy:
+    restart: unless-stopped
     deploy:
       resources:
         limits:

@@ -65,7 +65,15 @@ if $deploy_ok; then
 fi
 
 echo "DEPLOY_FAILED: backend did not come healthy - rolling back to $PREV_SHA"
-as_codetutor git reset --hard "$PREV_SHA" || true
+# S-5 (bucket 7): do NOT swallow a failed reset. If reset fails (dirty tree,
+# missing SHA after shallow clone), the on-disk compose+cloud-init files are
+# still from $NEW_SHA while we retag the image to $PREV_SHA — the stack comes
+# back up with mismatched env shape. Emit a distinct sentinel so the
+# workflow pages instead of silently half-rolling-back.
+if ! as_codetutor git reset --hard "$PREV_SHA"; then
+  echo "DEPLOY_FAILED_ROLLBACK_RESET: git reset --hard $PREV_SHA failed — compose files may be forward of image"
+  exit 2
+fi
 # Prefer an explicit pull of the prior SHA — survives local cache eviction
 # and VM rebuilds. Fall through to the local :rollback tag if GHCR is
 # unreachable.

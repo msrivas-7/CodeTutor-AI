@@ -39,3 +39,21 @@ codetutor-ai-vm.eastus2.cloudapp.azure.com {
 		format console
 	}
 }
+
+# S-4 (bucket 7): stub for the future custom-domain switch. When the
+# backend moves to api.codetutor.msrivas.com, uncomment this block and
+# point the A record at the VM's public IP. Keep both blocks live briefly
+# during cutover so old clients still resolve; delete the Azure-FQDN
+# block once analytics show no traffic hitting it.
+#
+# api.codetutor.msrivas.com {
+# 	reverse_proxy backend:4000 {
+# 		flush_interval -1
+# 	}
+# 	encode gzip
+# 	header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+# 	log {
+# 		output stdout
+# 		format console
+# 	}
+# }

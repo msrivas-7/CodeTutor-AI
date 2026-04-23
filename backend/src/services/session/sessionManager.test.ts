@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   destroyUserSessions,
   endSession,
@@ -391,5 +391,60 @@ describe("zombie session reaping (Phase 20-P3)", () => {
     expect(reused).toBe(false);
     expect(record.id).toBe(s.id);
     expect(record.userId).toBe("alice");
+  });
+});
+
+// S-20 (bucket 7): shutdownAllSessions wraps each backend.destroy in a
+// Promise.race against a 5 s deadline so one hung container can't block
+// the whole shutdown. This test asserts a hung destroy doesn't wedge the
+// fanout, and the session map still gets cleaned up. Uses fake timers so
+// the 5 s deadline fires instantly instead of blocking CI.
+describe("shutdownAllSessions timeout (S-20)", () => {
+  it("returns even when a destroy hangs, and clears the session map", async () => {
+    const destroyCalls: string[] = [];
+    const hangingBackend: ExecutionBackend = {
+      kind: "test-hanging",
+      async ensureReady() {},
+      async ping() {},
+      async createSession(spec) {
+        return { sessionId: spec.sessionId, __kind: "hanging" } as SessionHandle;
+      },
+      async isAlive() {
+        return true;
+      },
+      async destroy(h) {
+        destroyCalls.push(h.sessionId);
+        await new Promise(() => {}); // never resolves — simulates hung docker rm
+      },
+      async exec() {
+        return { stdout: "", stderr: "", exitCode: 0, timedOut: false, durationMs: 0 };
+      },
+      async writeFiles() {},
+      async removeFiles() {},
+      async fileExists() {
+        return false;
+      },
+      async replaceSnapshot() {},
+    };
+    initSessionManager(hangingBackend);
+
+    const a = await startSession("u1");
+    const b = await startSession("u2");
+
+    vi.useFakeTimers();
+    try {
+      const shutdownPromise = shutdownAllSessions();
+      // Fire the 5 s destroy-timeout instantly. runAllTimersAsync also
+      // flushes microtasks between timer fires, which is what lets the
+      // Promise.race rejection propagate through allSettled.
+      await vi.runAllTimersAsync();
+      await shutdownPromise;
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(getSession(a.id)).toBeUndefined();
+    expect(getSession(b.id)).toBeUndefined();
+    expect(destroyCalls).toEqual(expect.arrayContaining([a.id, b.id]));
   });
 });

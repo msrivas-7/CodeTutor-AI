@@ -34,6 +34,11 @@ on:
           - both
 
 concurrency:
+  # S-15 (bucket 7): single named group shared by backend + runner jobs.
+  # Combined with cancel-in-progress:false, this serializes every push that
+  # touches either image — without it, a backend and runner deploy racing on
+  # the same VM would both call `git reset --hard origin/main` and the
+  # runner could reset the tree out from under a still-deploying backend.
   group: deploy-prod
   cancel-in-progress: false
 

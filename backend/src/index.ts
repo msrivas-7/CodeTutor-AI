@@ -34,6 +34,10 @@ import { reapAbandonedLessonProgress } from "./db/lessonProgress.js";
 import { backendUnhandledRejections } from "./services/metrics.js";
 import { startPlatformCostSampler } from "./services/observability/platformCostSampler.js";
 import {
+  abortAllInFlight,
+  inFlightCount,
+} from "./services/shutdown/abortRegistry.js";
+import {
   clearPlatformAuthFailed,
   getPlatformAuthStatus,
 } from "./services/ai/credential.js";
@@ -346,9 +350,37 @@ async function main() {
     console.log(`[startup] execution backend: ${executionBackend.kind}`);
   });
 
+  // S-13 (bucket 7): bounded shutdown grace so in-flight SSE handlers get a
+  // chance to flush their ledger row before we tear runners down. Flow:
+  //   1. server.close() stops accepting new connections.
+  //   2. abortAllInFlight() fires AbortError on every registered controller
+  //      — the openai stream rejects, ai.ts's `safeWriteUsage` writes a
+  //      `status: "aborted"` row, then `cleanup()` unregisters.
+  //   3. Poll inFlightCount() every 100 ms up to SHUTDOWN_GRACE_MS. This is
+  //      short enough to beat systemd's default TimeoutStopSec (90 s) and
+  //      long enough for a typical ledger round-trip (~1 s Supabase + HTTP).
+  //   4. Tear sessions + exit.
+  const SHUTDOWN_GRACE_MS = 30_000;
+  let shuttingDown = false;
   const shutdown = async (signal: string, exitCode: number) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     console.log(`[shutdown] received ${signal}`);
     server.close();
+    const aborted = abortAllInFlight(`shutdown:${signal}`);
+    if (aborted > 0) {
+      console.log(`[shutdown] aborting ${aborted} in-flight stream(s); grace ${SHUTDOWN_GRACE_MS} ms`);
+      const deadline = Date.now() + SHUTDOWN_GRACE_MS;
+      while (inFlightCount() > 0 && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      const remaining = inFlightCount();
+      if (remaining > 0) {
+        console.warn(`[shutdown] grace expired; ${remaining} stream(s) did not flush`);
+      } else {
+        console.log(`[shutdown] all streams flushed in ${SHUTDOWN_GRACE_MS - (deadline - Date.now())} ms`);
+      }
+    }
     await shutdownAllSessions().catch((e) =>
       console.error("[shutdown] session teardown failed:", e),
     );

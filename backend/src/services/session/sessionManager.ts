@@ -351,16 +351,47 @@ export async function destroyUserSessions(userId: string): Promise<string[]> {
   return owned.map((s) => s.id);
 }
 
+const SHUTDOWN_DESTROY_TIMEOUT_MS = 5_000;
+
+async function destroyWithTimeout(handle: unknown, sessionId: string): Promise<void> {
+  // S-20 (bucket 7): one hung docker-destroy would block the whole shutdown
+  // until systemd's TimeoutStopSec → SIGKILL → orphan container leak. Cap
+  // each destroy at 5 s and let `purgeOrphanRunnerContainers` (startup-time
+  // orphan sweeper) catch any left behind on the next boot.
+  let timer: NodeJS.Timeout | undefined;
+  const deadline = new Promise<void>((_resolve, reject) => {
+    timer = setTimeout(
+      () =>
+        reject(
+          new Error(
+            `destroy timeout after ${SHUTDOWN_DESTROY_TIMEOUT_MS} ms for session ${sessionId}`,
+          ),
+        ),
+      SHUTDOWN_DESTROY_TIMEOUT_MS,
+    );
+  });
+  try {
+    await Promise.race([requireBackend().destroy(handle as never), deadline]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export async function shutdownAllSessions(): Promise<void> {
   if (sweeper) clearInterval(sweeper);
   sweeper = null;
   const ids = [...sessions.keys()];
-  await Promise.all(
+  await Promise.allSettled(
     ids.map(async (id) => {
       const s = sessions.get(id);
       if (!s) return;
       sessions.delete(id);
-      if (s.handle) await requireBackend().destroy(s.handle);
+      if (!s.handle) return;
+      try {
+        await destroyWithTimeout(s.handle, id);
+      } catch (err) {
+        console.error(`[shutdown] destroy ${id} failed`, err);
+      }
     }),
   );
 }

@@ -208,11 +208,21 @@ write_files:
       WantedBy=timers.target
 
   # Hourly sweep of stale session workspaces. Startup purge in the backend
-  # handles orphans across restarts, but steady-state growth between restarts
-  # can still fill the 32 GB root disk if a burst of sessions doesn't exit
-  # cleanly. 2 h threshold is longer than any realistic lesson dwell — running
-  # sessions keep touching their dir via the runner mount, so mtime stays
-  # fresh and they're not caught by this sweep.
+  # handles orphans across restarts; the in-process idle sweeper
+  # (config.session.idleTimeoutMs) catches stale sessions within a few
+  # minutes of going idle. This timer exists as a safety net for the case
+  # where the backend crashed / was stopped before its own sweeper could
+  # run. Running sessions keep touching their dir via the runner mount so
+  # mtime stays fresh and they're never caught by this sweep.
+  #
+  # M-4 (bucket 7): widened 120 min → 24 h. Two reasons:
+  #   (1) the audit's open question was "does backend idle-sweep catch
+  #       sessions before 120 min"? At config.session.idleTimeoutMs ≈ 45 m
+  #       the answer is yes, so this timer was racing legitimately-paused
+  #       sessions. 24 h removes that race.
+  #   (2) any backend downtime shorter than 24 h will NOT leave a session
+  #       dir exposed to this sweep by the time backend restarts and can
+  #       reconcile against the live-sessions list.
   - path: /etc/systemd/system/codetutor-session-cleanup.service
     permissions: '0644'
     owner: root:root
@@ -223,7 +233,7 @@ write_files:
 
       [Service]
       Type=oneshot
-      ExecStart=/usr/bin/find /opt/codetutor/temp/sessions -mindepth 1 -maxdepth 1 -type d -mmin +120 -exec rm -rf {} +
+      ExecStart=/usr/bin/find /opt/codetutor/temp/sessions -mindepth 1 -maxdepth 1 -type d -mmin +1440 -exec rm -rf {} +
 
   - path: /etc/systemd/system/codetutor-session-cleanup.timer
     permissions: '0644'
@@ -235,6 +245,76 @@ write_files:
       [Timer]
       OnBootSec=15min
       OnUnitActiveSec=1h
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+
+  # S-4 (bucket 7): daily TLS-cert expiry probe. Caddy auto-renews LE certs
+  # ~30 days before expiry, so a silent renewal failure is only visible once
+  # the cert has already broken in a browser. This probe hits the public 443
+  # endpoint, parses notAfter, and logs a warning below a 14-day threshold —
+  # well inside the 30-day renewal window, so a single failed probe is a
+  # real problem, not normal behavior.
+  #
+  # Logs land on the journal via `logger`; the Azure Monitor Agent scrapes
+  # journal into the Syslog table when enabled. Until Syslog ingestion is
+  # wired, tail with `journalctl -t codetutor-cert-check` on the VM.
+  - path: /usr/local/bin/cert-expiry-check
+    permissions: '0755'
+    owner: root:root
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+
+      FQDN="{{VM_FQDN}}"
+      WARN_DAYS=14
+
+      # `openssl s_client` can wedge waiting for stdin without the echo pipe.
+      EXPIRY=$(echo \
+        | openssl s_client -servername "$FQDN" -connect "$FQDN:443" 2>/dev/null \
+        | openssl x509 -noout -enddate 2>/dev/null \
+        | cut -d= -f2)
+
+      if [ -z "$EXPIRY" ]; then
+        logger -t codetutor-cert-check -p user.err \
+          "CERT_EXPIRY_PROBE_FAILED fqdn=$FQDN reason=handshake-or-parse"
+        exit 1
+      fi
+
+      EXPIRY_EPOCH=$(date -d "$EXPIRY" +%s)
+      NOW_EPOCH=$(date +%s)
+      DAYS=$(( (EXPIRY_EPOCH - NOW_EPOCH) / 86400 ))
+
+      if [ "$DAYS" -lt "$WARN_DAYS" ]; then
+        logger -t codetutor-cert-check -p user.warning \
+          "CERT_EXPIRY_WARNING days=$DAYS fqdn=$FQDN expiry=\"$EXPIRY\""
+      else
+        logger -t codetutor-cert-check -p user.info \
+          "CERT_OK days=$DAYS fqdn=$FQDN"
+      fi
+
+  - path: /etc/systemd/system/codetutor-cert-expiry-check.service
+    permissions: '0644'
+    owner: root:root
+    content: |
+      [Unit]
+      Description=Daily TLS-cert expiry probe for CodeTutor FQDN
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/cert-expiry-check
+
+  - path: /etc/systemd/system/codetutor-cert-expiry-check.timer
+    permissions: '0644'
+    owner: root:root
+    content: |
+      [Unit]
+      Description=Daily TLS-cert expiry probe
+
+      [Timer]
+      OnCalendar=daily
+      RandomizedDelaySec=1h
       Persistent=true
 
       [Install]
@@ -324,6 +404,7 @@ runcmd:
   - systemctl enable --now codetutor-ai.service
   - systemctl enable --now codetutor-ai-refresh-env.timer
   - systemctl enable --now codetutor-session-cleanup.timer
+  - systemctl enable --now codetutor-cert-expiry-check.timer
 
   # --- Security: auto-apply Ubuntu security patches (reboots at 03:00 if needed) ---
   - dpkg-reconfigure -f noninteractive unattended-upgrades

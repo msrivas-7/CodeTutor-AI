@@ -42,8 +42,11 @@ blob-report/
 # Supabase CLI scratch dir (created by `npx supabase db push` etc.)
 supabase/.temp/
 
-# Ops scratch dir — restore drills, oncall handoffs, raw command logs.
-# Keep these local so we can scribble real resource names / drill timings /
-# post-incident notes freely without worrying about committing secrets or
-# operational details the public repo shouldn't expose.
-ops/
+# Ops scratch dir — restore drills, oncall handoffs, raw command logs,
+# plus `ops/runbook-values.local.md` (live resource names, last rotation
+# dates, deployer CIDR). Keep these local so we can scribble real values
+# freely. `.example` templates + README sit alongside so new operators
+# have a starting point.
+ops/*
+!ops/README.md
+!ops/*.example.md

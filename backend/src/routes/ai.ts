@@ -27,6 +27,10 @@ import {
   aiPlatformRequests,
   aiPlatformAbuseSignals,
 } from "../services/metrics.js";
+import {
+  registerAbortController,
+  unregisterAbortController,
+} from "../services/shutdown/abortRegistry.js";
 
 // Wire a per-request AbortController to (a) a config-driven deadline and
 // (b) the response's `close` event, so OpenAI calls stop burning tokens
@@ -36,10 +40,10 @@ import {
 function requestAbortSignal(res: Response): {
   signal: AbortSignal;
   cleanup: () => void;
-  reason: () => "timeout" | "client-close" | null;
+  reason: () => "timeout" | "client-close" | "shutdown" | null;
 } {
   const controller = new AbortController();
-  let reason: "timeout" | "client-close" | null = null;
+  let reason: "timeout" | "client-close" | "shutdown" | null = null;
   const timer = setTimeout(() => {
     if (!controller.signal.aborted) {
       reason = "timeout";
@@ -53,11 +57,23 @@ function requestAbortSignal(res: Response): {
     }
   };
   res.on("close", onClose);
+  // S-13 (bucket 7): register with the process-level registry so SIGTERM
+  // can fan-abort every in-flight stream and each handler gets a chance to
+  // write its partial ledger row before the grace window expires.
+  registerAbortController(controller);
+  const onAbortFromRegistry = () => {
+    if (reason === null && controller.signal.reason instanceof Error) {
+      const msg = controller.signal.reason.message;
+      if (msg.startsWith("shutdown:")) reason = "shutdown";
+    }
+  };
+  controller.signal.addEventListener("abort", onAbortFromRegistry, { once: true });
   return {
     signal: controller.signal,
     cleanup: () => {
       clearTimeout(timer);
       res.off("close", onClose);
+      unregisterAbortController(controller);
     },
     reason: () => reason,
   };

@@ -179,6 +179,55 @@ jobs:
             -not -path "./temp/*" \
             -print0 | xargs -0 --no-run-if-empty shellcheck --severity=warning
 
+  cloud-init-drift:
+    # I-4 (bucket 7): cloud-init.yaml is consumed by Azure *once* per VM
+    # provision — after first boot, the live VM runs copies of those scripts
+    # from /usr/local/bin/ and /etc/systemd/system/ that never re-sync from
+    # the repo. So a PR editing cloud-init.yaml does nothing to production
+    # unless someone SSHes in and applies the diff manually, or the VM is
+    # re-provisioned. Surface that as an explicit warning so the next
+    # reviewer doesn't assume the deploy pipeline will propagate it.
+    #
+    # Also shellcheck the embedded refresh-env script — cloud-init.yaml
+    # ships shell-in-YAML that the main shellcheck job's `*.sh` glob misses.
+    name: Cloud-init drift warning
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+      - name: Warn on cloud-init.yaml edits
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha }}"
+          if git diff --name-only "$base"...HEAD | grep -qE '^infra/azure/cloud-init\.yaml$'; then
+            echo "::warning file=infra/azure/cloud-init.yaml::cloud-init.yaml changed in this PR. The live VM still runs scripts baked in at first-boot — diff against /usr/local/bin/refresh-env on the VM and apply any needed changes by SSH, or plan a re-provision."
+          else
+            echo "cloud-init.yaml unchanged in this PR."
+          fi
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: Shellcheck embedded refresh-env script
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/cloud-init-extract
+          awk '
+            /^  - path: \/usr\/local\/bin\/refresh-env$/ { capture = 1; next }
+            capture && emitting && /^  - path:/ { exit }
+            capture && /^    content: \|/ { emitting = 1; next }
+            emitting {
+              # Strip the 6-space YAML indent from the heredoc body.
+              sub(/^      /, "")
+              print
+            }
+          ' infra/azure/cloud-init.yaml > /tmp/cloud-init-extract/refresh-env
+          if [ ! -s /tmp/cloud-init-extract/refresh-env ]; then
+            echo "::error::Failed to extract refresh-env from cloud-init.yaml — check the awk delimiter in ci.yml"
+            exit 1
+          fi
+          shellcheck --severity=warning /tmp/cloud-init-extract/refresh-env
+
   line-endings:
     name: Line-endings (Windows checkout)
     runs-on: windows-latest

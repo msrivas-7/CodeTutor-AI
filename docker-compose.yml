@@ -2,6 +2,15 @@ services:
   # One-shot "service" whose only job is to build the polyglot runner image
   # that the backend will spawn per-session. It exits immediately; the backend
   # waits for it via service_completed_successfully.
+  #
+  # M-5 (bucket 7): `:latest` here is NOT floating — the deploy workflow
+  # (`.github/workflows/deploy.yml` build-runner job) pulls the SHA-pinned
+  # GHCR tag and retags it to `:latest` on the VM's local daemon before
+  # compose picks it up. So the effective image is immutable per deploy,
+  # and `:latest` only drifts if something outside the deploy pipeline
+  # runs `docker pull ghcr.io/.../codetutor-runner:latest` on the VM.
+  # If you find yourself needing that, prefer referencing the SHA tag
+  # directly (set `RUNNER_IMAGE` in the VM's .env) — don't pull :latest.
   runner-image:
     image: ${RUNNER_IMAGE:-codetutor-ai-runner:latest}
     build:
