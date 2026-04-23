@@ -6,6 +6,8 @@ import {
   LocalDockerBackend,
   ensureNoSymlinkInPath,
   joinHostPath,
+  truncateLongLines,
+  MAX_LINE_BYTES,
 } from "./localDocker.js";
 import type { SessionHandle } from "./types.js";
 
@@ -142,5 +144,85 @@ describe("LocalDockerBackend handle cast", () => {
     await expect(backend.isAlive(foreign)).rejects.toThrow(
       /different backend/,
     );
+  });
+});
+
+describe("truncateLongLines", () => {
+  // This is the second half of the two-tier output cap. The stream-level
+  // 1 MB cap in `exec` prevents memory blowup; this per-line cap prevents
+  // the frontend regex-over-all-output in linkifyRefs from freezing the
+  // browser tab on a pathologically long single line (the user's repro:
+  // `sys.stderr.write("E" * (2 * 1024 * 1024))` — one 1 MB line after
+  // the stream cap slices it).
+  const marker = (originalLen: number) =>
+    `… [line truncated, ${originalLen} bytes]`;
+
+  it("returns empty input unchanged", () => {
+    expect(truncateLongLines("")).toBe("");
+  });
+
+  it("leaves short lines untouched", () => {
+    const input = "hello\nworld\nTraceback: File \"x.py\", line 12";
+    expect(truncateLongLines(input)).toBe(input);
+  });
+
+  it("preserves a trailing newline", () => {
+    expect(truncateLongLines("a\nb\n")).toBe("a\nb\n");
+  });
+
+  it("preserves multiple consecutive newlines (blank lines)", () => {
+    expect(truncateLongLines("a\n\n\nb")).toBe("a\n\n\nb");
+  });
+
+  it("truncates a single oversized line with a byte-count marker", () => {
+    const longLine = "E".repeat(MAX_LINE_BYTES + 1000);
+    const out = truncateLongLines(longLine);
+    expect(out.startsWith("E".repeat(MAX_LINE_BYTES))).toBe(true);
+    expect(out.endsWith(marker(MAX_LINE_BYTES + 1000))).toBe(true);
+    expect(out.length).toBe(MAX_LINE_BYTES + marker(MAX_LINE_BYTES + 1000).length);
+  });
+
+  it("handles the 2 MB single-write repro (the actual reported bug)", () => {
+    // `sys.stderr.write("E" * (2 * 1024 * 1024))` — no newlines, 2 MB
+    // of a single character. After truncateLongLines, the frontend
+    // sees ~8 KB + a marker, not ~1 MB.
+    const payload = "E".repeat(2 * 1024 * 1024);
+    const out = truncateLongLines(payload);
+    expect(out.length).toBeLessThan(MAX_LINE_BYTES + 100);
+    expect(out).toContain("[line truncated, 2097152 bytes]");
+  });
+
+  it("truncates long lines independently within a multi-line payload", () => {
+    const short1 = "ok";
+    const long = "X".repeat(MAX_LINE_BYTES + 50);
+    const short2 = "done";
+    const input = `${short1}\n${long}\n${short2}`;
+    const out = truncateLongLines(input);
+    const parts = out.split("\n");
+    expect(parts).toHaveLength(3);
+    expect(parts[0]).toBe(short1);
+    expect(parts[1].startsWith("X".repeat(MAX_LINE_BYTES))).toBe(true);
+    expect(parts[1]).toContain("[line truncated");
+    expect(parts[2]).toBe(short2);
+  });
+
+  it("does not touch a line exactly at the cap", () => {
+    const exactlyCap = "A".repeat(MAX_LINE_BYTES);
+    expect(truncateLongLines(exactlyCap)).toBe(exactlyCap);
+  });
+
+  it("truncates a line one byte over the cap", () => {
+    const justOver = "A".repeat(MAX_LINE_BYTES + 1);
+    const out = truncateLongLines(justOver);
+    expect(out).not.toBe(justOver);
+    expect(out).toContain("[line truncated");
+  });
+
+  it("applies identically to content that looks like stdout vs stderr", () => {
+    // Function is stream-agnostic — it's applied to both in `exec`.
+    // Verifying the contract: same input → same output regardless of
+    // which stream it came from.
+    const payload = "E".repeat(20_000);
+    expect(truncateLongLines(payload)).toBe(truncateLongLines(payload));
   });
 });

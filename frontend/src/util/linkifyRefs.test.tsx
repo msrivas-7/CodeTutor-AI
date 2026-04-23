@@ -151,4 +151,69 @@ describe("linkifyRefs", () => {
     };
     expect(serialize(out)).toBe("before [btn:main.py:10] after");
   });
+
+  // Safety net for pathological outputs — the REF_REGEX has nested
+  // quantifiers and scans the entire input, so a 1 MB single-line
+  // payload from a malicious/runaway program can freeze the tab even
+  // AFTER the backend's 1 MB stream cap. The bailout short-circuits
+  // to raw text on oversized payloads so linkifyRefs never becomes the
+  // bottleneck that hangs the UI. Thresholds here are kept above the
+  // backend's per-line cap (8 KB) so normal traffic never trips them.
+  describe("bailout on pathological input", () => {
+    it("returns raw text when total payload exceeds the total-bytes bailout", () => {
+      // Well-formed linkable reference embedded in a huge payload.
+      // Normally this would be linkified; under the bailout it shouldn't.
+      const filler = "A".repeat(250 * 1024); // > 200 KB threshold
+      const input = `${filler}\nmain.py:10\n${filler}`;
+      const out = linkifyRefs(input, paths, () => {});
+      expect(out).toBe(input);
+      const { buttons } = collectButtons(out);
+      expect(buttons).toHaveLength(0);
+    });
+
+    it("returns raw text when any single line exceeds the per-line bailout", () => {
+      // Total size is small, but one line is wildly out of spec for a
+      // real stack trace. Don't risk the regex on it.
+      const giantLine = "X".repeat(20 * 1024); // > 16 KB threshold
+      const input = `ok\n${giantLine}\nmain.py:10`;
+      const out = linkifyRefs(input, paths, () => {});
+      expect(out).toBe(input);
+      const { buttons } = collectButtons(out);
+      expect(buttons).toHaveLength(0);
+    });
+
+    it("still linkifies when a long-but-within-threshold line is present", () => {
+      // One line of ~10 KB — above the backend cap but below the
+      // frontend bailout (16 KB). The frontend should proceed normally;
+      // in practice the backend cap would have truncated it already,
+      // but this test documents that the frontend bailout doesn't trip
+      // for anything a well-behaved backend could emit.
+      const tenK = "T".repeat(10 * 1024);
+      const input = `${tenK}\nmain.py:10`;
+      const jumps: Jumped[] = [];
+      const out = linkifyRefs(input, paths, (p, l) =>
+        jumps.push({ path: p, line: l }),
+      );
+      const { buttons } = collectButtons(out);
+      expect(buttons).toHaveLength(1);
+      expect(jumps).toEqual([{ path: "main.py", line: 10, column: undefined }]);
+    });
+
+    it("bails out fast on the 1 MB single-line repro (no catastrophic backtracking)", () => {
+      // The exact post-stream-cap shape of
+      // `sys.stderr.write("E" * (2 * 1024 * 1024))`: 1 MB of one
+      // character, no newlines. Without the bailout, the regex
+      // with nested `[\w.\\/-]*` quantifiers would stall. With it,
+      // this should return in well under a second.
+      const payload = "E".repeat(1024 * 1024);
+      const start = performance.now();
+      const out = linkifyRefs(payload, paths, () => {});
+      const elapsed = performance.now() - start;
+      expect(out).toBe(payload);
+      // Generous envelope — the bailout check is O(n) byte scan.
+      // A full regex pass would take seconds; this should take <100ms
+      // even under test harness overhead.
+      expect(elapsed).toBeLessThan(500);
+    });
+  });
 });
