@@ -125,7 +125,7 @@ export default function LearningDashboardPage() {
   return (
     <div className="relative flex h-full flex-col bg-bg text-ink">
       <AmbientGlyphField />
-      <header className="relative flex items-center gap-3 border-b border-border bg-panel/80 px-4 py-2 backdrop-blur">
+      <header className="relative z-20 flex items-center gap-3 border-b border-border bg-panel/80 px-4 py-2 backdrop-blur">
         <button
           onClick={() => nav("/")}
           className="rounded px-2 py-1 text-xs text-muted transition hover:bg-elevated hover:text-ink"
