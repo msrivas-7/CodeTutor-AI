@@ -11,6 +11,7 @@ vi.mock("../../config.js", () => ({
 }));
 
 const { decryptKey, encryptKey } = await import("./byok.js");
+const { byokDecryptFailures, registry } = await import("../metrics.js");
 
 describe("byok envelope", () => {
   const userA = "user-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
@@ -67,5 +68,19 @@ describe("byok envelope", () => {
     expect(() => encryptKey(plaintext, "")).toThrow();
     const { cipher, nonce } = encryptKey(plaintext, userA);
     expect(() => decryptKey(cipher, nonce, "")).toThrow();
+  });
+
+  it("increments byok_decrypt_failures_total on GCM tag failure", async () => {
+    // Bucket 6 — S-18. The counter is the scraping-ready signal; alerts.bicep
+    // also matches on the structured log line emitted from byok.ts. Keep a
+    // unit-level check on the counter itself so a future refactor doesn't
+    // silently drop the inc() and leave only the log (which wouldn't be
+    // caught by prom-client tests).
+    byokDecryptFailures.reset();
+    const { cipher, nonce } = encryptKey(plaintext, userA);
+    cipher[cipher.length - 1] ^= 0xff;
+    expect(() => decryptKey(cipher, nonce, userA)).toThrow();
+    const out = await registry.metrics();
+    expect(out).toMatch(/^byok_decrypt_failures_total 1$/m);
   });
 });

@@ -2,6 +2,8 @@ import { describe, expect, it, beforeEach } from "vitest";
 import {
   aiExhaustionCtaClicks,
   aiTokensConsumed,
+  backendUnhandledRejections,
+  byokDecryptFailures,
   execDuration,
   registry,
   sessionCount,
@@ -15,6 +17,8 @@ beforeEach(() => {
   aiTokensConsumed.reset();
   execDuration.reset();
   aiExhaustionCtaClicks.reset();
+  byokDecryptFailures.reset();
+  backendUnhandledRejections.reset();
 });
 
 describe("metrics exposition", () => {
@@ -91,6 +95,25 @@ describe("metrics exposition", () => {
     expect(out).toMatch(
       /ai_exhaustion_cta_clicks_total\{outcome="clicked_paid_interest",denylisted="yes"\} 1/,
     );
+  });
+
+  it("byok_decrypt_failures_total and backend_unhandled_rejections_total expose as unlabelled counters", async () => {
+    // Bucket 6 — S-18 + L-2. Both counters are unlabelled (cardinality:1)
+    // because the alerts only care about a non-zero rate, not a breakdown.
+    // Renaming, adding labels, or accidentally omitting one of them would
+    // silently break the scheduled-query alerts in infra/azure/modules/alerts.bicep.
+    byokDecryptFailures.inc();
+    byokDecryptFailures.inc();
+    backendUnhandledRejections.inc();
+
+    const out = await registry.metrics();
+
+    expect(out).toMatch(/# HELP byok_decrypt_failures_total /);
+    expect(out).toMatch(/# TYPE byok_decrypt_failures_total counter/);
+    expect(out).toMatch(/^byok_decrypt_failures_total 2$/m);
+    expect(out).toMatch(/# HELP backend_unhandled_rejections_total /);
+    expect(out).toMatch(/# TYPE backend_unhandled_rejections_total counter/);
+    expect(out).toMatch(/^backend_unhandled_rejections_total 1$/m);
   });
 
   it("session_count gauge refreshes from listSessions() on each scrape", async () => {

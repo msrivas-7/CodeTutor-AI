@@ -15,7 +15,7 @@ holds all runtime secrets; Log Analytics + Azure Monitor alert on VM health.
 | `modules/keyvault.bicep` | RBAC-mode KV + Secrets Officer role for bootstrap principal. |
 | `modules/monitoring.bicep` | Log Analytics workspace + action group. |
 | `modules/vm-health-alert.bicep` | Activity log alert on VM ResourceHealth. |
-| `modules/alerts.bicep` | Scheduled-query alerts against Log Analytics — memory ≥90%, CPU ≥85%, OS disk ≥80%, syslog OOM-kill. |
+| `modules/alerts.bicep` | Scheduled-query alerts against Log Analytics — memory ≥90%, CPU ≥85%, OS disk ≥80% (+ 70% warning tier), syslog OOM-kill, container-log-backed alerts on BYOK decrypt failure / unhandled rejections / platform-cost anomaly + App Insights availability tests for `/api/health/deep` and SWA root. |
 | `modules/vm-kv-access.bicep` | Grants VM MI "Key Vault Secrets User" on the KV. |
 | `modules/swa.bicep` | Azure Static Web App (Free), unlinked. |
 | `modules/backup.bicep` | Recovery Services Vault + weekly backup policy (4-week retention). |
@@ -162,6 +162,69 @@ and "OOM kills the box" gaps:
 - **Metric alerts** (via `modules/alerts.bicep`) email the admin action
   group on sustained high memory / CPU / disk plus any OOM-killer syslog
   signal. These complement the existing VM ResourceHealth alert.
+
+### Disk growth risk (bucket 6)
+
+`/opt/codetutor/temp/sessions` is the host-side backing for every runner
+container's workspace (bind-mounted as `/home/runner/workspace`). A stuck
+or mis-reaped session can leave behind multi-GB `.venv` / `node_modules` /
+`target/` trees — at 32 GB total disk with ~12 GB consumed by OS + Docker
+images + journald at steady state, 10 leaked sessions can fill the
+remaining headroom in under an hour.
+
+Two defense layers:
+1. `codetutor-session-cleanup.timer` prunes sessions older than 120 min
+   hourly (see "Session workspace cleanup timer" above).
+2. Two scheduled-query alerts in `modules/alerts.bicep` — `codetutor-vm-
+   disk-warning` at 70% (severity 4, lead indicator) and
+   `codetutor-vm-disk-high` at 80% (severity 3, paging). The 70% tier
+   gives ~2–3 GB of runway to `docker system prune` +
+   `journalctl --vacuum-size=100M` before the louder one fires.
+
+If the warning tier fires persistently without the paging tier crossing,
+investigate the sweeper first: `systemctl status codetutor-session-cleanup`,
+then `ls -lah /opt/codetutor/temp/sessions/` for ownership / mtime anomalies.
+
+### Budget + daily LA ingest cap (bucket 6)
+
+- **Resource-group monthly budget** (`codetutor-ai-rg-monthly`, default $30)
+  alerts at 80% actual + 100% forecast. Tune via the `monthlyBudgetUsd`
+  param on the `monitoring` module when B2s gets upgraded or extra
+  services (App Insights traffic, ACS Email volume) push the floor up.
+- **Log Analytics daily ingest cap** (`workspaceCapping.dailyQuotaGb: 1`)
+  drops new rows after 1 GB in a day. Steady-state ingest is ~100 MB/day;
+  a breach means either an upstream log-storm OR a new stream landed
+  (e.g. adding a custom table without sizing it). When the cap trips
+  alerts still fire from pre-cap data but the Kusto dataset goes stale —
+  raise the cap briefly + investigate the source.
+
+### Container log ingestion (bucket 6)
+
+The DCR in `modules/vm.bicep` tails `/var/lib/docker/containers/*/*-json.log`
+and lands the lines into a `ContainerLog_CL` custom table. Three alerts
+key off this table:
+- `codetutor-byok-decrypt-failed` — `"byok_decrypt_failed"` marker (sev 1).
+- `codetutor-backend-unhandled-rejections` — `"unhandledRejection"` marker,
+  ≥5 in 30m (sev 2).
+- `codetutor-platform-cost-anomaly` — `"platform_cost_hourly"` +
+  `"exceeded":true` from the hourly sampler (sev 2).
+
+If the alerts never fire under a fault injection, check
+`ContainerLog_CL | take 10` in the LA query console first — the usual
+cause is the Docker log-driver switching away from `json-file` or the
+DCR association missing from the VM.
+
+### App Insights availability tests (bucket 6)
+
+Two Standard webtests (`modules/alerts.bicep`) probe the public-facing
+URLs from 5 US Azure regions every 5 min:
+- `codetutor-api-health` → `https://<vm-fqdn>/api/health/deep`
+- `codetutor-swa-root` → `https://<swa-hostname>/`
+
+Alerts fire on 2+ failing locations in a 5-min window. The backend probe
+also enforces TLS + cert-lifetime ≥7 days, so an expired Caddy cert pages
+before users hit the outage. When the custom domain lands, rewire
+`healthEndpoint` in `main.bicep` to `https://api.codetutor.msrivas.com/api/health/deep`.
 
 ## Image pinning
 

@@ -111,6 +111,16 @@ resource dcr 'Microsoft.Insights/dataCollectionRules@2023-03-11' = {
   tags: tags
   kind: 'Linux'
   properties: {
+    // Bucket 6 adds a `logFiles` data source so the AMA tails Docker's
+    // per-container JSON log files. This is the non-AKS path to container
+    // stdout → Log Analytics (AKS has a first-class Container Insights
+    // extension; single-VM Docker doesn't). Files live at
+    // `/var/lib/docker/containers/<id>/<id>-json.log` — each line is JSON
+    // `{"log":"...","stream":"stdout","time":"..."}`. Data lands in a
+    // custom table `ContainerLog_CL`; the `_CL` suffix is mandatory for
+    // custom log streams. The byok-decrypt-failed + unhandled-rejection
+    // alerts in alerts.bicep key off `LogEntry has "<marker>"` against
+    // this table.
     dataSources: {
       performanceCounters: [
         {
@@ -132,6 +142,31 @@ resource dcr 'Microsoft.Insights/dataCollectionRules@2023-03-11' = {
           logLevels: [ 'Warning', 'Error', 'Critical', 'Alert', 'Emergency' ]
         }
       ]
+      logFiles: [
+        {
+          name: 'dockerContainerLog'
+          streams: [ 'Custom-ContainerLog_CL' ]
+          filePatterns: [
+            '/var/lib/docker/containers/*/*-json.log'
+          ]
+          format: 'text'
+          settings: {
+            text: {
+              recordStartTimestampFormat: 'ISO 8601'
+            }
+          }
+        }
+      ]
+    }
+    streamDeclarations: {
+      'Custom-ContainerLog_CL': {
+        columns: [
+          { name: 'TimeGenerated', type: 'datetime' }
+          { name: 'LogEntry', type: 'string' }
+          { name: 'FilePath', type: 'string' }
+          { name: 'Computer', type: 'string' }
+        ]
+      }
     }
     destinations: {
       logAnalytics: [
@@ -145,6 +180,11 @@ resource dcr 'Microsoft.Insights/dataCollectionRules@2023-03-11' = {
       {
         streams: [ 'Microsoft-Perf', 'Microsoft-Syslog' ]
         destinations: [ 'codetutor-la' ]
+      }
+      {
+        streams: [ 'Custom-ContainerLog_CL' ]
+        destinations: [ 'codetutor-la' ]
+        outputStream: 'Custom-ContainerLog_CL'
       }
     ]
   }

@@ -244,7 +244,7 @@ sequenceDiagram
 | **Backend** | Node + Express + TypeScript. Auth + Postgres via Supabase. OpenAI Responses API with strict `json_schema` + intent classifier (debug · concept · howto · walkthrough · checkin). |
 | **Execution** | Per-session Docker runner container — non-root, `--network none`, read-only rootfs, CPU / memory / PID capped. Dockerode goes through a `socket-proxy` sidecar with an endpoint allowlist, not the raw socket. |
 | **Content pipeline** | File-based courses with Zod schemas, a concept graph (used-before-taught detection), per-language function-test harness with HMAC-signed result envelopes, and golden-solution verification in CI. |
-| **Infra** | Azure VM + Static Web Apps + Key Vault (managed-identity secret delivery); Caddy + Let's Encrypt TLS. GHCR images, OIDC deploys, Log Analytics + metric alerts + weekly VM backups. |
+| **Infra** | Azure VM + Static Web Apps + Key Vault (managed-identity secret delivery); Caddy + Let's Encrypt TLS. GHCR images, OIDC deploys, Log Analytics + scheduled-query + availability alerts + weekly VM backups. |
 | **Tests** | Vitest (unit) + content validation + Playwright (end-to-end, real Docker stack). |
 
 Full system design, security posture, and API surface: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.

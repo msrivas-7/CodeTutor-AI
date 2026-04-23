@@ -81,6 +81,30 @@ export const aiPlatformAbuseSignals = new Counter({
   registers: [registry],
 });
 
+// Phase 20-P6 (bucket 6): BYOK decrypt failure counter. A non-zero value is
+// never expected under normal operation — each user's own key decrypts under
+// the deploy-wide master key + the user's AAD binding. A tick here means
+// either (a) the master key rotated and a row wasn't re-encrypted, (b) the
+// cipher/nonce column was corrupted or tampered with, or (c) the user row
+// moved between deploys with different master keys. All three warrant a
+// manual investigation, so alert on any non-zero rate.
+export const byokDecryptFailures = new Counter({
+  name: "byok_decrypt_failures_total",
+  help: "BYOK AES-GCM decrypt failures. Non-zero => investigate; see services/crypto/byok.ts.",
+  registers: [registry],
+});
+
+// Phase 20-P6 (bucket 6): unhandled-promise-rejection counter. The
+// unhandledRejection handler in index.ts is log-and-continue (Phase 20-P3)
+// so a stray unawaited promise no longer takes the backend down. This
+// counter is the quantitative signal — a sustained non-zero rate means a
+// code path is reliably throwing into nowhere and needs a catch handler.
+export const backendUnhandledRejections = new Counter({
+  name: "backend_unhandled_rejections_total",
+  help: "Unhandled promise rejections caught at process level.",
+  registers: [registry],
+});
+
 export const execDuration = new Histogram({
   name: "exec_duration_seconds",
   help: "Wall-clock duration of a runProject call.",

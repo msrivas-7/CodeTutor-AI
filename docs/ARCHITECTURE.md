@@ -63,7 +63,7 @@ Everything else (`VOLUMES`, `NETWORKS`, `INFO`, `BUILD`, `SERVICES`, `SECRETS`, 
 - **Modular prompt pipeline** — composable modules under `prompts/` assembled by two builders: `editorPromptBuilder` (free-form) and `guidedPromptBuilder` (adds lesson context + "never solve" constraints). The guided builder is selected automatically when a request carries `lessonContext`.
 - **Structured JSON responses** — OpenAI Responses API with strict `json_schema`. An intent classifier (`debug`/`concept`/`howto`/`walkthrough`/`checkin`) decides which sections get filled.
 - **Provider abstraction** — prompt building and API calls sit behind a `Provider` interface so the LLM vendor is swappable without touching callers.
-- **AI credential resolver** — `resolveAICredential` in `services/ai/credential.ts` is the single gate every AI route calls before touching OpenAI. It resolves `byok | platform | none` in that order, applies the operator-funded tier's caps and kill-switch, and returns the key the downstream provider will use. Platform callers are restricted to a server-side model allowlist. Usage is metered row-by-row into `ai_usage_ledger` on every call; a small set of Prometheus counters track request outcomes for alerting.
+- **AI credential resolver** — `resolveAICredential` in `services/ai/credential.ts` is the single gate every AI route calls before touching OpenAI. It resolves `byok | platform | none` in that order, applies the operator-funded tier's caps and kill-switch, and returns the key the downstream provider will use. Platform callers are restricted to a server-side model allowlist. Usage is metered row-by-row into `ai_usage_ledger` on every call; Prometheus counters track request outcomes, BYOK decrypt failures, and unhandled promise rejections. A DCR `ContainerLog` stream forwards structured-log markers (`byok_decrypt_failed`, `unhandledRejection`, `platform_cost_hourly`) into Log Analytics so alert rules can key off the same signals without the Prom scraper stack.
 
 ## Guided Learning System
 
@@ -246,6 +246,7 @@ Defense-in-depth on top of the `ExecutionBackend` + socket-proxy seam. The table
 | process.env scrubbing | Sensitive values are read into the frozen `config` object at boot, then deleted from `process.env` so a later `console.log(process.env)` or accidental env-dump finds nothing. |
 | Metrics endpoint | `/api/metrics` is loopback-only by default; when a scraper token is configured it requires a Bearer header. Unauthenticated exposure was a BI leak (live session count + per-model token totals) and a DoS-pressure oracle. |
 | Account deletion | `DELETE /api/user/account` is email-confirmed, tears down live runner containers, and cascades `public.*` rows via FK `ON DELETE CASCADE` before `supabase.auth.admin.deleteUser`. Fails closed if the admin path is unavailable. |
+| Alerting | Azure Monitor action group emails on: VM resource health, memory ≥90% / CPU ≥85% / disk ≥70% (warning) and ≥80% (paging), OOM-killer syslog, ACS email delivery failures, BYOK decrypt failures, sustained unhandled-promise rejections, hourly platform AI spend > 2× daily cap, and App Insights availability probes against `/api/health/deep` + SWA root from 5 US regions. Backed by a daily 1 GB Log Analytics ingest cap + a resource-group monthly budget so a log-storm or runaway service can't cost-surprise the operator. |
 
 ---
 

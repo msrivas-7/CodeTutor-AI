@@ -170,6 +170,9 @@ module alerts 'modules/alerts.bicep' = {
     actionGroupId: monitoring.outputs.actionGroupId
     tags: tags
     communicationServiceId: acsEmail.outputs.communicationServiceId
+    appInsightsId: monitoring.outputs.appInsightsId
+    healthEndpoint: 'https://${network.outputs.fqdn}/api/health/deep'
+    swaEndpoint: 'https://${swa.outputs.defaultHostname}/'
   }
 }
 

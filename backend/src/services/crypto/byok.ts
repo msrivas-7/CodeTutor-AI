@@ -4,6 +4,7 @@ import {
   randomBytes,
 } from "node:crypto";
 import { config } from "../../config.js";
+import { byokDecryptFailures } from "../metrics.js";
 
 // AES-256-GCM envelope for user-supplied OpenAI keys. GCM gives us
 // confidentiality + authenticity in one shot — the 16-byte auth tag is
@@ -92,15 +93,36 @@ export function decryptKey(
 ): string {
   if (!userId) throw new Error("[byok] userId required for AAD binding");
   if (cipher.length < 1 + TAG_BYTES + 1) {
+    byokDecryptFailures.inc();
     throw new Error("[byok] ciphertext too short");
   }
   const version = cipher[0];
   const tag = cipher.subarray(cipher.length - TAG_BYTES);
   const body = cipher.subarray(1, cipher.length - TAG_BYTES);
-  const decipher = createDecipheriv(ALGO, masterKey(version), nonce);
-  decipher.setAAD(buildAad(version, userId));
-  decipher.setAuthTag(tag);
-  return Buffer.concat([decipher.update(body), decipher.final()]).toString(
-    "utf8",
-  );
+  try {
+    const decipher = createDecipheriv(ALGO, masterKey(version), nonce);
+    decipher.setAAD(buildAad(version, userId));
+    decipher.setAuthTag(tag);
+    return Buffer.concat([decipher.update(body), decipher.final()]).toString(
+      "utf8",
+    );
+  } catch (err) {
+    // Any throw inside the GCM pipeline — unsupported version, wrong master
+    // key, tampered tag, row-swap attempt — funnels here. Tick the counter
+    // AND emit a structured log line so the alert rule can key on either
+    // the scraped metric or the log pattern. Keep the rethrow shape intact
+    // so callers can't tell the difference between this path and the old
+    // one (no error-shape regression).
+    byokDecryptFailures.inc();
+    console.error(
+      JSON.stringify({
+        level: "error",
+        t: new Date().toISOString(),
+        err: "byok_decrypt_failed",
+        version,
+        message: (err as Error).message,
+      }),
+    );
+    throw err;
+  }
 }

@@ -31,6 +31,8 @@ import {
   shutdownAllSessions,
 } from "./services/session/sessionManager.js";
 import { reapAbandonedLessonProgress } from "./db/lessonProgress.js";
+import { backendUnhandledRejections } from "./services/metrics.js";
+import { startPlatformCostSampler } from "./services/observability/platformCostSampler.js";
 import {
   clearPlatformAuthFailed,
   getPlatformAuthStatus,
@@ -308,6 +310,11 @@ async function main() {
 
   initSessionManager(executionBackend);
   startSweeper();
+  // Bucket 6 (S-12): hourly platform-spend sampler. Emits a structured log
+  // line once an hour so the scheduled-query alert in alerts.bicep can
+  // detect abnormal bursts (hourly > 2× daily cap) without Log Analytics
+  // needing to read Supabase directly. No-ops when free tier is disabled.
+  startPlatformCostSampler();
 
   // QA-M4: hourly reap of abandoned lesson_progress rows. A drive-by URL
   // visit calls startLesson, which writes an in_progress row even when the
@@ -365,6 +372,7 @@ async function main() {
   // invariant is broken — continuing risks serving torn state.
   process.on("unhandledRejection", (reason) => {
     const message = reason instanceof Error ? reason.stack ?? reason.message : String(reason);
+    backendUnhandledRejections.inc();
     console.error(
       JSON.stringify({ level: "error", t: new Date().toISOString(), err: "unhandledRejection", message }),
     );
