@@ -93,7 +93,10 @@ describe("requestLogger middleware", () => {
       expect(mine!.level).toBe("info");
       expect(mine!.method).toBe("GET");
       expect(mine!.status).toBe(200);
-      expect(mine!.userId).toBe("u-test");
+      // P-12: userId is HMAC-hashed before log write. The raw value MUST
+      // NOT appear in the log line; a 12-char hex digest takes its place.
+      expect(mine!.userId).not.toBe("u-test");
+      expect(mine!.userId).toMatch(/^[0-9a-f]{12}$/);
       expect(mine!.id).toMatch(/^[A-Za-z0-9_-]+$/);
       expect(mine!.ms).toBeGreaterThanOrEqual(0);
     } finally {

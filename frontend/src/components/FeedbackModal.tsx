@@ -246,8 +246,8 @@ export function FeedbackModal({ onClose, initialCategory, initialBody, mood, les
               className="mt-0.5"
             />
             <span>
-              Attach page context (route, viewport, browser) — helps us
-              reproduce.
+              Attach page context (route, viewport, theme, language, app
+              version, browser) — helps us reproduce.
             </span>
           </label>
           <button

@@ -595,6 +595,32 @@ export const api = {
     }
   },
 
+  // P-3: triggers a download of a JSON bundle containing every row the
+  // logged-in user owns across public.*. The backend sets the
+  // Content-Disposition; we turn the Blob into an <a download> click so the
+  // browser's Downloads UX kicks in (no new tab, no inline render).
+  downloadUserExport: async (): Promise<void> => {
+    const auth = await authHeaders();
+    const res = await fetch(`${API_BASE}/api/user/export`, {
+      method: "GET",
+      headers: { ...auth },
+    });
+    if (!res.ok) {
+      await handle401(res);
+      await throwApiError(res, "/api/user/export");
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const stamp = new Date().toISOString().slice(0, 10);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `codetutor-export-${stamp}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  },
+
   submitFeedback: (body: {
     body: string;
     category: "bug" | "idea" | "other";

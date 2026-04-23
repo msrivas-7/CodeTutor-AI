@@ -31,6 +31,7 @@ import {
   registerAbortController,
   unregisterAbortController,
 } from "../services/shutdown/abortRegistry.js";
+import { hashUserId } from "../services/crypto/logHash.js";
 
 // Wire a per-request AbortController to (a) a config-driven deadline and
 // (b) the response's `close` event, so OpenAI calls stop burning tokens
@@ -199,7 +200,7 @@ async function safeWriteUsage(
       invalidateUsageCaches(userId);
     }
   } catch (err) {
-    console.error(`[ai] ledger write failed user=${userId} route=${row.route}:`, err);
+    console.error(`[ai] ledger write failed user=${hashUserId(userId)} route=${row.route}:`, err);
   }
 }
 

@@ -21,6 +21,8 @@ import { getEditorProject, saveEditorProject } from "../db/editorProject.js";
 import { adminDeleteUser, isAdminAvailable } from "../db/supabaseAdmin.js";
 import { destroyUserSessions } from "../services/session/sessionManager.js";
 import { HttpError } from "../middleware/errorHandler.js";
+import { hashUserId } from "../services/crypto/logHash.js";
+import { buildUserExport } from "../db/userExport.js";
 
 // Phase 18b: /api/user/* endpoints. authMiddleware upstream guarantees
 // req.userId; every handler scopes reads/writes by that id. RLS on the tables
@@ -389,6 +391,30 @@ userDataRouter.put("/editor-project", async (req, res, next) => {
   }
 });
 
+// ---------- data export (P-3, GDPR Art. 15 scaffold) ----------
+//
+// Returns every row the learner owns across public.* tables as one JSON
+// document. Filename is date-stamped so the browser's default save dialog
+// lands it in Downloads as e.g. codetutor-export-2026-04-22.json. The
+// `attachment` disposition cues the browser to save rather than render;
+// `application/json` keeps it machine-readable (Art. 15 "commonly used
+// electronic form"). See db/userExport.ts for what's included / excluded.
+userDataRouter.get("/export", async (req, res, next) => {
+  try {
+    const userId = requireUser(req);
+    const bundle = await buildUserExport(userId);
+    const stamp = new Date().toISOString().slice(0, 10);
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="codetutor-export-${stamp}.json"`,
+    );
+    res.send(JSON.stringify(bundle, null, 2));
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ---------- account deletion (Phase 20-P0 #9) ----------
 //
 // Self-service deletion. Flow:
@@ -430,7 +456,7 @@ userDataRouter.delete("/account", async (req, res, next) => {
   try {
     const killed = await destroyUserSessions(userId);
     if (killed.length) {
-      console.log(`[account-delete] reaped ${killed.length} session(s) for ${userId}`);
+      console.log(`[account-delete] reaped ${killed.length} session(s) for user=${hashUserId(userId)}`);
     }
     await adminDeleteUser(userId);
     res.json({ ok: true });

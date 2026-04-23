@@ -198,9 +198,13 @@ export const openaiProvider: AIProvider = {
     console.log(`[openai]   mode=${mode}  priorTutorTurns=${priorTutorTurns}  stuck=${stuck}`);
     console.log(`[openai]   language=${params.language ?? "(none)"}  activeFile=${params.activeFile ?? "(none)"}  files=${params.files.length}`);
     console.log(`[openai]   lastRun=${params.lastRun ? `${params.lastRun.stage}/exit=${params.lastRun.exitCode}/type=${params.lastRun.errorType}` : "(none)"}`);
-    console.log(`[openai]   question: ${clip(params.question, 300)}`);
+    // P-2: question text can be user PII / code; log length only. `mode`
+    // (logged above) already captures intent. Full content is still wire-
+    // sent to OpenAI; only stdout stays scrubbed unless DEBUG_PROMPTS=1.
+    console.log(`[openai]   question: len=${params.question.length}`);
     console.log(`[openai]   prompt sizes: instructions=${instructions.length} userTurn=${userTurn.length}`);
     if (DEBUG_PROMPTS) {
+      console.log(`[openai]   --- question ---\n${clip(params.question, 300)}`);
       console.log(`[openai]   --- instructions (system) ---\n${clip(instructions, 1500)}`);
       console.log(`[openai]   --- input (user turn) ---\n${clip(userTurn, 1500)}`);
     }
@@ -353,7 +357,11 @@ export const openaiProvider: AIProvider = {
     console.log(`\n[openai] stream start ---------------------------`);
     console.log(`[openai]   model=${params.model}  fingerprint=${keyFingerprint(params.key)}`);
     console.log(`[openai]   mode=${mode}  priorTutorTurns=${priorTutorTurns}  stuck=${stuck}`);
-    console.log(`[openai]   question: ${clip(params.question, 300)}`);
+    // P-2: question text is gated behind DEBUG_PROMPTS=1.
+    console.log(`[openai]   question: len=${params.question.length}`);
+    if (DEBUG_PROMPTS) {
+      console.log(`[openai]   --- question ---\n${clip(params.question, 300)}`);
+    }
 
     const body = {
       model: params.model,

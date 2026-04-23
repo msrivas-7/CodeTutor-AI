@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
+import { hashUserId } from "../services/crypto/logHash.js";
 
 // Phase 20-P1: single JSON-lines logger for every API request. Runs AFTER
 // requestId + authMiddleware so the log line carries both `id` and
@@ -29,7 +30,10 @@ export function requestLogger(req: Request, res: Response, next: NextFunction): 
       level: res.statusCode >= 500 ? "error" : res.statusCode >= 400 ? "warn" : "info",
       t: new Date().toISOString(),
       id: req.id,
-      userId: req.userId,
+      // P-12: hashed so a log-stream leak doesn't expose a join key back to
+      // the user row. Keep the field name for grep compatibility with
+      // existing dashboards; values are HMAC-derived per-deploy.
+      userId: hashUserId(req.userId),
       method: req.method,
       path: req.path,
       status: res.statusCode,
