@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion"; // still used on the landing cards
 import { UserMenu } from "../components/UserMenu";
 import { FeedbackButton } from "../components/FeedbackButton";
@@ -26,25 +26,29 @@ export default function StartPage() {
   const progressHydrated = useProgressStore((s) => s.hydrated);
 
   // Redirect any learner with welcomeDone=false into the /welcome
-  // cinematic before StartPage's card grid renders. Wait for BOTH
-  // stores to hydrate so a returning user on a flaky connection
-  // doesn't briefly see the redirect fire before their welcomeDone
-  // lands from the server.
+  // cinematic BEFORE StartPage's card grid paints. This must happen
+  // synchronously during render — an earlier version ran the nav
+  // inside a useEffect, which fired *after* commit, so the dashboard
+  // briefly flashed between AuthLoader dissolving and the cinematic
+  // mounting. `<Navigate>` resolves in the same render cycle: React
+  // Router processes it before any DOM is committed, so StartPage
+  // never paints for a first-run user.
   //
-  // Previous revisions carried an existing-user backfill gated on
-  // `user.created_at < FIRST_RUN_SHIP_DATE` that silently flipped
-  // welcomeDone=true for accounts predating the cinematic — so we
-  // didn't ambush longtime users with a welcome they never asked
-  // for. That backfill was removed deliberately: after the
-  // ship-date wipe of everyone's progress + onboarding flags, ALL
-  // accounts should see the cinematic on next login (that was the
-  // whole point of the wipe). If we ever add another soft-launch
-  // rollout we can bring the backfill back with a fresh date.
-  useEffect(() => {
-    if (!prefsHydrated || !progressHydrated) return;
-    if (welcomeDone) return;
-    nav("/welcome", { replace: true });
-  }, [prefsHydrated, progressHydrated, welcomeDone, nav]);
+  // Wait for BOTH stores to hydrate first — a returning user on a
+  // flaky connection whose welcomeDone is `true` server-side but
+  // still `false` in the local default would otherwise get ambushed
+  // by the cinematic for a frame before rehydration corrects the
+  // flag.
+  //
+  // (Older revisions here carried a FIRST_RUN_SHIP_DATE backfill
+  // that silently flipped welcomeDone=true for accounts predating
+  // the cinematic. That was removed deliberately after the
+  // progress-wipe migration — every account should see the cinematic
+  // on next login. Bring it back with a fresh date if we ever do
+  // another soft-launch rollout.)
+  if (prefsHydrated && progressHydrated && !welcomeDone) {
+    return <Navigate to="/welcome" replace />;
+  }
 
   const headerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<HTMLButtonElement>(null);
