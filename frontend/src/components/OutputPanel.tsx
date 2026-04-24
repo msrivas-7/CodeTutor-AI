@@ -39,11 +39,21 @@ export function OutputPanel() {
   // useFirstSuccessStore.celebrationNonce bumps whenever the runner
   // records a fresh first-success for any lesson. Mirror it locally
   // into a glow + a RingPulse key so the panel briefly celebrates.
+  //
+  // The nonce is a module-scoped module-lifetime counter, so when
+  // OutputPanel remounts (route change to a different lesson), its
+  // first render still reads a non-zero nonce from prior lessons —
+  // without the `nonceAtMountRef` guard that would fire the
+  // celebration on lesson 2 just because lesson 1 celebrated
+  // earlier. Snapshot the nonce on mount and only celebrate if a
+  // STRICTLY HIGHER nonce lands while this instance is alive.
   const celebrationNonce = useFirstSuccessStore((s) => s.celebrationNonce);
+  const nonceAtMountRef = useRef<number>(celebrationNonce);
   const [glowing, setGlowing] = useState(false);
   const [pulseKey, setPulseKey] = useState(0);
   useEffect(() => {
-    if (celebrationNonce === 0) return;
+    if (celebrationNonce <= nonceAtMountRef.current) return;
+    nonceAtMountRef.current = celebrationNonce;
     setGlowing(true);
     setPulseKey((k) => k + 1);
     const t = window.setTimeout(() => setGlowing(false), 900);

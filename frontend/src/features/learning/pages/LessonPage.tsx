@@ -158,7 +158,15 @@ export default function LessonPage() {
   // Cinema Kit — Check-pass sonar nonce, bumped by the validator hook
   // at the moment a lesson passes. LessonPage watches it to fire a
   // three-ring RingPulse over the Check button.
+  //
+  // The nonce is module-scoped, so navigating to the next lesson
+  // would otherwise read the still-bumped value from the previous
+  // lesson's pass and fire a ghost sonar on the fresh mount. Snapshot
+  // the value on mount and only render the pulse when a strictly
+  // higher nonce has landed while this lesson instance is alive.
   const sonarNonce = useValidatorUIStore((s) => s.sonarNonce);
+  const sonarNonceAtMountRef = useRef<number>(sonarNonce);
+  const sonarNonceNew = sonarNonce > sonarNonceAtMountRef.current;
   const lastSeenRunResultRef = useRef<typeof runner.lastResult>(null);
   useEffect(() => {
     const result = runner.lastResult;
@@ -647,7 +655,7 @@ export default function LessonPage() {
                       for 250 ms before confetti + complete-modal. The
                       same ring shape the learner saw at the end of
                       the /welcome cinematic — deja vu, good kind. */}
-                  {sonarNonce > 0 && (
+                  {sonarNonceNew && (
                     <RingPulse
                       anchor="self"
                       rings={3}
