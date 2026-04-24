@@ -162,30 +162,40 @@ function AccountTab({ onClose }: { onClose?: () => void }) {
   };
 
   const handleReplayIntro = async () => {
+    // Ordering matters here. StartPage now contains a synchronous
+    // `<Navigate to="/welcome">` that fires the instant welcomeDone
+    // flips to false (optimistic update from patchPreferences). If
+    // we awaited the patch first while on StartPage, that Navigate
+    // would unmount StartPage — and the SettingsModal mounted
+    // inside it — mid-handler, leaving framer-motion + this handler
+    // in an inconsistent state (user saw the page freeze until
+    // reload). Fix: close the modal and nav to /welcome FIRST,
+    // THEN await the patch. Once we're on /welcome the rogue
+    // Navigate can't fire (StartPage is unmounted) and we can
+    // safely await server confirmation — which the e2e spec needs
+    // so a reload after "Show intro again" finds welcomeDone=false
+    // persisted server-side.
     setReplayErr(null);
     setReplaying(true);
+    onClose?.();
+    nav("/welcome");
     try {
       await patchPreferences({
         welcomeDone: false,
         workspaceCoachDone: false,
         editorCoachDone: false,
       });
-      // Reset the busy flag BEFORE onClose so a subsequent "Show
-      // intro again" click after the cinematic plays finds a clean
-      // state — otherwise a caller that keeps the SettingsPanel
-      // mounted across navigation would leave the button disabled.
-      setReplaying(false);
-      onClose?.();
-      // Navigate directly to /welcome instead of /. StartPage's
-      // existing-user backfill effect would otherwise flip welcomeDone
-      // right back to true on an older account — silently cancelling
-      // the replay this button is supposed to trigger. Routing around
-      // StartPage keeps the handler honest for both new accounts
-      // (StartPage would redirect them here anyway) and old accounts
-      // (backfill never gets a chance to fire).
-      nav("/welcome");
     } catch (e) {
-      setReplayErr((e as Error).message);
+      // Can't surface the error — we already navigated. Log and
+      // move on; the cinematic still plays from the already-
+      // mounted /welcome route.
+      console.error(
+        "[settings] replay-intro patch failed:",
+        (e as Error).message,
+      );
+    } finally {
+      // setState on an unmounted component is a no-op in React 18,
+      // but keep the reset for embedded-outside-modal callers.
       setReplaying(false);
     }
   };
