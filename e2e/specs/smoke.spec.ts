@@ -59,8 +59,9 @@ test.describe("smoke", () => {
     // a Resume card above the cold 2-card grid. mid-course-healthy has 5
     // Python lessons completed → the next unfinished lesson is "functions"
     // (order 6). Either Python or JS can win the updatedAt tiebreak in the
-    // seeder, so we pattern-match on the shared "Continue <course>" copy
-    // and the Resume button.
+    // seeder, so we pattern-match on shared shape: a Resume button + an
+    // "N of M done" momentum headline (Cinema Kit Phase 3.3 reframed
+    // the copy from "Continue <course>" to a Fraunces hero count).
     await mockAllAI(page);
     await loadProfile(page, "mid-course-healthy");
     await markOnboardingDone(page);
@@ -68,7 +69,10 @@ test.describe("smoke", () => {
 
     const resumeBtn = page.getByRole("button", { name: /^resume$/i });
     await expect(resumeBtn).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText(/continue\s+(python|javascript)/i)).toBeVisible();
+    // The headline shape is "{N} of {M} done" — assert the structural
+    // text rather than tying to a specific count, since the seeded
+    // profile may evolve.
+    await expect(page.getByText(/of\s+\d+\s+done/i)).toBeVisible();
 
     await resumeBtn.click();
     await expect(page).toHaveURL(
