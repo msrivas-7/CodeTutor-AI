@@ -264,7 +264,8 @@ export function useFirstRunChoreography({
           // unlocked (no scripted turns gate, and
           // `welcomeDone === true` prevents the next LessonPage mount
           // from re-running this hook).
-          markFirstRunComplete();
+          await markFirstRunComplete();
+          if (cancelled) return;
           setStep("done");
           return;
         }

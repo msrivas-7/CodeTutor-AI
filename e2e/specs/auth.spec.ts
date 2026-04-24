@@ -281,22 +281,22 @@ test.describe("auth flow", () => {
     await page.getByLabel("Password", { exact: true }).fill(PASSWORD);
     await page.getByRole("button", { name: /^sign in$/i }).click();
 
-    await expect(page).toHaveURL(/\/$/, { timeout: 15_000 });
+    // Brand-new admin-created user: welcomeDone=false, so StartPage
+    // redirects into the first-run cinematic at /welcome. The
+    // cinematic's "Skip intro" link flips welcomeDone=true and
+    // returns to /. That's the "landed at /" state this test is
+    // really asserting.
+    await expect(page).toHaveURL(/\/welcome$/, { timeout: 15_000 });
+    const skipIntro = page.getByRole("button", { name: /skip intro/i });
+    await skipIntro.waitFor({ state: "visible", timeout: 5_000 });
+    await skipIntro.click();
+    await expect(page).toHaveURL(/\/$/, { timeout: 10_000 });
 
-    // Reload → still signed in (session hydrated from localStorage).
+    // Reload → still signed in (session hydrated from localStorage)
+    // and no re-route through /welcome (welcomeDone was persisted).
     await page.reload();
     await expect(page).toHaveURL(/\/$/);
     await expect(page.getByRole("link", { name: /log in|sign in/i })).toHaveCount(0);
-
-    // A brand-new admin-created user has no server-side onboarding flags set,
-    // so the WelcomeOverlay appears on / and its "Skip" button intercepts
-    // clicks on the header. Wait for it, then dismiss. The overlay doesn't
-    // render until the AuthLoader gate lifts, which races with the rest of
-    // the UI — an `isVisible()` probe fires too early and misses it.
-    const skip = page.getByRole("button", { name: /^skip onboarding$/i });
-    await skip.waitFor({ state: "visible", timeout: 5_000 });
-    await skip.click();
-    await skip.waitFor({ state: "hidden" });
 
     // Sign out from the UserMenu (avatar in the top-right corner).
     await page.getByRole("button", { name: /user menu/i }).click();

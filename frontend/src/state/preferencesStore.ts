@@ -261,8 +261,14 @@ export function markOnboardingDone(
 // as two welcomes stacked back-to-back. Stamping the timestamp here
 // suppresses the overlay for the next 6h / until the next calendar
 // day — exactly the same rule a real welcome-back dismissal follows.
-export function markFirstRunComplete(): void {
-  void usePreferencesStore
+//
+// Returns the patch promise so callers that navigate immediately
+// afterward can `await` it. Without the await, a quick reload right
+// after a skip/complete lands the hydration fetch before the server
+// has the write — the overlay then fires against stale server state
+// and covers the UI on the next route.
+export function markFirstRunComplete(): Promise<void> {
+  return usePreferencesStore
     .getState()
     .patch({
       welcomeDone: true,
