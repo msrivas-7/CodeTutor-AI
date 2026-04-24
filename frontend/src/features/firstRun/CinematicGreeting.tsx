@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, useReducedMotion, AnimatePresence } from "framer-motion";
 import { AmbientGlyphField } from "../../components/AmbientGlyphField";
+import { HOUSE_EASE } from "../../components/cinema/easing";
+import { FilmGrain } from "../../components/cinema/FilmGrain";
+import { CinematicLighting } from "../../components/cinema/CinematicLighting";
+import { RingPulse } from "../../components/cinema/RingPulse";
 
 // The product's opening credits. Two modes:
 //
@@ -16,9 +20,6 @@ import { AmbientGlyphField } from "../../components/AmbientGlyphField";
 //
 // The same component services both so the two can't drift. Props
 // control the length, the beats that play, and the copy.
-
-const HOUSE_EASE = [0.22, 1, 0.36, 1] as const;
-const MATERIAL_EASE = [0.4, 0, 0.2, 1] as const;
 
 export type CinematicMode = "full" | "minimal";
 
@@ -260,88 +261,25 @@ function FullCinematic({
                 film" texture. Bumped from 6% for visibility.
           All five fade up together across Beat 1 (~1.4 s). */}
 
-      {/* (a) KEY LIGHT */}
-      <motion.div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0"
-        style={{
-          background:
-            "radial-gradient(circle at 50% 48%, rgb(var(--color-accent) / 0.22), transparent 55%)",
-        }}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 0.9 }}
-        transition={{ duration: t.radialGlow.duration / 1000, ease: HOUSE_EASE }}
+      {/* Three-point rig: key (warm accent center) + fill (cool violet
+          offset) + rim (warm accent top-left) + vignette. Extracted
+          into CinematicLighting so future hero surfaces can earn the
+          same rig. `fadeInMs` matches the old `t.radialGlow.duration`
+          exactly; the component handles the 0/300/500 ms internal
+          staggers for key/fill/rim. */}
+      <CinematicLighting
+        variant="three-point"
+        fadeInMs={t.radialGlow.duration}
       />
 
-      {/* (b) FILL LIGHT */}
-      <motion.div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0"
-        style={{
-          background:
-            "radial-gradient(circle at 72% 68%, rgb(var(--color-violet) / 0.16), transparent 50%)",
-        }}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 0.75 }}
-        transition={{
-          duration: t.radialGlow.duration / 1000,
-          delay: 300 / 1000,
-          ease: HOUSE_EASE,
-        }}
-      />
-
-      {/* (c) RIM LIGHT — top-left, warm accent. The third point in a
-          classic three-point lighting rig. Subtle, but adds real
-          dimensionality; the frame stops feeling flat-lit. */}
-      <motion.div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0"
-        style={{
-          background:
-            "radial-gradient(circle at 18% 22%, rgb(var(--color-accent) / 0.10), transparent 45%)",
-        }}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 0.8 }}
-        transition={{
-          duration: t.radialGlow.duration / 1000,
-          delay: 500 / 1000,
-          ease: HOUSE_EASE,
-        }}
-      />
-
-      {/* (d) VIGNETTE */}
-      <motion.div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0"
-        style={{
-          background:
-            "radial-gradient(ellipse at center, transparent 40%, rgb(0 0 0 / 0.55) 95%)",
-        }}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: t.radialGlow.duration / 1000, ease: HOUSE_EASE }}
-      />
-
-      {/* (e) FILM GRAIN. SVG turbulence filter gives us high-frequency
-          noise without shipping a raster. mix-blend-mode: overlay
-          makes it sit on top of the lighting without shifting hue.
-          Bumped to 12% opacity (was 6%) so the texture is actually
-          readable; still well below "dirty screen" territory. */}
-      <motion.div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0"
-        style={{
-          backgroundImage:
-            'url("data:image/svg+xml;utf8,<svg xmlns=%27http://www.w3.org/2000/svg%27 width=%27240%27 height=%27240%27><filter id=%27n%27><feTurbulence type=%27fractalNoise%27 baseFrequency=%271.8%27 numOctaves=%273%27 stitchTiles=%27stitch%27/></filter><rect width=%27100%25%27 height=%27100%25%27 filter=%27url(%23n)%27/></svg>")',
-          mixBlendMode: "overlay",
-        }}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 0.12 }}
-        transition={{
-          duration: t.radialGlow.duration / 1000,
-          delay: 400 / 1000,
-          ease: HOUSE_EASE,
-        }}
+      {/* Hero-tier grain at 12% opacity. SVG turbulence, overlay
+          blend — reads as "shot on film" without tinting the hue.
+          Matches the original timing (t.radialGlow duration + 400 ms
+          delay) verbatim. */}
+      <FilmGrain
+        intensity="hero"
+        fadeInMs={t.radialGlow.duration}
+        fadeInDelayMs={400}
       />
 
       {/* Beat 6 — environment awakens */}
@@ -470,17 +408,19 @@ function FullCinematic({
               hero line, grows to scale 40 so it consumes the whole
               frame as it fades — the "ding" the user sees around
               their own name, not somewhere else on screen. */}
-          <motion.div
-            aria-hidden="true"
-            className="pointer-events-none absolute left-1/2 top-1/2 h-6 w-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-accent/60"
-            initial={{ scale: 0, opacity: 0 }}
-            animate={{ scale: 40, opacity: [0, 0.8, 0] }}
-            transition={{
-              duration: t.ringPulse.duration / 1000,
-              delay: t.ringPulse.enter / 1000,
-              ease: MATERIAL_EASE,
-              times: [0, 0.2, 1],
-            }}
+          {/* Beat 7 — the "ding." RingPulse handles the scale 0→40
+              sweep, opacity 0→0.8→0 curve, and MATERIAL_EASE with
+              `times: [0, 0.2, 1]` internally. This same component
+              fires (smaller, different color) on every Run click,
+              on first successful run, and before lesson-pass
+              confetti — the through-line that says "you've seen this
+              shape before." */}
+          <RingPulse
+            anchor="self"
+            rings={1}
+            maxScale={40}
+            borderClass="border-accent/60"
+            delayMs={t.ringPulse.enter}
           />
         </motion.div>
 
@@ -574,20 +514,9 @@ function MinimalCinematic({
         animate={{ opacity: 1 }}
         transition={{ duration: t.radialGlow.duration / 1000, ease: HOUSE_EASE }}
       />
-      {/* Grain at a lower opacity than full mode — present, but
-          quieter, matching the overall restraint of this surface. */}
-      <motion.div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0"
-        style={{
-          backgroundImage:
-            'url("data:image/svg+xml;utf8,<svg xmlns=%27http://www.w3.org/2000/svg%27 width=%27240%27 height=%27240%27><filter id=%27n%27><feTurbulence type=%27fractalNoise%27 baseFrequency=%271.8%27 numOctaves=%273%27 stitchTiles=%27stitch%27/></filter><rect width=%27100%25%27 height=%27100%25%27 filter=%27url(%23n)%27/></svg>")',
-          mixBlendMode: "overlay",
-        }}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 0.08 }}
-        transition={{ duration: t.radialGlow.duration / 1000, ease: HOUSE_EASE }}
-      />
+      {/* Grain at scene-tier intensity (8%) — quieter than full-mode
+          hero grain (12%), still reads as film. */}
+      <FilmGrain intensity="scene" fadeInMs={t.radialGlow.duration} />
 
       <div className="relative z-10 flex flex-col items-center gap-3">
         {/* Beat B — hero */}
