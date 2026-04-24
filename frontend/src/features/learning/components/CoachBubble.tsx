@@ -1,4 +1,6 @@
 import { useEffect, useId, useRef, type CSSProperties } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { HOUSE_EASE } from "../../../components/cinema/easing";
 
 interface CoachBubbleProps {
   title: string;
@@ -13,6 +15,17 @@ const GAP = 12;
 const MARGIN = 16;
 
 export function CoachBubble({ title, body, position, rect, onNext, stepLabel }: CoachBubbleProps) {
+  // Bubble positioning uses different edge anchors per `position`
+  // (top vs bottom for vertical, left vs right for horizontal). An
+  // earlier Cinema Kit Continuity Pass tried to animate the
+  // bubble's rect across step changes via framer's animate prop,
+  // but framer kept stale edge values between steps — a step
+  // anchored to `bottom` followed by one anchored to `top` ended
+  // up with BOTH set, stretching the bubble into a screen-tall
+  // rectangle. Reverted to imperative style; the spotlight glide
+  // already gives the eye continuity across steps, and the bubble
+  // landing fresh at each new target is fine because the user's
+  // attention is on the spotlight as it moves.
   const style: CSSProperties = { position: "fixed", zIndex: 52, maxWidth: 320 };
 
   if (position === "bottom") {
@@ -54,7 +67,23 @@ export function CoachBubble({ title, body, position, rect, onNext, stepLabel }: 
       className="rounded-xl border border-accent/40 bg-panel p-4 shadow-xl"
     >
       <div className="mb-1 flex items-center justify-between">
-        <span className="text-[10px] font-medium uppercase tracking-wider text-accent">{stepLabel}</span>
+        {/* Cinema Kit Continuity Pass — step counter crossfades on
+            change so the count itself feels animated alongside the
+            spotlight glide. Safe even with the static-styled bubble
+            because the animation is local to a single span, no
+            cross-step shape interpolation. */}
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.span
+            key={stepLabel}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.12, ease: HOUSE_EASE }}
+            className="text-[10px] font-medium uppercase tracking-wider text-accent"
+          >
+            {stepLabel}
+          </motion.span>
+        </AnimatePresence>
       </div>
       <h3 id={titleId} className="text-sm font-bold text-ink">{title}</h3>
       <p id={bodyId} className="mt-1 text-xs leading-relaxed text-muted">{body}</p>

@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { motion } from "framer-motion";
 import { CoachBubble } from "../features/learning/components/CoachBubble";
 import { useShortcutLabels } from "../util/platform";
 import {
   markOnboardingDone,
   usePreferencesStore,
 } from "../state/preferencesStore";
+import { HOUSE_EASE } from "./cinema/easing";
 
 export function isEditorOnboardingDone(): boolean {
   return usePreferencesStore.getState().editorCoachDone;
@@ -129,22 +131,32 @@ export function EditorCoach({ refs, onComplete }: EditorCoachProps) {
   if (!targetRect || !currentStep) return null;
 
   const pad = 6;
-  const spotStyle = {
-    position: "fixed" as const,
-    top: targetRect.top - pad,
-    left: targetRect.left - pad,
-    width: targetRect.width + pad * 2,
-    height: targetRect.height + pad * 2,
-    borderRadius: 8,
-    boxShadow: "0 0 0 9999px rgba(0,0,0,0.65)",
-    zIndex: 51,
-    pointerEvents: "none" as const,
-  };
 
   return (
     <>
       <div className="fixed inset-0 z-50" onClick={advance} />
-      <div style={spotStyle} />
+      {/* Spotlight cutout — Cinema Kit Continuity Pass. Glides
+          between targets via framer's `animate` instead of snapping.
+          Same treatment + curve as WorkspaceCoach so the editor and
+          lesson tours share one motion grammar. */}
+      <motion.div
+        aria-hidden="true"
+        initial={false}
+        animate={{
+          top: targetRect.top - pad,
+          left: targetRect.left - pad,
+          width: targetRect.width + pad * 2,
+          height: targetRect.height + pad * 2,
+        }}
+        transition={{ duration: 0.32, ease: HOUSE_EASE }}
+        style={{
+          position: "fixed",
+          borderRadius: 8,
+          boxShadow: "0 0 0 9999px rgba(0,0,0,0.65)",
+          zIndex: 51,
+          pointerEvents: "none",
+        }}
+      />
       <button
         onClick={dismiss}
         className="fixed right-4 top-14 z-[53] rounded-md bg-panel/90 px-3 py-1 text-[11px] text-muted ring-1 ring-border transition hover:text-ink"

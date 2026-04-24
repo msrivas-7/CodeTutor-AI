@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { motion } from "framer-motion";
 import { CoachBubble } from "./CoachBubble";
 import { useShortcutLabels } from "../../../util/platform";
 import {
   markOnboardingDone,
   usePreferencesStore,
 } from "../../../state/preferencesStore";
+import { HOUSE_EASE } from "../../../components/cinema/easing";
 
 interface CoachStep {
   targetKey: keyof WorkspaceCoachRefs;
@@ -151,17 +153,6 @@ export function WorkspaceCoach({ refs, onComplete }: WorkspaceCoachProps) {
   if (!targetRect || !currentStep) return null;
 
   const pad = 6;
-  const spotStyle = {
-    position: "fixed" as const,
-    top: targetRect.top - pad,
-    left: targetRect.left - pad,
-    width: targetRect.width + pad * 2,
-    height: targetRect.height + pad * 2,
-    borderRadius: 8,
-    boxShadow: "0 0 0 9999px rgba(0,0,0,0.65)",
-    zIndex: 51,
-    pointerEvents: "none" as const,
-  };
 
   return (
     <>
@@ -170,8 +161,32 @@ export function WorkspaceCoach({ refs, onComplete }: WorkspaceCoachProps) {
         className="fixed inset-0 z-50"
         onClick={advance}
       />
-      {/* Spotlight cutout */}
-      <div style={spotStyle} />
+      {/* Spotlight cutout. Cinema Kit Continuity Pass — converted from
+          a snap-positioned div to a `motion.div` that interpolates
+          top/left/width/height across step changes via framer's
+          `animate` prop. The 6-step tour now reads as one camera
+          glide through the workspace instead of stop-start jumps.
+          ResizeObserver still fires `setTargetRect` on layout changes
+          within a step (splitter drag, window resize); framer
+          interpolates those too, smoothly. */}
+      <motion.div
+        aria-hidden="true"
+        initial={false}
+        animate={{
+          top: targetRect.top - pad,
+          left: targetRect.left - pad,
+          width: targetRect.width + pad * 2,
+          height: targetRect.height + pad * 2,
+        }}
+        transition={{ duration: 0.32, ease: HOUSE_EASE }}
+        style={{
+          position: "fixed",
+          borderRadius: 8,
+          boxShadow: "0 0 0 9999px rgba(0,0,0,0.65)",
+          zIndex: 51,
+          pointerEvents: "none",
+        }}
+      />
       {/* Skip button */}
       <button
         onClick={dismiss}
