@@ -36,6 +36,12 @@ export interface UseLessonLoaderArgs {
   // "about to load a fresh lesson" via this callback so the validator hook
   // can clear its own bookkeeping.
   onResetPerLessonState?: () => void;
+  // When true, skip the resume-from-savedCode branch and always hydrate
+  // the editor with the authored starterFiles. Used by the first-run
+  // cinematic handoff (?firstRun=1) so the scripted "change one word"
+  // beat always has the authored `'Hello, Python!'` string to target,
+  // regardless of what the learner left in the buffer on a prior visit.
+  forceStarter?: boolean;
 }
 
 export function useLessonLoader({
@@ -45,6 +51,7 @@ export function useLessonLoader({
   practiceMode,
   practiceIndex,
   onResetPerLessonState,
+  forceStarter,
 }: UseLessonLoaderArgs) {
   const navigate = useNavigate();
   const [lesson, setLesson] = useState<Lesson | null>(null);
@@ -172,7 +179,7 @@ export function useLessonLoader({
     if (initializedForRef.current === key) return;
     initializedForRef.current = key;
 
-    const savedCode = loadSavedCode(courseId, lessonId);
+    const savedCode = forceStarter ? null : loadSavedCode(courseId, lessonId);
 
     const files: Record<string, string> = {};
     const order: string[] = [];

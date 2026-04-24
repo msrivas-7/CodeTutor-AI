@@ -170,8 +170,20 @@ function AccountTab({ onClose }: { onClose?: () => void }) {
         workspaceCoachDone: false,
         editorCoachDone: false,
       });
+      // Reset the busy flag BEFORE onClose so a subsequent "Show
+      // intro again" click after the cinematic plays finds a clean
+      // state — otherwise a caller that keeps the SettingsPanel
+      // mounted across navigation would leave the button disabled.
+      setReplaying(false);
       onClose?.();
-      nav("/");
+      // Navigate directly to /welcome instead of /. StartPage's
+      // existing-user backfill effect would otherwise flip welcomeDone
+      // right back to true on an older account — silently cancelling
+      // the replay this button is supposed to trigger. Routing around
+      // StartPage keeps the handler honest for both new accounts
+      // (StartPage would redirect them here anyway) and old accounts
+      // (backfill never gets a chance to fire).
+      nav("/welcome");
     } catch (e) {
       setReplayErr((e as Error).message);
       setReplaying(false);

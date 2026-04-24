@@ -121,6 +121,13 @@ export interface AIMessage {
   content: string;
   sections?: TutorSections;
   usage?: TokenUsage;
+  // Channel-level flag for turns the UI should render differently
+  // from normal tutor replies. `scripted: true` means the message
+  // was pushed by our first-run choreography, not produced by the
+  // LLM — TutorResponseView swaps the summary-line chrome for a
+  // larger, Fraunces-typeset rendering that echoes the /welcome
+  // cinematic's voice.
+  meta?: { scripted?: boolean };
 }
 
 export interface AIModel {

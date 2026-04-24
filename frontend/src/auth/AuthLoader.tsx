@@ -101,8 +101,17 @@ export function AuthLoader({
 
   // MIN_VISIBLE_MS floor. Expires the min-visible timer; signalling the
   // parent to unmount happens LATER, at the end of the exit animation.
+  //
+  // The effect also handles a *mid-life* flip of `enforceMinDuration`
+  // from true → false. HydrationGate drops the floor for the first-run
+  // path AFTER prefs hydrate (it can't know until then whether the
+  // user is heading to /welcome). Without this flip-to-true handler,
+  // `minElapsed` would stay false and the loader would never yield.
   useEffect(() => {
-    if (!enforceMinDuration) return;
+    if (!enforceMinDuration) {
+      setMinElapsed(true);
+      return;
+    }
     const t = window.setTimeout(() => setMinElapsed(true), MIN_VISIBLE_MS);
     return () => window.clearTimeout(t);
   }, [enforceMinDuration]);

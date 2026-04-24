@@ -34,6 +34,7 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
     asking,
     askError,
     pending,
+    pendingScripted,
     runsSinceLastTurn,
     editsSinceLastTurn,
     pendingAsk,
@@ -51,6 +52,7 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
       asking: s.asking,
       askError: s.askError,
       pending: s.pending,
+      pendingScripted: s.pendingScripted,
       runsSinceLastTurn: s.runsSinceLastTurn,
       editsSinceLastTurn: s.editsSinceLastTurn,
       pendingAsk: s.pendingAsk,
@@ -295,6 +297,7 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
                   sections={m.sections}
                   onAsk={isLatestAssistant ? setPendingAsk : undefined}
                   disabled={asking}
+                  scripted={m.meta?.scripted}
                 />
               ) : (
                 <div className="whitespace-pre-wrap rounded-md border border-border bg-elevated/60 px-3 py-2 text-xs text-ink/90">
@@ -330,7 +333,7 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
               >
-                <TutorResponseView sections={pending.sections} disabled streaming />
+                <TutorResponseView sections={pending.sections} disabled streaming scripted={pendingScripted} />
               </motion.div>
             ) : (
               <motion.div

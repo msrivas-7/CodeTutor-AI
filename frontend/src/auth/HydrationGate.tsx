@@ -58,6 +58,7 @@ export function HydrationGate({ children }: { children: ReactNode }) {
   const signOut = useAuthStore((s) => s.signOut);
   const prefsHydrated = usePreferencesStore((s) => s.hydrated);
   const prefsError = usePreferencesStore((s) => s.hydrateError);
+  const welcomeDone = usePreferencesStore((s) => s.welcomeDone);
   const progressHydrated = useProgressStore((s) => s.hydrated);
   const progressError = useProgressStore((s) => s.hydrateError);
   const editorHydrated = useProjectStore((s) => s.editorHydrated);
@@ -146,12 +147,21 @@ export function HydrationGate({ children }: { children: ReactNode }) {
     // keep the full choreographed intro.
     const isAutomated =
       typeof navigator !== "undefined" && navigator.webdriver === true;
+    // First-run path: the /welcome cinematic is about to play for ~13 s.
+    // Stacking AuthLoader's 2.5 s intro on top of that means the user
+    // watches two "loading reveals" back-to-back before getting to the
+    // cinematic that matters. Once prefs hydrate and we can see
+    // welcomeDone === false, drop the min-visible floor so AuthLoader
+    // exits the moment hydrate completes and hands straight to the
+    // cinematic. Returning users (welcomeDone === true) keep the
+    // choreographed intro.
+    const isFirstRunIncoming = prefsHydrated && !welcomeDone;
     return (
       <div className="flex h-full flex-col bg-bg" data-testid="hydration-gate">
         <AuthLoader
           progress={progress}
           done={dataReady}
-          enforceMinDuration={!isAutomated}
+          enforceMinDuration={!isAutomated && !isFirstRunIncoming}
           onMinDurationReached={() => setMinElapsed(true)}
         />
         {slow && (

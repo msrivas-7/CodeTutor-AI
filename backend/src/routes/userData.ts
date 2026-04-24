@@ -86,6 +86,9 @@ const prefsPatchSchema = z
     workspaceCoachDone: z.boolean().optional(),
     editorCoachDone: z.boolean().optional(),
     uiLayout: z.record(z.unknown()).optional(),
+    // ISO-8601 string accepted from the client; null clears.
+    // Undefined = not present on patch = no-op on the server.
+    lastWelcomeBackAt: z.string().datetime().nullable().optional(),
   })
   .strict();
 

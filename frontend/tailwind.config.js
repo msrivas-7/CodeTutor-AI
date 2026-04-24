@@ -40,6 +40,19 @@ export default {
           "Consolas",
           "monospace",
         ],
+        // Cinematic hero face — reserved for the first-run + welcome-
+        // back opening credits. Fraunces is a variable serif with
+        // optical sizing and a "SOFT" axis; at large sizes (72 px)
+        // with weight 600 and optical-size ~144 it reads as a
+        // confident movie-title serif. Contrasts deliberately with
+        // Inter (UI) and JetBrains Mono (code) — the three-font system
+        // signals "this surface is the moment, not the product chrome."
+        display: [
+          "Fraunces",
+          "Georgia",
+          "Times New Roman",
+          "serif",
+        ],
       },
       // Typography scale — named tokens with paired line-height + letter-
       // spacing so authoring has a grammar beyond reflexive `text-xs`/

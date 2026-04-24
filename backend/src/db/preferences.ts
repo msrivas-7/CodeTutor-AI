@@ -15,6 +15,10 @@ export interface UserPreferences {
   // Boolean surfaced to the frontend so the UI can show "key set / not set"
   // without ever shipping the decrypted key off the server.
   hasOpenaiKey: boolean;
+  // First-run cinematic: timestamp of the last "welcome back" overlay
+  // shown to this user. Server-backed so one device suppresses the
+  // next device the same day. Null = never shown.
+  lastWelcomeBackAt: string | null;
   updatedAt: string;
 }
 
@@ -27,6 +31,7 @@ const DEFAULT_PREFS: UserPreferences = {
   editorCoachDone: false,
   uiLayout: {},
   hasOpenaiKey: false,
+  lastWelcomeBackAt: null,
   updatedAt: new Date(0).toISOString(),
 };
 
@@ -43,6 +48,7 @@ export const PrefsRowSchema = z.object({
   editor_coach_done: z.boolean(),
   ui_layout: z.record(z.string(), z.unknown()).nullable(),
   has_openai_key: z.boolean(),
+  last_welcome_back_at: z.date().nullable(),
   updated_at: z.date(),
 });
 
@@ -64,6 +70,9 @@ function rowToPrefs(raw: unknown): UserPreferences {
     editorCoachDone: r.editor_coach_done,
     uiLayout: r.ui_layout ?? {},
     hasOpenaiKey: r.has_openai_key,
+    lastWelcomeBackAt: r.last_welcome_back_at
+      ? r.last_welcome_back_at.toISOString()
+      : null,
     updatedAt: r.updated_at.toISOString(),
   };
 }
@@ -74,6 +83,7 @@ export async function getPreferences(userId: string): Promise<UserPreferences> {
     SELECT persona, openai_model, theme, welcome_done, workspace_coach_done,
            editor_coach_done, ui_layout,
            (openai_api_key_cipher IS NOT NULL) AS has_openai_key,
+           last_welcome_back_at,
            updated_at
       FROM public.user_preferences
      WHERE user_id = ${userId}
@@ -90,6 +100,8 @@ export interface PreferencesPatch {
   workspaceCoachDone?: boolean;
   editorCoachDone?: boolean;
   uiLayout?: Record<string, unknown>;
+  // ISO-8601 timestamp. null clears; undefined = no-op.
+  lastWelcomeBackAt?: string | null;
 }
 
 export async function upsertPreferences(
@@ -97,10 +109,19 @@ export async function upsertPreferences(
   patch: PreferencesPatch,
 ): Promise<UserPreferences> {
   const sql = db();
+  // lastWelcomeBackAt is a Date | null payload — callers send an ISO
+  // string, but postgres wants a timestamptz comparison. Normalize here
+  // so the SQL below can bind a single typed value.
+  const lastWelcomeBackAt =
+    patch.lastWelcomeBackAt === undefined
+      ? undefined
+      : patch.lastWelcomeBackAt === null
+        ? null
+        : new Date(patch.lastWelcomeBackAt);
   const rows = await sql`
     INSERT INTO public.user_preferences (
       user_id, persona, openai_model, theme, welcome_done,
-      workspace_coach_done, editor_coach_done, ui_layout
+      workspace_coach_done, editor_coach_done, ui_layout, last_welcome_back_at
     )
     VALUES (
       ${userId},
@@ -110,7 +131,8 @@ export async function upsertPreferences(
       ${patch.welcomeDone ?? false},
       ${patch.workspaceCoachDone ?? false},
       ${patch.editorCoachDone ?? false},
-      ${sql.json((patch.uiLayout ?? {}) as JSONValue)}
+      ${sql.json((patch.uiLayout ?? {}) as JSONValue)},
+      ${lastWelcomeBackAt ?? null}
     )
     ON CONFLICT (user_id) DO UPDATE SET
       persona              = COALESCE(${patch.persona ?? null}, public.user_preferences.persona),
@@ -120,10 +142,12 @@ export async function upsertPreferences(
       workspace_coach_done = COALESCE(${patch.workspaceCoachDone ?? null}, public.user_preferences.workspace_coach_done),
       editor_coach_done    = COALESCE(${patch.editorCoachDone ?? null}, public.user_preferences.editor_coach_done),
       ui_layout            = CASE WHEN ${patch.uiLayout !== undefined} THEN ${sql.json((patch.uiLayout ?? {}) as JSONValue)} ELSE public.user_preferences.ui_layout END,
+      last_welcome_back_at = CASE WHEN ${lastWelcomeBackAt !== undefined} THEN ${lastWelcomeBackAt ?? null} ELSE public.user_preferences.last_welcome_back_at END,
       updated_at           = now()
     RETURNING persona, openai_model, theme, welcome_done, workspace_coach_done,
               editor_coach_done, ui_layout,
               (openai_api_key_cipher IS NOT NULL) AS has_openai_key,
+              last_welcome_back_at,
               updated_at
   `;
   return rowToPrefs(rows[0]);

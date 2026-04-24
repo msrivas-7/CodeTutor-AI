@@ -157,6 +157,34 @@ export async function getWorkerUser(workerIndex: number): Promise<CachedUser> {
   const promise = (async () => {
     const userId = await createOrReuseUser(email);
     const session = await freshSession(email);
+    // First-run-cinematic redirect gate: new users land on `/welcome`
+    // until `welcomeDone === true`. E2E users are admin-created and
+    // default to welcomeDone=false, which would route every spec
+    // through the greeting screen. Patch the prefs once per
+    // worker-user so the rest of the suite sees the "returning user"
+    // shape of the product. Specs that want to exercise the first-run
+    // flow skip this helper and use `getFirstRunUser` below.
+    const ctx = await playwrightRequest.newContext({
+      extraHTTPHeaders: {
+        Origin: APP_ORIGIN,
+        "X-Requested-With": "codetutor",
+        Authorization: `Bearer ${session.access_token}`,
+        "Content-Type": "application/json",
+      },
+    });
+    try {
+      await ctx
+        .patch(`${BACKEND_URL}/api/user/preferences`, {
+          data: { welcomeDone: true },
+        })
+        .catch(() => {
+          // Non-fatal — the suite can still drive most flows even if
+          // the patch fails; at worst the test redirects through
+          // /welcome and eats the cinematic budget once.
+        });
+    } finally {
+      await ctx.dispose();
+    }
     return { email, userId, session };
   })();
   workerCache.set(workerIndex, promise);

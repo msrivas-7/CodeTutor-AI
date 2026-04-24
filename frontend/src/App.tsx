@@ -4,6 +4,7 @@ import { StorageQuotaBanner } from "./components/StorageQuotaBanner";
 import { GlobalShortcuts } from "./components/GlobalShortcuts";
 import { RequireAuth } from "./auth/RequireAuth";
 import { HydrationGate } from "./auth/HydrationGate";
+import { WelcomeBackOverlay } from "./features/firstRun/WelcomeBackOverlay";
 
 const StartPage = lazy(() => import("./pages/StartPage"));
 const EditorPage = lazy(() => import("./pages/EditorPage"));
@@ -14,6 +15,7 @@ const LoginPage = lazy(() => import("./pages/LoginPage"));
 const SignupPage = lazy(() => import("./pages/SignupPage"));
 const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
 const AuthCallbackPage = lazy(() => import("./pages/AuthCallbackPage"));
+const FirstRunPage = lazy(() => import("./features/firstRun/pages/FirstRunPage"));
 
 // Dev-only /dev/content dashboard. Guarded by import.meta.env.DEV so the
 // import (and its transitive deps) are stripped from prod bundles.
@@ -41,6 +43,12 @@ function AuthedLayout() {
     <RequireAuth>
       <HydrationGate>
         <Outlet />
+        {/* Mounted alongside every authenticated route. Renders null
+            unless the trigger rule in useWelcomeBack says fire — so
+            deep links to lessons don't pay any render cost. The
+            overlay is z:60 and covers the page during its 2.4 s
+            cinematic before dismissing itself. */}
+        <WelcomeBackOverlay />
       </HydrationGate>
     </RequireAuth>
   );
@@ -64,6 +72,7 @@ export default function App() {
             enter/exit transitions). */}
         <Route element={<AuthedLayout />}>
           <Route path="/" element={<StartPage />} />
+          <Route path="/welcome" element={<FirstRunPage />} />
           <Route path="/editor" element={<EditorPage />} />
           <Route path="/learn" element={<LearningDashboardPage />} />
           <Route path="/learn/course/:courseId" element={<CourseOverviewPage />} />

@@ -31,44 +31,37 @@ test.describe("onboarding", () => {
     // explicit wipe is needed.
   });
 
-  test("WelcomeOverlay renders on first StartPage visit and dismiss persists", async ({ page }) => {
+  test("StartPage redirects fresh users to /welcome and Skip persists the flag", async ({ page }) => {
     await loadProfile(page, "empty", { onboarded: false });
     await page.goto("/");
 
-    // Skip button + role=button with aria-label="Skip onboarding".
-    const skip = page.getByRole("button", { name: /skip onboarding/i });
-    await expect(skip).toBeVisible({ timeout: 5_000 });
-    // The spotlight CoachBubble renders a "Got it" button alongside the Skip.
-    await expect(page.getByRole("button", { name: /^got it$/i })).toBeVisible();
+    // StartPage now redirects a welcomeDone=false user into the /welcome
+    // cinematic instead of rendering WelcomeOverlay in-place.
+    await expect(page).toHaveURL(/\/welcome$/, { timeout: 5_000 });
+    // The "Skip intro" affordance is intentionally de-prioritised (11px,
+    // bottom-right, muted) but always present.
+    const skipIntro = page.getByRole("button", { name: /skip intro/i });
+    await expect(skipIntro).toBeVisible({ timeout: 5_000 });
+    await skipIntro.click();
 
-    // Dismiss via Skip.
-    await skip.click();
-    await expect(skip).toHaveCount(0);
-
-    // Reload — overlay doesn't reappear (flag persisted to the server).
+    // After skip we land on the dashboard (empty profile → "/") and the
+    // server-backed welcomeDone flag is true, so reload does not re-route
+    // through /welcome.
+    await expect(page).not.toHaveURL(/\/welcome$/, { timeout: 5_000 });
     await page.reload();
-    await expect(page.getByRole("button", { name: /skip onboarding/i })).toHaveCount(0);
+    await expect(page).not.toHaveURL(/\/welcome$/, { timeout: 5_000 });
   });
 
-  test("WelcomeOverlay stepping through with 'Got it' also persists the done flag", async ({ page }) => {
+  test("Cinematic auto-advances into hello-world with ?firstRun=1", async ({ page }) => {
     await loadProfile(page, "empty", { onboarded: false });
-    await page.goto("/");
+    await page.goto("/welcome");
 
-    // 3 steps — click Got it three times. The advance handler has a 200ms
-    // debounce to swallow double-fires from backdrop/button overlap, so we
-    // pace the clicks to be safely past that window.
-    for (let i = 0; i < 3; i++) {
-      const gotIt = page.getByRole("button", { name: /^got it$/i });
-      await expect(gotIt).toBeVisible({ timeout: 5_000 });
-      await gotIt.click();
-      await page.waitForTimeout(250);
-    }
-    // Overlay unmounts on final advance; reload to confirm the server flag.
-    await expect(page.getByRole("button", { name: /^got it$/i })).toHaveCount(0, {
-      timeout: 3_000,
+    // The scripted cinematic runs ~14s end-to-end and then navigates to the
+    // first lesson with the firstRun flag. We allow a generous budget —
+    // reduced-motion short-circuit also respects the same terminal nav.
+    await expect(page).toHaveURL(/lesson\/hello-world\?.*firstRun=1/, {
+      timeout: 20_000,
     });
-    await page.reload();
-    await expect(page.getByRole("button", { name: /skip onboarding/i })).toHaveCount(0);
   });
 
   test("Dashboard welcome banner renders for welcomed-not-started", async ({ page }) => {

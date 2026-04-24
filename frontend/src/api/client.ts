@@ -213,6 +213,11 @@ export interface UserPreferences {
   // backend (encrypted at rest in user_preferences) — the frontend only
   // learns whether one is set, never the value itself.
   hasOpenaiKey: boolean;
+  // First-run cinematic: timestamp of the last time the daily welcome-
+  // back overlay was shown. Server-backed so one device's heartbeat
+  // suppresses the next device's — a learner who got welcomed on
+  // laptop at 9am shouldn't be re-welcomed on phone at noon.
+  lastWelcomeBackAt: string | null;
   updatedAt: string;
 }
 
@@ -224,6 +229,7 @@ export interface UserPreferencesPatch {
   workspaceCoachDone?: boolean;
   editorCoachDone?: boolean;
   uiLayout?: Record<string, unknown>;
+  lastWelcomeBackAt?: string | null;
 }
 
 export interface ServerCourseProgress {

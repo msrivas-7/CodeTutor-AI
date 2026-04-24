@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion"; // still used on the landing cards
-import { WelcomeOverlay } from "../components/WelcomeOverlay";
 import { UserMenu } from "../components/UserMenu";
 import { FeedbackButton } from "../components/FeedbackButton";
 import { AmbientGlyphField } from "../components/AmbientGlyphField";
@@ -21,16 +20,32 @@ interface ResumeTarget {
 
 export default function StartPage() {
   const nav = useNavigate();
-  const [showWelcome, setShowWelcome] = useState(false);
   const welcomeDone = usePreferencesStore((s) => s.welcomeDone);
+  const prefsHydrated = usePreferencesStore((s) => s.hydrated);
   const courseProgressMap = useProgressStore((s) => s.courseProgress);
+  const progressHydrated = useProgressStore((s) => s.hydrated);
 
+  // Redirect any learner with welcomeDone=false into the /welcome
+  // cinematic before StartPage's card grid renders. Wait for BOTH
+  // stores to hydrate so a returning user on a flaky connection
+  // doesn't briefly see the redirect fire before their welcomeDone
+  // lands from the server.
+  //
+  // Previous revisions carried an existing-user backfill gated on
+  // `user.created_at < FIRST_RUN_SHIP_DATE` that silently flipped
+  // welcomeDone=true for accounts predating the cinematic — so we
+  // didn't ambush longtime users with a welcome they never asked
+  // for. That backfill was removed deliberately: after the
+  // ship-date wipe of everyone's progress + onboarding flags, ALL
+  // accounts should see the cinematic on next login (that was the
+  // whole point of the wipe). If we ever add another soft-launch
+  // rollout we can bring the backfill back with a fresh date.
   useEffect(() => {
-    if (!welcomeDone) {
-      const t = setTimeout(() => setShowWelcome(true), 300);
-      return () => clearTimeout(t);
-    }
-  }, [welcomeDone]);
+    if (!prefsHydrated || !progressHydrated) return;
+    if (welcomeDone) return;
+    nav("/welcome", { replace: true });
+  }, [prefsHydrated, progressHydrated, welcomeDone, nav]);
+
   const headerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<HTMLButtonElement>(null);
   const guidedRef = useRef<HTMLButtonElement>(null);
@@ -181,12 +196,6 @@ export default function StartPage() {
         CodeTutor AI © 2026 Mehul Srivastava — All rights reserved
       </footer>
 
-      {showWelcome && (
-        <WelcomeOverlay
-          refs={{ header: headerRef.current, editorCard: editorRef.current, guidedCard: guidedRef.current }}
-          onDismiss={() => setShowWelcome(false)}
-        />
-      )}
     </div>
   );
 }

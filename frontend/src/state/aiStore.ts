@@ -38,6 +38,13 @@ interface AIState {
   askError: string | null;
 
   pending: { raw: string; sections: TutorSections } | null;
+  // Separate flag for the pending stream so the renderer can tell
+  // "this is a scripted first-run turn" vs "this is a real LLM
+  // reply." Set true by the first-run choreography via
+  // startScriptedStream; falls back to false on clearStream. History
+  // messages carry the same signal via AIMessage.meta.scripted —
+  // pendingScripted is the live-stream equivalent.
+  pendingScripted: boolean;
 
   // Phase-2 context tracking. `lastTurnFiles` is the snapshot we sent with the
   // most recent user ask; diff computation compares the current snapshot
@@ -93,11 +100,20 @@ interface AIState {
   bumpFocusComposer: () => void;
 
   pushUser: (content: string) => void;
-  pushAssistant: (content: string, sections?: TutorSections, usage?: TokenUsage) => void;
+  pushAssistant: (
+    content: string,
+    sections?: TutorSections,
+    usage?: TokenUsage,
+    meta?: AIMessage["meta"],
+  ) => void;
   setAsking: (on: boolean) => void;
   setAskError: (e: string | null) => void;
 
   startStream: () => void;
+  // Kicks off a pending stream AND flags it as scripted so the renderer
+  // swaps to the cinematic-voice presentation. Called by the first-run
+  // choreography's scripted-turn helper.
+  startScriptedStream: () => void;
   updateStream: (raw: string, sections: TutorSections) => void;
   clearStream: () => void;
 
@@ -163,6 +179,7 @@ export const useAIStore = create<AIState>((set, get) => ({
   askError: null,
 
   pending: null,
+  pendingScripted: false,
 
   lastTurnFiles: null,
   runsSinceLastTurn: 0,
@@ -217,9 +234,12 @@ export const useAIStore = create<AIState>((set, get) => ({
     set((s) => ({ history: [...s.history, { role: "user", content }] }));
     saveChatToCache(get);
   },
-  pushAssistant: (content, sections, usage) => {
+  pushAssistant: (content, sections, usage, meta) => {
     set((s) => ({
-      history: [...s.history, { role: "assistant", content, sections, usage }],
+      history: [
+        ...s.history,
+        { role: "assistant", content, sections, usage, meta },
+      ],
       sessionUsage: usage
         ? {
             inputTokens: s.sessionUsage.inputTokens + usage.inputTokens,
@@ -233,9 +253,12 @@ export const useAIStore = create<AIState>((set, get) => ({
   setAsking: (on) => set({ asking: on }),
   setAskError: (e) => set({ askError: e }),
 
-  startStream: () => set({ pending: { raw: "", sections: {} } }),
+  startStream: () =>
+    set({ pending: { raw: "", sections: {} }, pendingScripted: false }),
+  startScriptedStream: () =>
+    set({ pending: { raw: "", sections: {} }, pendingScripted: true }),
   updateStream: (raw, sections) => set({ pending: { raw, sections } }),
-  clearStream: () => set({ pending: null }),
+  clearStream: () => set({ pending: null, pendingScripted: false }),
 
   noteEdit: () => set((s) => ({ editsSinceLastTurn: s.editsSinceLastTurn + 1 })),
   noteRun: () => set((s) => ({ runsSinceLastTurn: s.runsSinceLastTurn + 1 })),

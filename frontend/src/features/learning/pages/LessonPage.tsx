@@ -1,5 +1,5 @@
-import { lazy, Suspense, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { LessonInstructionsPanel } from "../components/LessonInstructionsPanel";
 import { PracticeInstructionsView } from "../components/PracticeInstructionsView";
 import { GuidedTutorPanel } from "../components/GuidedTutorPanel";
@@ -41,12 +41,17 @@ import {
 import { useLessonLoader } from "../hooks/useLessonLoader";
 import { useLessonRunner } from "../hooks/useLessonRunner";
 import { useLessonValidator } from "../hooks/useLessonValidator";
+import { useFirstRunChoreography } from "../../firstRun/useFirstRunChoreography";
+import { resolveFirstName } from "../../firstRun/resolveFirstName";
+import { useFirstRunStore } from "../../firstRun/useFirstRunStore";
+import { FirstRunSpotlight } from "../../firstRun/FirstRunSpotlight";
 
 export default function LessonPage() {
   const { courseId, lessonId } = useParams<{
     courseId: string;
     lessonId: string;
   }>();
+  const [searchParams] = useSearchParams();
   const nav = useNavigate();
   const user = useAuthStore((s) => s.user);
   const learnerId = user!.id;
@@ -54,6 +59,7 @@ export default function LessonPage() {
 
   const lessonProgressMap = useProgressStore((s) => s.lessonProgress);
   const hasOpenaiKey = usePreferencesStore((s) => s.hasOpenaiKey);
+  const workspaceCoachDone = usePreferencesStore((s) => s.workspaceCoachDone);
   const selectedModel = useAIStore((s) => s.selectedModel);
   const tutorConfigured = !!selectedModel && hasOpenaiKey;
   const keys = useShortcutLabels();
@@ -66,12 +72,36 @@ export default function LessonPage() {
   const [practiceIndex, setPracticeIndex] = useState(0);
   const savedLessonCode = useRef<Record<string, string> | null>(null);
 
+  const isFirstRun = searchParams.get("firstRun") === "1";
+
+  // Lesson-progress reset on the first-run handoff. Parallel to
+  // `forceStarter` for code: a replay user (already completed
+  // hello-world) who rides the cinematic deserves the full lesson-
+  // complete celebration at the end — confetti, "Next lesson" panel.
+  // If we leave progress intact, the Check button still works but
+  // the completion beat is muted (it already happened once). Wipe
+  // once per mount so the pass event is a real first-time win.
+  const firstRunResetRef = useRef(false);
+  useEffect(() => {
+    if (!isFirstRun || firstRunResetRef.current) return;
+    if (!courseId || !lessonId || !learnerId) return;
+    firstRunResetRef.current = true;
+    useProgressStore
+      .getState()
+      .resetLessonProgress(learnerId, courseId, lessonId);
+  }, [isFirstRun, courseId, lessonId, learnerId]);
+
   const loader = useLessonLoader({
     courseId,
     lessonId,
     learnerId,
     practiceMode,
     practiceIndex,
+    // First-run cinematic relies on the authored starter code being
+    // present verbatim (the scripted "change 'Hello, Python!' to
+    // 'Hello, world!'" beat). Skip the resume-from-savedCode branch
+    // when landing here via the cinematic hand-off.
+    forceStarter: isFirstRun,
   });
   const layout = useLessonLayout({ lessonReady: !!loader.lesson && !loader.loading });
   const runner = useLessonRunner({
@@ -103,6 +133,70 @@ export default function LessonPage() {
       runner.setHasEdited(false);
       runner.setHasRun(false);
     },
+  });
+
+  // First-run scripted narration — runs when the learner lands on
+  // hello-world with ?firstRun=1 from /welcome. The hook is a no-op
+  // when enabled:false and cleans up on unmount. We resolve firstName
+  // here so the hook doesn't re-read user.user_metadata shape.
+  //
+  // Gated on the URL param ALONE — not on welcomeDone. The previous
+  // `!welcomeDone` guard created a race: FirstRunGreeting.handleComplete
+  // flips welcomeDone=true optimistically BEFORE navigating to the
+  // lesson URL, so by the time LessonPage mounted, welcomeDone was
+  // already true and the hook short-circuited to disabled — the
+  // scripted narration never fired. The URL param is only set by
+  // FirstRunGreeting's own handoff, so keying off it is sufficient.
+  //
+  // Also gate on the WorkspaceCoach being complete AND off-screen:
+  // brand-new users see the 6-step spotlight tour first (auto-opens
+  // ~3s after lesson mounts). Firing scripted tutor turns in parallel
+  // would double-narrate the same moment. The `!layout.showCoach`
+  // check covers the live render-state (the coach is unmounted), and
+  // `workspaceCoachDone` covers the "we've actually been through it"
+  // assertion — without the persistent flag, the initial 3s window
+  // before auto-open would falsely pass the gate.
+  const firstRunStep = useFirstRunStore((s) => s.step);
+  // Map the scripted-tutor step to the surface we want to spotlight.
+  // The tutor panel gets the glow whenever the scripted turn is
+  // streaming (user should follow the typing); the Run button gets
+  // the glow right before auto-click; the Check button gets the glow
+  // when we nudge the learner to validate.
+  const spotlightTutor =
+    isFirstRun &&
+    (firstRunStep === "greet" ||
+      firstRunStep === "celebrateRun" ||
+      firstRunStep === "praiseEditRun");
+  const spotlightRun = isFirstRun && firstRunStep === "awaitRun";
+  const spotlightCheck = isFirstRun && firstRunStep === "awaitCheck";
+
+  // Lock the tutor composer + hint / action chips while the scripted
+  // choreography is mid-sentence. The last scripted message is
+  // praiseEditRun; once the step transitions to awaitCheck (or later),
+  // hand the panel back to the learner. "idle" also locks so the
+  // moment between mount and the first `start()` tick doesn't let the
+  // learner type into an empty panel before the greeting lands.
+  const tutorInputLocked =
+    isFirstRun &&
+    (firstRunStep === "idle" ||
+      firstRunStep === "greet" ||
+      firstRunStep === "awaitRun" ||
+      firstRunStep === "celebrateRun" ||
+      firstRunStep === "awaitEdit" ||
+      firstRunStep === "praiseEditRun");
+
+  useFirstRunChoreography({
+    enabled:
+      isFirstRun && !layout.showCoach && workspaceCoachDone,
+    firstName: resolveFirstName(user),
+    runner: {
+      canRun: runner.canRun,
+      hasRun: runner.hasRun,
+      hasEdited: runner.hasEdited,
+      running: runner.running,
+      handleRun: runner.handleRun,
+    },
+    validator: { validation: validator.validation ?? null },
   });
 
   if (!courseId || !lessonId) return null;
@@ -671,6 +765,7 @@ export default function LessonPage() {
                   onCollapse={() => layout.setTutorCollapsed(true)}
                   onOpenSettings={() => layout.setShowSettings(true)}
                   resetNonce={validator.resetNonce}
+                  inputLocked={tutorInputLocked}
                 />
               </aside>
             </>
@@ -741,6 +836,21 @@ export default function LessonPage() {
           onComplete={() => layout.setShowCoach(false)}
         />
       )}
+      <FirstRunSpotlight
+        targetRef={layout.tutorRef}
+        active={spotlightTutor}
+        size="large"
+      />
+      <FirstRunSpotlight
+        targetRef={layout.runBtnRef}
+        active={spotlightRun}
+        size="small"
+      />
+      <FirstRunSpotlight
+        targetRef={layout.checkBtnRef}
+        active={spotlightCheck}
+        size="small"
+      />
       {validator.confirmResetLesson && (
         <Modal
           onClose={() => validator.setConfirmResetLesson(false)}

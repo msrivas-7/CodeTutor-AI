@@ -31,9 +31,15 @@ interface GuidedTutorPanelProps {
   onCollapse?: () => void;
   onOpenSettings?: () => void;
   resetNonce?: number;
+  // When true, the composer + Ask / action chips / hint button are
+  // disabled. Used by LessonPage during the first-run scripted
+  // choreography so the learner doesn't type into the tutor mid-
+  // narration — we want them to watch the scripted turn land before
+  // taking the wheel.
+  inputLocked?: boolean;
 }
 
-export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, priorConcepts, onCollapse, onOpenSettings, resetNonce }: GuidedTutorPanelProps) {
+export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, priorConcepts, onCollapse, onOpenSettings, resetNonce, inputLocked }: GuidedTutorPanelProps) {
   const incrementHint = useProgressStore((s) => s.incrementHint);
   // Derive the hint cap from the DB-backed hint_count (not local component
   // state) so the limit survives navigation + reload. Local state rewinds on
@@ -49,6 +55,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
     asking,
     askError,
     pending,
+    pendingScripted,
     setAskError,
     clearConversation,
     runsSinceLastTurn,
@@ -284,6 +291,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
                   sections={m.sections}
                   onAsk={isLatestAssistant ? setPendingAsk : undefined}
                   disabled={asking}
+                  scripted={m.meta?.scripted}
                 />
               ) : (
                 <div className="whitespace-pre-wrap rounded-md border border-border bg-elevated/60 px-3 py-2 text-xs text-ink/90">
@@ -306,7 +314,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
                             pendingHintRef.current = true;
                             setPendingAsk(prompts[idx]);
                           }}
-                          disabled={asking}
+                          disabled={asking || inputLocked}
                           aria-label={`${hintLevel === 0 ? "Hint" : hintLevel === 1 ? "Stronger hint" : "Show approach"} — level ${hintLevel + 1} of 3`}
                           title={`Hint ${hintLevel + 1} of 3 — gentler first, stronger on each tap`}
                           className="flex items-center gap-1 rounded-full border border-warn/40 bg-warn/10 px-2 py-[2px] text-[10px] font-medium text-warnInk transition hover:bg-warn/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-warn disabled:cursor-not-allowed disabled:opacity-50"
@@ -326,7 +334,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
                           <span>All hints used</span>
                         </span>
                       )}
-                      <ActionChips onAsk={setPendingAsk} disabled={asking} />
+                      <ActionChips onAsk={setPendingAsk} disabled={asking || inputLocked} />
                     </div>
                   )}
                   <div className="flex items-center justify-end">
@@ -342,7 +350,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
 
         {asking && (
           pending && hasTutorContent(pending.sections)
-            ? <TutorResponseView sections={pending.sections} disabled streaming />
+            ? <TutorResponseView sections={pending.sections} disabled streaming scripted={pendingScripted} />
             : <ThinkingSkeleton />
         )}
         {askError && (
@@ -378,15 +386,17 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder={
-                activeSelection
-                  ? "Ask about the selection…"
-                  : configured
-                    ? "Ask about this lesson..."
-                    : exhausted
-                      ? `Free tutor resets ${formatReset(aiStatus?.resetAtUtc ?? null)}`
-                      : "Configure API key first"
+                inputLocked
+                  ? "Watch for a sec — I'll hand the panel back."
+                  : activeSelection
+                    ? "Ask about the selection…"
+                    : configured
+                      ? "Ask about this lesson..."
+                      : exhausted
+                        ? `Free tutor resets ${formatReset(aiStatus?.resetAtUtc ?? null)}`
+                        : "Configure API key first"
               }
-              disabled={!configured}
+              disabled={!configured || inputLocked}
               rows={2}
               aria-label="Ask the tutor"
               className="w-full resize-none rounded-md border border-border bg-elevated px-2.5 py-2 text-xs text-ink transition placeholder:text-faint focus:border-accent/60 disabled:cursor-not-allowed disabled:bg-elevated/40 disabled:opacity-50"
@@ -403,7 +413,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
                 <kbd className="kbd">{keys.newline}</kbd>
                 <span>newline</span>
               </div>
-              {asking ? (
+              {asking && !inputLocked ? (
                 <button
                   onClick={cancelAsk}
                   title="Stop the current response"
@@ -412,10 +422,17 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
                   <span className="inline-block h-2 w-2 rounded-sm bg-danger" />
                   Stop
                 </button>
+              ) : asking && inputLocked ? (
+                // During the scripted choreography we deliberately
+                // swallow Stop — a learner halfway through their first
+                // moment shouldn't be able to derail the guide that's
+                // still introducing itself. Keep the footer height
+                // stable with a spacer so the layout doesn't jump.
+                <span className="h-6" aria-hidden="true" />
               ) : (
                 <button
                   onClick={handleSubmit}
-                  disabled={!draft.trim() || !configured}
+                  disabled={!draft.trim() || !configured || inputLocked}
                   className="rounded-md bg-accent px-3 py-1 text-[11px] font-semibold text-bg transition hover:bg-accentMuted disabled:cursor-not-allowed disabled:bg-elevated disabled:text-faint"
                 >
                   Ask

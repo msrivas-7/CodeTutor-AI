@@ -331,6 +331,7 @@ export function TutorResponseView({
   onAsk,
   disabled,
   streaming,
+  scripted,
 }: {
   sections: TutorSections;
   onAsk?: (q: string) => void;
@@ -340,9 +341,37 @@ export function TutorResponseView({
   // OpenAI is actively streaming text into). Callers pass this for the
   // in-flight `pending` message only; committed messages render plain.
   streaming?: boolean;
+  // First-run scripted turns (from useFirstRunChoreography) should
+  // feel like a continuation of the /welcome cinematic's voice —
+  // Fraunces, larger, more deliberate — not small italic summary
+  // chrome. When true, the summary line is rendered as a hero
+  // statement and the other sections are hidden (scripted turns
+  // only populate `summary`). Blinking cursor trails while streaming.
+  scripted?: boolean;
 }) {
   if (!hasTutorContent(sections)) {
     return <div className="text-xs italic text-faint">(empty response)</div>;
+  }
+
+  // Scripted branch: dedicated hero rendering. We sidestep the
+  // intent-badge / sections layout entirely — scripted messages only
+  // fill `summary`, so there's nothing else to show. The cursor is
+  // only added during `streaming` (pending state); committed history
+  // messages just render the final prose in the same voice.
+  if (scripted && sections.summary) {
+    return (
+      <div className="py-1">
+        <p className="whitespace-pre-wrap font-display text-[15px] font-[500] leading-[1.4] tracking-[-0.015em] text-ink">
+          {sections.summary}
+          {streaming && (
+            <span
+              aria-hidden="true"
+              className="ml-[2px] inline-block h-[0.9em] w-[2px] -translate-y-[1px] bg-accent align-middle animate-blink"
+            />
+          )}
+        </p>
+      </div>
+    );
   }
 
   // Determine which section (if any) should host the caret — reverse of

@@ -37,6 +37,10 @@ interface PreferencesState {
   editorCoachDone: boolean;
   uiLayout: Record<string, unknown>;
   hasOpenaiKey: boolean;
+  // First-run cinematic: ISO timestamp of the most recent welcome-back
+  // overlay shown. Null = never shown since account creation. Written
+  // via patch() on every dismissal — same contract as welcomeDone &c.
+  lastWelcomeBackAt: string | null;
 
   hydrate: (gen?: number) => Promise<void>;
   reset: () => void;
@@ -63,6 +67,7 @@ const DEFAULTS: Omit<
   editorCoachDone: false,
   uiLayout: {},
   hasOpenaiKey: false,
+  lastWelcomeBackAt: null,
 };
 
 function applyServer(prefs: UserPreferences): Partial<PreferencesState> {
@@ -75,6 +80,7 @@ function applyServer(prefs: UserPreferences): Partial<PreferencesState> {
     editorCoachDone: prefs.editorCoachDone,
     uiLayout: prefs.uiLayout ?? {},
     hasOpenaiKey: prefs.hasOpenaiKey,
+    lastWelcomeBackAt: prefs.lastWelcomeBackAt,
     hydrated: true,
   };
 }
@@ -125,6 +131,8 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
     if (body.editorCoachDone !== undefined)
       optimistic.editorCoachDone = body.editorCoachDone;
     if (body.uiLayout !== undefined) optimistic.uiLayout = body.uiLayout;
+    if (body.lastWelcomeBackAt !== undefined)
+      optimistic.lastWelcomeBackAt = body.lastWelcomeBackAt;
     set(optimistic);
 
     try {
@@ -140,6 +148,7 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
         workspaceCoachDone: prior.workspaceCoachDone,
         editorCoachDone: prior.editorCoachDone,
         uiLayout: prior.uiLayout,
+        lastWelcomeBackAt: prior.lastWelcomeBackAt,
       });
       throw err;
     }
@@ -244,4 +253,22 @@ export function markOnboardingDone(
   void usePreferencesStore.getState().patch({ [flag]: true }).catch(() => {
     /* already logged */
   });
+}
+
+// Completing the first-run cinematic should count as "being welcomed"
+// for the day — otherwise the WelcomeBackOverlay fires on the very
+// next dashboard visit (lastWelcomeBackAt is still null), which reads
+// as two welcomes stacked back-to-back. Stamping the timestamp here
+// suppresses the overlay for the next 6h / until the next calendar
+// day — exactly the same rule a real welcome-back dismissal follows.
+export function markFirstRunComplete(): void {
+  void usePreferencesStore
+    .getState()
+    .patch({
+      welcomeDone: true,
+      lastWelcomeBackAt: new Date().toISOString(),
+    })
+    .catch(() => {
+      /* already logged */
+    });
 }
