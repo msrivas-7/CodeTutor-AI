@@ -38,6 +38,18 @@ function Loading() {
 // itself via content-level stagger-ins on mount. That way the top
 // chrome (headers, toolbars) doesn't warp during nav — only the
 // content below it animates in.
+//
+// An earlier Cinema Kit pass tried wrapping Outlet in AnimatePresence
+// with a pathname-keyed motion.div for a blur-resolve crossfade. The
+// mount/unmount pattern meant the outgoing route's subtree stayed
+// live during its exit animation — Monaco editors, running
+// typewriters, and scripted streams all kept executing on the old
+// LessonPage while the new one was mounting, producing visible
+// "double-typing" and render flicker. The crossfade was rolled back.
+// Route transitions at the framework level are the wrong layer for
+// this product's cinematic grammar; the kit lives on compound
+// moments (RingPulse on Run/Check) and return surfaces (FilmGrain
+// on ResumeLearningCard, streak pill on CourseOverview) instead.
 function AuthedLayout() {
   return (
     <RequireAuth>

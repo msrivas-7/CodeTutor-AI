@@ -16,6 +16,7 @@ interface ResumeTarget {
   course: Course;
   progress: CourseProgress;
   nextLesson: LessonMeta | null;
+  totalLessons: number;
 }
 
 export default function StartPage() {
@@ -97,7 +98,12 @@ export default function StartPage() {
         const nextLesson =
           lessons.find((l) => !progress.completedLessonIds.includes(l.id)) ??
           null;
-        setResumeTarget({ course, progress, nextLesson });
+        setResumeTarget({
+          course,
+          progress,
+          nextLesson,
+          totalLessons: lessons.length,
+        });
       } catch {
         if (!cancelled) setResumeTarget(null);
       }
@@ -132,6 +138,7 @@ export default function StartPage() {
               courseTitle={resumeTarget.course.title}
               progress={resumeTarget.progress}
               nextLesson={resumeTarget.nextLesson}
+              totalLessons={resumeTarget.totalLessons}
               onResume={() =>
                 nav(
                   `/learn/course/${resumeTarget.course.id}/lesson/${resumeTarget.nextLesson!.id}`,

@@ -88,6 +88,43 @@ export default function CourseOverviewPage() {
   const courseComplete = lessons.length > 0 && completedIds.length >= lessons.length;
   useCourseCompleteBurst({ courseId, isComplete: courseComplete });
 
+  // Cinema Kit — streak signal for returning learners. Derives the most
+  // recent activity across lessons in THIS course (not-started rows
+  // excluded so a stale "never touched" updatedAt can't fake a streak).
+  // Translates to an "Active today" or "Back this week" pill next to
+  // the progress counter. No pill for idle > 7 days — the silence is
+  // the signal there.
+  const lastActivityMs = (() => {
+    let max = 0;
+    for (const l of lessons) {
+      const lp = lessonProgressMap[`${courseId}/${l.id}`];
+      if (!lp || lp.status === "not_started") continue;
+      const t = Date.parse(lp.updatedAt);
+      if (!Number.isNaN(t) && t > max) max = t;
+    }
+    return max;
+  })();
+  const activityPill = (() => {
+    if (lastActivityMs === 0) return null;
+    const delta = Date.now() - lastActivityMs;
+    const ONE_DAY = 24 * 60 * 60 * 1000;
+    if (delta < ONE_DAY) {
+      return {
+        label: "Active today",
+        className:
+          "rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-success ring-1 ring-success/30",
+      };
+    }
+    if (delta <= 7 * ONE_DAY) {
+      return {
+        label: "Back this week",
+        className:
+          "rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-accent ring-1 ring-accent/30",
+      };
+    }
+    return null;
+  })();
+
   return (
     <div className="relative flex h-full flex-col bg-bg text-ink">
       <header className="relative z-20 flex items-center gap-3 border-b border-border bg-panel/80 px-4 py-2 backdrop-blur">
@@ -192,8 +229,17 @@ export default function CourseOverviewPage() {
                   Progress
                 </span>
                 <div className="flex items-center gap-2 text-[11px]">
-                  <span className="font-medium text-ink">
-                    {completedIds.length}/{lessons.length} lessons
+                  {/* Cinema Kit — Fraunces echo. The completed-count
+                      number carries the cinematic's display face.
+                      Reading surfaces don't earn grain or rings; the
+                      typographic echo is the continuity signal. */}
+                  <span className="text-ink">
+                    <span className="font-display text-[16px] font-semibold">
+                      {completedIds.length}
+                    </span>
+                    <span className="font-medium text-muted">
+                      /{lessons.length} lessons
+                    </span>
                   </span>
                   {practiceGrandTotal > 0 && (
                     <>
@@ -202,6 +248,13 @@ export default function CourseOverviewPage() {
                         {practiceDoneTotal}/{practiceGrandTotal} practice
                       </span>
                     </>
+                  )}
+                  {/* Cinema Kit — streak pill. Only renders when the
+                      learner's been active within the last week. */}
+                  {activityPill && (
+                    <span className={activityPill.className}>
+                      {activityPill.label}
+                    </span>
                   )}
                   {cp && cp.status !== "not_started" && (
                     <button

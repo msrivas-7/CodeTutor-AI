@@ -294,13 +294,20 @@ export default function LearningDashboardPage() {
                 </StaggerItem>
               )}
 
-              {/* Might need review — mastery-driven */}
+              {/* Cinema Kit — reframed from "Might Need Review" (warn-
+                  yellow, diagnostic) to "Lessons Worth a Second Pass"
+                  (violet, invitation). The violet here isn't random —
+                  it's the same fill-light hue from the cinematic's
+                  three-point rig. Mastery data is the same; the
+                  framing says "growth," not "damage control." */}
               {shakyLessons.length > 0 && (
                 <StaggerItem className="mb-8">
-                  <h2 className="mb-3 text-sm font-bold text-muted">Might Need Review</h2>
-                  <div className="rounded-xl border border-warn/20 bg-warn/5 p-4">
-                    <p className="mb-3 text-[11px] leading-relaxed text-warn/80">
-                      These lessons took extra effort — revisiting them will strengthen what you learned.
+                  <h2 className="mb-3 text-sm font-bold text-muted">
+                    Lessons Worth a Second Pass
+                  </h2>
+                  <div className="rounded-xl border border-violet/25 bg-violet/5 p-4">
+                    <p className="mb-3 text-[11px] leading-relaxed text-violet/85">
+                      These ones took more passes. Worth sitting with again — the second read usually clicks.
                     </p>
                     <div className="space-y-2">
                       {shakyLessons.map((s) => {
@@ -308,9 +315,9 @@ export default function LearningDashboardPage() {
                         return (
                           <div
                             key={s.lessonId}
-                            className="flex items-center gap-3 rounded-lg border border-warn/20 bg-bg/40 px-3 py-2.5"
+                            className="flex items-center gap-3 rounded-lg border border-violet/20 bg-bg/40 px-3 py-2.5"
                           >
-                            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-warn/15 text-[11px] font-bold text-warn">
+                            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-violet/15 text-[11px] font-bold text-violet">
                               {s.meta.order}
                             </span>
                             <div className="min-w-0 flex-1">
@@ -319,10 +326,10 @@ export default function LearningDashboardPage() {
                                 <span
                                   className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${
                                     priority === "high"
-                                      ? "bg-danger/20 text-danger"
-                                      : "bg-warn/20 text-warn"
+                                      ? "bg-violet/25 text-violet"
+                                      : "bg-violet/15 text-violet/80"
                                   }`}
-                                  title={priority === "high" ? "Multiple signals suggest review now" : "Some signals suggest a quick review"}
+                                  title={priority === "high" ? "Multiple signals suggest revisiting now" : "Some signals suggest a quick revisit"}
                                 >
                                   {priority === "high" ? "Priority" : "Suggested"}
                                 </span>
@@ -331,7 +338,7 @@ export default function LearningDashboardPage() {
                                 {s.reasons.map((r, i) => (
                                   <span
                                     key={i}
-                                    className="rounded-full border border-warn/20 bg-warn/10 px-2 py-0.5 text-[10px] font-medium text-warn/90"
+                                    className="rounded-full border border-violet/20 bg-violet/10 px-2 py-0.5 text-[10px] font-medium text-violet/90"
                                   >
                                     {r}
                                   </span>
@@ -340,10 +347,10 @@ export default function LearningDashboardPage() {
                             </div>
                             <button
                               onClick={() => nav(`/learn/course/${s.courseId}/lesson/${s.lessonId}`)}
-                              className="shrink-0 rounded-md bg-warn/15 px-3 py-1.5 text-[11px] font-semibold text-warn transition hover:bg-warn/25"
-                              aria-label={`Review lesson ${s.meta.order}: ${s.meta.title}`}
+                              className="shrink-0 rounded-md bg-violet/15 px-3 py-1.5 text-[11px] font-semibold text-violet transition hover:bg-violet/25"
+                              aria-label={`Revisit lesson ${s.meta.order}: ${s.meta.title}`}
                             >
-                              Review →
+                              Revisit →
                             </button>
                           </div>
                         );

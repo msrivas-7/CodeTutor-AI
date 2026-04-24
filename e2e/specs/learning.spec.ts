@@ -199,21 +199,22 @@ test.describe("learning", () => {
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
   });
 
-  test("dashboard renders Might Need Review card + reason pills", async ({ page }) => {
+  test("dashboard renders 'Lessons Worth a Second Pass' card + reason pills", async ({ page }) => {
     // needs-help-dashboard seeds 3 lessons with shaky mastery signals. The
-    // review card is the human-visible surface of Phase 7's adaptive
-    // reinforcement.
+    // card is the human-visible surface of Phase 7's adaptive reinforcement.
+    // Cinema Kit reframed this from "Might Need Review" (warn) to "Lessons
+    // Worth a Second Pass" (violet, invitation-flavored copy).
     await loadProfile(page, "needs-help-dashboard");
     await page.goto("/learn");
 
     const reviewSection = page
       .locator("div")
-      .filter({ has: page.getByRole("heading", { name: /might need review/i }) })
+      .filter({ has: page.getByRole("heading", { name: /lessons worth a second pass/i }) })
       .first();
     await expect(reviewSection).toBeVisible({ timeout: 10_000 });
 
-    // Each shaky lesson row has a "Review →" button.
-    const reviewBtns = page.getByRole("button", { name: /^review lesson \d+/i });
+    // Each shaky lesson row has a "Revisit →" button.
+    const reviewBtns = page.getByRole("button", { name: /^revisit lesson \d+/i });
     await expect(reviewBtns.first()).toBeVisible();
     await expect(await reviewBtns.count()).toBeGreaterThanOrEqual(1);
 
@@ -223,12 +224,12 @@ test.describe("learning", () => {
     ).toBeVisible();
   });
 
-  test("dashboard Review → navigates to the shaky lesson", async ({ page }) => {
+  test("dashboard Revisit → navigates to the shaky lesson", async ({ page }) => {
     await loadProfile(page, "needs-help-dashboard");
     await page.goto("/learn");
 
     const firstReview = page
-      .getByRole("button", { name: /^review lesson \d+/i })
+      .getByRole("button", { name: /^revisit lesson \d+/i })
       .first();
     await expect(firstReview).toBeVisible({ timeout: 10_000 });
     await firstReview.click();
