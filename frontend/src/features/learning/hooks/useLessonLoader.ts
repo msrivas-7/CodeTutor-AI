@@ -205,13 +205,23 @@ export function useLessonLoader({
     }
 
     const ctxKey = `lesson:${courseId}/${lessonId}`;
-    switchProjectContext(ctxKey, {
-      language: lesson.language,
-      files,
-      order,
-      activeFile: order[0],
-      openTabs: [order[0]],
-    });
+    // forceDefaults piggy-backs on forceStarter — both flags exist for
+    // the same first-run cinematic case where the AUTHORED starter
+    // must be visible. Without forceDefaults, projectCache would
+    // re-hydrate the user's previously-edited buffer for this context
+    // and the scripted "change Hello, Python! to Hello, world!" beat
+    // would land against text the user already changed.
+    switchProjectContext(
+      ctxKey,
+      {
+        language: lesson.language,
+        files,
+        order,
+        activeFile: order[0],
+        openTabs: [order[0]],
+      },
+      forceStarter ? { forceDefaults: true } : undefined,
+    );
   }, [lesson, courseId, lessonId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Debounced auto-save. Lesson-mode writes to `lastCode`; practice-mode

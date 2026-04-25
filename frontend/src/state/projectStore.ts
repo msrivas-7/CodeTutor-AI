@@ -79,6 +79,15 @@ interface ProjectState {
       activeFile: string | null;
       openTabs: string[];
     },
+    options?: {
+      // When true, drop any cached snapshot for this context BEFORE
+      // hydrating from `defaults`. Used by the first-run cinematic
+      // handoff so a replay learner whose previous edits are still
+      // sitting in projectCache lands on the AUTHORED starter code
+      // (the scripted "change Hello, Python! to Hello, world!" beat
+      // depends on the exact starter string being present).
+      forceDefaults?: boolean;
+    },
   ) => void;
 }
 
@@ -256,7 +265,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   resetToStarter: (lang) =>
     set({ language: lang, ...seedFor(lang) }),
 
-  switchProjectContext: (contextKey, defaults) => {
+  switchProjectContext: (contextKey, defaults, options) => {
     const state = get();
     if (state.projectContext) {
       touchProject(state.projectContext, {
@@ -268,7 +277,16 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       });
     }
 
-    if (state.projectContext === contextKey) return;
+    // forceDefaults short-circuits the same-context early return AND
+    // wipes the cached snapshot so the `defaults` branch below is the
+    // one that wins — without this, a replay first-run user whose
+    // edits are cached under this contextKey would silently re-hydrate
+    // into the editor instead of seeing the authored starter code.
+    if (options?.forceDefaults) {
+      projectCache.delete(contextKey);
+    } else if (state.projectContext === contextKey) {
+      return;
+    }
 
     // Read also promotes (see aiStore.ts switchChatContext for rationale).
     const saved = projectCache.get(contextKey);
