@@ -60,12 +60,14 @@ test.describe("settings panel", () => {
     await beginner.click();
     await expect(beginner).toHaveAttribute("aria-checked", "true");
     await expect(advanced).toHaveAttribute("aria-checked", "false");
-    // Descriptive blurb flips with the selection.
-    await expect(page.getByText(/assumes little prior knowledge/i)).toBeVisible();
+    // Descriptive blurb flips with the selection. Phase B rewrote the
+    // blurbs in the tutor's first-person voice ("I'll explain…",
+    // "Short and dense…").
+    await expect(page.getByText(/explain things from the ground up/i)).toBeVisible();
 
     await advanced.click();
     await expect(advanced).toHaveAttribute("aria-checked", "true");
-    await expect(page.getByText(/dense and technical/i)).toBeVisible();
+    await expect(page.getByText(/short and dense/i)).toBeVisible();
   });
 
   test("Show / hide API key toggle flips the input type on the draft input", async ({ page }) => {

@@ -231,7 +231,13 @@ function MarkdownContent({ text }: { text: string }) {
     } else if (line.startsWith("## ")) {
       elements.push(<h2 key={i} className="mb-1 mt-4 text-sm font-bold">{line.slice(3)}</h2>);
     } else if (line.startsWith("# ")) {
-      elements.push(<h1 key={i} className="mb-2 mt-4 text-base font-bold">{line.slice(2)}</h1>);
+      // Phase B: body markdown `# X` demoted from h1 to h2. The page's
+      // primary h1 is now the lesson title at the top of this panel
+      // (rendered above in Fraunces 28px); body content is subordinate.
+      // Keeps the document outline correct (single h1 per page) and
+      // avoids strict-mode collisions in tests that find the lesson
+      // title via getByRole({level: 1, name: /^title$/}).
+      elements.push(<h2 key={i} className="mb-2 mt-4 text-base font-bold">{line.slice(2)}</h2>);
     } else if (line.startsWith("```")) {
       const codeLines: string[] = [];
       i++;
