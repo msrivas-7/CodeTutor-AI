@@ -5,6 +5,7 @@ import { HOUSE_EASE } from "../../components/cinema/easing";
 import { FilmGrain } from "../../components/cinema/FilmGrain";
 import { CinematicLighting } from "../../components/cinema/CinematicLighting";
 import { RingPulse } from "../../components/cinema/RingPulse";
+import { useFirstRunStore } from "./useFirstRunStore";
 
 // The product's opening credits. Two modes:
 //
@@ -147,6 +148,17 @@ export function CinematicGreeting(props: CinematicGreetingProps) {
       if (terminalFiredRef.current) return;
       terminalFiredRef.current = true;
       setExiting(true);
+      // Cinema Kit Continuity Pass — match-cut handoff.
+      // Stamp the moment exit visually begins so the lesson page
+      // (which mounts ~exitMs from now) can detect "this mount IS
+      // the handoff" and render the inverted contracting ring that
+      // continues the cinematic's expanding ring across the cut.
+      // Only fire on full-mode cinematic — minimal mode is the
+      // welcome-back overlay which dissolves over its own surface,
+      // not into a lesson.
+      if (props.mode === "full") {
+        useFirstRunStore.getState().markCinematicExiting();
+      }
       // Allow the exit blur / fade to breathe before unmounting.
       const exitMs = props.mode === "full" ? 300 : 400;
       window.setTimeout(() => onCompleteRef.current(), exitMs);

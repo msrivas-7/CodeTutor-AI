@@ -88,7 +88,19 @@ export function EditorCoach({ refs, onComplete }: EditorCoachProps) {
   const targetEl = currentStep ? refs[currentStep.targetKey] : null;
 
   useEffect(() => {
-    if (!targetEl) {
+    // Skip steps whose target is missing OR has zero size. The
+    // zero-size case happens after the Cinema Kit Continuity Pass
+    // — collapsible panels (file tree, tutor) now stay mounted at
+    // width:0 with their refs still pointing at the DOM node.
+    // Without this guard the spotlight degrades to a 1-2 px slice
+    // and the bubble loses its anchor. Skip and advance.
+    const initialRect = targetEl?.getBoundingClientRect();
+    const targetUsable =
+      !!targetEl && !!initialRect && initialRect.width > 0 && initialRect.height > 0;
+    if (!targetUsable) {
+      // Clear stale rect so the spotlight doesn't paint at the prior
+      // step's coords for a frame during the cascade.
+      setTargetRect(null);
       if (step < STEPS.length - 1) setStep((s) => s + 1);
       else { markDone(); onComplete(); }
       return;
@@ -98,7 +110,17 @@ export function EditorCoach({ refs, onComplete }: EditorCoachProps) {
       if (rafId) return;
       rafId = requestAnimationFrame(() => {
         rafId = 0;
-        setTargetRect(targetEl.getBoundingClientRect());
+        const r = targetEl.getBoundingClientRect();
+        // Mid-tour collapse race: user toggles a panel while we're
+        // spotlighted on it. ResizeObserver fires here with 0×0;
+        // cascade to the next step instead of drawing a sliver.
+        if (r.width <= 0 || r.height <= 0) {
+          setTargetRect(null);
+          if (step < STEPS.length - 1) setStep((s) => s + 1);
+          else { markDone(); onComplete(); }
+          return;
+        }
+        setTargetRect(r);
       });
     };
     update();

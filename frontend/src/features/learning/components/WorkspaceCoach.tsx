@@ -98,7 +98,20 @@ export function WorkspaceCoach({ refs, onComplete }: WorkspaceCoachProps) {
   }, []);
 
   useEffect(() => {
-    if (!targetEl) {
+    // Skip steps whose target is missing OR has zero size. The
+    // zero-size case happens after the Cinema Kit Continuity Pass
+    // — collapsible panels (Instructions, Tutor, file tree, etc.)
+    // now stay mounted at width:0 with their refs still pointing
+    // at the DOM node. Without this guard the spotlight degrades
+    // to a 1-2 px slice and the bubble loses its anchor. Skip and
+    // advance to the next step.
+    const initialRect = targetEl?.getBoundingClientRect();
+    const targetUsable =
+      !!targetEl && !!initialRect && initialRect.width > 0 && initialRect.height > 0;
+    if (!targetUsable) {
+      // Clear the prior step's rect so we don't paint the spotlight
+      // at stale coordinates for a frame while the cascade resolves.
+      setTargetRect(null);
       if (step < STEPS.length - 1) setStep((s) => s + 1);
       else { markDone(); onComplete(); }
       return;
@@ -111,7 +124,18 @@ export function WorkspaceCoach({ refs, onComplete }: WorkspaceCoachProps) {
       if (rafId) return;
       rafId = requestAnimationFrame(() => {
         rafId = 0;
-        setTargetRect(targetEl.getBoundingClientRect());
+        const r = targetEl.getBoundingClientRect();
+        // If the panel collapses MID-TOUR (user clicks the chevron
+        // while we're spotlighted on it), the ResizeObserver fires
+        // here with a 0×0 rect. Cascade to the next step instead of
+        // painting a 1-px sliver.
+        if (r.width <= 0 || r.height <= 0) {
+          setTargetRect(null);
+          if (step < STEPS.length - 1) setStep((s) => s + 1);
+          else { markDone(); onComplete(); }
+          return;
+        }
+        setTargetRect(r);
       });
     };
     update();

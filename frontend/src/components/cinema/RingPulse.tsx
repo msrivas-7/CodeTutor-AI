@@ -45,6 +45,12 @@ export interface RingPulseProps {
   onDone?: () => void;
   /** Bump to replay the animation without remounting the parent. */
   replayKey?: number | string;
+  /** "expand" (default): scale 0 → maxScale, the natural pulse out
+   *  from the anchor. "contract": scale maxScale → 0, the inverse —
+   *  ring starts large, contracts inward. Used for match-cut
+   *  handoffs (cinematic exit's expanding ring continues into the
+   *  lesson page as a contracting ring landing on the Run button). */
+  direction?: "expand" | "contract";
 }
 
 interface SingleRingProps {
@@ -52,6 +58,7 @@ interface SingleRingProps {
   borderClass: string;
   delayMs: number;
   anchor: "self" | "viewport";
+  direction: "expand" | "contract";
 }
 
 function SingleRing({
@@ -59,17 +66,24 @@ function SingleRing({
   borderClass,
   delayMs,
   anchor,
+  direction,
 }: SingleRingProps) {
   const anchorClass =
     anchor === "viewport"
       ? "fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
       : "absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2";
+  const initialScale = direction === "expand" ? 0 : maxScale;
+  const finalScale = direction === "expand" ? maxScale : 0;
+  // Opacity arc is symmetric — fade in fast, fade out slow — which
+  // reads the same forwards or backwards. Same MATERIAL_EASE on
+  // scale gives the contracting ring the same kinetic feel as the
+  // expanding one.
   return (
     <motion.div
       aria-hidden="true"
       className={`pointer-events-none ${anchorClass} h-6 w-6 rounded-full border-2 ${borderClass}`}
-      initial={{ scale: 0, opacity: 0 }}
-      animate={{ scale: maxScale, opacity: [0, 0.8, 0] }}
+      initial={{ scale: initialScale, opacity: 0 }}
+      animate={{ scale: finalScale, opacity: [0, 0.8, 0] }}
       transition={{
         duration: CINEMA_DURATIONS.ringPulse / 1000,
         delay: delayMs / 1000,
@@ -110,6 +124,7 @@ export function RingPulse({
   delayMs = 0,
   onDone,
   replayKey,
+  direction = "expand",
 }: RingPulseProps) {
   const reduce = useReducedMotion();
   // Gate the onDone callback on the internal lifecycle so parents can
@@ -145,6 +160,7 @@ export function RingPulse({
         borderClass={borderClass}
         delayMs={delayMs}
         anchor={anchor}
+        direction={direction}
       />
     );
   }
@@ -157,18 +173,21 @@ export function RingPulse({
         borderClass={borderClass}
         delayMs={delayMs}
         anchor={anchor}
+        direction={direction}
       />
       <SingleRing
         maxScale={maxScale * 0.8}
         borderClass={borderClass}
         delayMs={delayMs + 80}
         anchor={anchor}
+        direction={direction}
       />
       <SingleRing
         maxScale={maxScale}
         borderClass={borderClass}
         delayMs={delayMs + 160}
         anchor={anchor}
+        direction={direction}
       />
     </>
   );

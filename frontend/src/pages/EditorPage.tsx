@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
 import { StatusBadge } from "../components/StatusBadge";
 import { FileTree } from "../components/FileTree";
 // P-H2: Monaco is ~1.5 MB of JS + workers. Dynamic-importing splits it into
@@ -156,7 +157,13 @@ export default function EditorPage() {
       <SessionReplacedModal />
 
       <main id="main-content" className="flex min-h-0 flex-1 overflow-hidden">
-        {filesCollapsed ? (
+        {/* Files panel — collapsible. Cinema Kit Continuity Pass:
+            same width-animation pattern as the LessonPage tutor +
+            instructions panels. Aside stays mounted; framer
+            animates width between 0 (collapsed) and leftW
+            (expanded) over 220 ms. The vertical strip-button shows
+            only when collapsed; splitter only when expanded. */}
+        {filesCollapsed && (
           <button
             onClick={() => setFilesCollapsed(false)}
             title="Show files"
@@ -171,22 +178,24 @@ export default function EditorPage() {
               Files
             </span>
           </button>
-        ) : (
-          <>
-            <aside
-              ref={fileTreeRef}
-              style={{ width: leftW }}
-              className="min-h-0 shrink-0 overflow-hidden border-r border-border bg-panel p-3"
-            >
-              <FileTree onCollapse={() => setFilesCollapsed(true)} />
-            </aside>
-
-            <Splitter
-              orientation="vertical"
-              onDrag={(dx) => setLeftW((w) => clampSide(w + dx, BOUNDS.left))}
-              onDoubleClick={() => setLeftW(DEFAULTS.left)}
-            />
-          </>
+        )}
+        <motion.aside
+          ref={fileTreeRef as React.RefObject<HTMLElement>}
+          initial={false}
+          animate={{ width: filesCollapsed ? 0 : leftW }}
+          transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+          className="min-h-0 shrink-0 overflow-hidden border-r border-border bg-panel p-3"
+          aria-hidden={filesCollapsed ? "true" : undefined}
+          {...((filesCollapsed ? { inert: "" } : {}) as Record<string, unknown>)}
+        >
+          <FileTree onCollapse={() => setFilesCollapsed(true)} />
+        </motion.aside>
+        {!filesCollapsed && (
+          <Splitter
+            orientation="vertical"
+            onDrag={(dx) => setLeftW((w) => clampSide(w + dx, BOUNDS.left))}
+            onDoubleClick={() => setLeftW(DEFAULTS.left)}
+          />
         )}
 
         <section ref={editorRef} className="flex min-w-0 flex-1 flex-col">
@@ -206,7 +215,9 @@ export default function EditorPage() {
           </div>
         </section>
 
-        {tutorCollapsed ? (
+        {/* Tutor panel — collapsible. Cinema Kit Continuity Pass:
+            same width-animation pattern as the file panel above. */}
+        {tutorCollapsed && (
           <button
             onClick={() => setTutorCollapsed(false)}
             title="Show tutor"
@@ -220,22 +231,25 @@ export default function EditorPage() {
               Tutor
             </span>
           </button>
-        ) : (
-          <>
-            <Splitter
-              orientation="vertical"
-              onDrag={(dx) => setRightW((w) => clampSide(w - dx, BOUNDS.right))}
-              onDoubleClick={() => setRightW(DEFAULTS.right)}
-            />
-            <aside
-              ref={tutorRef}
-              style={{ width: rightW }}
-              className="min-h-0 shrink-0 overflow-hidden bg-panel"
-            >
-              <AssistantPanel onCollapse={() => setTutorCollapsed(true)} onOpenSettings={() => setShowSettings(true)} />
-            </aside>
-          </>
         )}
+        {!tutorCollapsed && (
+          <Splitter
+            orientation="vertical"
+            onDrag={(dx) => setRightW((w) => clampSide(w - dx, BOUNDS.right))}
+            onDoubleClick={() => setRightW(DEFAULTS.right)}
+          />
+        )}
+        <motion.aside
+          ref={tutorRef as React.RefObject<HTMLElement>}
+          initial={false}
+          animate={{ width: tutorCollapsed ? 0 : rightW }}
+          transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+          className="min-h-0 shrink-0 overflow-hidden bg-panel"
+          aria-hidden={tutorCollapsed ? "true" : undefined}
+          {...((tutorCollapsed ? { inert: "" } : {}) as Record<string, unknown>)}
+        >
+          <AssistantPanel onCollapse={() => setTutorCollapsed(true)} onOpenSettings={() => setShowSettings(true)} />
+        </motion.aside>
       </main>
 
       <StatusBar />

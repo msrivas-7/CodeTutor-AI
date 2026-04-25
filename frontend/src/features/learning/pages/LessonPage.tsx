@@ -46,6 +46,7 @@ import { useFirstRunChoreography } from "../../firstRun/useFirstRunChoreography"
 import { resolveFirstName } from "../../firstRun/resolveFirstName";
 import { useFirstRunStore } from "../../firstRun/useFirstRunStore";
 import { FirstRunSpotlight } from "../../firstRun/FirstRunSpotlight";
+import { FirstRunHandoffReveal } from "../../firstRun/FirstRunHandoffReveal";
 import { motion } from "framer-motion";
 import { RingPulse } from "../../../components/cinema/RingPulse";
 import { MATERIAL_EASE, CINEMA_DURATIONS } from "../../../components/cinema/easing";
@@ -78,6 +79,33 @@ export default function LessonPage() {
   const savedLessonCode = useRef<Record<string, string> | null>(null);
 
   const isFirstRun = searchParams.get("firstRun") === "1";
+
+  // Cinema Kit Continuity Pass — match-cut handoff detection.
+  // Snapshot `cinematicExitingAt` on mount: if it was set within
+  // the last ~1.5 s, the cinematic just dissolved and this page is
+  // mounting AS that exit completes. We render a contracting
+  // RingPulse landing on the Run button so the eye follows one
+  // continuous motion across the route boundary instead of seeing
+  // a hard cut. After the handoff window closes we clear the
+  // signal so a normal lesson visit later doesn't re-trigger.
+  // Read once on mount via useState initializer; framer animations
+  // handle the rest, no re-renders needed.
+  const [inHandoff] = useState<boolean>(() => {
+    const exitingAt = useFirstRunStore.getState().cinematicExitingAt;
+    if (exitingAt === null) return false;
+    return Date.now() - exitingAt < 1500;
+  });
+  // Clear the signal on mount UNCONDITIONALLY so a stale value from
+  // a backgrounded cinematic exit (where the user tabbed away and
+  // missed the 1.5 s window) doesn't linger and confuse later lesson
+  // visits. The snapshot above already captured what we needed.
+  // Single-shot — ref guards against React 18 strict-mode double-fire.
+  const handoffClearedRef = useRef(false);
+  useEffect(() => {
+    if (handoffClearedRef.current) return;
+    handoffClearedRef.current = true;
+    useFirstRunStore.getState().clearCinematicExiting();
+  }, []);
 
   // Lesson-progress reset on the first-run handoff. Parallel to
   // `forceStarter` for code: a replay user (already completed
@@ -300,7 +328,33 @@ export default function LessonPage() {
     (validator.validation?.passed || lp?.status === "completed") && nextLessonId;
 
   return (
-    <div className="flex h-full flex-col bg-bg text-ink">
+    <motion.div
+      className="flex h-full flex-col bg-bg text-ink"
+      // Cinema Kit Continuity Pass — every lesson mount gets a soft
+      // fade-up so navigating between lessons feels like arriving,
+      // not snapping. 250 ms with HOUSE_EASE; suppressed during the
+      // first-run handoff (the iris reveal handles that case at the
+      // chrome layer with a different motion grammar). framer's
+      // initial/animate only run on MOUNT — re-renders within a
+      // mounted lesson don't re-fire.
+      initial={
+        inHandoff && isFirstRun
+          ? false
+          : { opacity: 0, y: 8 }
+      }
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+    >
+      {/* Match-cut iris reveal. When the lesson mounts AS the
+          cinematic exits, this component covers the chrome with an
+          opaque bg-bg layer that has a transparent circular hole
+          growing outward from the Run button. The visible ring at
+          the hole's perimeter is the same shape language the
+          learner saw at the end of the cinematic — one continuous
+          outward motion across the route boundary. */}
+      {inHandoff && isFirstRun && (
+        <FirstRunHandoffReveal runBtnRef={layout.runBtnRef} />
+      )}
       <SkipToContent />
       <header className="flex items-center gap-3 border-b border-border bg-panel/80 px-4 py-2 backdrop-blur">
         <button
@@ -312,12 +366,24 @@ export default function LessonPage() {
         </button>
         <Wordmark size="sm" />
         <span className="h-4 w-px bg-border" aria-hidden="true" />
-        <h1
-          className="truncate text-[14px] font-medium tracking-tight text-ink"
-          title={lesson ? `Lesson ${lesson.order}: ${lesson.title}` : undefined}
-        >
-          Lesson {lesson?.order}: {lesson?.title ?? "Loading..."}
-        </h1>
+        {/* Cinema Kit Continuity Pass — header flicker fix. While
+            the loader is in flight, lesson is null and the old code
+            rendered "Lesson : Loading..." for a frame on every nav.
+            Render a thin skeleton bar in the title slot until lesson
+            data lands; then show the real title. */}
+        {lesson ? (
+          <h1
+            className="truncate text-[14px] font-medium tracking-tight text-ink"
+            title={`Lesson ${lesson.order}: ${lesson.title}`}
+          >
+            Lesson {lesson.order}: {lesson.title}
+          </h1>
+        ) : (
+          <span
+            className="skeleton h-4 w-40 rounded"
+            aria-label="Loading lesson title"
+          />
+        )}
         <nav
           className="ml-2 flex shrink-0 items-center overflow-hidden rounded-md border border-border text-[11px]"
           aria-label="Mode switcher"
@@ -452,8 +518,13 @@ export default function LessonPage() {
         </div>
       ) : lesson ? (
         <main id="main-content" className="flex min-h-0 flex-1 overflow-hidden">
-          {/* Instructions panel — collapsible */}
-          {layout.instrCollapsed ? (
+          {/* Instructions panel — collapsible. Cinema Kit Continuity
+              Pass: same width-animation pattern as the tutor panel.
+              Aside stays mounted always; framer animates width
+              between 0 (collapsed) and layout.instrW (expanded)
+              over 220 ms. Splitter only renders when expanded. The
+              vertical strip-button shows only when collapsed. */}
+          {layout.instrCollapsed && (
             <button
               onClick={() => layout.setInstrCollapsed(false)}
               title="Show instructions"
@@ -468,57 +539,66 @@ export default function LessonPage() {
                 Instructions
               </span>
             </button>
-          ) : (
-            <>
-              <div
-                ref={layout.instrRef}
-                style={{ width: layout.instrW }}
-                className="shrink-0 overflow-hidden border-r border-border"
-              >
-                {practiceMode && lesson.practiceExercises ? (
-                  <PracticeInstructionsView
-                    exercises={lesson.practiceExercises}
-                    currentIndex={practiceIndex}
-                    completedIds={lp?.practiceCompletedIds ?? []}
-                    validation={validator.practiceValidation}
-                    onSelectExercise={validator.handleSelectPracticeExercise}
-                    onExitPractice={validator.handleExitPractice}
-                    onNextExercise={validator.handleNextPracticeExercise}
-                    onResetPractice={validator.handleResetPracticeProgress}
-                    onCollapse={() => layout.setInstrCollapsed(true)}
-                  />
-                ) : (
-                  <LessonInstructionsPanel
-                    meta={lesson}
-                    content={lesson.content}
-                    onCollapse={() => layout.setInstrCollapsed(true)}
-                    coachState={coachState}
-                    functionTests={validator.functionTests}
-                    testReport={validator.testReport}
-                    runningTests={validator.runningTests}
-                    onRunExamples={
-                      validator.functionTests.length > 0
-                        ? validator.handleRunExamples
-                        : undefined
-                    }
-                    checkFailure={
-                      validator.hasChecked && !validator.validation?.passed
-                        ? pickFirstFailure(validator.testReport)
-                        : null
-                    }
-                    checkFailureStreak={validator.sameFailStreak}
-                    onAskTutorAboutFailure={validator.handleAskTutorAboutFailure}
-                  />
-                )}
-              </div>
-              <Splitter
-                orientation="vertical"
-                onDrag={(dx) =>
-                  layout.setInstrW((w) => clampSide(w + dx, LESSON_LAYOUT_BOUNDS.instr))
-                }
-                onDoubleClick={() => layout.setInstrW(LESSON_LAYOUT_DEFAULTS.instr)}
+          )}
+          <motion.div
+            ref={layout.instrRef}
+            initial={false}
+            animate={{ width: layout.instrCollapsed ? 0 : layout.instrW }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            className="shrink-0 overflow-hidden border-r border-border"
+            aria-hidden={layout.instrCollapsed ? "true" : undefined}
+            // `inert` (in addition to aria-hidden) removes the
+            // collapsed panel from tab order. aria-hidden alone hides
+            // it from AT but doesn't skip keyboard focus, so users
+            // can still tab into invisible buttons inside a width-0
+            // panel. Cast through unknown for TS compat with
+            // @types/react 18 (inert prop arrived in 19).
+            {...((layout.instrCollapsed ? { inert: "" } : {}) as Record<string, unknown>)}
+          >
+            {practiceMode && lesson.practiceExercises ? (
+              <PracticeInstructionsView
+                exercises={lesson.practiceExercises}
+                currentIndex={practiceIndex}
+                completedIds={lp?.practiceCompletedIds ?? []}
+                validation={validator.practiceValidation}
+                onSelectExercise={validator.handleSelectPracticeExercise}
+                onExitPractice={validator.handleExitPractice}
+                onNextExercise={validator.handleNextPracticeExercise}
+                onResetPractice={validator.handleResetPracticeProgress}
+                onCollapse={() => layout.setInstrCollapsed(true)}
               />
-            </>
+            ) : (
+              <LessonInstructionsPanel
+                meta={lesson}
+                content={lesson.content}
+                onCollapse={() => layout.setInstrCollapsed(true)}
+                coachState={coachState}
+                functionTests={validator.functionTests}
+                testReport={validator.testReport}
+                runningTests={validator.runningTests}
+                onRunExamples={
+                  validator.functionTests.length > 0
+                    ? validator.handleRunExamples
+                    : undefined
+                }
+                checkFailure={
+                  validator.hasChecked && !validator.validation?.passed
+                    ? pickFirstFailure(validator.testReport)
+                    : null
+                }
+                checkFailureStreak={validator.sameFailStreak}
+                onAskTutorAboutFailure={validator.handleAskTutorAboutFailure}
+              />
+            )}
+          </motion.div>
+          {!layout.instrCollapsed && (
+            <Splitter
+              orientation="vertical"
+              onDrag={(dx) =>
+                layout.setInstrW((w) => clampSide(w + dx, LESSON_LAYOUT_BOUNDS.instr))
+              }
+              onDoubleClick={() => layout.setInstrW(LESSON_LAYOUT_DEFAULTS.instr)}
+            />
           )}
 
           {/* Editor + Output */}
@@ -897,6 +977,7 @@ export default function LessonPage() {
             transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
             className="min-h-0 shrink-0 overflow-hidden bg-panel"
             aria-hidden={layout.tutorCollapsed ? "true" : undefined}
+            {...((layout.tutorCollapsed ? { inert: "" } : {}) as Record<string, unknown>)}
           >
             <GuidedTutorPanel
               lessonMeta={lesson}
@@ -1033,6 +1114,6 @@ export default function LessonPage() {
         </Modal>
       )}
       <NarrowViewportGate />
-    </div>
+    </motion.div>
   );
 }
