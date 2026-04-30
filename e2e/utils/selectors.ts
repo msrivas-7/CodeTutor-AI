@@ -19,21 +19,23 @@ import type { Locator, Page } from "@playwright/test";
 export const userMenuTrigger = (page: Page): Locator =>
   page.getByRole("button", { name: /user menu/i });
 
+// Phase 24A: tab keys — "profile" / "tutor" / "account". Profile holds
+// name + theme + sign-out; Tutor holds the BYOK status card + persona;
+// Account holds notifications + replay intro + data export + paid-plan
+// interest recovery + delete account.
 export const openSettings = async (
   page: Page,
-  tab?: "account" | "ai" | "appearance" | "data",
+  tab?: "profile" | "tutor" | "account",
 ): Promise<void> => {
   await userMenuTrigger(page).first().click();
   await page.getByRole("menuitem", { name: /^settings$/i }).click();
   if (tab) {
     const labelRegex =
-      tab === "account"
-        ? /^account$/i
-        : tab === "ai"
-          ? /^ai$/i
-          : tab === "appearance"
-            ? /^appearance$/i
-            : /^data$/i;
+      tab === "profile"
+        ? /^profile$/i
+        : tab === "tutor"
+          ? /^tutor$/i
+          : /^account$/i;
     await page
       .locator('nav[aria-label="Settings sections"]')
       .getByRole("button", { name: labelRegex })

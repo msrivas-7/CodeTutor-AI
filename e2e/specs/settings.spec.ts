@@ -1,7 +1,8 @@
-// Settings panel specs. Covers the tabbed modal reached from the UserMenu →
-// Settings: Account (profile / sign-out / delete stub), AI (OpenAI key +
-// persona), and Appearance (theme). Each test opens directly into the tab
-// it's exercising so assertions can run without a second click.
+// Settings panel specs. Phase 24A redesign: three tabs — Profile (name +
+// theme + sign-out), Tutor (BYOK status card + persona), Account (email
+// notifications + replay intro + data export + paid-interest recovery +
+// delete account). Each test opens directly into the tab it's exercising
+// so assertions can run without a second click.
 
 import type { Page } from "@playwright/test";
 import { expect, test } from "../fixtures/auth";
@@ -13,7 +14,7 @@ import * as S from "../utils/selectors";
 
 async function openSettings(
   page: Page,
-  tab?: "account" | "ai" | "appearance",
+  tab?: "profile" | "tutor" | "account",
 ): Promise<void> {
   await S.openSettings(page, tab);
   await expect(page.locator('[role="dialog"]')).toBeVisible();
@@ -27,7 +28,7 @@ test.describe("settings panel", () => {
 
   test("Theme toggle applies data-theme on <html> and persists pref", async ({ page }) => {
     await page.goto("/start");
-    await openSettings(page, "appearance");
+    await openSettings(page, "profile");
 
     // Light — Phase 18b: theme persists through `preferences.theme` on the
     // server; the only user-visible effect we can assert here without racing
@@ -43,7 +44,7 @@ test.describe("settings panel", () => {
     // Close + reopen settings on Appearance — selected button should remain
     // aria-pressed=true.
     await page.keyboard.press("Escape");
-    await openSettings(page, "appearance");
+    await openSettings(page, "profile");
     await expect(page.getByRole("button", { name: /^dark$/i })).toHaveAttribute(
       "aria-pressed",
       "true",
@@ -52,7 +53,7 @@ test.describe("settings panel", () => {
 
   test("Persona radio group updates aria-checked and blurb", async ({ page }) => {
     await page.goto("/start");
-    await openSettings(page, "ai");
+    await openSettings(page, "tutor");
 
     const beginner = page.getByRole("radio", { name: /^beginner$/i });
     const advanced = page.getByRole("radio", { name: /^advanced$/i });
@@ -72,7 +73,7 @@ test.describe("settings panel", () => {
 
   test("Show / hide API key toggle flips the input type on the draft input", async ({ page }) => {
     await page.goto("/start");
-    await openSettings(page, "ai");
+    await openSettings(page, "tutor");
 
     // Phase 18e: the input is a local draft for a new key (the saved key
     // never leaves the server). Reveal flips the draft input's type.
@@ -90,7 +91,7 @@ test.describe("settings panel", () => {
 
   test("Save key → model picker loads → model change persists", async ({ page }) => {
     await page.goto("/start");
-    await openSettings(page, "ai");
+    await openSettings(page, "tutor");
 
     // Type a key and save — mockAllAI's validate returns {valid:true} and
     // models returns gpt-4o-mini + gpt-4o. The save button's accessible
@@ -125,7 +126,7 @@ test.describe("settings panel", () => {
       });
     });
     await page.goto("/start");
-    await openSettings(page, "ai");
+    await openSettings(page, "tutor");
 
     await page
       .locator('input[placeholder="sk-…"]')
@@ -142,11 +143,12 @@ test.describe("settings panel", () => {
   test("Remove API key is a two-step confirm (Cancel keeps, Remove wipes)", async ({ page }) => {
     await seedApiKey(page, { key: "sk-about-to-be-removed-padding-123" });
     await page.goto("/start");
-    await openSettings(page, "ai");
+    await openSettings(page, "tutor");
 
-    // With a key saved server-side, the status pill reads "key saved" and
-    // the Remove API key affordance is available.
-    await expect(page.getByText(/● key saved/i)).toBeVisible();
+    // Phase 24A: with a key saved, the BYOK status card header reads
+    // "Connected" (green badge) and the Remove API key affordance is
+    // available.
+    await expect(page.getByText(/^connected$/i)).toBeVisible();
 
     // First click — inline confirm pill appears with Remove + Cancel buttons.
     await page.getByRole("button", { name: /^remove api key$/i }).click();
@@ -159,7 +161,7 @@ test.describe("settings panel", () => {
       .last()
       .click();
     await expect(page.getByText(/also clears your tutor chat/i)).toHaveCount(0);
-    await expect(page.getByText(/● key saved/i)).toBeVisible();
+    await expect(page.getByText(/^connected$/i)).toBeVisible();
 
     // Now actually remove it.
     await page.getByRole("button", { name: /^remove api key$/i }).click();
@@ -169,10 +171,70 @@ test.describe("settings panel", () => {
       .last()
       .click();
 
-    // Server flips hasOpenaiKey → false. The status pill drops to "no key
-    // saved" and the Remove affordance is hidden.
-    await expect(page.getByText(/no key saved/i)).toBeVisible();
+    // Server flips hasOpenaiKey → false. The status badge drops to
+    // "Not set up yet" and the Remove affordance is hidden.
+    await expect(page.getByText(/not set up yet/i)).toBeVisible();
     await expect(page.getByRole("button", { name: /^remove api key$/i })).toHaveCount(0);
+  });
+
+  // Phase 24A: tab structure + BYOK status card coverage.
+  test("Tab structure: Profile, Tutor, Account visible; Admin hidden for non-admin", async ({ page }) => {
+    await page.goto("/start");
+    await S.openSettings(page);
+    const sidenav = page.locator('nav[aria-label="Settings sections"]');
+    await expect(sidenav.getByRole("button", { name: /^profile$/i })).toBeVisible();
+    await expect(sidenav.getByRole("button", { name: /^tutor$/i })).toBeVisible();
+    await expect(sidenav.getByRole("button", { name: /^account$/i })).toBeVisible();
+    await expect(sidenav.getByRole("button", { name: /^admin$/i })).toHaveCount(0);
+    // Old labels are gone.
+    await expect(sidenav.getByRole("button", { name: /^ai$/i })).toHaveCount(0);
+    await expect(sidenav.getByRole("button", { name: /^appearance$/i })).toHaveCount(0);
+    await expect(sidenav.getByRole("button", { name: /^data$/i })).toHaveCount(0);
+  });
+
+  test("BYOK card empty state: 'Not set up yet' + Get-a-key link + trust copy", async ({ page }) => {
+    // No seedApiKey — the user lands on Tutor with the empty state.
+    await page.goto("/start");
+    await openSettings(page, "tutor");
+
+    await expect(page.getByText(/not set up yet/i)).toBeVisible();
+    const getKeyLink = page.getByRole("link", { name: /get a key from openai/i });
+    await expect(getKeyLink).toBeVisible();
+    await expect(getKeyLink).toHaveAttribute(
+      "href",
+      "https://platform.openai.com/api-keys",
+    );
+    await expect(getKeyLink).toHaveAttribute("target", "_blank");
+    // Trust + cost copy is anchored under the input — a beginner reads it
+    // in the same glance as the field they're filling.
+    await expect(
+      page.getByText(/this is your personal openai key/i),
+    ).toBeVisible();
+    await expect(
+      page.getByText(/typical cost: a few cents per hour/i),
+    ).toBeVisible();
+  });
+
+  test("BYOK card connected state: 'Connected' badge + Replace key disclosure", async ({ page }) => {
+    await seedApiKey(page, { key: "sk-already-saved-padding-1234567890" });
+    await page.goto("/start");
+    await openSettings(page, "tutor");
+
+    // Connected → badge visible, the bare input is hidden behind a
+    // "Replace key" disclosure (so the connected user is not invited to
+    // fiddle with their key without intent).
+    await expect(page.getByText(/^connected$/i)).toBeVisible();
+    await expect(page.locator('input[placeholder*="enter a new key"]')).toHaveCount(0);
+
+    // Click Replace key — the input form expands.
+    await page.getByRole("button", { name: /^replace key$/i }).click();
+    const replaceInput = page.locator('input[placeholder*="enter a new key"]');
+    await expect(replaceInput).toBeVisible();
+
+    // Cancel collapses it back. The connected badge stays put.
+    await page.getByRole("button", { name: /^cancel$/i }).click();
+    await expect(replaceInput).toHaveCount(0);
+    await expect(page.getByText(/^connected$/i)).toBeVisible();
   });
 
   test("Danger zone → Delete account modal gates the button on email match", async ({ page }, testInfo) => {
@@ -299,7 +361,7 @@ test.describe("settings panel", () => {
     // the header, UserMenu avatar, etc.) — a WCAG failure and a confusing
     // UX because the overlay swallows clicks but not keystrokes.
     await page.goto("/start");
-    await openSettings(page, "appearance");
+    await openSettings(page, "profile");
 
     // Collect the focusable buttons/inputs inside the dialog. "Appearance" is
     // the lightest tab (three theme buttons + tab nav + close), so we can
@@ -366,15 +428,14 @@ test.describe("settings panel", () => {
   test("Escape closes the settings modal cleanly", async ({ page }) => {
     await seedApiKey(page, { key: "sk-escape-test-padding-1234567890" });
     await page.goto("/start");
-    await openSettings(page, "ai");
+    await openSettings(page, "tutor");
 
     await page.keyboard.press("Escape");
     await expect(page.locator('[role="dialog"]')).toHaveCount(0);
 
-    // Reopening on AI shows the same "key saved" status — server state
-    // survives the close.
-    await openSettings(page, "ai");
-    await expect(page.getByText(/● key saved/i)).toBeVisible();
+    // Reopening shows the same Connected badge — server state survives the close.
+    await openSettings(page, "tutor");
+    await expect(page.getByText(/^connected$/i)).toBeVisible();
   });
 
   test("Phase 22B: profile name save with first-only and with optional last", async ({
@@ -397,7 +458,7 @@ test.describe("settings panel", () => {
     });
 
     await page.goto("/start");
-    await openSettings(page, "account");
+    await openSettings(page, "profile");
 
     // Round 1: edit firstName only, leave lastName empty. The save should
     // succeed (lastName is optional) and the PATCH `data` block should

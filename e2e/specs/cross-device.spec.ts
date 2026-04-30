@@ -33,7 +33,7 @@ rawTest.describe("cross-device persistence (Phase 18b)", () => {
     async ({ page, browser }, testInfo) => {
       // 1. On device A (pre-authed page), flip to light theme via Settings.
       await page.goto("/start");
-      await S.openSettings(page, "appearance");
+      await S.openSettings(page, "profile");
       await expect(page.locator('[role="dialog"]')).toBeVisible();
       await page.getByRole("button", { name: /^light$/i }).click();
       await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
@@ -152,7 +152,7 @@ rawTest.describe("cross-device persistence (Phase 18b)", () => {
     async ({ page }, testInfo) => {
       // Flip theme + sign out.
       await page.goto("/start");
-      await S.openSettings(page, "appearance");
+      await S.openSettings(page, "profile");
       await page.getByRole("button", { name: /^light$/i }).click();
       await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
       await page.waitForTimeout(500);

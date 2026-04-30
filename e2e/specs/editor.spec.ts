@@ -260,7 +260,7 @@ test.describe("editor", () => {
     await page.goto("/editor");
     await waitForMonacoReady(page);
 
-    await S.openSettings(page, "ai");
+    await S.openSettings(page, "tutor");
     // SettingsModal has no accessible name (no aria-labelledby) so use the
     // raw role attribute instead of getByRole, which needs an accessible name.
     await expect(page.locator('[role="dialog"]')).toBeVisible();

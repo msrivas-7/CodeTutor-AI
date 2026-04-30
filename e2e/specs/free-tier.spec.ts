@@ -407,7 +407,7 @@ test.describe("free AI tier", () => {
 
     await loadProfile(page, "empty");
     await page.goto("/start");
-    await S.openSettings(page, "ai");
+    await S.openSettings(page, "tutor");
 
     // BYOK user, no prior interest → the CTA is visible.
     await expect(
@@ -472,7 +472,7 @@ test.describe("free AI tier", () => {
     // Open Settings → AI tab. The paid-interest CTA button must be absent
     // (broadcaster pushed hasShownPaidInterest=true to every subscriber).
     // The "Interest recorded" line must be there instead.
-    await S.openSettings(page, "ai");
+    await S.openSettings(page, "tutor");
     await expect(page.getByText(/Interest recorded\. Clicked/i)).toBeVisible();
     await expect(
       page.getByRole("button", { name: /register interest in a paid plan/i }),
@@ -804,7 +804,7 @@ test.describe("free AI tier", () => {
     });
     await loadProfile(page, "empty");
     await page.goto("/start");
-    await S.openSettings(page, "ai");
+    await S.openSettings(page, "tutor");
 
     const remove = page.getByRole("button", { name: /^Remove my interest$/i });
     await expect(remove).toBeVisible();
@@ -845,7 +845,7 @@ test.describe("free AI tier", () => {
     await expect(page.getByText(/want to keep going/i)).toBeVisible();
     await page.getByRole("button", { name: /register interest in a paid plan/i }).click();
 
-    await S.openSettings(page, "ai");
+    await S.openSettings(page, "tutor");
     await expect(page.getByText(/Interest recorded\. Clicked/i)).toBeVisible();
     await expect(
       page.getByRole("button", { name: /register interest in a paid plan/i }),
@@ -876,7 +876,7 @@ test.describe("free AI tier", () => {
     void countingRoute(page, "/api/user/paid-access-interest", 204);
     await loadProfile(page, "empty");
     await page.goto("/start");
-    await S.openSettings(page, "ai");
+    await S.openSettings(page, "tutor");
 
     await page.getByRole("button", { name: /register interest in a paid plan/i }).click();
     await expect(page.getByText(/Interest recorded\. Clicked/i)).toBeVisible();
@@ -951,7 +951,7 @@ test.describe("free AI tier", () => {
     // 500s should NOT flip it back on. We can force a refetch by navigating
     // to Settings where the same hook is used; the "Interest recorded" line
     // should stay regardless of the error tide.
-    await S.openSettings(page, "ai");
+    await S.openSettings(page, "tutor");
     await expect(page.getByText(/Interest recorded\. Clicked/i)).toBeVisible();
     await expect(
       page.getByRole("button", { name: /register interest in a paid plan/i }),
