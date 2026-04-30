@@ -9,7 +9,7 @@ import { db } from "./client.js";
 
 const CACHE_TTL_MS = 60_000;
 
-// The five well-known keys. The DB column is text + JSONB so we can add
+// The well-known keys. The DB column is text + JSONB so we can add
 // keys without a migration; this constant is the validated list at the
 // admin-route layer (zod enum) so we can't write a typo'd key.
 export const KNOWN_KEYS = [
@@ -25,6 +25,23 @@ export const KNOWN_KEYS = [
   "share_public_disabled",
   "share_create_disabled",
   "share_render_disabled",
+  // Phase 24B operational knobs — admin-toggleable so an operator can
+  // turn ACI overflow off, raise/lower the daily cap, or shrink the
+  // overflow ceiling at 2am during a spike WITHOUT a redeploy. The env
+  // vars (config.aci.*) are the boot-time defaults + the fallback when
+  // the DB is unreachable. Static infra config (subscription, subnet,
+  // image, etc.) deliberately stays out of this list — those want
+  // version control via the Key Vault refresh-env runbook, not a UI.
+  "aci_overflow_enabled",
+  "aci_daily_usd_cap",
+  "aci_max_overflow",
+  // Slice 8: warm-pool toggle — pre-spawn 1–2 ACI containers when local
+  // capacity is close to its cap so the next overflow user gets a
+  // sub-second handoff instead of 5–15s cold start. Default off; flip
+  // on if cold-start latency surfaces post-launch. Capped at 2 warm
+  // containers ever (~$2.54/day idle cost, bounded further by the
+  // daily $-cap kill switch).
+  "aci_warm_pool_enabled",
 ] as const;
 export type SystemConfigKey = (typeof KNOWN_KEYS)[number];
 

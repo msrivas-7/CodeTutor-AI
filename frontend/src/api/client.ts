@@ -396,7 +396,17 @@ export type SystemConfigKey =
   // response. Boolean: `true` = the kill is engaged.
   | "share_public_disabled"
   | "share_create_disabled"
-  | "share_render_disabled";
+  | "share_render_disabled"
+  // Phase 24B operational knobs — admin-toggleable for fast spike
+  // response. `aci_overflow_enabled = false` is the runtime kill switch
+  // (no new ACI spawns; cap shrinks to local-only). Daily $ cap and
+  // max overflow are dial-tweakable without redeploy.
+  | "aci_overflow_enabled"
+  | "aci_daily_usd_cap"
+  | "aci_max_overflow"
+  // Slice 8.5: warm-pool master toggle. Default off; flip on if cold-
+  // start latency surfaces post-launch.
+  | "aci_warm_pool_enabled";
 
 export interface SystemConfigEntry {
   value: boolean | number;

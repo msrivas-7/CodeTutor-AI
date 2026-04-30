@@ -56,8 +56,30 @@ RUN groupadd --system --gid 1100 runner \
     && mkdir -p /workspace \
     && chown -R runner:runner /workspace
 
+# Phase 24B: in-runner HTTP agent. ACI overflow containers can't be
+# reached via `docker exec` from outside Azure, so the backend talks
+# to this agent over HTTP instead. LocalDocker keeps using docker
+# exec/cp directly (NetworkMode=none + cheaper hot path), so the agent
+# only starts when ENABLE_AGENT=1 is set on the container's env. With
+# the var unset (the LocalDocker default), the entrypoint script
+# falls back to `sleep infinity` — the agent file rides along in the
+# image but never spawns a process. RAM cost in LocalDocker = $0.
+#
+# Both files land root-owned + world-readable + not writable by the
+# runner user, so learner code can't tamper with them post-boot.
+# Avoid COPY --chmod because the classic Docker builder (still default
+# in some local toolchains) doesn't support it; the explicit chmod
+# below works on every builder. The COPY itself is root:root by
+# default since neither USER nor --chown is in effect at this point.
+COPY agent/agent.mjs            /usr/local/lib/runner-agent.mjs
+COPY agent/runner-entrypoint.sh /usr/local/bin/runner-entrypoint.sh
+RUN chmod 0444 /usr/local/lib/runner-agent.mjs \
+ && chmod 0555 /usr/local/bin/runner-entrypoint.sh
+
 WORKDIR /workspace
 USER runner
 
-# Container stays alive for the session; backend drives execution via `docker exec`.
-CMD ["sleep", "infinity"]
+# Container stays alive for the session. LocalDocker drives execution via
+# `docker exec` against the sleeping shell; ACI drives via HTTP against
+# the running agent. Same image, two runtime modes.
+CMD ["/usr/local/bin/runner-entrypoint.sh"]

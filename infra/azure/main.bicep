@@ -212,6 +212,19 @@ module vmKvAccess 'modules/vm-kv-access.bicep' = {
   }
 }
 
+// Phase 24B: grant the VM's MI a custom "ACI Executor" role on this RG
+// so the backend can spawn / monitor / destroy the per-session container
+// groups for the ACI hybrid burst overflow. Same `manageRoleAssignments`
+// gate as vm-kv-access — Owner-level operator on first apply, deploy
+// SP just sees no-ops on subsequent runs.
+module vmAciAccess 'modules/vm-aci-access.bicep' = {
+  name: 'vm-aci-access'
+  params: {
+    principalId: vm.outputs.principalId
+    manageRoleAssignments: manageRoleAssignments
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Azure Communication Services — Email (Phase 20-P2). Outbound SMTP for
 // Supabase Auth (signup verify / password reset / magic link). Replaces
@@ -246,6 +259,12 @@ module acsEmail 'modules/acsEmail.bicep' = {
 
 output vmFqdn string = network.outputs.fqdn
 output vmPublicIp string = network.outputs.publicIp
+// Phase 24B: ACI subnet for the hybrid burst overflow. Operator seeds
+// this into Key Vault as ACI-SUBNET-ID; refresh-env materializes it as
+// ACI_SUBNET_ID on the VM, where AciExecutionBackend reads it. See
+// infra/azure/README.md for the post-deploy seeding step.
+output aciSubnetId string = network.outputs.aciSubnetId
+output aciSubnetName string = network.outputs.aciSubnetName
 output keyVaultName string = keyvault.outputs.name
 output swaHostname string = swa.outputs.defaultHostname
 output swaName string = swa.outputs.name

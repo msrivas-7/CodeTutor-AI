@@ -41,6 +41,7 @@ import {
   setSystemConfig,
   type SystemConfigKey,
 } from "../db/systemConfig.js";
+import { invalidateAciOperationalConfig } from "../services/observability/aciOperationalConfig.js";
 import { listAdminAuditLog, logAdminAction } from "../db/adminAuditLog.js";
 import {
   getAuthUser,
@@ -75,6 +76,24 @@ const KEY_BOUNDS: Record<
   share_public_disabled: { type: "boolean" },
   share_create_disabled: { type: "boolean" },
   share_render_disabled: { type: "boolean" },
+  // Phase 24B ACI operational knobs.
+  // - aci_overflow_enabled: runtime kill switch. False stops new ACI
+  //   spawns (existing sessions ride out their lifetimes) and shrinks
+  //   the absolute cap back to local-only.
+  // - aci_daily_usd_cap: $/day before the cost-cap kill switch fires.
+  //   Bound 0–100 so a typo can't let a runaway spike burn $1000.
+  //   Practical operator range is 0–50; 100 is the hard ceiling.
+  // - aci_max_overflow: how many concurrent ACI sessions allowed past
+  //   the local cap of 14. Bound 0–100; 0 = "off without disabling"
+  //   (overflow returns 503 immediately), high values let an HN spike
+  //   route hundreds through ACI before the cost cap intervenes.
+  aci_overflow_enabled: { type: "boolean" },
+  aci_daily_usd_cap: { type: "number", min: 0, max: 100 },
+  aci_max_overflow: { type: "number", min: 0, max: 100 },
+  // Slice 8: warm-pool toggle. Boolean; the high/low watermarks +
+  // pool size live in env (config.aci.*) since they're operational-
+  // tuning values that don't need 2am admin access.
+  aci_warm_pool_enabled: { type: "boolean" },
 };
 
 // Env defaults exposed in GET /api/admin/system-config so the UI can
@@ -97,6 +116,14 @@ function envDefaultFor(key: SystemConfigKey): boolean | number {
       return config.share.createDisabled;
     case "share_render_disabled":
       return config.share.renderDisabled;
+    case "aci_overflow_enabled":
+      return config.aci.enabled;
+    case "aci_daily_usd_cap":
+      return config.aci.dailyUsdCap;
+    case "aci_max_overflow":
+      return config.aci.maxOverflow;
+    case "aci_warm_pool_enabled":
+      return config.aci.warmPoolEnabled;
   }
 }
 
@@ -457,6 +484,18 @@ adminRouter.put("/system-config/:key", async (req, res, next) => {
       reason: parsed.data.reason,
     });
     const after = await getSystemConfig(typedKey, { bypassCache: true });
+    // Phase 24B: ACI operational knobs need their synchronous mirror
+    // refreshed immediately so the admin's change takes effect within
+    // ms instead of waiting for the periodic 30s refresh (e.g., emergency
+    // kill during a runaway spike). Other keys don't have this mirror.
+    if (
+      typedKey === "aci_overflow_enabled" ||
+      typedKey === "aci_daily_usd_cap" ||
+      typedKey === "aci_max_overflow" ||
+      typedKey === "aci_warm_pool_enabled"
+    ) {
+      await invalidateAciOperationalConfig();
+    }
     await logAdminAction({
       actorId,
       eventType: "system_config_set",
@@ -549,6 +588,17 @@ adminRouter.delete("/system-config/:key", async (req, res, next) => {
   try {
     const before = await getSystemConfig(typedKey);
     await clearSystemConfig(typedKey);
+    if (
+      typedKey === "aci_overflow_enabled" ||
+      typedKey === "aci_daily_usd_cap" ||
+      typedKey === "aci_max_overflow" ||
+      typedKey === "aci_warm_pool_enabled"
+    ) {
+      // Revert-to-env path. Refresh the sync mirror so the env default
+      // takes effect immediately rather than the previous DB-held value
+      // sticking around for 30s.
+      await invalidateAciOperationalConfig();
+    }
     await logAdminAction({
       actorId,
       eventType: "system_config_cleared",

@@ -248,6 +248,65 @@ export const config = {
   // unauthenticated was a BI leak (live session count + per-model token
   // totals) and a DoS-pressure oracle.
   metricsToken: process.env.METRICS_TOKEN,
+
+  // Phase 24B: ACI hybrid burst overflow. When the local Docker session
+  // count hits `session.maxGlobal` (14), new sessions spill over to Azure
+  // Container Instances. Sessions stay routed locally up to that ceiling
+  // — ACI only spawns containers that would otherwise have 503'd, so a
+  // quiet day adds $0 in ACI cost. Each ACI session bills at ~$0.053/hr
+  // while running and is destroyed the instant the session ends.
+  //
+  // ENABLE_ACI_OVERFLOW=0 → flag off. With Azure config absent (dev), the
+  // flag is effectively off regardless of value (factory logs a warning
+  // and falls back to local-only). In prod with Azure config present and
+  // flag default 1, ACI is the overflow mechanism for spikes.
+  //
+  // ACI_DAILY_USD_CAP is the operator's brake. The cost sampler tracks
+  // estimated spend per UTC day; once it exceeds the cap, ACI overflow
+  // disables for the rest of the day (returning 503 instead of spawning
+  // more ACI containers) and resets at UTC midnight. Worst case (runaway
+  // loop or deliberate flood) caps at $cap/day = ~$cap×30/mo.
+  aci: {
+    // Default on per Phase 24B operator decision. Flip to "0" via
+    // KV → refresh-env if a runtime issue surfaces post-launch.
+    enabled: process.env.ENABLE_ACI_OVERFLOW !== "0",
+    dailyUsdCap: num(process.env.ACI_DAILY_USD_CAP, 20),
+    // Hard cap on concurrent ACI sessions. Combined with local maxGlobal
+    // (14), absolute total = local + maxOverflow = 50 by default. A new
+    // session arriving past that returns 503 instead of spawning yet
+    // another ACI container — a backstop for the cost cap.
+    maxOverflow: num(process.env.ACI_MAX_OVERFLOW, 36),
+    // Cold-start budget. ACI typically completes "Pending → Running" in
+    // 5–15s; 30s gives headroom for image pulls + IP allocation. Past
+    // this, the spawn attempt is abandoned + the user gets a friendly
+    // "we're under heavy load" 503.
+    coldStartTimeoutMs: num(process.env.ACI_COLD_START_TIMEOUT_MS, 30_000),
+    // Port the sidecar agent listens on inside each runner container.
+    // Same value baked into the runner image. Internal-only — the ACI
+    // container group's NSG restricts inbound to the backend's VM subnet.
+    sidecarPort: num(process.env.ACI_SIDECAR_PORT, 5757),
+    // Azure resource targets. Empty in dev; populated in prod via KV →
+    // refresh-env. When any of `subscriptionId`, `resourceGroup`, or
+    // `subnetId` is missing, the factory logs a warning and treats ACI
+    // as disabled (the local-only fallback is safe — the only impact is
+    // 503 instead of overflow when local is full).
+    subscriptionId: process.env.AZURE_SUBSCRIPTION_ID ?? "",
+    resourceGroup: process.env.AZURE_RG ?? "",
+    location: process.env.AZURE_LOCATION ?? "eastus2",
+    subnetId: process.env.ACI_SUBNET_ID ?? "",
+    // GHCR-pulled runner image, ideally pinned by digest so a registry
+    // tag-flip can't alter the binary running in our overflow containers.
+    // Empty falls back to `runnerImage` for dev parity, but prod should
+    // set this explicitly with a `@sha256:…` reference.
+    runnerImage: process.env.ACI_RUNNER_IMAGE ?? "",
+    // Phase 24B Slice 8: warm-pool enabled flag. Boot-time default;
+    // admin panel can flip at runtime via the system_config DB. Default
+    // false (mechanism wired but dormant — zero idle cost on launch
+    // day). Operator activates only if cold-start latency complaints
+    // surface, capped at 2 idle ACI containers ever (~$2.54/day worst
+    // case, bounded further by the daily $-cap kill switch).
+    warmPoolEnabled: process.env.ACI_WARM_POOL_ENABLED === "1",
+  },
 } as const;
 
 // Phase 20-P2 hygiene: once the sensitive env vars have been copied into the

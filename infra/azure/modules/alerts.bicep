@@ -807,3 +807,48 @@ ContainerLog_CL
     actions: actions
   }
 }
+
+// Phase 24B: ACI cost-cap exceeded. The cost tracker emits `evt:
+// aci_cost_hourly` once an hour with `exceeded:true` whenever today's
+// spend has hit the daily cap (config.aci.dailyUsdCap, default $20).
+// The kill switch in HybridBackend has already disabled overflow at
+// that point — this alert is the operator notification that we hit
+// the ceiling. Severity 2: not paging-grade because no user-facing
+// regression beyond "overflow's off" (primary 14 slots still serve),
+// but loud enough to surface in the daily ops triage.
+//
+// Evaluate every hour to match the emit cadence — anything tighter
+// just re-evaluates the same data. windowSize PT2H to ride out a
+// missed sample without false-clearing.
+resource aciCostCapAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
+  name: 'codetutor-aci-cost-cap-exceeded'
+  location: location
+  tags: tags
+  properties: {
+    enabled: true
+    severity: 2
+    scopes: [ workspaceId ]
+    evaluationFrequency: 'PT1H'
+    windowSize: 'PT2H'
+    criteria: {
+      allOf: [
+        {
+          query: '''
+ContainerLog_CL
+| where LogEntry has '"evt":"aci_cost_hourly"'
+| where LogEntry has '"exceeded":true'
+'''
+          timeAggregation: 'Count'
+          operator: 'GreaterThanOrEqual'
+          threshold: 1
+          failingPeriods: {
+            minFailingPeriodsToAlert: 1
+            numberOfEvaluationPeriods: 1
+          }
+        }
+      ]
+    }
+    autoMitigate: true
+    actions: actions
+  }
+}

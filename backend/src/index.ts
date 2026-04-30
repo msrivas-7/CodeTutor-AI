@@ -43,6 +43,11 @@ import { reapAbandonedLessonProgress } from "./db/lessonProgress.js";
 import { backendUnhandledRejections } from "./services/metrics.js";
 import { startPlatformCostSampler } from "./services/observability/platformCostSampler.js";
 import { startCapacityPressureSampler } from "./services/observability/capacityPressureSampler.js";
+import { startAciCostSampler } from "./services/observability/aciCostSampler.js";
+import { startAciOperationalConfigRefresh } from "./services/observability/aciOperationalConfig.js";
+import { aciCostTracker } from "./services/observability/aciCostTracker.js";
+import { startAciWarmPoolService } from "./services/observability/aciWarmPoolService.js";
+import type { HybridBackend } from "./services/execution/backends/hybrid.js";
 import {
   abortAllInFlight,
   inFlightCount,
@@ -110,7 +115,11 @@ async function main() {
   // counter; doesn't intercept the response.
   app.use(responseMetrics);
 
-  const executionBackend = makeExecutionBackend();
+  const {
+    backend: executionBackend,
+    absoluteSessionCap,
+    aci: aciExecutionBackend,
+  } = makeExecutionBackend();
 
   app.get("/api/health", (_req, res) => {
     // Trimmed to `{ ok: true }` — no process.uptime leak (Phase 20-P2 nit).
@@ -136,9 +145,35 @@ async function main() {
       // dedicated scheduled-query alert (bucket 6) watches this field.
       platformAuth: "ok" | "failed";
       platformAuthSinceMs?: number;
+      // Phase 24B: ACI overflow status. SAME pattern as platformAuth —
+      // informational, NOT part of `ok`. ACI being unavailable degrades
+      // overflow capacity but doesn't block the primary 14 local slots,
+      // so a sev-1 page on this field would be wrong. A separate sev-3
+      // log-based alert keys on `aci != "ok"` (slice 5).
+      //   "ok"        → ACI is configured + reachable + cost-cap allows spawn
+      //   "degraded"  → ACI is configured but currently can't spawn
+      //                 (cost cap hit, kill switch on, Azure unreachable)
+      //   "disabled"  → ACI is intentionally off (flag=0 or config missing)
+      aci: "ok" | "degraded" | "disabled";
+      // Phase 24B Slice 6.5: admin observability — current ACI session
+      // count + today's spend so the admin panel can render a live
+      // "we've spent $X.XX of $Y.YY today" number without a separate
+      // round-trip. ALWAYS present (zero when ACI is not wired, so the
+      // frontend can treat the shape as stable without conditional
+      // branches).
+      aciActiveSessions: number;
+      aciSpentTodayUsd: number;
       errors?: string[];
       ms?: number;
-    } = { ok: true, db: "ok", docker: "ok", platformAuth: "ok" };
+    } = {
+      ok: true,
+      db: "ok",
+      docker: "ok",
+      platformAuth: "ok",
+      aci: "disabled",
+      aciActiveSessions: 0,
+      aciSpentTodayUsd: 0,
+    };
     const errors: string[] = [];
     await Promise.all([
       (async () => {
@@ -159,7 +194,33 @@ async function main() {
           errors.push(`docker: ${(err as Error).message}`);
         }
       })(),
+      // ACI status query — only relevant when the backend is the hybrid
+      // wrapper. Other backends don't have ACI semantics, so we duck-
+      // type on a `getAciStatus` method. Pure read; never throws (the
+      // helper itself catches and maps to "degraded").
+      (async () => {
+        const probe = (
+          executionBackend as { getAciStatus?: () => Promise<"ok" | "degraded" | "disabled"> }
+        ).getAciStatus;
+        if (typeof probe === "function") {
+          try {
+            result.aci = await probe.call(executionBackend);
+          } catch {
+            result.aci = "degraded";
+          }
+        }
+        // No getAciStatus → leave default "disabled" (local-only backend).
+      })(),
     ]);
+
+    // Phase 24B Slice 6.5: surface live cost telemetry for the admin
+    // panel. Always read from the cost tracker — when ACI isn't wired
+    // it stays at zero (no recordSessionStart calls ever fire), so the
+    // response shape is stable across deployment topologies and the
+    // frontend can render the row unconditionally.
+    const aciStatus = aciCostTracker.getStatus();
+    result.aciActiveSessions = aciStatus.activeSessions;
+    result.aciSpentTodayUsd = Number(aciStatus.spentTodayUsd.toFixed(4));
     const authStatus = getPlatformAuthStatus();
     if (authStatus) {
       result.platformAuth = "failed";
@@ -381,7 +442,7 @@ async function main() {
     process.exit(1);
   }
 
-  initSessionManager(executionBackend);
+  initSessionManager(executionBackend, { absoluteSessionCap });
   startSweeper();
   // Bucket 6 (S-12): hourly platform-spend sampler. Emits a structured log
   // line once an hour so the scheduled-query alert in alerts.bicep can
@@ -393,6 +454,35 @@ async function main() {
   // queue depths. The composite scheduled-query alert in alerts.bicep
   // keys off `evt:capacity_pressure`. No DB hit — in-memory reads only.
   startCapacityPressureSampler();
+  // Phase 24B: ACI cost emitter. Hourly structured-log emission with
+  // today's accrued spend (event-based accounting in aciCostTracker —
+  // see services/observability/aciCostTracker.ts for the math). Drives
+  // the alerts.bicep scheduled-query rule that pages on `exceeded:true`.
+  // Skipped entirely when ACI is not wired (factory returned aci=null).
+  if (aciExecutionBackend) {
+    startAciCostSampler(aciExecutionBackend);
+    // Phase 24B Slice 6.5: keep the synchronous mirror of admin-editable
+    // operational knobs (enabled/dailyUsdCap/maxOverflow) fresh against
+    // the system_config DB table. HybridBackend reads from this mirror
+    // on every routing decision; the admin route also calls invalidate
+    // after a successful PUT for sub-second propagation. Without this
+    // periodic refresh the mirror would never pick up DB changes.
+    startAciOperationalConfigRefresh();
+    // Phase 24B Slice 8: warm-pool service. Pre-spawns 1–2 ACI containers
+    // when local capacity is close to its cap so the next overflow user
+    // gets a sub-second handoff. Disabled by default (`enabled: false`) —
+    // ship the mechanism without paying the steady-state idle cost on
+    // launch day. Operator flips `enabled: true` post-launch if cold-
+    // start latency surfaces as a real complaint.
+    startAciWarmPoolService({
+      backend: aciExecutionBackend,
+      // executionBackend IS the HybridBackend in this branch (factory
+      // returned aci !== null). The cast is safe because factory's
+      // return-type contract guarantees: aci !== null ⇒ backend is
+      // HybridBackend.
+      getLocalActive: () => (executionBackend as HybridBackend).getLocalActive(),
+    });
+  }
   // Phase 22A: budget watcher fires email alerts at 50/80/100% of the
   // daily $ cap. Polls every 60s, in-memory dedup so each threshold
   // fires once per UTC day. EmailNotConfiguredError is treated as a
