@@ -306,8 +306,21 @@ export const config = {
     // surface, capped at 2 idle ACI containers ever (~$2.54/day worst
     // case, bounded further by the daily $-cap kill switch).
     warmPoolEnabled: process.env.ACI_WARM_POOL_ENABLED === "1",
+    // P2-2 (audit fix): hysteresis knobs admin-editable via system_config.
+    // Env defaults match the original constants in aciWarmPoolService.ts;
+    // omit the env var (or set blank) to use them. parseInt → undefined
+    // when env unset so the operational-config mirror falls back cleanly.
+    warmHighWatermark: parseOptionalInt(process.env.ACI_WARM_HIGH_WATERMARK),
+    warmLowWatermark: parseOptionalInt(process.env.ACI_WARM_LOW_WATERMARK),
+    warmMaxPoolSize: parseOptionalInt(process.env.ACI_WARM_MAX_POOL_SIZE),
   },
 } as const;
+
+function parseOptionalInt(v: string | undefined): number | undefined {
+  if (!v) return undefined;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : undefined;
+}
 
 // Phase 20-P2 hygiene: once the sensitive env vars have been copied into the
 // frozen `config` object, drop them from `process.env` so a later reader

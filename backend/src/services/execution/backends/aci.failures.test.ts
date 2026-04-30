@@ -19,7 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // Mock the Azure SDK client — every method we use is a `vi.fn()` so the
 // test can assert call shape and inject failures.
 const mockBeginCreateOrUpdateAndWait = vi.fn();
-const mockBeginDelete = vi.fn();
+const mockBeginDeleteAndWait = vi.fn();
 const mockGet = vi.fn();
 const mockListByResourceGroup = vi.fn();
 
@@ -28,7 +28,7 @@ vi.mock("@azure/arm-containerinstance", () => {
     ContainerInstanceManagementClient: vi.fn().mockImplementation(() => ({
       containerGroups: {
         beginCreateOrUpdateAndWait: mockBeginCreateOrUpdateAndWait,
-        beginDelete: mockBeginDelete,
+        beginDeleteAndWait: mockBeginDeleteAndWait,
         get: mockGet,
         listByResourceGroup: mockListByResourceGroup,
       },
@@ -71,16 +71,34 @@ const baseOpts = {
   agentReadyTimeoutMs: 300,
 };
 
-// listByResourceGroup is an async iterator; mock returns one with .next()
-// that resolves immediately. Used by ensureReady's auth probe.
-function mockListResolves(): void {
+// listByResourceGroup is an async iterable in the SDK. Build a real one
+// so both `iter.next()` (auth probe) and `for await ... of` (P0-3 orphan
+// reaper) work against the same mock. Defaults to empty list.
+function mockListResolves(items: Array<{ name: string }> = []): void {
   mockListByResourceGroup.mockReturnValue({
-    next: () => Promise.resolve({ done: true, value: undefined }),
+    [Symbol.asyncIterator]() {
+      let i = 0;
+      return {
+        next: async () =>
+          i < items.length
+            ? { done: false, value: items[i++] }
+            : { done: true, value: undefined },
+      };
+    },
+    next: () =>
+      items.length === 0
+        ? Promise.resolve({ done: true, value: undefined })
+        : Promise.resolve({ done: false, value: items[0] }),
   });
 }
 
 function mockListRejects(err: Error): void {
   mockListByResourceGroup.mockReturnValue({
+    [Symbol.asyncIterator]() {
+      return {
+        next: () => Promise.reject(err),
+      };
+    },
     next: () => Promise.reject(err),
   });
 }
@@ -109,7 +127,7 @@ function stubFetchAlwaysFails(err: Error = new Error("ECONNREFUSED")): void {
 
 beforeEach(() => {
   mockBeginCreateOrUpdateAndWait.mockReset();
-  mockBeginDelete.mockReset();
+  mockBeginDeleteAndWait.mockReset();
   mockGet.mockReset();
   mockListByResourceGroup.mockReset();
   mockRecordSessionStart.mockReset();
@@ -117,7 +135,7 @@ beforeEach(() => {
   // Default: list-by-rg succeeds (so ensureReady passes) and beginDelete
   // resolves (cleanup never throws unless a test wants it to).
   mockListResolves();
-  mockBeginDelete.mockResolvedValue(undefined);
+  mockBeginDeleteAndWait.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -140,8 +158,8 @@ describe("AciExecutionBackend — failure paths", () => {
 
     // Cleanup MUST have been attempted — leaked container groups
     // accrue cost the operator can't see in cost-tracker.
-    expect(mockBeginDelete).toHaveBeenCalledTimes(1);
-    expect(mockBeginDelete).toHaveBeenCalledWith(
+    expect(mockBeginDeleteAndWait).toHaveBeenCalledTimes(1);
+    expect(mockBeginDeleteAndWait).toHaveBeenCalledWith(
       "rg-test",
       "codetutor-ai-aci-s1",
     );
@@ -168,7 +186,7 @@ describe("AciExecutionBackend — failure paths", () => {
       backend.createSession({ sessionId: "s2" }),
     ).rejects.toThrow(/has no private IP/);
 
-    expect(mockBeginDelete).toHaveBeenCalledTimes(1);
+    expect(mockBeginDeleteAndWait).toHaveBeenCalledTimes(1);
     expect(mockRecordSessionStart).not.toHaveBeenCalled();
   });
 
@@ -190,7 +208,7 @@ describe("AciExecutionBackend — failure paths", () => {
       backend.createSession({ sessionId: "s3" }),
     ).rejects.toThrow(/sidecar agent did not respond/);
 
-    expect(mockBeginDelete).toHaveBeenCalledTimes(1);
+    expect(mockBeginDeleteAndWait).toHaveBeenCalledTimes(1);
     expect(mockRecordSessionStart).not.toHaveBeenCalled();
   });
 
@@ -209,9 +227,12 @@ describe("AciExecutionBackend — failure paths", () => {
     expect(mockRecordSessionStart).toHaveBeenCalledWith(
       "s-ok",
       expect.any(Number),
+      // P0-2: third arg is the optional reservationId, undefined when
+      // getDailyUsdCap isn't wired (test mode).
+      undefined,
     );
     // No cleanup on the success path.
-    expect(mockBeginDelete).not.toHaveBeenCalled();
+    expect(mockBeginDeleteAndWait).not.toHaveBeenCalled();
   });
 
   it("destroy success records end in the cost tracker", async () => {
@@ -245,7 +266,7 @@ describe("AciExecutionBackend — failure paths", () => {
     // Cloud-side delete fails. tryDelete swallows + logs (it's
     // best-effort), so destroy should resolve, NOT throw — and the
     // session is gone from the local active map regardless.
-    mockBeginDelete.mockRejectedValueOnce(new Error("Azure DELETE 504"));
+    mockBeginDeleteAndWait.mockRejectedValueOnce(new Error("Azure DELETE 504"));
     const consoleErr = vi.spyOn(console, "error").mockImplementation(() => {});
 
     await expect(backend.destroy(handle)).resolves.toBeUndefined();
@@ -283,10 +304,16 @@ describe("AciExecutionBackend — failure paths", () => {
     await backend.ensureReady();
     const handle = await backend.createSession({ sessionId: "s1" });
 
+    // P3-2: clear the alive-cache between probes so each instance-view
+    // state actually re-hits ARM. In production the 30s cache is
+    // intentional; in this state-transition assertion we want to exercise
+    // every code path independently.
     mockGet.mockResolvedValueOnce({ instanceView: { state: "Running" } });
     expect(await backend.isAlive(handle)).toBe(true);
+    backend.__clearAliveCacheForTests();
     mockGet.mockResolvedValueOnce({ instanceView: { state: "Pending" } });
     expect(await backend.isAlive(handle)).toBe(true);
+    backend.__clearAliveCacheForTests();
     mockGet.mockResolvedValueOnce({ instanceView: { state: "Failed" } });
     expect(await backend.isAlive(handle)).toBe(false);
     mockGet.mockResolvedValueOnce({ instanceView: { state: "Succeeded" } });
@@ -381,5 +408,117 @@ describe("AciExecutionBackend — failure paths", () => {
     await backend.createSession({ sessionId: "s1" });
     await backend.createSession({ sessionId: "s2" });
     expect(backend.queueDepth()).toEqual({ inFlight: 2, queued: 0 });
+  });
+
+  // ── P0-3: tryDelete budget + boot-time orphan reaper ──────────────
+
+  it("tryDelete waits for the actual ARM delete to complete (no fire-and-forget)", async () => {
+    // Drive the destroy path. With beginDeleteAndWait mocked to resolve
+    // after a 5ms tick, destroy should not return until that promise
+    // settles — proving the await chains all the way through.
+    mockBeginCreateOrUpdateAndWait.mockResolvedValue({
+      ipAddress: { type: "Private", ip: "10.20.2.5" },
+    });
+    stubFetchOk();
+    const backend = new AciExecutionBackend(baseOpts);
+    await backend.ensureReady();
+    const handle = await backend.createSession({ sessionId: "s-await" });
+
+    let resolveDelete: () => void = () => {};
+    const deleteGate = new Promise<void>((r) => {
+      resolveDelete = r;
+    });
+    mockBeginDeleteAndWait.mockImplementationOnce(async () => {
+      await deleteGate;
+    });
+
+    let destroyDone = false;
+    const destroyPromise = backend.destroy(handle).then(() => {
+      destroyDone = true;
+    });
+
+    // Yield a tick — destroy should still be pending because the delete
+    // gate has not been released. (Pre-fix this would have returned
+    // immediately because beginDelete was fire-and-forget.)
+    await new Promise((r) => setImmediate(r));
+    expect(destroyDone).toBe(false);
+
+    resolveDelete();
+    await destroyPromise;
+    expect(destroyDone).toBe(true);
+  });
+
+  it("reapOrphans deletes every codetutor-ai-aci-* group at boot", async () => {
+    // Pre-existing orphans from a prior backend process. ensureReady()
+    // discovers + deletes them. This is the post-restart safety net for
+    // SIGTERM/OOM/deploy windows where in-process state was lost.
+    mockListResolves([
+      { name: "codetutor-ai-aci-orphan-1" },
+      { name: "codetutor-ai-aci-orphan-2" },
+      { name: "unrelated-group" }, // out-of-prefix → not touched
+      { name: "codetutor-ai-aci-aci-warm-1700-3" }, // warm-pool slot
+    ]);
+    let deleteCount = 0;
+    const deleted: string[] = [];
+    mockBeginDeleteAndWait.mockImplementation(async (rg, name) => {
+      deleteCount += 1;
+      deleted.push(name);
+    });
+
+    const backend = new AciExecutionBackend(baseOpts);
+    await backend.ensureReady();
+    // Reaper kicks off in the background after ensureReady returns. Give
+    // it a few ticks to drain.
+    for (let i = 0; i < 10; i++) {
+      await new Promise((r) => setImmediate(r));
+    }
+
+    expect(deleteCount).toBe(3);
+    expect(deleted.sort()).toEqual([
+      "codetutor-ai-aci-aci-warm-1700-3",
+      "codetutor-ai-aci-orphan-1",
+      "codetutor-ai-aci-orphan-2",
+    ]);
+  });
+
+  it("reapOrphans tolerates a list error — log + skip, doesn't break boot", async () => {
+    // listByResourceGroup runs twice during ensureReady: once for the
+    // auth probe and once for the reaper. The auth probe needs to
+    // succeed; the reap-side enumeration fails. The mock returns an
+    // iterable that yields nothing on the first call (auth probe) but
+    // throws on the second (reap-side for-await).
+    let listCallCount = 0;
+    mockListByResourceGroup.mockImplementation(() => {
+      listCallCount += 1;
+      if (listCallCount === 1) {
+        return {
+          [Symbol.asyncIterator]() {
+            return {
+              next: async () => ({ done: true, value: undefined }),
+            };
+          },
+          next: () => Promise.resolve({ done: true, value: undefined }),
+        };
+      }
+      return {
+        [Symbol.asyncIterator]() {
+          return {
+            next: () => Promise.reject(new Error("ARM 503")),
+          };
+        },
+        next: () => Promise.reject(new Error("ARM 503")),
+      };
+    });
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const backend = new AciExecutionBackend(baseOpts);
+    // ensureReady should resolve cleanly even though the reaper's list
+    // call rejects. The reaper is best-effort.
+    await expect(backend.ensureReady()).resolves.toBeUndefined();
+    for (let i = 0; i < 10; i++) {
+      await new Promise((r) => setImmediate(r));
+    }
+    expect(errSpy).toHaveBeenCalled();
+    errSpy.mockRestore();
   });
 });

@@ -180,6 +180,8 @@ module alerts 'modules/alerts.bicep' = {
     appInsightsId: monitoring.outputs.appInsightsId
     healthEndpoint: 'https://${network.outputs.fqdn}/api/health/deep'
     swaEndpoint: 'https://${swa.outputs.defaultHostname}/'
+    // P0-5a: ACI NSG resource ID for the NSG-drift Activity Log alert.
+    aciNsgId: network.outputs.aciNsgId
   }
 }
 
@@ -188,13 +190,27 @@ module alerts 'modules/alerts.bicep' = {
 // our backend tracks. The Budget here catches runaway Azure resource
 // spend (Monitor, Storage, VM resize, etc.) that the backend wouldn't
 // otherwise see. Fires the same action group → email at 50/80/100%.
-// $80/mo cap is ~25% above expected $64/mo run rate post-22A.
+//
+// P2-6 (audit fix): cap raised $80 → $400/month. Pre-fix the $80 cap
+// collided with the ACI overflow envelope: at the configured daily $20
+// cap × 30 days = $600 of legitimate ACI spend, the budget's 50/80/100%
+// thresholds would all fire on a busy month — making the budget alert
+// indistinguishable from a runaway-spend signal. New cap of $400/mo
+// covers:
+//   - VM (B2ms) ~$60
+//   - Azure Monitor + LA ~$5
+//   - Storage / Network ~$2
+//   - ACI overflow envelope: 30 days × $20 daily-cap = $600 ceiling,
+//     but realistic spend is ~10% of cap → ~$60-$100 expected
+//   - Headroom for unexpected (~$100-$200)
+// Operator who sees this fire knows it's because of an UNUSUAL cost
+// pattern (not just overflow being used heavily on launch day).
 module budget 'modules/budget.bicep' = {
   name: 'budget'
   params: {
     actionGroupId: monitoring.outputs.actionGroupId
     operatorEmail: alertEmail
-    monthlyCapUsd: 80
+    monthlyCapUsd: 400
     startDate: '2026-05-01'
   }
 }
@@ -222,6 +238,9 @@ module vmAciAccess 'modules/vm-aci-access.bicep' = {
   params: {
     principalId: vm.outputs.principalId
     manageRoleAssignments: manageRoleAssignments
+    // P1-5: subnet-scoped assignment for the join action so a compromised
+    // backend can't attach an ACI container to the VM subnet.
+    aciSubnetId: network.outputs.aciSubnetId
   }
 }
 

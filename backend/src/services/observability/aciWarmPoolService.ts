@@ -22,17 +22,32 @@ import type { AciExecutionBackend } from "../execution/backends/aci.js";
 
 const TICK_INTERVAL_MS = 30 * 1000;
 
+// P2-5 (audit fix): backoff state for ARM-throttle protection. When
+// spawnWarm fails consecutively (Azure ARM 429 on a hot region),
+// continuing to hammer at 30 s cadence makes the throttle worse.
+// `nextEligibleTickAt` is set into the future after each failure;
+// tick() returns early until that time. Backoff doubles on each
+// consecutive failure, capped at BACKOFF_CEILING_MS. Reset on success.
+const BACKOFF_INITIAL_MS = 60 * 1000; // 1 min after first failure
+const BACKOFF_CEILING_MS = 5 * 60 * 1000; // 5 min max
+
 let timer: NodeJS.Timeout | null = null;
 let backend: AciExecutionBackend | null = null;
 let getLocalActive: (() => number) | null = null;
+let consecutiveSpawnFailures = 0;
+let nextEligibleTickAt = 0;
 
 export interface AciWarmPoolOptions {
-  /** Local-active count at/above which we keep the pool primed. */
-  highWatermark: number;
-  /** Local-active count at/below which we drain the pool. */
-  lowWatermark: number;
-  /** Hard cap — never more warm containers than this regardless of pressure. */
-  maxPoolSize: number;
+  /**
+   * P2-2 (audit fix): all three watermark fields are now OPTIONAL test
+   * overrides. Production reads from the operational-config mirror
+   * (system_config keys aci_warm_high_watermark/etc) so an operator
+   * can tune without a redeploy. Tests pass these to pin behavior in
+   * unit tests independent of the DB / mirror state.
+   */
+  highWatermark?: number;
+  lowWatermark?: number;
+  maxPoolSize?: number;
   /**
    * Master enable. False keeps the timer alive but every tick is a
    * no-op (pool stays empty). Slice 8.5: this is admin-editable via
@@ -45,11 +60,7 @@ export interface AciWarmPoolOptions {
   enabled?: boolean;
 }
 
-let options: AciWarmPoolOptions = {
-  highWatermark: 12,
-  lowWatermark: 10,
-  maxPoolSize: 2,
-};
+let options: AciWarmPoolOptions = {};
 
 /**
  * Boot the periodic tick. Idempotent; calling twice is a no-op. Safe to
@@ -93,6 +104,10 @@ export function stopAciWarmPoolService(): void {
   }
   backend = null;
   getLocalActive = null;
+  // P2-5: reset the ARM-throttle backoff so a fresh start() doesn't
+  // carry over a backoff window from the prior service lifetime.
+  consecutiveSpawnFailures = 0;
+  nextEligibleTickAt = 0;
 }
 
 /** Test-only: override the synchronous options (e.g. enable for soak test). */
@@ -116,6 +131,24 @@ export async function tick(): Promise<void> {
       : getAciOperationalConfig().warmPoolEnabled;
   if (!enabled) return;
 
+  // P3-5 (audit fix): also gate on overflow being enabled. Pre-fix, an
+  // operator who flipped `aci_warm_pool_enabled=true` while
+  // `aci_overflow_enabled=false` would burn ~$2/day idle spend on warm
+  // containers nothing was going to claim — overflow is off, so no
+  // session ever spills to ACI in the first place. The two flags are
+  // independent in the admin panel for flexibility, but this gate
+  // prevents the dead-pay-load combination from accumulating cost.
+  //
+  // Tests use `options.enabled` to bypass DB-dependent state; when that
+  // override is in play, the test is asserting warm-pool hysteresis in
+  // isolation and the overflow gate is irrelevant.
+  if (
+    typeof options.enabled !== "boolean" &&
+    !getAciOperationalConfig().enabled
+  ) {
+    return;
+  }
+
   let localActive: number;
   try {
     localActive = getLocalActive();
@@ -125,21 +158,56 @@ export async function tick(): Promise<void> {
 
   const currentWarm = backend.getWarmCount();
 
+  // P2-2: read hysteresis values from the operational-config mirror so
+  // an admin's tuning takes effect within the refresh interval. Static
+  // `options` is reserved for the test-only override path.
+  const op = getAciOperationalConfig();
+  const highWatermark = options.highWatermark ?? op.warmHighWatermark;
+  const lowWatermark = options.lowWatermark ?? op.warmLowWatermark;
+  const maxPoolSize = options.maxPoolSize ?? op.warmMaxPoolSize;
+
   // Decide target. Hysteresis prevents flapping: between the two
   // watermarks, we KEEP the current target — we don't recompute toward
   // either bound.
   let target = currentWarm;
-  if (localActive >= options.highWatermark) {
-    target = options.maxPoolSize;
-  } else if (localActive <= options.lowWatermark) {
+  if (localActive >= highWatermark) {
+    target = maxPoolSize;
+  } else if (localActive <= lowWatermark) {
     target = 0;
   }
+
+  // P2-5: respect the ARM-throttle backoff window. spawnWarm is the
+  // path that hits ARM hardest; drainOldestWarm goes through tryDelete
+  // which is also ARM but a different rate-limit bucket. We back off
+  // both sides to be conservative.
+  if (Date.now() < nextEligibleTickAt) return;
 
   if (target > currentWarm) {
     // Spawn one container per tick — gentle ramp avoids thundering-herd
     // on Azure ARM (10s+ per spawn means simultaneous spawns risk
     // throttle). The next tick will spawn the next one.
-    await backend.spawnWarm();
+    const ok = await backend.spawnWarm();
+    if (ok) {
+      // P2-5: success resets the backoff window so the next tick fires
+      // on the normal cadence.
+      consecutiveSpawnFailures = 0;
+      nextEligibleTickAt = 0;
+    } else {
+      consecutiveSpawnFailures += 1;
+      const backoffMs = Math.min(
+        BACKOFF_INITIAL_MS * 2 ** (consecutiveSpawnFailures - 1),
+        BACKOFF_CEILING_MS,
+      );
+      nextEligibleTickAt = Date.now() + backoffMs;
+      console.warn(
+        JSON.stringify({
+          level: "warn",
+          evt: "aci_arm_backoff_engaged",
+          consecutiveFailures: consecutiveSpawnFailures,
+          backoffMs,
+        }),
+      );
+    }
   } else if (target < currentWarm) {
     // Drain one per tick. Same gentle pace; idle-cost reclaim is not
     // urgent.
@@ -155,15 +223,16 @@ export function getAciWarmPoolStatus(): {
   lowWatermark: number;
   maxPoolSize: number;
 } {
+  const op = getAciOperationalConfig();
   return {
     enabled:
       typeof options.enabled === "boolean"
         ? options.enabled
-        : getAciOperationalConfig().warmPoolEnabled,
+        : op.warmPoolEnabled,
     warmCount: backend ? backend.getWarmCount() : 0,
-    highWatermark: options.highWatermark,
-    lowWatermark: options.lowWatermark,
-    maxPoolSize: options.maxPoolSize,
+    highWatermark: options.highWatermark ?? op.warmHighWatermark,
+    lowWatermark: options.lowWatermark ?? op.warmLowWatermark,
+    maxPoolSize: options.maxPoolSize ?? op.warmMaxPoolSize,
   };
 }
 

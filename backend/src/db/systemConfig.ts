@@ -42,6 +42,15 @@ export const KNOWN_KEYS = [
   // containers ever (~$2.54/day idle cost, bounded further by the
   // daily $-cap kill switch).
   "aci_warm_pool_enabled",
+  // Phase 24B P2-2 (audit fix): warm-pool sizing knobs admin-editable
+  // so the operator can tune hysteresis without a redeploy. Defaults
+  // come from config.aci.warmPoolHighWatermark/etc; system_config
+  // values override at runtime. Useful when post-launch data shows the
+  // default 12/10/2 trio is wrong for actual traffic (e.g. spikes are
+  // smaller and we want pool=1, low=8 instead of pool=2, low=10).
+  "aci_warm_high_watermark",
+  "aci_warm_low_watermark",
+  "aci_warm_max_pool_size",
 ] as const;
 export type SystemConfigKey = (typeof KNOWN_KEYS)[number];
 
@@ -140,21 +149,35 @@ export async function setSystemConfig(args: {
   reason: string;
 }): Promise<void> {
   const sql = db();
-  await sql`
-    INSERT INTO public.system_config (key, value, set_by, set_at, reason)
-    VALUES (${args.key}, ${sql.json(args.value)}, ${args.setBy}, NOW(), ${args.reason})
-    ON CONFLICT (key) DO UPDATE
-      SET value  = EXCLUDED.value,
-          set_by = EXCLUDED.set_by,
-          set_at = EXCLUDED.set_at,
-          reason = EXCLUDED.reason
-  `;
+  // P1-1 (audit fix): the BEFORE trigger guard_system_config_writes
+  // rejects any write that does NOT either come from a member of
+  // app_system_config_writer OR set app.allow_system_config_write=true
+  // for the current transaction. We use the second path (single-pool
+  // deploy) — wrap the upsert in a transaction with SET LOCAL so the
+  // GUC is scoped to this transaction only and cannot leak into a
+  // pooled connection's next query.
+  await sql.begin(async (tx) => {
+    await tx`SELECT set_config('app.allow_system_config_write', 'true', true)`;
+    await tx`
+      INSERT INTO public.system_config (key, value, set_by, set_at, reason)
+      VALUES (${args.key}, ${tx.json(args.value)}, ${args.setBy}, NOW(), ${args.reason})
+      ON CONFLICT (key) DO UPDATE
+        SET value  = EXCLUDED.value,
+            set_by = EXCLUDED.set_by,
+            set_at = EXCLUDED.set_at,
+            reason = EXCLUDED.reason
+    `;
+  });
   cache.delete(args.key);
 }
 
 export async function clearSystemConfig(key: SystemConfigKey): Promise<void> {
   const sql = db();
-  await sql`DELETE FROM public.system_config WHERE key = ${key}`;
+  // P1-1: same admin-context opt-in as setSystemConfig.
+  await sql.begin(async (tx) => {
+    await tx`SELECT set_config('app.allow_system_config_write', 'true', true)`;
+    await tx`DELETE FROM public.system_config WHERE key = ${key}`;
+  });
   cache.delete(key);
 }
 

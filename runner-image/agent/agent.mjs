@@ -41,7 +41,7 @@ import fs from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 
 // ── Boot config ─────────────────────────────────────────────────────
 
@@ -80,10 +80,35 @@ if (!TOKEN || TOKEN.length < 16) {
   );
   process.exit(1);
 }
-const TOKEN_BUF = Buffer.from(TOKEN, "utf8");
+// P1-2 (audit fix): instead of comparing `Buffer.from(headerValue)` to
+// the raw TOKEN_BUF — which has to length-check first because
+// timingSafeEqual rejects unequal-length inputs — we SHA-256 both
+// sides and compare the 32-byte digests. The length check itself was
+// a side channel: a wrong-length request returned in microseconds
+// while a same-length request paid for the timingSafeEqual call,
+// letting a network attacker probe the token's length over many
+// requests. Hashing makes both paths take the same time regardless
+// of attacker input length, and SHA-256's collision resistance keeps
+// "find an input whose hash matches" infeasible.
+const TOKEN_HASH = createHash("sha256").update(TOKEN, "utf8").digest();
 
 const PORT = Number(process.env.RUNNER_AGENT_PORT ?? 5757);
 const WORKSPACE = "/workspace";
+// P1-4: canonical form of WORKSPACE — used by assertParentInsideWorkspace
+// to compare child paths against the workspace prefix. Without this,
+// any environment where /workspace contains a symlink component (or
+// platform-specific aliasing like macOS's /tmp → /private/tmp during
+// local smoke tests) would surface legitimate children as escaping.
+// Computed at boot under the assumption /workspace exists; if it
+// doesn't, fall back to the raw constant.
+let WORKSPACE_REAL = WORKSPACE;
+try {
+  WORKSPACE_REAL = await fs.realpath(WORKSPACE);
+} catch {
+  // /workspace doesn't exist yet (test scaffold). The mkdir in
+  // writeOneFile will create it on first write; subsequent realpath
+  // calls inside assertParentInsideWorkspace will then resolve.
+}
 const MAX_BODY = 8 * 1024 * 1024; // 8 MB cap on JSON request body
 const OUTPUT_CAP_BYTES = 1024 * 1024; // 1 MB per stream (matches localDocker.ts)
 
@@ -104,12 +129,10 @@ const NOFILE_LIMIT = Number(process.env.RUNNER_AGENT_NOFILE_LIMIT) || 0;
 // ── Auth helpers ────────────────────────────────────────────────────
 
 function constantEqual(headerValue) {
-  // Defend against length-leaking comparisons. timingSafeEqual requires
-  // equal-length buffers; mismatch on length returns false without
-  // comparing further.
-  const ab = Buffer.from(headerValue, "utf8");
-  if (ab.length !== TOKEN_BUF.length) return false;
-  return timingSafeEqual(ab, TOKEN_BUF);
+  // P1-2 fix: hash both sides to fixed-width digests before compare,
+  // so timing is independent of attacker-controlled input length.
+  const headerHash = createHash("sha256").update(headerValue, "utf8").digest();
+  return timingSafeEqual(headerHash, TOKEN_HASH);
 }
 
 function authOk(req) {
@@ -120,23 +143,55 @@ function authOk(req) {
 
 // ── HTTP plumbing ───────────────────────────────────────────────────
 
-async function readJsonBody(req) {
+// P3-1 (audit fix): per-route body caps + prototype-pollution reviver.
+//
+// Pre-fix every route shared the global 8 MB MAX_BODY ceiling. /exec
+// only ever takes a small command + env, while /writeFiles can carry
+// learner-snapshot payloads that legitimately approach the 8 MB cap.
+// Allowing a 7.99 MB JSON body into /exec was a CPU-DoS surface: a
+// pathological deeply-nested JSON parses for seconds even if its
+// shape is rejected immediately after.
+//
+// The reviver rejects __proto__ / constructor / prototype keys at the
+// JSON.parse step so a malicious body can't pollute Object.prototype
+// before our handler validates the shape.
+async function readJsonBody(req, options = {}) {
+  const cap = typeof options.maxBytes === "number" ? options.maxBytes : MAX_BODY;
   let total = 0;
   const chunks = [];
   for await (const chunk of req) {
     total += chunk.length;
-    if (total > MAX_BODY) {
+    if (total > cap) {
       throw Object.assign(new Error("request body too large"), { code: 413 });
     }
     chunks.push(chunk);
   }
   if (total === 0) return {};
   try {
-    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"), (key, value) => {
+      if (key === "__proto__" || key === "constructor" || key === "prototype") {
+        // Drop the dangerous key; preserves the rest of the body so the
+        // route handler still gets a usable object to shape-check.
+        return undefined;
+      }
+      return value;
+    });
   } catch {
     throw Object.assign(new Error("invalid JSON body"), { code: 400 });
   }
 }
+
+// P3-1: per-route caps. Deliberately tight where the route's payload is
+// small (commands + paths) and only loose where it must be (writeFiles
+// carrying learner snapshots).
+const PER_ROUTE_MAX_BODY = {
+  "/exec": 64 * 1024,
+  "/health": 1024,
+  "/writeFiles": MAX_BODY, // learner-snapshot payloads, up to 8 MB
+  "/snapshot": MAX_BODY,
+  "/removeFiles": 64 * 1024,
+  "/fileExists": 4 * 1024,
+};
 
 function send(res, status, body) {
   res.statusCode = status;
@@ -146,14 +201,55 @@ function send(res, status, body) {
 
 // ── Path safety ─────────────────────────────────────────────────────
 
+// P1-3 (audit fix): align with backend/src/services/project/snapshot.ts
+// `safeResolve`. The previous agent-side resolver was weaker than the
+// shared backend resolver in three ways:
+//
+//   1. No NUL-byte reject. A path like "ok\x00../etc/passwd" was
+//      accepted by Node's path.resolve but truncated by syscalls at the
+//      first NUL — letting an attacker target a different file than
+//      what path.resolve appeared to produce.
+//
+//   2. No reject for segments starting with "-". On the runner image,
+//      shell expansion of `*.c` would pass a file named e.g. `-O3.c`
+//      as a flag to gcc/cc. The compile-command harness uses ./* prefixes
+//      as primary defense, but rejecting such filenames at write time is
+//      the proper choke point.
+//
+//   3. No backslash normalization. A Windows-style "a\b\c" path slipped
+//      through the resolver as a single segment instead of three —
+//      meaning ".." inside such a string was missed by the substring
+//      check on the unnormalized form.
+//
+// Inputs hit this on writeFiles, removeFiles, and fileExists, so any
+// gap here is a generic file-write/read primitive into anywhere
+// inside /workspace's parent (or beyond, with NUL truncation).
 function safeResolveAbs(rel) {
   if (typeof rel !== "string" || rel.length === 0) {
     throw Object.assign(new Error("path required"), { code: 400 });
   }
-  if (rel.startsWith("/")) {
-    throw Object.assign(new Error("absolute path not allowed"), { code: 400 });
+  // Reject NUL bytes outright — the kernel truncates filenames at NUL,
+  // so a path that LOOKS valid to path.resolve resolves at the syscall
+  // to a totally different file. There is no legitimate use of NUL
+  // inside a relative path; any input containing it is malicious.
+  if (rel.includes("\0")) {
+    throw Object.assign(new Error("invalid path"), { code: 400 });
   }
-  const abs = path.resolve(WORKSPACE, rel);
+  // Normalize backslashes and strip leading slashes BEFORE the traversal
+  // check — without this, "a\\..\\b" would slip past a naive ".." check.
+  const cleaned = rel.replace(/\\/g, "/").replace(/^\/+/, "");
+  if (cleaned === "" || cleaned.includes("..")) {
+    throw Object.assign(new Error("invalid path"), { code: 400 });
+  }
+  // Per-segment "starts with -" reject. A file named "-O3.c" would otherwise
+  // be expanded by the shell's wildcard into a flag to gcc. Belt-and-
+  // suspenders; the harness also uses ./* prefixes.
+  for (const segment of cleaned.split("/")) {
+    if (segment.startsWith("-")) {
+      throw Object.assign(new Error("invalid path"), { code: 400 });
+    }
+  }
+  const abs = path.resolve(WORKSPACE, cleaned);
   if (abs !== WORKSPACE && !abs.startsWith(WORKSPACE + path.sep)) {
     throw Object.assign(new Error("path escapes workspace"), { code: 400 });
   }
@@ -183,6 +279,46 @@ async function ensureNoSymlinkInPath(parent) {
   }
 }
 
+// P1-4 (audit fix): TOCTOU close-out for the parent directory.
+//
+// The audit's preferred fix was an O_PATH workspace fd + posix.openat
+// per segment, but Node — even at v23 — does not expose openat. Closest
+// Node primitive that closes the TOCTOU window is realpath: after we've
+// walked + mkdir'd the parent, we resolve the canonical path of `parent`
+// and verify it still lands under WORKSPACE. Any symlink inserted
+// between ensureNoSymlinkInPath and now would have made the realpath
+// jump outside the workspace, and we catch it here BEFORE the leaf
+// open.
+//
+// Combined with the leaf open's O_NOFOLLOW | O_EXCL flags, this makes
+// the only remaining race: an attacker who replaces the leaf with a
+// symlink between realpath and open. O_NOFOLLOW catches that — open
+// refuses to follow a symlink leaf and returns ELOOP.
+//
+// Note: realpath follows ALL symlinks. We previously REJECTED them in
+// the per-segment walk, so for legitimate paths realpath is a no-op
+// (canonical form == input). For attacker paths inserted post-walk,
+// realpath surfaces the real target and we reject.
+async function assertParentInsideWorkspace(parent) {
+  if (parent === WORKSPACE) return;
+  let real;
+  try {
+    real = await fs.realpath(parent);
+  } catch (e) {
+    if (e.code === "ENOENT") return; // mkdir hasn't run yet, or post-write race; fine
+    throw e;
+  }
+  // Compare against the realpath of WORKSPACE so platform-specific path
+  // aliasing (macOS /tmp → /private/tmp, or any future symlink in the
+  // workspace ancestry) doesn't make legitimate children look escaping.
+  if (real !== WORKSPACE_REAL && !real.startsWith(WORKSPACE_REAL + path.sep)) {
+    throw Object.assign(
+      new Error(`parent escapes workspace via symlink TOCTOU: ${parent} → ${real}`),
+      { code: 400 },
+    );
+  }
+}
+
 async function writeOneFile(file) {
   if (!file || typeof file.path !== "string" || typeof file.content !== "string") {
     throw Object.assign(new Error("file requires {path, content}"), { code: 400 });
@@ -191,6 +327,12 @@ async function writeOneFile(file) {
   const parent = path.dirname(abs);
   await ensureNoSymlinkInPath(parent);
   await fs.mkdir(parent, { recursive: true });
+  // P1-4: TOCTOU close-out — re-verify parent's canonical path is still
+  // under WORKSPACE. mkdir(recursive) follows symlinks on intermediate
+  // components, so a symlink inserted between the walk above and the
+  // mkdir would let mkdir create directories anywhere on disk. Catch
+  // it now, before the leaf open commits to a path.
+  await assertParentInsideWorkspace(parent);
   // Pre-unlink any existing file (regular or symlink) so the open below
   // creates fresh. Combined with O_NOFOLLOW + O_EXCL this is TOCTOU-safe:
   // even if a symlink is replanted between unlink and open, the open
@@ -218,7 +360,7 @@ async function handleHealth(_req, res) {
 }
 
 async function handleExec(req, res) {
-  const body = await readJsonBody(req);
+  const body = await readJsonBody(req, { maxBytes: PER_ROUTE_MAX_BODY["/exec"] });
   const command = body.command;
   const timeoutMs = Number(body.timeoutMs);
   if (typeof command !== "string" || !command) {
@@ -233,8 +375,27 @@ async function handleExec(req, res) {
   // bearer token. Cast all values to strings — child_process is strict.
   const env = { ...process.env };
   if (body.env && typeof body.env === "object") {
-    for (const [k, v] of Object.entries(body.env)) {
-      env[String(k)] = String(v);
+    // P3-1 (audit fix): cap body.env to 64 entries × 4 KB. Pre-fix a
+    // pathological 8 MB body could flood the spawn with megabytes of
+    // env vars. argv/env limits at the kernel level (~2 MB total) would
+    // have caught this eventually but at a worse error path.
+    const ENV_MAX_ENTRIES = 64;
+    const ENV_MAX_VALUE_BYTES = 4 * 1024;
+    const entries = Object.entries(body.env);
+    if (entries.length > ENV_MAX_ENTRIES) {
+      return send(res, 400, {
+        error: `env has too many keys (max ${ENV_MAX_ENTRIES})`,
+      });
+    }
+    for (const [k, v] of entries) {
+      const ks = String(k);
+      const vs = String(v);
+      if (Buffer.byteLength(vs, "utf8") > ENV_MAX_VALUE_BYTES) {
+        return send(res, 400, {
+          error: `env[${ks}] exceeds ${ENV_MAX_VALUE_BYTES} bytes`,
+        });
+      }
+      env[ks] = vs;
     }
   }
   // Build the wrapped command:
@@ -331,7 +492,9 @@ async function handleExec(req, res) {
 }
 
 async function handleWriteFiles(req, res) {
-  const body = await readJsonBody(req);
+  const body = await readJsonBody(req, {
+    maxBytes: PER_ROUTE_MAX_BODY["/writeFiles"],
+  });
   if (!Array.isArray(body.files)) {
     return send(res, 400, { error: "files[] required" });
   }
@@ -342,7 +505,9 @@ async function handleWriteFiles(req, res) {
 }
 
 async function handleRemoveFiles(req, res) {
-  const body = await readJsonBody(req);
+  const body = await readJsonBody(req, {
+    maxBytes: PER_ROUTE_MAX_BODY["/removeFiles"],
+  });
   if (!Array.isArray(body.paths)) {
     return send(res, 400, { error: "paths[] required" });
   }
@@ -371,7 +536,9 @@ async function handleFileExists(req, res) {
 }
 
 async function handleSnapshot(req, res) {
-  const body = await readJsonBody(req);
+  const body = await readJsonBody(req, {
+    maxBytes: PER_ROUTE_MAX_BODY["/snapshot"],
+  });
   if (!Array.isArray(body.files)) {
     return send(res, 400, { error: "files[] required" });
   }

@@ -9,7 +9,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockBeginCreateOrUpdateAndWait = vi.fn();
-const mockBeginDelete = vi.fn();
+const mockBeginDeleteAndWait = vi.fn();
 const mockGet = vi.fn();
 const mockListByResourceGroup = vi.fn();
 
@@ -18,7 +18,7 @@ vi.mock("@azure/arm-containerinstance", () => {
     ContainerInstanceManagementClient: vi.fn().mockImplementation(() => ({
       containerGroups: {
         beginCreateOrUpdateAndWait: mockBeginCreateOrUpdateAndWait,
-        beginDelete: mockBeginDelete,
+        beginDeleteAndWait: mockBeginDeleteAndWait,
         get: mockGet,
         listByResourceGroup: mockListByResourceGroup,
       },
@@ -54,9 +54,24 @@ const baseOpts = {
   agentReadyTimeoutMs: 300,
 };
 
-function mockListResolves(): void {
+// listByResourceGroup is an async iterable in the SDK. Provide a real
+// one so both `iter.next()` (auth probe) and `for await ... of` (P0-3
+// orphan reaper, called from ensureReady) work against the same mock.
+function mockListResolves(items: Array<{ name: string }> = []): void {
   mockListByResourceGroup.mockReturnValue({
-    next: () => Promise.resolve({ done: true, value: undefined }),
+    [Symbol.asyncIterator]() {
+      let i = 0;
+      return {
+        next: async () =>
+          i < items.length
+            ? { done: false, value: items[i++] }
+            : { done: true, value: undefined },
+      };
+    },
+    next: () =>
+      items.length === 0
+        ? Promise.resolve({ done: true, value: undefined })
+        : Promise.resolve({ done: false, value: items[0] }),
   });
 }
 
@@ -73,13 +88,13 @@ function stubFetchOk(): void {
 
 beforeEach(() => {
   mockBeginCreateOrUpdateAndWait.mockReset();
-  mockBeginDelete.mockReset();
+  mockBeginDeleteAndWait.mockReset();
   mockGet.mockReset();
   mockListByResourceGroup.mockReset();
   mockRecordSessionStart.mockReset();
   mockRecordSessionEnd.mockReset();
   mockListResolves();
-  mockBeginDelete.mockResolvedValue(undefined);
+  mockBeginDeleteAndWait.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -118,7 +133,7 @@ describe("AciExecutionBackend — warm pool", () => {
     expect(backend.getWarmCount()).toBe(0);
     expect(mockRecordSessionStart).not.toHaveBeenCalled();
     // Cleanup of the partial group was attempted by spawnContainerGroup.
-    expect(mockBeginDelete).toHaveBeenCalledTimes(1);
+    expect(mockBeginDeleteAndWait).toHaveBeenCalledTimes(1);
   });
 
   it("drainOldestWarm pops FIFO + ends the warm-id cost bucket + deletes the container", async () => {
@@ -139,7 +154,7 @@ describe("AciExecutionBackend — warm pool", () => {
     // FIFO — the first-spawned warm-id is the one that ended.
     expect(mockRecordSessionEnd).toHaveBeenCalledWith(firstWarmId);
     // Cleanup of the corresponding container group.
-    expect(mockBeginDelete).toHaveBeenCalledTimes(1);
+    expect(mockBeginDeleteAndWait).toHaveBeenCalledTimes(1);
   });
 
   it("drainOldestWarm on empty pool is a no-op + returns false", async () => {
@@ -205,10 +220,12 @@ describe("AciExecutionBackend — warm pool", () => {
     expect(handle.sessionId).toBe("fresh-1");
     // SDK was called once for the cold-start spawn.
     expect(mockBeginCreateOrUpdateAndWait).toHaveBeenCalledTimes(1);
-    // Cost tracker recorded the real session start.
+    // Cost tracker recorded the real session start (third arg is the
+    // optional reservationId, undefined when getDailyUsdCap isn't wired).
     expect(mockRecordSessionStart).toHaveBeenCalledWith(
       "fresh-1",
       expect.any(Number),
+      undefined,
     );
   });
 
@@ -226,7 +243,7 @@ describe("AciExecutionBackend — warm pool", () => {
 
     // Container group is destroyed — claimed warm containers are NEVER
     // returned to the pool (cross-tenant data leak risk).
-    expect(mockBeginDelete).toHaveBeenCalledTimes(1);
+    expect(mockBeginDeleteAndWait).toHaveBeenCalledTimes(1);
     expect(backend.getWarmCount()).toBe(0);
     expect(backend.activeSessionCount()).toBe(0);
   });

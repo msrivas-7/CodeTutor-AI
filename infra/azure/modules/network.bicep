@@ -132,26 +132,25 @@ resource aciNsg 'Microsoft.Network/networkSecurityGroups@2024-05-01' = {
           destinationPortRange: '*'
         }
       }
+      // P0-5b (audit fix): the previous AllowReplyToVmSubnet rule was
+      // unnecessary AND insecure. Azure NSGs are STATEFUL — the inbound
+      // AllowAgentFromVmSubnet rule above implicitly permits the reply
+      // traffic on the established connection. So the explicit Allow
+      // here was redundant for legitimate replies, but it ALSO let
+      // learner code originate NEW outbound connections to the VM
+      // subnet on any TCP port (e.g., 22/SSH, 9000/Caddy admin, the
+      // metrics port, anything internal). With the rule deleted,
+      // DenyAllOutbound below catches all learner-originated outbound
+      // including VM-subnet — but stateful return traffic for the
+      // backend's inbound HTTP probe still flows correctly.
+      //
+      // E2E coverage: e2e/security-suite/scenarios/S1f checks that an
+      // ACI container cannot connect TO the VM subnet's internal ports.
       {
-        // Reply-traffic outbound — TCP back to the VM subnet so the
-        // agent can answer the backend's HTTP requests. Other outbound
-        // is denied so learner code can't reach the Internet (C2).
-        name: 'AllowReplyToVmSubnet'
-        properties: {
-          priority: 1000
-          direction: 'Outbound'
-          access: 'Allow'
-          protocol: 'Tcp'
-          sourceAddressPrefix: '*'
-          sourcePortRange: '*'
-          destinationAddressPrefix: defaultSubnetCidr
-          destinationPortRange: '*'
-        }
-      }
-      {
-        // Deny everything else outbound. Includes Internet, AzureCloud,
-        // and the VirtualNetwork-broad default. Only the rule above
-        // allows reply traffic to the specific VM subnet.
+        // Deny everything outbound. Includes Internet, AzureCloud, the
+        // VirtualNetwork-broad default, AND learner-initiated VM-subnet
+        // probes. Stateful reply traffic for established inbound
+        // connections is permitted automatically by Azure.
         name: 'DenyAllOutbound'
         properties: {
           priority: 4096
@@ -249,3 +248,9 @@ output fqdn string = pip.properties.dnsSettings.fqdn
 // at runtime. See infra/azure/README.md for the full seeding command.
 output aciSubnetId string = '${vnet.id}/subnets/${aciSubnetName}'
 output aciSubnetName string = aciSubnetName
+
+// P0-5a (audit fix): NSG resource ID exposed so alerts.bicep can
+// scope an Activity Log alert to NSG-rule writes. Anyone modifying
+// this NSG via portal/CLI/SDK fires an alert immediately — Azure's
+// stateful firewall has no other intrinsic notification path.
+output aciNsgId string = aciNsg.id

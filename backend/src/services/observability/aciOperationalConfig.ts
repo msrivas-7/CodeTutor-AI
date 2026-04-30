@@ -25,6 +25,14 @@ import { config } from "../../config.js";
 import { getSystemConfig } from "../../db/systemConfig.js";
 
 const REFRESH_INTERVAL_MS = 30_000;
+// P0-4 (audit fix): if no successful refresh has landed in this many
+// intervals, the watchdog forces `enabled = false` regardless of cached
+// values. Defends against silent DB failure (`getSystemConfig` throws
+// repeatedly): without this, the cache would freeze with whatever was
+// last seen, which on first-boot is ENV defaults (potentially
+// `enabled: true`) — meaning a DB outage at boot would let overflow
+// stay live even though the operator's runtime DB toggle is unreachable.
+const REFRESH_WATCHDOG_INTERVALS = 5;
 
 // Shape of the synchronous mirror. Initialized from env at module load
 // so reads BEFORE the first refresh still return sensible defaults
@@ -44,6 +52,11 @@ interface AciOperationalConfig {
    * latency surfaces post-launch, without a redeploy.
    */
   warmPoolEnabled: boolean;
+  /** P2-2: warm-pool hysteresis knobs, admin-editable. Defaults match
+   * the original constants (12/10/2). */
+  warmHighWatermark: number;
+  warmLowWatermark: number;
+  warmMaxPoolSize: number;
 }
 
 let cached: AciOperationalConfig = {
@@ -51,10 +64,20 @@ let cached: AciOperationalConfig = {
   dailyUsdCap: config.aci.dailyUsdCap,
   maxOverflow: config.aci.maxOverflow,
   warmPoolEnabled: config.aci.warmPoolEnabled,
+  // Defaults match the original constants in aciWarmPoolService.ts.
+  // config.aci.warmPool* will overlay if env-set; system_config takes
+  // precedence after the first DB refresh.
+  warmHighWatermark: config.aci.warmHighWatermark ?? 12,
+  warmLowWatermark: config.aci.warmLowWatermark ?? 10,
+  warmMaxPoolSize: config.aci.warmMaxPoolSize ?? 2,
 };
 
 let refreshTimer: NodeJS.Timeout | null = null;
 let inFlightRefresh: Promise<void> | null = null;
+// P0-4: track when the last refresh round-tripped the DB successfully.
+// `null` until the first success; consumed by the watchdog in
+// `getAciOperationalConfig()` and the deep-health probe.
+let lastSuccessfulRefreshAt: number | null = null;
 
 async function refreshOnce(): Promise<void> {
   // Concurrent refresh requests share one DB roundtrip — no thundering
@@ -63,11 +86,22 @@ async function refreshOnce(): Promise<void> {
   if (inFlightRefresh) return inFlightRefresh;
   inFlightRefresh = (async () => {
     try {
-      const [enabledRow, capRow, overflowRow, warmPoolRow] = await Promise.all([
+      const [
+        enabledRow,
+        capRow,
+        overflowRow,
+        warmPoolRow,
+        highRow,
+        lowRow,
+        maxRow,
+      ] = await Promise.all([
         getSystemConfig("aci_overflow_enabled", { bypassCache: true }),
         getSystemConfig("aci_daily_usd_cap", { bypassCache: true }),
         getSystemConfig("aci_max_overflow", { bypassCache: true }),
         getSystemConfig("aci_warm_pool_enabled", { bypassCache: true }),
+        getSystemConfig("aci_warm_high_watermark", { bypassCache: true }),
+        getSystemConfig("aci_warm_low_watermark", { bypassCache: true }),
+        getSystemConfig("aci_warm_max_pool_size", { bypassCache: true }),
       ]);
       cached = {
         enabled:
@@ -86,7 +120,55 @@ async function refreshOnce(): Promise<void> {
           typeof warmPoolRow?.value === "boolean"
             ? warmPoolRow.value
             : config.aci.warmPoolEnabled,
+        warmHighWatermark:
+          typeof highRow?.value === "number"
+            ? highRow.value
+            : config.aci.warmHighWatermark ?? 12,
+        warmLowWatermark:
+          typeof lowRow?.value === "number"
+            ? lowRow.value
+            : config.aci.warmLowWatermark ?? 10,
+        warmMaxPoolSize:
+          typeof maxRow?.value === "number"
+            ? maxRow.value
+            : config.aci.warmMaxPoolSize ?? 2,
       };
+      // P2-3 (audit fix): startup log every key + its source ON THE FIRST
+      // refresh only. Source = "db" when system_config has a row, "env"
+      // otherwise. A surprising "db" entry on a fresh deploy = stale row
+      // from a prior dev/test deploy → operator can spot it at a glance
+      // and DELETE via admin UI if not intended.
+      const isFirstRefresh = lastSuccessfulRefreshAt === null;
+      lastSuccessfulRefreshAt = Date.now();
+      if (isFirstRefresh) {
+        const src = (row: { value: unknown } | null): "db" | "env" =>
+          row && row.value !== undefined ? "db" : "env";
+        console.log(
+          JSON.stringify({
+            level: "info",
+            evt: "aci_op_config_loaded",
+            enabled: { value: cached.enabled, source: src(enabledRow) },
+            dailyUsdCap: { value: cached.dailyUsdCap, source: src(capRow) },
+            maxOverflow: { value: cached.maxOverflow, source: src(overflowRow) },
+            warmPoolEnabled: {
+              value: cached.warmPoolEnabled,
+              source: src(warmPoolRow),
+            },
+            warmHighWatermark: {
+              value: cached.warmHighWatermark,
+              source: src(highRow),
+            },
+            warmLowWatermark: {
+              value: cached.warmLowWatermark,
+              source: src(lowRow),
+            },
+            warmMaxPoolSize: {
+              value: cached.warmMaxPoolSize,
+              source: src(maxRow),
+            },
+          }),
+        );
+      }
     } catch (err) {
       // DB unreachable or query error — keep the previous cached values.
       // Env defaults are the safety floor; the previous successful
@@ -126,6 +208,41 @@ export function startAciOperationalConfigRefresh(): void {
   if (refreshTimer.unref) refreshTimer.unref();
 }
 
+/**
+ * P0-4 (audit fix): block boot until the first refresh has either
+ * succeeded OR a hard timeout has elapsed. Without this, there is a
+ * window between "factory wired ACI" and "first refresh lands" where
+ * HybridBackend reads env defaults — meaning an admin who set
+ * `enabled=false` in DB sees overflow active for those first ~30-1000ms
+ * after every backend restart. The hard timeout (boot-budget) keeps a
+ * truly-down DB from blocking the entire boot sequence; if the timeout
+ * fires, the watchdog in `getAciOperationalConfig()` will force
+ * `enabled: false` until the DB recovers, which is the safer posture.
+ *
+ * Returns `{ ok: true }` if the refresh landed within budget, `{ ok:
+ * false }` if it timed out (and the watchdog will take over safety).
+ */
+export async function awaitFirstRefresh(
+  timeoutMs = 5_000,
+): Promise<{ ok: boolean }> {
+  if (lastSuccessfulRefreshAt !== null) return { ok: true };
+  let timer: NodeJS.Timeout | undefined;
+  const deadline = new Promise<"timeout">((resolve) => {
+    timer = setTimeout(() => resolve("timeout"), timeoutMs);
+  });
+  try {
+    const result = await Promise.race([
+      refreshOnce().then(() =>
+        lastSuccessfulRefreshAt !== null ? "ok" : "fail",
+      ),
+      deadline,
+    ]);
+    return { ok: result === "ok" };
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export function stopAciOperationalConfigRefresh(): void {
   if (refreshTimer) {
     clearInterval(refreshTimer);
@@ -137,9 +254,43 @@ export function stopAciOperationalConfigRefresh(): void {
  * Synchronous read for the hot path. Returns the most recent cached
  * snapshot; if the DB is unreachable or hasn't been read yet, returns
  * env defaults (set at module load). Never throws.
+ *
+ * P0-4 watchdog: when the last successful refresh is older than
+ * 5 × interval (≈150 s), force `enabled: false` regardless of cached
+ * values. A silent DB failure must NOT let the cache freeze on
+ * `enabled: true` — the safer posture under DB-unreachable is "no new
+ * ACI spawns until DB recovers." The watchdog is stateless: it queries
+ * the timestamp every read, so a recovered DB unfreezes it on the
+ * next successful refresh automatically.
  */
 export function getAciOperationalConfig(): AciOperationalConfig {
+  if (isRefreshStale()) {
+    return { ...cached, enabled: false };
+  }
   return cached;
+}
+
+function isRefreshStale(): boolean {
+  if (lastSuccessfulRefreshAt === null) {
+    // No successful refresh has ever landed. Boot watchdog: env defaults
+    // are still in `cached`, but the operator's DB toggle has not been
+    // observed. Force OFF to keep us in the safer posture until the DB
+    // talks back.
+    return true;
+  }
+  const ageMs = Date.now() - lastSuccessfulRefreshAt;
+  return ageMs > REFRESH_INTERVAL_MS * REFRESH_WATCHDOG_INTERVALS;
+}
+
+/**
+ * P0-4: surface refresh staleness for /api/health/deep. Returns
+ * milliseconds since the last successful refresh, or `null` if the
+ * first refresh has not yet succeeded since boot. Operators query
+ * this to confirm the cache is live; alerting can fire on `> 150_000`.
+ */
+export function getAciOperationalConfigRefreshAgeMs(): number | null {
+  if (lastSuccessfulRefreshAt === null) return null;
+  return Date.now() - lastSuccessfulRefreshAt;
 }
 
 /**
@@ -153,7 +304,33 @@ export async function invalidateAciOperationalConfig(): Promise<void> {
 
 /** Test-only: force the cached state. Never call in prod code. */
 export function __forceAciOperationalConfigForTests(
-  state: Partial<AciOperationalConfig>,
+  state: Partial<AciOperationalConfig> & {
+    lastSuccessfulRefreshAt?: number | null;
+  },
 ): void {
-  cached = { ...cached, ...state };
+  cached = {
+    ...cached,
+    ...(state.enabled !== undefined && { enabled: state.enabled }),
+    ...(state.dailyUsdCap !== undefined && { dailyUsdCap: state.dailyUsdCap }),
+    ...(state.maxOverflow !== undefined && { maxOverflow: state.maxOverflow }),
+    ...(state.warmPoolEnabled !== undefined && {
+      warmPoolEnabled: state.warmPoolEnabled,
+    }),
+    ...(state.warmHighWatermark !== undefined && {
+      warmHighWatermark: state.warmHighWatermark,
+    }),
+    ...(state.warmLowWatermark !== undefined && {
+      warmLowWatermark: state.warmLowWatermark,
+    }),
+    ...(state.warmMaxPoolSize !== undefined && {
+      warmMaxPoolSize: state.warmMaxPoolSize,
+    }),
+  };
+  if (state.lastSuccessfulRefreshAt !== undefined) {
+    lastSuccessfulRefreshAt = state.lastSuccessfulRefreshAt;
+  } else {
+    // Default to "fresh enough" so the watchdog doesn't disturb tests
+    // that don't care about staleness.
+    lastSuccessfulRefreshAt = Date.now();
+  }
 }

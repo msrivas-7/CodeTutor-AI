@@ -31,6 +31,8 @@ vi.mock("../../config.js", () => ({
 const { getSystemConfig } = await import("../../db/systemConfig.js");
 const {
   getAciOperationalConfig,
+  getAciOperationalConfigRefreshAgeMs,
+  awaitFirstRefresh,
   invalidateAciOperationalConfig,
   __forceAciOperationalConfigForTests,
 } = await import("./aciOperationalConfig.js");
@@ -120,6 +122,74 @@ describe("AciOperationalConfig — synchronous mirror", () => {
     expect(cfg.maxOverflow).toBe(5);
   });
 
+  // ── P0-4: await first refresh + watchdog + age telemetry ─────────
+
+  it("awaitFirstRefresh resolves ok=true when first refresh succeeds within budget", async () => {
+    // Reset to "no refresh has ever succeeded" by passing null timestamp.
+    __forceAciOperationalConfigForTests({ lastSuccessfulRefreshAt: null });
+    vi.mocked(getSystemConfig).mockImplementation(async (key) => {
+      if (key === "aci_overflow_enabled")
+        return { key, value: false, setBy: null, setAt: "", reason: null };
+      return null;
+    });
+    const result = await awaitFirstRefresh(2_000);
+    expect(result.ok).toBe(true);
+    expect(getAciOperationalConfig().enabled).toBe(false);
+  });
+
+  it("awaitFirstRefresh resolves ok=false when DB stays down past the budget", async () => {
+    __forceAciOperationalConfigForTests({ lastSuccessfulRefreshAt: null });
+    vi.mocked(getSystemConfig).mockRejectedValue(new Error("ECONNREFUSED"));
+    const consoleErr = vi.spyOn(console, "error").mockImplementation(() => {});
+    const result = await awaitFirstRefresh(50);
+    consoleErr.mockRestore();
+    expect(result.ok).toBe(false);
+  });
+
+  it("watchdog forces enabled=false when no refresh has ever succeeded", () => {
+    __forceAciOperationalConfigForTests({
+      enabled: true,
+      lastSuccessfulRefreshAt: null,
+    });
+    // Even though the cache says enabled=true, the read MUST surface
+    // false until DB confirms the operator's intent.
+    expect(getAciOperationalConfig().enabled).toBe(false);
+  });
+
+  it("watchdog forces enabled=false when last refresh is older than 5× interval", () => {
+    const stale = Date.now() - 6 * 30_000; // 180 s old > 150 s threshold
+    __forceAciOperationalConfigForTests({
+      enabled: true,
+      lastSuccessfulRefreshAt: stale,
+    });
+    expect(getAciOperationalConfig().enabled).toBe(false);
+  });
+
+  it("watchdog leaves cache untouched when refresh is fresh", () => {
+    __forceAciOperationalConfigForTests({
+      enabled: true,
+      dailyUsdCap: 50,
+      lastSuccessfulRefreshAt: Date.now(),
+    });
+    const cfg = getAciOperationalConfig();
+    expect(cfg.enabled).toBe(true);
+    expect(cfg.dailyUsdCap).toBe(50);
+  });
+
+  it("getAciOperationalConfigRefreshAgeMs returns null before first refresh", () => {
+    __forceAciOperationalConfigForTests({ lastSuccessfulRefreshAt: null });
+    expect(getAciOperationalConfigRefreshAgeMs()).toBe(null);
+  });
+
+  it("getAciOperationalConfigRefreshAgeMs returns ms since last success", () => {
+    const t = Date.now() - 12_345;
+    __forceAciOperationalConfigForTests({ lastSuccessfulRefreshAt: t });
+    const age = getAciOperationalConfigRefreshAgeMs();
+    expect(age).not.toBe(null);
+    expect(age!).toBeGreaterThanOrEqual(12_345);
+    expect(age!).toBeLessThan(13_000);
+  });
+
   it("concurrent invalidate calls share one DB roundtrip", async () => {
     vi.mocked(getSystemConfig).mockImplementation(async (key) => {
       // Slow-ish to expose the race.
@@ -133,8 +203,9 @@ describe("AciOperationalConfig — synchronous mirror", () => {
       invalidateAciOperationalConfig(),
       invalidateAciOperationalConfig(),
     ]);
-    // Three callers, but only one set of DB reads (4 keys × 1 batch = 4
-    // — added `aci_warm_pool_enabled` in slice 8.5).
-    expect(vi.mocked(getSystemConfig)).toHaveBeenCalledTimes(4);
+    // Three callers, but only one set of DB reads. Batch size = 7
+    // (P2-2 added warmHigh/warmLow/warmMaxPoolSize on top of the
+    // original enabled/dailyUsdCap/maxOverflow/warmPoolEnabled).
+    expect(vi.mocked(getSystemConfig)).toHaveBeenCalledTimes(7);
   });
 });

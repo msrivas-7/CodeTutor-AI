@@ -14,8 +14,8 @@
 // ingest tiny (24 lines/day) — the alert evaluates over a 1-hour window so
 // emitting more often would just create noise.
 
-import { config } from "../../config.js";
 import { aciCostTracker } from "./aciCostTracker.js";
+import { getAciOperationalConfig } from "./aciOperationalConfig.js";
 import type { AciExecutionBackend } from "../execution/backends/aci.js";
 
 const EMIT_INTERVAL_MS = 60 * 60 * 1000; // 60min
@@ -34,12 +34,16 @@ export function startAciCostSampler(backend: AciExecutionBackend): void {
   emitTimer = setInterval(emitHourly, EMIT_INTERVAL_MS);
   if (emitTimer.unref) emitTimer.unref();
 
+  // P3-6 (audit fix): the startup log used to read `config.aci.dailyUsdCap`
+  // (env value) which differs from the kill-switch's view if an admin has
+  // set `aci_daily_usd_cap` in system_config. Using the operational-config
+  // mirror keeps every log line + alert + kill switch reading the SAME cap.
   console.log(
     JSON.stringify({
       level: "info",
       evt: "aci_cost_sampler_started",
       emitIntervalMs: EMIT_INTERVAL_MS,
-      dailyCapUsd: config.aci.dailyUsdCap,
+      dailyCapUsd: getAciOperationalConfig().dailyUsdCap,
     }),
   );
 }
@@ -56,7 +60,13 @@ function emitHourly(): void {
   // Pull the latest snapshot from the tracker. This includes in-flight
   // sessions billed up to NOW — same precision Azure uses on the invoice.
   const status = aciCostTracker.getStatus();
-  const cap = config.aci.dailyUsdCap;
+  // P1-6 (audit fix): use the live admin-editable cap from the
+  // operational-config mirror, NOT the env default. Pre-fix, an admin
+  // who lowered the cap from $20 → $5 in the panel would see the
+  // kill switch fire at $5 (which reads from the mirror) but the
+  // hourly alert query still keyed on $20 because the sampler used
+  // the env value. The two paths now converge.
+  const cap = getAciOperationalConfig().dailyUsdCap;
   const exceeded = status.spentTodayUsd >= cap;
   console.log(
     JSON.stringify({

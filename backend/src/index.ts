@@ -44,7 +44,11 @@ import { backendUnhandledRejections } from "./services/metrics.js";
 import { startPlatformCostSampler } from "./services/observability/platformCostSampler.js";
 import { startCapacityPressureSampler } from "./services/observability/capacityPressureSampler.js";
 import { startAciCostSampler } from "./services/observability/aciCostSampler.js";
-import { startAciOperationalConfigRefresh } from "./services/observability/aciOperationalConfig.js";
+import {
+  awaitFirstRefresh as awaitFirstAciOperationalConfigRefresh,
+  getAciOperationalConfigRefreshAgeMs,
+  startAciOperationalConfigRefresh,
+} from "./services/observability/aciOperationalConfig.js";
 import { aciCostTracker } from "./services/observability/aciCostTracker.js";
 import { startAciWarmPoolService } from "./services/observability/aciWarmPoolService.js";
 import type { HybridBackend } from "./services/execution/backends/hybrid.js";
@@ -163,6 +167,12 @@ async function main() {
       // branches).
       aciActiveSessions: number;
       aciSpentTodayUsd: number;
+      // P0-4 (audit fix): age of the last successful refresh of the
+      // ACI operational-config mirror. `null` = no refresh has yet
+      // succeeded since boot (watchdog is forcing enabled=false). A
+      // value > 150_000 (5 × refresh interval) means the watchdog is
+      // active and operator should investigate DB connectivity.
+      aciConfigRefreshAgeMs: number | null;
       errors?: string[];
       ms?: number;
     } = {
@@ -173,6 +183,7 @@ async function main() {
       aci: "disabled",
       aciActiveSessions: 0,
       aciSpentTodayUsd: 0,
+      aciConfigRefreshAgeMs: null,
     };
     const errors: string[] = [];
     await Promise.all([
@@ -221,6 +232,7 @@ async function main() {
     const aciStatus = aciCostTracker.getStatus();
     result.aciActiveSessions = aciStatus.activeSessions;
     result.aciSpentTodayUsd = Number(aciStatus.spentTodayUsd.toFixed(4));
+    result.aciConfigRefreshAgeMs = getAciOperationalConfigRefreshAgeMs();
     const authStatus = getPlatformAuthStatus();
     if (authStatus) {
       result.platformAuth = "failed";
@@ -442,6 +454,36 @@ async function main() {
     process.exit(1);
   }
 
+  // Phase 24B P0-1: hydrate the ACI cost tracker from its persisted
+  // singleton row BEFORE sessions can spawn. Without this, a restart
+  // would zero today's accumulator and forget every active session's
+  // billable start time — i.e. the daily cap kill-switch could be
+  // laundered to $0 by triggering a restart. Only meaningful when the
+  // ACI backend is wired; in local-only mode the tracker stays inert.
+  if (aciExecutionBackend) {
+    await aciCostTracker.init();
+
+    // Phase 24B P0-4: block until the operational-config mirror has
+    // round-tripped the system_config DB at least once. Without this
+    // there is a window between boot and ~30 s where HybridBackend's
+    // kill-switch reads ENV defaults — meaning an admin who set
+    // `enabled=false` in DB sees overflow active on every restart.
+    // 5 s budget (deliberately generous): if the DB is harder-down
+    // than that, the watchdog inside getAciOperationalConfig() takes
+    // over and forces `enabled=false` until DB recovers.
+    startAciOperationalConfigRefresh();
+    const firstRefresh = await awaitFirstAciOperationalConfigRefresh(5_000);
+    if (!firstRefresh.ok) {
+      console.error(
+        JSON.stringify({
+          level: "error",
+          evt: "aci_op_config_first_refresh_timeout",
+          msg: "watchdog will force enabled=false until DB responds",
+        }),
+      );
+    }
+  }
+
   initSessionManager(executionBackend, { absoluteSessionCap });
   startSweeper();
   // Bucket 6 (S-12): hourly platform-spend sampler. Emits a structured log
@@ -461,13 +503,10 @@ async function main() {
   // Skipped entirely when ACI is not wired (factory returned aci=null).
   if (aciExecutionBackend) {
     startAciCostSampler(aciExecutionBackend);
-    // Phase 24B Slice 6.5: keep the synchronous mirror of admin-editable
-    // operational knobs (enabled/dailyUsdCap/maxOverflow) fresh against
-    // the system_config DB table. HybridBackend reads from this mirror
-    // on every routing decision; the admin route also calls invalidate
-    // after a successful PUT for sub-second propagation. Without this
-    // periodic refresh the mirror would never pick up DB changes.
-    startAciOperationalConfigRefresh();
+    // Phase 24B P0-4: the operational-config refresh was already started
+    // earlier (before initSessionManager) so the first refresh blocks
+    // boot. The call here is a no-op (idempotent) but is left documented
+    // for the reader following the lifecycle from this anchor.
     // Phase 24B Slice 8: warm-pool service. Pre-spawns 1–2 ACI containers
     // when local capacity is close to its cap so the next overflow user
     // gets a sub-second handoff. Disabled by default (`enabled: false`) —

@@ -89,6 +89,11 @@ export function makeExecutionBackend(): ExecutionBackendBundle {
     coldStartTimeoutMs: config.aci.coldStartTimeoutMs,
     memoryInGB: config.runner.memoryBytes / (1024 * 1024 * 1024),
     cpu: config.runner.nanoCpus / 1_000_000_000,
+    // P0-2: atomic cost-cap reservation. Read the live admin-editable
+    // cap; AciExecutionBackend.tryReserve() projects this spawn's
+    // hourly bill against current spend on every cold-start AND every
+    // warm-pool spawn, refusing the spawn if it would exceed the cap.
+    getDailyUsdCap: () => getAciOperationalConfig().dailyUsdCap,
   });
 
   const hybrid = new HybridBackend(local, aci, {

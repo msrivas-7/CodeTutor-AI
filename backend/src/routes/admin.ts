@@ -84,16 +84,29 @@ const KEY_BOUNDS: Record<
   //   Bound 0–100 so a typo can't let a runaway spike burn $1000.
   //   Practical operator range is 0–50; 100 is the hard ceiling.
   // - aci_max_overflow: how many concurrent ACI sessions allowed past
-  //   the local cap of 14. Bound 0–100; 0 = "off without disabling"
-  //   (overflow returns 503 immediately), high values let an HN spike
-  //   route hundreds through ACI before the cost cap intervenes.
+  //   the local cap of 14. Bound 0–50 (P0-2 audit fix; was 100). 0 =
+  //   "off without disabling" (overflow returns 503 immediately).
+  //   The 50 ceiling reflects realistic burst sizing — past that the
+  //   cost cap fires anyway, AND a 50-spawn fan-out costs ~$2.65/hr
+  //   which already brushes the daily envelope. A higher value would
+  //   only mask a misconfigured cost cap.
   aci_overflow_enabled: { type: "boolean" },
   aci_daily_usd_cap: { type: "number", min: 0, max: 100 },
-  aci_max_overflow: { type: "number", min: 0, max: 100 },
+  aci_max_overflow: { type: "number", min: 0, max: 50 },
   // Slice 8: warm-pool toggle. Boolean; the high/low watermarks +
   // pool size live in env (config.aci.*) since they're operational-
   // tuning values that don't need 2am admin access.
   aci_warm_pool_enabled: { type: "boolean" },
+  // P2-2: warm-pool hysteresis knobs. Bounds keep operator typos from
+  // (a) accidentally setting the pool higher than `aci_max_overflow`
+  // (would never spawn that many), or (b) inverting low/high (caught
+  // at read time below by HybridBackend's effectiveCap math). Hard
+  // upper-bound 14 on watermarks because that's the local-cap default;
+  // anything higher means the pool tries to ramp but local never gets
+  // there.
+  aci_warm_high_watermark: { type: "number", min: 0, max: 14 },
+  aci_warm_low_watermark: { type: "number", min: 0, max: 14 },
+  aci_warm_max_pool_size: { type: "number", min: 0, max: 10 },
 };
 
 // Env defaults exposed in GET /api/admin/system-config so the UI can
@@ -124,6 +137,12 @@ function envDefaultFor(key: SystemConfigKey): boolean | number {
       return config.aci.maxOverflow;
     case "aci_warm_pool_enabled":
       return config.aci.warmPoolEnabled;
+    case "aci_warm_high_watermark":
+      return config.aci.warmHighWatermark ?? 12;
+    case "aci_warm_low_watermark":
+      return config.aci.warmLowWatermark ?? 10;
+    case "aci_warm_max_pool_size":
+      return config.aci.warmMaxPoolSize ?? 2;
   }
 }
 
@@ -492,7 +511,10 @@ adminRouter.put("/system-config/:key", async (req, res, next) => {
       typedKey === "aci_overflow_enabled" ||
       typedKey === "aci_daily_usd_cap" ||
       typedKey === "aci_max_overflow" ||
-      typedKey === "aci_warm_pool_enabled"
+      typedKey === "aci_warm_pool_enabled" ||
+      typedKey === "aci_warm_high_watermark" ||
+      typedKey === "aci_warm_low_watermark" ||
+      typedKey === "aci_warm_max_pool_size"
     ) {
       await invalidateAciOperationalConfig();
     }

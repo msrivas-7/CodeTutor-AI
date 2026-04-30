@@ -146,4 +146,61 @@ describe("AciCostTracker", () => {
     // 3 sessions × 30 min × rate
     expect(s.spentTodayUsd).toBeCloseTo(3 * (0.053 / 2), 4);
   });
+
+  // ── P0-2: atomic cost reservation ─────────────────────────────────
+
+  describe("tryReserve / cancelReservation (P0-2)", () => {
+    it("returns null when projected spend would exceed the cap", () => {
+      const t0 = Date.parse("2026-04-30T12:00:00Z");
+      aciCostTracker.__forceForTests({ completedTodayUsd: 19.99 });
+      // Reserving 1 hour ($0.053) would project $20.043 > $20.
+      expect(aciCostTracker.tryReserve(60 * 60 * 1000, 20, t0)).toBe(null);
+    });
+
+    it("returns a token + bumps spentTodayUsd by the reserved amount", () => {
+      const t0 = Date.parse("2026-04-30T12:00:00Z");
+      const id = aciCostTracker.tryReserve(60 * 60 * 1000, 100, t0);
+      expect(id).not.toBe(null);
+      // 1 hour at $0.053/hr = $0.053 reserved.
+      expect(aciCostTracker.spentTodayUsd(t0)).toBeCloseTo(0.053, 6);
+    });
+
+    it("two concurrent reserves see each other — second sees first's pending charge", () => {
+      const t0 = Date.parse("2026-04-30T12:00:00Z");
+      // Cap leaves room for exactly one 1-hour reservation.
+      aciCostTracker.__forceForTests({ completedTodayUsd: 19.9 });
+      const a = aciCostTracker.tryReserve(60 * 60 * 1000, 20, t0);
+      const b = aciCostTracker.tryReserve(60 * 60 * 1000, 20, t0);
+      // First reservation succeeded ($19.9 + $0.053 = $19.953 < $20).
+      // Second sees $19.953 + $0.053 = $20.006 > $20 and refuses.
+      expect(a).not.toBe(null);
+      expect(b).toBe(null);
+    });
+
+    it("cancelReservation releases the budget for subsequent attempts", () => {
+      const t0 = Date.parse("2026-04-30T12:00:00Z");
+      aciCostTracker.__forceForTests({ completedTodayUsd: 19.9 });
+      const a = aciCostTracker.tryReserve(60 * 60 * 1000, 20, t0)!;
+      expect(aciCostTracker.tryReserve(60 * 60 * 1000, 20, t0)).toBe(null);
+      aciCostTracker.cancelReservation(a);
+      // After release, headroom is back — next reserve should succeed.
+      const c = aciCostTracker.tryReserve(60 * 60 * 1000, 20, t0);
+      expect(c).not.toBe(null);
+    });
+
+    it("recordSessionStart consumes the reservation atomically (no double-count)", () => {
+      const t0 = Date.parse("2026-04-30T12:00:00Z");
+      const id = aciCostTracker.tryReserve(60 * 60 * 1000, 100, t0)!;
+      // Pre-consume: reservation contributes $0.053.
+      expect(aciCostTracker.spentTodayUsd(t0)).toBeCloseTo(0.053, 6);
+      aciCostTracker.recordSessionStart("s1", t0, id);
+      // Post-consume: only the in-flight session contributes (0 ms in).
+      expect(aciCostTracker.spentTodayUsd(t0)).toBeCloseTo(0, 6);
+    });
+
+    it("cancelReservation is idempotent on unknown ids", () => {
+      // Should not throw — silent no-op.
+      expect(() => aciCostTracker.cancelReservation("never-issued")).not.toThrow();
+    });
+  });
 });

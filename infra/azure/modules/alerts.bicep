@@ -21,6 +21,9 @@ param healthEndpoint string
 @description('Full URL the availability test hits for the SWA root.')
 param swaEndpoint string
 
+@description('P0-5a: ACI NSG resource ID. Used by the NSG-drift Activity Log alert that fires whenever someone modifies the security rules on the ACI subnet NSG. Empty string skips the alert (e.g., test deploys without ACI infra).')
+param aciNsgId string = ''
+
 var actions = {
   actionGroups: [ actionGroupId ]
 }
@@ -850,5 +853,75 @@ ContainerLog_CL
     }
     autoMitigate: true
     actions: actions
+  }
+}
+
+// P0-5a (audit fix): NSG-drift detector for the ACI subnet NSG.
+//
+// The ACI NSG is the firewall layer that keeps learner code from
+// reaching the VM subnet's internal ports — every rule on it is part
+// of the C2 (no-internet-egress) + cross-tenant isolation guarantee.
+// Pre-fix there was NO observability: an admin (or compromised SP)
+// could disable AllowReplyToVmSubnet's deny twin or punch a port hole,
+// and we'd only learn about it when a learner exfiltrated something.
+//
+// Activity Log Alert (not scheduled query) chosen because:
+//   - Fires within ~1 min of the write, vs. 5+ min for query-based.
+//   - Free at this volume. Scheduled queries cost ~$1.50/mo each.
+//   - No dependency on AzureActivity table being forwarded to LA
+//     workspace (which is currently NOT configured in this tenant).
+//
+// Severity 1: this is a security-perimeter mutation, page on it. The
+// only legitimate writers are the OIDC SP via deploy.yml — anything
+// else is suspicious until proven otherwise. The runbook entry: open
+// the activity log, identify caller, confirm intent or rollback.
+resource aciNsgDriftAlert 'Microsoft.Insights/activityLogAlerts@2020-10-01' = if (!empty(aciNsgId)) {
+  name: 'codetutor-aci-nsg-drift'
+  location: 'global'
+  tags: tags
+  properties: {
+    enabled: true
+    description: 'ACI subnet NSG was modified — investigate immediately. Only the deploy SP should write here.'
+    scopes: [ aciNsgId ]
+    condition: {
+      allOf: [
+        {
+          field: 'category'
+          equals: 'Administrative'
+        }
+        {
+          // anyOf at the inner level matches either the NSG-level write
+          // (rule add/remove that touches the parent resource) OR the
+          // securityRules sub-resource write. Either fires the alert.
+          anyOf: [
+            {
+              field: 'operationName'
+              equals: 'Microsoft.Network/networkSecurityGroups/write'
+            }
+            {
+              field: 'operationName'
+              equals: 'Microsoft.Network/networkSecurityGroups/securityRules/write'
+            }
+            {
+              field: 'operationName'
+              equals: 'Microsoft.Network/networkSecurityGroups/securityRules/delete'
+            }
+          ]
+        }
+        {
+          // Only fire on completed mutations, not the staged "started"
+          // / "accepted" entries that ARM emits as part of every write.
+          field: 'status'
+          equals: 'Succeeded'
+        }
+      ]
+    }
+    actions: {
+      actionGroups: [
+        {
+          actionGroupId: actionGroupId
+        }
+      ]
+    }
   }
 }

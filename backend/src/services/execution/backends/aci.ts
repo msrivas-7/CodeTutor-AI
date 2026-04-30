@@ -52,6 +52,7 @@ import { ContainerInstanceManagementClient } from "@azure/arm-containerinstance"
 import { DefaultAzureCredential } from "@azure/identity";
 import crypto from "node:crypto";
 import { aciCostTracker } from "../../observability/aciCostTracker.js";
+import { aciSpawnAttempts, aciSpawnDuration } from "../../metrics.js";
 import type {
   ExecOptions,
   ExecResult,
@@ -100,6 +101,16 @@ export interface AciBackendOptions {
   memoryInGB?: number;
   /** Per-session CPU cap. Match local for parity (default 1 vCPU). */
   cpu?: number;
+  /**
+   * P0-2: callback returning the live daily $ cap (admin-editable via
+   * system_config). When set, every spawn (cold or warm) calls
+   * `aciCostTracker.tryReserve(...)` BEFORE asking ARM, atomically
+   * incrementing projected spend so concurrent spawns can't both pass
+   * a cap check that one of them is about to invalidate. When null/
+   * undefined, no reservation is taken (used by tests + local-only
+   * harnesses that aren't wired to operational config).
+   */
+  getDailyUsdCap?: () => number;
 }
 
 // Internal warm-pool entry. Same shape as AciHandle but the sessionId
@@ -129,6 +140,15 @@ export class AciExecutionBackend implements ExecutionBackend {
   private client: ContainerInstanceManagementClient | null = null;
   private readonly active = new Map<string, AciHandle>();
   private ready = false;
+
+  // P3-2 (audit fix): cache the last successful isAlive ARM call per
+  // session so kickReap() — which fans out across N candidates — doesn't
+  // hit ARM N times every minute. Cache is alive-only: a "dead" answer
+  // is never cached because we want the next call to re-check (the
+  // session might have just been recreated). 30 s TTL matches the
+  // session-manager sweep cadence so we're never staler than the next
+  // sweep would have been anyway.
+  private readonly aliveCache = new Map<string, number>();
 
   // Phase 24B Slice 8: warm pool. Pre-spawned containers waiting to be
   // CLAIMED (single-use, never recycled across learners — cross-tenant
@@ -192,6 +212,24 @@ export class AciExecutionBackend implements ExecutionBackend {
         location: this.opts.location,
       }),
     );
+
+    // P0-3: reap any container groups left over from a previous backend
+    // process. After a SIGTERM/OOM/deploy, Azure still has the groups
+    // running (and billing); without this they'd accumulate until the
+    // operator notices via the cost-cap alert. Reap is best-effort —
+    // failures log + continue so a transient ARM hiccup doesn't block
+    // the boot path. ready=true above already, so any spawn that races
+    // the reaper will spawn a new group (different name); the reaper
+    // only deletes what was on the listing snapshot.
+    this.reapOrphans().catch((err) => {
+      console.error(
+        JSON.stringify({
+          level: "error",
+          evt: "aci_orphan_reap_failed",
+          err: (err as Error).message,
+        }),
+      );
+    });
   }
 
   async ping(): Promise<void> {
@@ -218,6 +256,16 @@ export class AciExecutionBackend implements ExecutionBackend {
     return this.active.size;
   }
 
+  /**
+   * Test-only: drop the alive-cache so the next isAlive call goes back
+   * to ARM regardless of when the last successful check was. Production
+   * callers should NEVER use this — the cache is the whole point of
+   * P3-2.
+   */
+  __clearAliveCacheForTests(): void {
+    this.aliveCache.clear();
+  }
+
   // ── Session lifecycle ───────────────────────────────────────────────
 
   async createSession(spec: RuntimeSpec): Promise<SessionHandle> {
@@ -225,16 +273,60 @@ export class AciExecutionBackend implements ExecutionBackend {
       throw new Error("[aci] backend not ready — ensureReady() not called");
     }
 
+    const spawnStart = Date.now();
+
     // Phase 24B Slice 8: warm-pool fast path. If a pre-spawned container
     // is waiting, claim it instead of cold-starting fresh. Latency drops
     // from 5–15s to ~1 ms. Single-use: claimed containers do NOT return
     // to the pool when the session ends (workspace + tmpfs accumulate
     // state across learners → cross-tenant data leak otherwise).
     const claimed = this.tryClaimWarm(spec.sessionId);
-    if (claimed) return claimed;
+    if (claimed) {
+      // P1-9 metric: warm-pool claim, near-zero latency.
+      aciSpawnAttempts.inc({ result: "warm_claim" });
+      aciSpawnDuration.observe(
+        { path: "warm_claim" },
+        (Date.now() - spawnStart) / 1000,
+      );
+      return claimed;
+    }
+
+    // P0-2: atomic cost-cap reservation. If the cap would be exceeded
+    // (factoring in concurrent in-flight spawns), refuse before paying
+    // ARM the spawn cost. Reserve up to one hour of billing as a
+    // conservative upper bound; the real session usually ends sooner.
+    let reservationId: string | null = null;
+    if (this.opts.getDailyUsdCap) {
+      const cap = this.opts.getDailyUsdCap();
+      reservationId = aciCostTracker.tryReserve(60 * 60 * 1000, cap);
+      if (reservationId === null) {
+        // P1-9 metric: cap-refusal is its own outcome bucket — operator
+        // wants to distinguish "we ran out of money" from "Azure broke."
+        aciSpawnAttempts.inc({ result: "fail_cap" });
+        throw new Error("aci_cost_cap_reached");
+      }
+    }
 
     const containerGroupName = `codetutor-ai-aci-${spec.sessionId}`;
-    const spawned = await this.spawnContainerGroup(containerGroupName);
+    let spawned: { privateIp: string; port: number; bearerToken: string };
+    try {
+      spawned = await this.spawnContainerGroup(containerGroupName);
+    } catch (err) {
+      // Spawn failed — release the reservation so the cap accumulator
+      // doesn't permanently inflate by a $0.053 ghost charge.
+      if (reservationId !== null) {
+        aciCostTracker.cancelReservation(reservationId);
+      }
+      // P1-9 metric: classify failure cause from message shape. ARM
+      // errors come from beginCreateOrUpdateAndWait; agent errors come
+      // from waitForAgent's "did not respond within budget" raise.
+      const msg = (err as Error).message;
+      const result = msg.includes("sidecar agent did not respond")
+        ? "fail_agent"
+        : "fail_arm";
+      aciSpawnAttempts.inc({ result });
+      throw err;
+    }
 
     const handle: AciHandle = {
       sessionId: spec.sessionId,
@@ -251,7 +343,18 @@ export class AciExecutionBackend implements ExecutionBackend {
     // the daily cap (Azure may have charged for the partial spawn, but
     // it's bounded by coldStartTimeoutMs and we'd rather under-credit
     // than have failed spawns burn cap headroom).
-    aciCostTracker.recordSessionStart(handle.sessionId, handle.createdAt);
+    aciCostTracker.recordSessionStart(
+      handle.sessionId,
+      handle.createdAt,
+      reservationId ?? undefined,
+    );
+    // P1-9 metric: cold-path success + duration histogram. Drives the
+    // P2-1 budget-tuning decision (do we have enough slack at P99?).
+    aciSpawnAttempts.inc({ result: "cold_success" });
+    aciSpawnDuration.observe(
+      { path: "cold" },
+      (Date.now() - spawnStart) / 1000,
+    );
     return handle;
   }
 
@@ -370,24 +473,72 @@ export class AciExecutionBackend implements ExecutionBackend {
   async isAlive(handle: SessionHandle): Promise<boolean> {
     const h = this.cast(handle);
     if (!this.client) return false;
+
+    // P3-2: short-circuit on a recent successful liveness check. Only
+    // cache the ALIVE answer — a "dead" answer never short-circuits so
+    // a later isAlive after destroy() always re-asks ARM.
+    const ALIVE_CACHE_TTL_MS = 30_000;
+    const cachedAt = this.aliveCache.get(h.containerGroupName);
+    if (cachedAt && Date.now() - cachedAt < ALIVE_CACHE_TTL_MS) {
+      return true;
+    }
+
+    let state: string | undefined;
     try {
       const group = await this.client.containerGroups.get(
         this.opts.resourceGroup,
         h.containerGroupName,
       );
-      // Running OR Pending counts as alive. Failed/Succeeded/(undefined) → dead.
-      const state = group.instanceView?.state;
-      return state === "Running" || state === "Pending";
+      state = group.instanceView?.state;
     } catch {
       // 404 / network blip / SDK throw — treat as dead. The session manager
       // will reap on the next sweep.
       return false;
+    }
+    // Running OR Pending counts as alive at the ARM level. Failed/Succeeded/
+    // (undefined) → dead.
+    if (state !== "Running" && state !== "Pending") return false;
+
+    // P1-9 (audit fix): ARM-level "Running" is necessary but not sufficient.
+    // The container group can be Running while the agent process inside has
+    // crashed (OOM, segfault, hung event loop). Pre-fix, sessionManager would
+    // happily route exec calls to a dead agent until the user complained.
+    // Probe the agent /health endpoint with a tight 1 s budget — agent is
+    // local-LAN-fast (< 50 ms typical) so 1 s is generous slack without
+    // making isAlive itself a latency hotspot.
+    const AGENT_PROBE_BUDGET_MS = 1_000;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), AGENT_PROBE_BUDGET_MS);
+    try {
+      const res = await fetch(`http://${h.privateIp}:${h.port}/health`, {
+        method: "GET",
+        headers: { authorization: `Bearer ${h.bearerToken}` },
+        signal: controller.signal,
+      });
+      if (res.ok) {
+        // P3-2: prime the cache so the next caller (within 30 s) skips
+        // both ARM and the agent probe.
+        this.aliveCache.set(h.containerGroupName, Date.now());
+        return true;
+      }
+      return false;
+    } catch {
+      // Timeout / connection refused / agent crashed mid-response: treat
+      // as dead so sessionManager reaps it. ARM said Running, but the
+      // agent is unresponsive — the session is effectively useless.
+      return false;
+    } finally {
+      clearTimeout(timer);
     }
   }
 
   async destroy(handle: SessionHandle): Promise<void> {
     const h = this.cast(handle);
     this.active.delete(h.sessionId);
+    // P3-2: drop the alive-cache entry so a re-spawned group with the
+    // same name (rare but possible if sessionId is reused) doesn't read
+    // a stale alive=true.
+    this.aliveCache.delete(h.containerGroupName);
     // Record session end BEFORE the async Azure delete — destroy() is
     // the moment we stop being responsible for billing from our side.
     // Azure's actual teardown is typically <1s after this call returns,
@@ -476,6 +627,20 @@ export class AciExecutionBackend implements ExecutionBackend {
    */
   async spawnWarm(): Promise<boolean> {
     if (!this.client) return false;
+    // P0-2: warm spawns also count against the daily $ cap (Azure starts
+    // billing the moment the container group is created, regardless of
+    // whether a learner has claimed it). Reserve before paying ARM.
+    let reservationId: string | null = null;
+    if (this.opts.getDailyUsdCap) {
+      const cap = this.opts.getDailyUsdCap();
+      reservationId = aciCostTracker.tryReserve(60 * 60 * 1000, cap);
+      if (reservationId === null) {
+        // Cap is at-or-above limit; warm-pool sit-out tick. The pool
+        // service retries on the next tick and will succeed if other
+        // sessions complete in the interim.
+        return false;
+      }
+    }
     this.warmSpawnSeq += 1;
     const warmId = `aci-warm-${Date.now()}-${this.warmSpawnSeq}`;
     const containerGroupName = `codetutor-ai-aci-${warmId}`;
@@ -492,7 +657,11 @@ export class AciExecutionBackend implements ExecutionBackend {
       this.warmPool.push(entry);
       // Warm containers are billable from spawn-time. Record under the
       // synthetic warm-id so the daily-cap accumulator includes them.
-      aciCostTracker.recordSessionStart(warmId, entry.spawnedAt);
+      aciCostTracker.recordSessionStart(
+        warmId,
+        entry.spawnedAt,
+        reservationId ?? undefined,
+      );
       console.log(
         JSON.stringify({
           level: "info",
@@ -503,6 +672,9 @@ export class AciExecutionBackend implements ExecutionBackend {
       );
       return true;
     } catch (err) {
+      if (reservationId !== null) {
+        aciCostTracker.cancelReservation(reservationId);
+      }
       // spawnContainerGroup already cleaned up (tryDelete on the partial
       // group). Just log + return false; the pool service will retry on
       // the next tick if it still wants more warm capacity.
@@ -666,16 +838,45 @@ export class AciExecutionBackend implements ExecutionBackend {
     );
   }
 
+  /**
+   * P0-3 (audit fix): actually wait for the delete to land at Azure.
+   *
+   * Previously this called `beginDelete` and awaited only the poller-
+   * creation promise — control returned to the caller while ARM was
+   * still processing the delete. On a SIGTERM the process exited
+   * before Azure finished, leaving an orphan container group billing
+   * forever (Azure has no client-driven TTL on stopped groups).
+   *
+   * Now: `beginDeleteAndWait` blocks until ARM reports the delete
+   * complete, capped by a 30 s budget. On budget exhaustion we log
+   * + return — the boot-time reaper at next start will catch it.
+   * Errors are similarly absorbed: cost-cap + alert visibility is
+   * the operator's safety net for any group we couldn't reach.
+   */
   private async tryDelete(containerGroupName: string): Promise<void> {
     if (!this.client) return;
+    const TRY_DELETE_BUDGET_MS = 30_000;
+    let timer: NodeJS.Timeout | undefined;
+    const deadline = new Promise<"timeout">((resolve) => {
+      timer = setTimeout(() => resolve("timeout"), TRY_DELETE_BUDGET_MS);
+    });
     try {
-      // Fire-and-forget — beginDelete returns a poller, but we don't need
-      // to wait. Azure cleans up async; if the API call fails, the operator
-      // will see the lingering group via the cost-cap alert.
-      await this.client.containerGroups.beginDelete(
-        this.opts.resourceGroup,
-        containerGroupName,
-      );
+      const result = await Promise.race([
+        this.client.containerGroups
+          .beginDeleteAndWait(this.opts.resourceGroup, containerGroupName)
+          .then(() => "ok" as const),
+        deadline,
+      ]);
+      if (result === "timeout") {
+        console.error(
+          JSON.stringify({
+            level: "error",
+            evt: "aci_delete_timeout",
+            containerGroupName,
+            budgetMs: TRY_DELETE_BUDGET_MS,
+          }),
+        );
+      }
     } catch (err) {
       console.error(
         JSON.stringify({
@@ -685,6 +886,114 @@ export class AciExecutionBackend implements ExecutionBackend {
           err: (err as Error).message,
         }),
       );
+    } finally {
+      if (timer) clearTimeout(timer);
     }
+  }
+
+  /**
+   * P0-3 (audit fix): boot-time orphan reaper. After a backend restart,
+   * any container group from the previous process is by definition an
+   * orphan — Express has no record of it, no learner is connected,
+   * and Azure is still billing it. List all groups in the RG with our
+   * naming prefix and delete each one.
+   *
+   * Naming contract:
+   *   - cold-start sessions: `codetutor-ai-aci-${sessionId}`
+   *   - warm-pool slots:     `codetutor-ai-aci-aci-warm-${ts}-${seq}`
+   * Both share the prefix, so a single startsWith check covers them.
+   *
+   * Concurrency cap of 5 to avoid saturating ARM with parallel deletes
+   * on a backend that just spent 30+ minutes spinning up.
+   */
+  async reapOrphans(): Promise<{ found: number; deleted: number }> {
+    if (!this.client) return { found: 0, deleted: 0 };
+    const PREFIX = "codetutor-ai-aci-";
+    const REAP_CONCURRENCY = 5;
+
+    const candidates: string[] = [];
+    try {
+      for await (const group of this.client.containerGroups.listByResourceGroup(
+        this.opts.resourceGroup,
+      )) {
+        if (group.name && group.name.startsWith(PREFIX)) {
+          candidates.push(group.name);
+        }
+      }
+    } catch (err) {
+      console.error(
+        JSON.stringify({
+          level: "error",
+          evt: "aci_orphan_reap_list_failed",
+          err: (err as Error).message,
+        }),
+      );
+      return { found: 0, deleted: 0 };
+    }
+
+    if (candidates.length === 0) {
+      return { found: 0, deleted: 0 };
+    }
+
+    // Race protection: the reaper runs in parallel with the backend
+    // accepting new sessions. By the time we get to the per-candidate
+    // delete, a new session may have spawned a container that ARM
+    // already returned in the listing snapshot — or that we'd otherwise
+    // re-list. Skip anything present in `this.active` OR the warm pool
+    // at delete-time so our own newly-spawned groups never get reaped.
+    const isOwnedNow = (name: string): boolean => {
+      for (const h of this.active.values()) {
+        if (h.containerGroupName === name) return true;
+      }
+      for (const w of this.warmPool) {
+        if (w.containerGroupName === name) return true;
+      }
+      return false;
+    };
+
+    let deleted = 0;
+    const queue = [...candidates];
+    const workers: Promise<void>[] = [];
+    for (let i = 0; i < Math.min(REAP_CONCURRENCY, queue.length); i++) {
+      workers.push(
+        (async () => {
+          while (queue.length > 0) {
+            const name = queue.shift();
+            if (!name) break;
+            if (isOwnedNow(name)) {
+              // A session spawned between our list snapshot and now —
+              // not an orphan, leave it alone.
+              continue;
+            }
+            await this.tryDelete(name);
+            // tryDelete absorbs errors; treat every successful return as
+            // "best-effort completed". The next boot's reap is the
+            // safety net for any group that didn't actually delete.
+            // `deleted++` is atomic across the JS event loop — `before+1`
+            // would race because workers' `before` reads can interleave
+            // with each other across the await boundary above.
+            deleted++;
+            console.log(
+              JSON.stringify({
+                level: "info",
+                evt: "aci_orphan_reaped",
+                containerGroupName: name,
+              }),
+            );
+          }
+        })(),
+      );
+    }
+    await Promise.all(workers);
+
+    console.log(
+      JSON.stringify({
+        level: "info",
+        evt: "aci_orphan_reap_done",
+        found: candidates.length,
+        deleted,
+      }),
+    );
+    return { found: candidates.length, deleted };
   }
 }

@@ -102,6 +102,16 @@ export function backendQueueDepth(): { inFlight: number; queued: number } {
   return backend ? backend.queueDepth() : { inFlight: 0, queued: 0 };
 }
 
+// P1-7 (audit fix): drift signal for the metrics scrape. Only the
+// HybridBackend tracks per-backend session counters that can drift —
+// other backends (LocalDocker by itself) read sessionManager directly.
+// Returns 0 if the active backend doesn't expose getCounterDrift.
+export function backendCounterDrift(): number {
+  if (!backend) return 0;
+  const probe = (backend as { getCounterDrift?: () => number }).getCounterDrift;
+  return typeof probe === "function" ? probe.call(backend) : 0;
+}
+
 // Only accept IDs the same shape nanoid produces — prevents a client from
 // pushing a path-traversal string into the workspace path.
 const ID_RE = /^[A-Za-z0-9_-]{8,32}$/;

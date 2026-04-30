@@ -60,6 +60,16 @@ export class HybridBackend implements ExecutionBackend {
   private localActive = 0;
   private aciActive = 0;
 
+  // P1-8 (audit fix): cache the ACI status for 30 s. Pre-fix every call
+  // to /api/health/deep made a fresh ARM list call (60+ probes per hour
+  // from webtests + the LA scheduled-query rules). At ~100ms per call
+  // that's a meaningful chunk of ARM read budget AND a 30 s cache window
+  // matches the alert evaluation cadence so we never serve stale truth.
+  private aciStatusCache: {
+    value: "ok" | "degraded" | "disabled";
+    expiresAt: number;
+  } | null = null;
+
   constructor(
     private readonly local: ExecutionBackend,
     private readonly aci: AciExecutionBackend | null,
@@ -107,14 +117,42 @@ export class HybridBackend implements ExecutionBackend {
    * "disabled"  — ACI is not configured (flag off or Azure config missing).
    */
   async getAciStatus(): Promise<"ok" | "degraded" | "disabled"> {
+    // Disabled and degraded checks are CHEAP local reads — never cache them.
+    // Caching would let an admin's runtime kill switch take up to 30 s to
+    // surface, which the operator would call "the kill switch is broken."
     if (!this.aci) return "disabled";
     if (!this.allow()) return "degraded";
-    try {
-      await this.aci.ping();
-      return "ok";
-    } catch {
-      return "degraded";
+
+    // P1-8: cached ARM ping. Hit the cache when fresh; otherwise pay the
+    // ARM call but cap it at 3 s — without a timeout, an Azure regional
+    // hiccup would let `/api/health/deep` block for the SDK's default
+    // (10 s+), pushing webtests over their 5 s budget.
+    const now = Date.now();
+    if (this.aciStatusCache && this.aciStatusCache.expiresAt > now) {
+      return this.aciStatusCache.value;
     }
+
+    const ARM_PING_BUDGET_MS = 3_000;
+    const STATUS_CACHE_TTL_MS = 30_000;
+    let timer: NodeJS.Timeout | undefined;
+    const deadline = new Promise<"timeout">((resolve) => {
+      timer = setTimeout(() => resolve("timeout"), ARM_PING_BUDGET_MS);
+    });
+
+    let value: "ok" | "degraded";
+    try {
+      const result = await Promise.race([
+        this.aci.ping().then(() => "ok" as const),
+        deadline,
+      ]);
+      value = result === "ok" ? "ok" : "degraded";
+    } catch {
+      value = "degraded";
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+    this.aciStatusCache = { value, expiresAt: now + STATUS_CACHE_TTL_MS };
+    return value;
   }
 
   queueDepth(): { inFlight: number; queued: number } {
@@ -159,23 +197,40 @@ export class HybridBackend implements ExecutionBackend {
   // ── Session lifecycle ───────────────────────────────────────────────
 
   async createSession(spec: RuntimeSpec): Promise<SessionHandle> {
+    // P1-7 (audit fix): increment counters BEFORE awaiting createSession,
+    // not after. Pre-fix, two concurrent calls would both observe
+    // `localActive < cap`, both pass the route check, both await spawn,
+    // and both increment afterwards — meaning N+1 sessions could land on
+    // a backend whose cap was N. Now the second concurrent call sees
+    // the first's reservation in localActive and either routes to ACI
+    // or 503s correctly. On spawn failure we decrement; on success we
+    // leave the counter where it is.
     if (this.shouldUseAci()) {
-      const handle = await this.aci!.createSession(spec);
       this.aciActive += 1;
-      console.log(
-        JSON.stringify({
-          level: "info",
-          evt: "session_routed_aci",
-          sessionId: spec.sessionId,
-          localActive: this.localActive,
-          aciActive: this.aciActive,
-        }),
-      );
-      return handle;
+      try {
+        const handle = await this.aci!.createSession(spec);
+        console.log(
+          JSON.stringify({
+            level: "info",
+            evt: "session_routed_aci",
+            sessionId: spec.sessionId,
+            localActive: this.localActive,
+            aciActive: this.aciActive,
+          }),
+        );
+        return handle;
+      } catch (err) {
+        this.aciActive -= 1;
+        throw err;
+      }
     }
-    const handle = await this.local.createSession(spec);
     this.localActive += 1;
-    return handle;
+    try {
+      return await this.local.createSession(spec);
+    } catch (err) {
+      this.localActive -= 1;
+      throw err;
+    }
   }
 
   async isAlive(handle: SessionHandle): Promise<boolean> {
@@ -190,12 +245,35 @@ export class HybridBackend implements ExecutionBackend {
       // from sessionManager either way; leaving the counter elevated
       // would slowly push routing to ACI for sessions that should've
       // fit locally.
+      //
+      // P1-7 (audit fix): no Math.max(0, …) clamp. Pre-fix the clamp
+      // hid counter drift — if createSession failed AFTER the post-
+      // increment but BEFORE the caller could destroy(), or if a
+      // double-destroy slipped through, the counter would silently
+      // go negative-then-clamped. Now any negative value surfaces in
+      // the gauge below, alerting the operator that lifecycle invariants
+      // are broken somewhere upstream.
       if (handle.__kind === "aci") {
-        this.aciActive = Math.max(0, this.aciActive - 1);
+        this.aciActive -= 1;
       } else {
-        this.localActive = Math.max(0, this.localActive - 1);
+        this.localActive -= 1;
       }
     }
+  }
+
+  /**
+   * P1-7: drift signal for the metrics scrape. Returns the SUM of any
+   * negative-going counter values (hybrid backend uses unclamped
+   * decrements so drift becomes observable). A non-zero positive value
+   * here = "we destroyed more sessions than we created on at least one
+   * backend, which means lifecycle invariants are broken somewhere."
+   * `0` is healthy.
+   */
+  getCounterDrift(): number {
+    let drift = 0;
+    if (this.localActive < 0) drift += -this.localActive;
+    if (this.aciActive < 0) drift += -this.aciActive;
+    return drift;
   }
 
   // ── Pass-through methods (dispatch on handle.__kind) ────────────────
