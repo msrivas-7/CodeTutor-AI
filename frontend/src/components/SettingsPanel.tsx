@@ -230,7 +230,7 @@ function PaidInterestBanner() {
       )}
       {error && (
         <span role="alert" className="text-[11px] text-danger">
-          {error}
+          × {error}
         </span>
       )}
     </div>

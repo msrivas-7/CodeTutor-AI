@@ -37,16 +37,16 @@ test.describe("Admin Controls — visibility gate", () => {
     await page.goto("/start");
     await S.openSettings(page);
 
-    // Settings panel renders. The four standard tabs are visible.
+    // Settings panel renders. Phase 24A: three user tabs (Profile, Tutor,
+    // Account) — Appearance + Data folded back into Profile + Account.
     await expect(page.locator('[role="dialog"]')).toBeVisible();
     await expect(
-      page.getByRole("button", { name: /^account$/i }).first(),
+      page.getByRole("button", { name: /^profile$/i }).first(),
     ).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByRole("button", { name: /^ai$/i }).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: /^tutor$/i }).first()).toBeVisible();
     await expect(
-      page.getByRole("button", { name: /^appearance$/i }).first(),
+      page.getByRole("button", { name: /^account$/i }).first(),
     ).toBeVisible();
-    await expect(page.getByRole("button", { name: /^data$/i }).first()).toBeVisible();
 
     // The Admin tab MUST NOT render for a non-admin. Settings panel
     // visibility-filters it via authStore.isAdmin().
