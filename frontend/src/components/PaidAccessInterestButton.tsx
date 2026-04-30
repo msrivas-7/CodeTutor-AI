@@ -4,14 +4,16 @@ import { useAIStatus } from "../state/useAIStatus";
 
 // Phase 20-P4: a paying customer is a paying customer regardless of whether
 // they're on BYOK, the free tier, or locked out — so we surface a way to
-// express interest everywhere. Three render sites today:
-//   - ExhaustionCard           (free-tier users at 0/30 today)
-//   - TutorSetupWarning        (blocked states: paused, denylisted, provider-down)
-//   - SettingsPanel → AI tab   (universal — every user, including BYOK)
+// express interest everywhere. Two contextual render sites today:
+//   - ExhaustionCard       (free-tier users at 0/30 today)
+//   - TutorSetupWarning    (blocked states: paused, denylisted, provider-down)
 //
-// Each call flows through the same POST /api/user/paid-access-interest
-// upsert. `click_count` bumps on each click so a user who clicks from two
-// surfaces still lands as a single row for the operator to follow up on.
+// Phase 24A: Settings has its own inline banner at the top of the modal
+// (`PaidInterestBanner` in SettingsPanel.tsx) — a slimmer always-on
+// surface that doesn't reuse this component because the visual treatment
+// is different. Each click everywhere flows through the same POST
+// /api/user/paid-access-interest upsert; `click_count` bumps so multi-
+// surface clicks still land as a single row for the operator to follow up on.
 
 interface PaidAccessInterestButtonProps {
   // Optional tone override so this button blends with warn-palette surfaces

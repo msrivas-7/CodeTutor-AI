@@ -368,13 +368,15 @@ test.describe("free AI tier", () => {
     await expect(container).toHaveClass(/text-warn/);
   });
 
-  test("Settings → AI tab surfaces paid-interest CTA; Remove restores it", async ({
+  test("Settings banner surfaces paid-interest CTA; Remove restores it", async ({
     page,
   }) => {
-    // Round 5: Settings is the one place that always renders a paid-interest
-    // affordance — CTA when hasShown=false, "Interest recorded ✓ Remove"
-    // line when hasShown=true. Remove DELETEs the row and the next ai-status
-    // refetch restores the CTA so the user can re-signal if they wish.
+    // Phase 24A: Settings is the one place that always renders a
+    // paid-interest affordance — the banner at the top of the modal,
+    // which flips between CTA (hasShown=false) and "Interest recorded ✓
+    // Remove" (hasShown=true). Remove DELETEs the row and the next
+    // ai-status refetch restores the CTA so the user can re-signal if
+    // they wish.
     await mockAIStatusSequence(page, [
       // Initial + refetches until the Remove click.
       {
@@ -469,9 +471,10 @@ test.describe("free AI tier", () => {
       page.getByRole("button", { name: /Interest recorded/i }),
     ).toBeVisible();
 
-    // Open Settings → AI tab. The paid-interest CTA button must be absent
-    // (broadcaster pushed hasShownPaidInterest=true to every subscriber).
-    // The "Interest recorded" line must be there instead.
+    // Open Settings → Tutor tab. The paid-interest CTA button must be
+    // absent from the banner (broadcaster pushed hasShownPaidInterest=true
+    // to every subscriber). The "Interest recorded" line must be there
+    // instead.
     await S.openSettings(page, "tutor");
     await expect(page.getByText(/Interest recorded\. Clicked/i)).toBeVisible();
     await expect(

@@ -256,7 +256,7 @@ test.describe("editor", () => {
     await expect(page.getByText(/\b\d+\s*ms\b/).first()).toBeVisible();
   });
 
-  test("UserMenu → Settings opens the Settings modal (AI tab shows API key)", async ({ page }) => {
+  test("UserMenu → Settings opens the Settings modal (Tutor tab shows API key)", async ({ page }) => {
     await page.goto("/editor");
     await waitForMonacoReady(page);
 

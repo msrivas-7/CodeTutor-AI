@@ -363,9 +363,9 @@ test.describe("settings panel", () => {
     await page.goto("/start");
     await openSettings(page, "profile");
 
-    // Collect the focusable buttons/inputs inside the dialog. "Appearance" is
-    // the lightest tab (three theme buttons + tab nav + close), so we can
-    // reason about a small finite list.
+    // Collect the focusable buttons/inputs inside the dialog. Profile holds
+    // a small finite list (name inputs, theme picker, sign out, tab nav,
+    // close), enough to verify the trap.
     const dialog = page.locator('[role="dialog"]');
     const focusables = dialog.locator(
       'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
