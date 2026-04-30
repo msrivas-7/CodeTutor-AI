@@ -52,6 +52,9 @@ const baseOpts = {
   sidecarPort: 5757,
   coldStartTimeoutMs: 200,
   agentReadyTimeoutMs: 300,
+  // P2-5: skip the post-boot reaper delay so warm-pool tests aren't
+  // perturbed by a 30 s timeout firing concurrently with assertions.
+  orphanReapDelayMs: 0,
 };
 
 // listByResourceGroup is an async iterable in the SDK. Provide a real

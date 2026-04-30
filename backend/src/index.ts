@@ -44,6 +44,7 @@ import { backendUnhandledRejections } from "./services/metrics.js";
 import { startPlatformCostSampler } from "./services/observability/platformCostSampler.js";
 import { startCapacityPressureSampler } from "./services/observability/capacityPressureSampler.js";
 import { startAciCostSampler } from "./services/observability/aciCostSampler.js";
+import { startAciHealthSampler } from "./services/observability/aciHealthSampler.js";
 import {
   awaitFirstRefresh as awaitFirstAciOperationalConfigRefresh,
   getAciOperationalConfigRefreshAgeMs,
@@ -125,7 +126,20 @@ async function main() {
     aci: aciExecutionBackend,
   } = makeExecutionBackend();
 
+  // P2-6 (audit fix): listen-first boot order. Pre-fix, app.listen()
+  // ran AFTER awaiting executionBackend.ensureReady() + aciCostTracker
+  // .init() + awaitFirstRefresh — a 5+ s window where the port wasn't
+  // bound and Azure webtests got connection-refused, tripping the
+  // sev-1 availability alert as a false alarm. Now /api/health returns
+  // 503 until bootReady flips, which still surfaces as a webtest miss
+  // but on a more graceful path (the alert tunes for body content,
+  // not raw connectivity, so a 503 with a clear `ready: false` payload
+  // is distinguishable from a real outage).
+  let bootReady = false;
   app.get("/api/health", (_req, res) => {
+    if (!bootReady) {
+      return res.status(503).json({ ok: false, ready: false });
+    }
     // Trimmed to `{ ok: true }` — no process.uptime leak (Phase 20-P2 nit).
     res.json({ ok: true });
   });
@@ -173,6 +187,12 @@ async function main() {
       // value > 150_000 (5 × refresh interval) means the watchdog is
       // active and operator should investigate DB connectivity.
       aciConfigRefreshAgeMs: number | null;
+      // P0-2 (second-audit fix): cost-tracker hydration state. When
+      // "degraded", init() failed at boot and the cap accumulator is
+      // not durable; the kill switch refuses ALL spawns until the
+      // backend restarts and re-init succeeds. Operator should fix
+      // DB connectivity + restart.
+      aciCostTrackerState: "hydrated" | "degraded";
       errors?: string[];
       ms?: number;
     } = {
@@ -184,6 +204,7 @@ async function main() {
       aciActiveSessions: 0,
       aciSpentTodayUsd: 0,
       aciConfigRefreshAgeMs: null,
+      aciCostTrackerState: "hydrated",
     };
     const errors: string[] = [];
     await Promise.all([
@@ -233,6 +254,7 @@ async function main() {
     result.aciActiveSessions = aciStatus.activeSessions;
     result.aciSpentTodayUsd = Number(aciStatus.spentTodayUsd.toFixed(4));
     result.aciConfigRefreshAgeMs = getAciOperationalConfigRefreshAgeMs();
+    result.aciCostTrackerState = aciCostTracker.getHydrationState();
     const authStatus = getPlatformAuthStatus();
     if (authStatus) {
       result.platformAuth = "failed";
@@ -444,6 +466,17 @@ async function main() {
 
   app.use(errorHandler);
 
+  // P2-6 (audit fix): bind the listener BEFORE the init awaits so the
+  // port is up while Azure webtests probe. /api/health returns 503
+  // until bootReady, but the TCP layer responds — distinguishing
+  // "still starting up" from a real outage on the alert side.
+  const earlyServer = app.listen(config.port, () => {
+    console.log(`[startup] backend listening on :${config.port}`);
+    console.log(`[startup] cors origin: ${config.corsOrigin}`);
+    console.log(`[startup] workspace root (backend): ${config.workspaceRoot}`);
+    console.log(`[startup] execution backend: ${executionBackend.kind}`);
+  });
+
   // Backend-specific startup prep (local-docker: resolve host workspace root,
   // verify runner image). Fatal issues throw here; non-fatal are logged
   // and the backend continues.
@@ -503,6 +536,10 @@ async function main() {
   // Skipped entirely when ACI is not wired (factory returned aci=null).
   if (aciExecutionBackend) {
     startAciCostSampler(aciExecutionBackend);
+    // Phase 24B P3-3 + P3-5 (second-audit fix): periodic emitter for
+    // counter-drift + watchdog-engaged signals. Both feed scheduled-
+    // query alerts in alerts.bicep.
+    startAciHealthSampler();
     // Phase 24B P0-4: the operational-config refresh was already started
     // earlier (before initSessionManager) so the first refresh blocks
     // boot. The call here is a no-op (idempotent) but is left documented
@@ -563,12 +600,12 @@ async function main() {
   }, LESSON_REAP_MS);
   lessonReaper.unref?.();
 
-  const server = app.listen(config.port, () => {
-    console.log(`[startup] backend listening on :${config.port}`);
-    console.log(`[startup] cors origin: ${config.corsOrigin}`);
-    console.log(`[startup] workspace root (backend): ${config.workspaceRoot}`);
-    console.log(`[startup] execution backend: ${executionBackend.kind}`);
-  });
+  // P2-6: listener was already bound earlier; alias for the existing
+  // shutdown plumbing below. Flip bootReady so /api/health stops
+  // returning 503.
+  const server = earlyServer;
+  bootReady = true;
+  console.log(`[startup] boot complete, /api/health now reporting ok`);
 
   // S-13 (bucket 7): bounded shutdown grace so in-flight SSE handlers get a
   // chance to flush their ledger row before we tear runners down. Flow:

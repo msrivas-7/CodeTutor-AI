@@ -142,6 +142,39 @@ export async function getAllSystemConfig(): Promise<
   return result;
 }
 
+// P1-5 (second-audit fix): inner statement timeout + outer abort
+// timeout. The Supabase transaction pooler holds a backend connection
+// across the BEGIN/COMMIT span; without bounds, an admin's emergency
+// kill switch at 2 a.m. can hang on a pool stall or vacuum-pinned row.
+// The inner SET LOCAL statement_timeout aborts at the DB layer; the
+// outer Promise.race guards against connection-acquire stalls before
+// any statement gets to run. 5 s is generous for a single-row upsert.
+const SYSTEM_CONFIG_WRITE_BUDGET_MS = 5_000;
+
+async function withTimeout<T>(
+  work: Promise<T>,
+  budgetMs: number,
+  evt: string,
+): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(
+      () =>
+        reject(
+          Object.assign(new Error(`${evt}: exceeded ${budgetMs} ms budget`), {
+            code: "SYSTEM_CONFIG_WRITE_TIMEOUT",
+          }),
+        ),
+      budgetMs,
+    );
+  });
+  try {
+    return await Promise.race([work, deadline]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export async function setSystemConfig(args: {
   key: SystemConfigKey;
   value: SystemConfigValue;
@@ -156,28 +189,41 @@ export async function setSystemConfig(args: {
   // deploy) — wrap the upsert in a transaction with SET LOCAL so the
   // GUC is scoped to this transaction only and cannot leak into a
   // pooled connection's next query.
-  await sql.begin(async (tx) => {
-    await tx`SELECT set_config('app.allow_system_config_write', 'true', true)`;
-    await tx`
-      INSERT INTO public.system_config (key, value, set_by, set_at, reason)
-      VALUES (${args.key}, ${tx.json(args.value)}, ${args.setBy}, NOW(), ${args.reason})
-      ON CONFLICT (key) DO UPDATE
-        SET value  = EXCLUDED.value,
-            set_by = EXCLUDED.set_by,
-            set_at = EXCLUDED.set_at,
-            reason = EXCLUDED.reason
-    `;
-  });
+  await withTimeout(
+    sql.begin(async (tx) => {
+      // P1-5: inner statement timeout. Each statement inside this
+      // transaction self-aborts at 5 s if the DB is wedged.
+      await tx`SET LOCAL statement_timeout = '5s'`;
+      await tx`SELECT set_config('app.allow_system_config_write', 'true', true)`;
+      await tx`
+        INSERT INTO public.system_config (key, value, set_by, set_at, reason)
+        VALUES (${args.key}, ${tx.json(args.value)}, ${args.setBy}, NOW(), ${args.reason})
+        ON CONFLICT (key) DO UPDATE
+          SET value  = EXCLUDED.value,
+              set_by = EXCLUDED.set_by,
+              set_at = EXCLUDED.set_at,
+              reason = EXCLUDED.reason
+      `;
+    }),
+    SYSTEM_CONFIG_WRITE_BUDGET_MS,
+    "system_config_set_timeout",
+  );
   cache.delete(args.key);
 }
 
 export async function clearSystemConfig(key: SystemConfigKey): Promise<void> {
   const sql = db();
   // P1-1: same admin-context opt-in as setSystemConfig.
-  await sql.begin(async (tx) => {
-    await tx`SELECT set_config('app.allow_system_config_write', 'true', true)`;
-    await tx`DELETE FROM public.system_config WHERE key = ${key}`;
-  });
+  // P1-5: same outer + inner timeout as setSystemConfig.
+  await withTimeout(
+    sql.begin(async (tx) => {
+      await tx`SET LOCAL statement_timeout = '5s'`;
+      await tx`SELECT set_config('app.allow_system_config_write', 'true', true)`;
+      await tx`DELETE FROM public.system_config WHERE key = ${key}`;
+    }),
+    SYSTEM_CONFIG_WRITE_BUDGET_MS,
+    "system_config_clear_timeout",
+  );
   cache.delete(key);
 }
 

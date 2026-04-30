@@ -62,7 +62,16 @@ async function readTokenFromStdin() {
   }
   const buf = Buffer.concat(chunks);
   const nl = buf.indexOf(0x0a);
-  return (nl >= 0 ? buf.subarray(0, nl) : buf).toString("utf8").trim();
+  const token = (nl >= 0 ? buf.subarray(0, nl) : buf).toString("utf8").trim();
+  // P1-1 (audit fix): close fd 0 immediately so the heredoc-backing temp
+  // file (or pipe) the entrypoint used to feed us the token is no longer
+  // accessible via /proc/<agent_pid>/fd/0. Without this, a same-UID
+  // learner-controlled process inside the same container could
+  // `cat /proc/<agent_pid>/fd/0` and recover the bearer token from the
+  // heredoc's backing storage. destroy() flushes node's internal stream
+  // state and closes the underlying fd.
+  process.stdin.destroy();
+  return token;
 }
 
 const TOKEN = await readTokenFromStdin();
@@ -197,6 +206,50 @@ function send(res, status, body) {
   res.statusCode = status;
   res.setHeader("content-type", "application/json");
   res.end(JSON.stringify(body));
+}
+
+// P2-1 (audit fix): /tmp size cap enforcement.
+//
+// LocalDocker mounts /tmp as a tmpfs with `size=64m`, so writes past the
+// limit fail at the kernel layer with ENOSPC. ACI uses emptyDir for
+// /tmp, which is disk-backed and has no per-mount byte cap (sized off
+// the container-group host). This is a C10 parity break: a learner can
+// dd 2 GB into /tmp on ACI but not LocalDocker.
+//
+// Mitigation: recursively size /tmp at the start of every /exec and
+// refuse to spawn if it's already past the cap. This bounds steady-
+// state usage — a single /exec can still write past the cap mid-run
+// (no cheap way to enforce per-write without CAP_SYS_ADMIN), but the
+// next /exec blocks until the workspace is destroyed (single-use ACI
+// containers are torn down at session end).
+const TMP_BYTES_CAP = 64 * 1024 * 1024;
+
+async function tmpSizeBytes() {
+  let total = 0;
+  async function walk(dir) {
+    let entries;
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (total > TMP_BYTES_CAP) return; // early exit on overage
+      const p = path.join(dir, e.name);
+      try {
+        if (e.isFile()) {
+          const st = await fs.stat(p);
+          total += st.size;
+        } else if (e.isDirectory() && !e.isSymbolicLink()) {
+          await walk(p);
+        }
+      } catch {
+        /* unreadable entry, skip — best-effort accounting */
+      }
+    }
+  }
+  await walk("/tmp");
+  return total;
 }
 
 // ── Path safety ─────────────────────────────────────────────────────
@@ -369,6 +422,15 @@ async function handleExec(req, res) {
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > 600_000) {
     return send(res, 400, { error: "timeoutMs must be 1..600000" });
   }
+  // P2-1 (audit fix): refuse to spawn if /tmp is already past the C10
+  // parity cap. LocalDocker's tmpfs would have failed at write; ACI's
+  // emptyDir won't, so we backfill with an explicit precheck.
+  const tmpUsed = await tmpSizeBytes();
+  if (tmpUsed > TMP_BYTES_CAP) {
+    return send(res, 413, {
+      error: `/tmp exceeds ${TMP_BYTES_CAP / 1024 / 1024} MB cap (${tmpUsed} bytes used)`,
+    });
+  }
   const timeoutSec = Math.max(1, Math.ceil(timeoutMs / 1000));
   // Build env: start from process.env (already token-stripped), apply
   // caller overlay last so explicit overrides win. Never re-add the
@@ -389,6 +451,28 @@ async function handleExec(req, res) {
     }
     for (const [k, v] of entries) {
       const ks = String(k);
+      // P0-1 (audit fix): forbid env keys that affect the resolution of
+      // the agent's own spawn target or the child shell's loader. Pre-
+      // fix, a learner could write /workspace/timeout (a 0755 shell
+      // shim that ignores its args + execs a busy-loop) and then call
+      // /exec with env={"PATH":"/workspace:/usr/bin"}, command="while
+      // :; do :; done". Node's spawn("timeout", …) resolves "timeout"
+      // through the child env's PATH, picking the shim — so the real
+      // /usr/bin/timeout never runs and the wall-clock SIGKILL never
+      // fires (C12 break). Independent fix: spawn the absolute path
+      // (see line below). LD_* / IFS join the denylist because they
+      // can rewire the child shell's library/word-splitting behavior in
+      // ways that bypass the bash -c wrapper's command quoting.
+      if (
+        ks === "PATH" ||
+        ks === "IFS" ||
+        ks.startsWith("LD_") ||
+        ks.startsWith("DYLD_")
+      ) {
+        return send(res, 400, {
+          error: `env[${ks}] is not permitted (loader/path control)`,
+        });
+      }
       const vs = String(v);
       if (Buffer.byteLength(vs, "utf8") > ENV_MAX_VALUE_BYTES) {
         return send(res, 400, {
@@ -423,7 +507,14 @@ async function handleExec(req, res) {
     ulimitParts.length > 0 ? `${ulimitParts.join("; ")}; ${command}` : command;
   const args = ["--signal=KILL", `${timeoutSec}s`, "bash", "-c", wrapped];
   const started = Date.now();
-  const child = spawn("timeout", args, { env, cwd: WORKSPACE });
+  // P0-1 (audit fix): absolute path instead of name lookup. Even with
+  // body.env's PATH/LD_*/IFS denylist above, defense in depth — Node's
+  // spawn() resolves bare names against the CHILD env's PATH (which
+  // we just spread above as `env`), so a future regression that lets
+  // a learner-controlled var into env would otherwise re-open the C12
+  // bypass. /usr/bin/timeout is the path coreutils provides on the
+  // runner image (debian:slim base).
+  const child = spawn("/usr/bin/timeout", args, { env, cwd: WORKSPACE });
 
   let stdoutBytes = 0, stderrBytes = 0;
   let stdoutTrunc = false, stderrTrunc = false;

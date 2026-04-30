@@ -69,6 +69,9 @@ const baseOpts = {
   // Agent-ready budget similarly tight so the "sidecar unreachable"
   // failure-path test surfaces in <500ms instead of vitest's 5s timeout.
   agentReadyTimeoutMs: 300,
+  // P2-5: skip the post-boot reaper delay so reaper-related tests run
+  // synchronously after `ensureReady` resolves.
+  orphanReapDelayMs: 0,
 };
 
 // listByResourceGroup is an async iterable in the SDK. Build a real one

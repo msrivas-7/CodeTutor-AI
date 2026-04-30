@@ -64,7 +64,7 @@ describe("systemConfig writers — guard_system_config_writes opt-in (P1-1)", ()
     beginCalls.length = 0;
   });
 
-  it("setSystemConfig wraps the upsert in a transaction with the admin opt-in", async () => {
+  it("setSystemConfig wraps the upsert in a transaction with the admin opt-in + statement timeout", async () => {
     await setSystemConfig({
       key: "aci_overflow_enabled",
       value: false,
@@ -76,29 +76,35 @@ describe("systemConfig writers — guard_system_config_writes opt-in (P1-1)", ()
     expect(beginCalls).toHaveLength(1);
     const tx = beginCalls[0];
 
-    // First query inside the transaction is the SET LOCAL opt-in. Using
-    // set_config(..., true) is equivalent to SET LOCAL but works inside
-    // a tagged-template invocation cleanly.
-    expect(tx[0].template).toContain("set_config");
-    expect(tx[0].template).toContain("app.allow_system_config_write");
+    // First query inside the transaction is the P1-5 statement_timeout.
+    // The DB-side abort is the inner of two layers (outer is the
+    // Promise.race timeout in withTimeout).
+    expect(tx[0].template).toContain("SET LOCAL statement_timeout");
 
-    // Second query is the actual upsert. Order matters — the gate must
+    // Second query is the SET LOCAL opt-in. Using set_config(..., true)
+    // is equivalent to SET LOCAL but works inside a tagged-template
+    // invocation cleanly.
+    expect(tx[1].template).toContain("set_config");
+    expect(tx[1].template).toContain("app.allow_system_config_write");
+
+    // Third query is the actual upsert. Order matters — the gate must
     // be set BEFORE the write fires, otherwise the trigger rejects.
-    expect(tx[1].template).toContain("INSERT INTO public.system_config");
-    expect(tx[1].template).toContain("ON CONFLICT");
+    expect(tx[2].template).toContain("INSERT INTO public.system_config");
+    expect(tx[2].template).toContain("ON CONFLICT");
 
     // No raw queries outside the transaction.
     expect(sqlCalls).toHaveLength(0);
   });
 
-  it("clearSystemConfig wraps the delete in a transaction with the admin opt-in", async () => {
+  it("clearSystemConfig wraps the delete in a transaction with the admin opt-in + statement timeout", async () => {
     await clearSystemConfig("aci_max_overflow");
 
     expect(beginCalls).toHaveLength(1);
     const tx = beginCalls[0];
-    expect(tx[0].template).toContain("set_config");
-    expect(tx[0].template).toContain("app.allow_system_config_write");
-    expect(tx[1].template).toContain("DELETE FROM public.system_config");
+    expect(tx[0].template).toContain("SET LOCAL statement_timeout");
+    expect(tx[1].template).toContain("set_config");
+    expect(tx[1].template).toContain("app.allow_system_config_write");
+    expect(tx[2].template).toContain("DELETE FROM public.system_config");
     expect(sqlCalls).toHaveLength(0);
   });
 });

@@ -468,6 +468,60 @@ adminRouter.put("/system-config/:key", async (req, res, next) => {
     }
   }
 
+  // P2-2 (second-audit fix): cross-validate warm-pool watermarks so an
+  // admin typo can't invert low > high. Pre-fix the two keys had
+  // independent 0..14 bounds, but if low > high the warm-pool tick
+  // flaps every cycle (each /exec triggers a spawn-then-drain pair,
+  // burning ARM call budget + cost). The fix reads sibling values
+  // and refuses the write that would invert the order.
+  if (
+    (typedKey === "aci_warm_high_watermark" ||
+      typedKey === "aci_warm_low_watermark") &&
+    typeof value === "number"
+  ) {
+    const high =
+      typedKey === "aci_warm_high_watermark"
+        ? value
+        : (() => {
+            const r = (envDefaultFor("aci_warm_high_watermark") as number) ?? 12;
+            return r;
+          })();
+    const low =
+      typedKey === "aci_warm_low_watermark"
+        ? value
+        : (() => {
+            const r = (envDefaultFor("aci_warm_low_watermark") as number) ?? 10;
+            return r;
+          })();
+    // Read the sibling's CURRENT value (system_config or env fallback).
+    const siblingKey =
+      typedKey === "aci_warm_high_watermark"
+        ? "aci_warm_low_watermark"
+        : "aci_warm_high_watermark";
+    const siblingRow = await getSystemConfig(siblingKey);
+    const siblingValue =
+      typeof siblingRow?.value === "number"
+        ? siblingRow.value
+        : (envDefaultFor(siblingKey) as number);
+    const effectiveHigh =
+      typedKey === "aci_warm_high_watermark" ? value : siblingValue;
+    const effectiveLow =
+      typedKey === "aci_warm_low_watermark" ? value : siblingValue;
+    if (effectiveLow > effectiveHigh) {
+      await logAdminAction({
+        actorId,
+        eventType: "rejected_attempt",
+        targetKey: typedKey,
+        before: { high, low },
+        after: { value },
+        reason: `lowWatermark (${effectiveLow}) > highWatermark (${effectiveHigh}) — would flap warm pool every tick`,
+      });
+      return res.status(400).json({
+        error: `aci_warm_low_watermark (${effectiveLow}) cannot exceed aci_warm_high_watermark (${effectiveHigh}) — warm pool would flap`,
+      });
+    }
+  }
+
   // Phase 4.5 server #5: confirmReduction for global $ cap > 75% drop.
   if (typedKey === "free_tier_daily_usd_cap" && typeof value === "number") {
     const current = (await getSystemConfig(typedKey))?.value;

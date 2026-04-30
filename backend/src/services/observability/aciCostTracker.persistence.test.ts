@@ -68,18 +68,92 @@ describe("AciCostTracker — Postgres persistence (P0-1)", () => {
     expect(aciCostTracker.getStatus(now).activeSessions).toBe(0);
   });
 
-  it("init() falls through to zeroed state when load throws (DB unreachable)", async () => {
+  it("init() flips to degraded state when load throws (DB unreachable)", async () => {
     vi.mocked(loadAciCostState).mockRejectedValue(new Error("ECONNREFUSED"));
 
     const now = Date.parse("2026-04-30T12:00:00Z");
     await aciCostTracker.init(now);
 
     expect(aciCostTracker.spentTodayUsd(now)).toBe(0);
+    expect(aciCostTracker.getHydrationState()).toBe("degraded");
     // Persistence stays OFF — recordSessionStart must not blast a failing DB.
     aciCostTracker.recordSessionStart("s1", now);
     aciCostTracker.recordSessionEnd("s1", now + 5 * SEC_MS);
     // No write was attempted because persistEnabled remained false.
     expect(saveAciCostState).not.toHaveBeenCalled();
+  });
+
+  it("P0-2: degraded state fails CLOSED — exceedsDailyCap returns true even at $0 spend", async () => {
+    vi.mocked(loadAciCostState).mockRejectedValue(new Error("DB down"));
+    const now = Date.parse("2026-04-30T12:00:00Z");
+    await aciCostTracker.init(now);
+
+    // Pre-fix: $0 spend < $20 cap → false (kill switch open). Fix: degraded
+    // state forces fail-closed regardless of spend.
+    expect(aciCostTracker.exceedsDailyCap(20, now)).toBe(true);
+    // tryReserve refuses too, so cold-start + warm spawns both turn into
+    // ARM no-ops on a DB outage — bounded blast radius.
+    expect(aciCostTracker.tryReserve(60 * 60 * 1000, 20, now)).toBe(null);
+  });
+
+  it("P1-6: cross-day restart credits orphan only for post-midnight portion", async () => {
+    // Orphan started at 23:00 UTC yesterday. Restart happens at 02:00
+    // UTC today (3 hours after start, but only 2 hours of which fall
+    // within today's bucket). Pre-fix: full 3 h × $0.053 = $0.159 added
+    // to today AND row.completedTodayUsd ($5) preserved THEN zeroed by
+    // rollover, losing both. Fix: today's bucket starts at 0
+    // (rollover semantics), orphan bills only the 2 hours since today's
+    // midnight = 2 × $0.053 = $0.106. Persisted yesterday-completed
+    // ($5) is correctly NOT carried over.
+    const yesterday23 = Date.parse("2026-04-30T23:00:00Z");
+    const today02 = Date.parse("2026-05-01T02:00:00Z");
+    vi.mocked(loadAciCostState).mockResolvedValue({
+      completedTodayUsd: 5.0, // yesterday's accrued — irrelevant after rollover
+      currentDateUtc: "2026-04-30",
+      activeSessions: [{ sessionId: "s-cross", startedAt: yesterday23 }],
+    });
+    vi.mocked(saveAciCostState).mockResolvedValue();
+
+    await aciCostTracker.init(today02);
+
+    // Today's bucket should reflect 2 hours of post-midnight orphan
+    // time only — yesterday's $5 has rolled away.
+    expect(aciCostTracker.spentTodayUsd(today02)).toBeCloseTo(2 * 0.053, 6);
+    expect(aciCostTracker.getStatus(today02).currentDateUtc).toBe("2026-05-01");
+  });
+
+  it("P1-6: same-day restart preserves persisted completedTodayUsd + bills full orphan duration", async () => {
+    // Restart at 14:00 UTC, with a row from 12:00 UTC same day. Orphan
+    // started at 13:00 UTC. Today's bucket should retain the persisted
+    // $1.234 AND credit the orphan's full 1-hour duration ($0.053).
+    const t13 = Date.parse("2026-04-30T13:00:00Z");
+    const t14 = Date.parse("2026-04-30T14:00:00Z");
+    vi.mocked(loadAciCostState).mockResolvedValue({
+      completedTodayUsd: 1.234,
+      currentDateUtc: "2026-04-30",
+      activeSessions: [{ sessionId: "s-same", startedAt: t13 }],
+    });
+    vi.mocked(saveAciCostState).mockResolvedValue();
+
+    await aciCostTracker.init(t14);
+
+    expect(aciCostTracker.spentTodayUsd(t14)).toBeCloseTo(1.234 + 0.053, 6);
+    expect(aciCostTracker.getStatus(t14).currentDateUtc).toBe("2026-04-30");
+  });
+
+  it("P0-2: hydrated state allows reservations + cap evaluation as normal", async () => {
+    vi.mocked(loadAciCostState).mockResolvedValue({
+      completedTodayUsd: 0,
+      currentDateUtc: "2026-04-30",
+      activeSessions: [],
+    });
+    vi.mocked(saveAciCostState).mockResolvedValue();
+    const now = Date.parse("2026-04-30T12:00:00Z");
+    await aciCostTracker.init(now);
+
+    expect(aciCostTracker.getHydrationState()).toBe("hydrated");
+    expect(aciCostTracker.exceedsDailyCap(20, now)).toBe(false);
+    expect(aciCostTracker.tryReserve(60 * 60 * 1000, 20, now)).not.toBe(null);
   });
 
   it("recordSessionStart + recordSessionEnd write through to the DB", async () => {

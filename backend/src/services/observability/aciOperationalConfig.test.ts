@@ -165,6 +165,60 @@ describe("AciOperationalConfig — synchronous mirror", () => {
     expect(getAciOperationalConfig().enabled).toBe(false);
   });
 
+  it("P1-4: refreshOnce hard-times out so a wedged DB doesn't pin inFlightRefresh", async () => {
+    // Pre-fix, a stuck getSystemConfig left inFlightRefresh non-null
+    // forever. Subsequent invalidateAciOperationalConfig() calls would
+    // block on the same wedged promise. The hard timeout ensures the
+    // in-flight slot clears so the next caller can retry.
+    vi.useFakeTimers();
+    let firstCallNeverResolves: (() => void) | null = null;
+    vi.mocked(getSystemConfig).mockImplementationOnce(
+      () =>
+        new Promise(() => {
+          firstCallNeverResolves = () => {}; // never resolved
+        }),
+    );
+    const consoleErr = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const refreshPromise = invalidateAciOperationalConfig();
+    // Advance past the 8 s hard timeout in the module.
+    await vi.advanceTimersByTimeAsync(9_000);
+    await refreshPromise;
+    consoleErr.mockRestore();
+
+    // The wedged getSystemConfig call hangs forever, but the in-flight
+    // slot is cleared so the operator's emergency-kill flow can retry
+    // on a subsequent call. Verify by issuing a new invalidate that
+    // resolves on its own DB mock.
+    vi.mocked(getSystemConfig).mockImplementation(async (key) => {
+      if (key === "aci_overflow_enabled")
+        return { key, value: false, setBy: null, setAt: "", reason: null };
+      return null;
+    });
+    vi.useRealTimers();
+    await invalidateAciOperationalConfig();
+    expect(getAciOperationalConfig().enabled).toBe(false);
+    void firstCallNeverResolves;
+  });
+
+  it("P1-3: watchdog zeros dailyUsdCap and maxOverflow alongside enabled", () => {
+    // Pre-fix only `enabled` was forced false; `dailyUsdCap` and
+    // `maxOverflow` stayed at last-cached, so the cost sampler emitted
+    // a stale cap and the factory's effectiveCap reported a stale max.
+    // Now all three knobs are zeroed under stale conditions.
+    const stale = Date.now() - 6 * 30_000;
+    __forceAciOperationalConfigForTests({
+      enabled: true,
+      dailyUsdCap: 50,
+      maxOverflow: 36,
+      lastSuccessfulRefreshAt: stale,
+    });
+    const cfg = getAciOperationalConfig();
+    expect(cfg.enabled).toBe(false);
+    expect(cfg.dailyUsdCap).toBe(0);
+    expect(cfg.maxOverflow).toBe(0);
+  });
+
   it("watchdog leaves cache untouched when refresh is fresh", () => {
     __forceAciOperationalConfigForTests({
       enabled: true,

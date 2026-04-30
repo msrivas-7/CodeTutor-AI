@@ -9,11 +9,14 @@
 //     ok. First-boot Rust compiles will pile the top bucket; steady-state
 //     Python should sit under 1s.
 //
-// No scraper is wired yet — the endpoint ships ahead of the Prom stack so
-// the instrumentation is live when we turn one on. Endpoint is public (no
-// bearer): the data is aggregate-only and consistency with the Prometheus
-// convention outweighs hiding magnitudes at this size. A Caddy path guard
-// or env-bearer can be added later without touching these definitions.
+// Access control: `/api/metrics` is gated by `gateMetrics` in
+// routes/metrics.ts — Authorization: Bearer ${METRICS_TOKEN} when the env
+// is set, loopback-only when it isn't. The scraper-fingerprint risk that
+// motivates P3-1 (warm-pool exhaustion + ARM-throttle state visible
+// through `aci_spawn_attempts_total{result=…}` labels) is bounded by
+// that gate: an attacker would need either the token or shell access on
+// the VM. Extra-paranoid deploys can additionally strip labels at
+// exposition time, but the gate alone is the primary defense.
 
 import { Counter, Gauge, Histogram, Registry } from "prom-client";
 import {

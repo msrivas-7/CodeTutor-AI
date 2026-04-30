@@ -115,9 +115,20 @@ export function makeExecutionBackend(): ExecutionBackendBundle {
     },
   });
 
+  // P1-7 (second-audit fix): the hybrid path's session cap is dynamic.
+  // sessionManager.effectiveAbsoluteCap() reads `backend.effectiveCap()`
+  // first (which uses the live admin-editable maxOverflow) and falls
+  // through to the static `absoluteSessionCap` field only when the
+  // backend doesn't expose the getter. So the static value here is
+  // dead code in the hybrid case — pre-fix it could drift away from
+  // reality after an admin tunes maxOverflow. We still need a number
+  // for the bundle's contract, but pass the env-derived ceiling
+  // (max possible cap = local + admin upper-bound 50) so any code
+  // reading the static field at least sees a defensible upper bound
+  // instead of the boot-time env value.
   return {
     backend: hybrid,
-    absoluteSessionCap: config.session.maxGlobal + config.aci.maxOverflow,
+    absoluteSessionCap: config.session.maxGlobal + 50,
     aci,
   };
 }

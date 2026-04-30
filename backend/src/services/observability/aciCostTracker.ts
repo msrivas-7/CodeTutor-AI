@@ -95,6 +95,15 @@ class AciCostTracker {
   // so concurrent spawn attempts see each other's pending charges.
   private readonly reservations = new Map<string, number>();
   private reservationCounter = 0;
+  // P0-2 (second-audit fix): track whether init() has successfully
+  // hydrated from the persisted singleton row. When `degraded`, the
+  // accumulator is volatile-only — a backend that crashed mid-day
+  // would have its non-persisted in-flight spend wiped on restart,
+  // leaving the kill switch trivially bypassable. Cap-evaluation
+  // returns true (fail-closed) in this state. Default `hydrated` so
+  // unit tests using __forceForTests don't all start refusing spawn
+  // (production path forces this flag via init()).
+  private hydrationState: "hydrated" | "degraded" = "hydrated";
 
   /**
    * Hydrate from the persisted singleton row + enable write-through
@@ -114,10 +123,15 @@ class AciCostTracker {
     try {
       row = await loadAciCostState();
     } catch (err) {
-      // DB unreachable at boot — log loudly, fall through to
-      // zeroed-in-memory state. Operator will see this in the boot
-      // log and can investigate. Persistence stays OFF until next
-      // `init()` (typically a backend restart).
+      // DB unreachable at boot — log loudly + flip to degraded state
+      // so cap-evaluation fails closed. P0-2 (second-audit fix): pre-
+      // fix this returned silently with a $0 accumulator, leaving
+      // exceedsDailyCap to evaluate `0 >= 20 = false` and let
+      // overflow spawn unbounded against a zeroed cap until DB
+      // recovered. Now the kill switch refuses every spawn until
+      // init() succeeds (which requires a backend restart since
+      // init() is one-shot at boot).
+      this.hydrationState = "degraded";
       console.error(
         JSON.stringify({
           level: "error",
@@ -128,31 +142,60 @@ class AciCostTracker {
       return;
     }
 
-    // Apply hydrated state, then run the rollover check immediately
-    // so a row from yesterday gets zeroed before any read happens.
-    this.completedTodayUsd = row.completedTodayUsd;
-    this.currentDateUtc = row.currentDateUtc;
+    // Apply hydrated state.
+    //
+    // P1-6 (second-audit fix): handle cross-day restart correctly.
+    // Pre-fix init() loaded `row.currentDateUtc` (yesterday) + added
+    // FULL orphan-elapsed time into `completedTodayUsd`, then called
+    // maybeRollover which zeroed it. Result: legitimately-yesterday-
+    // accrued time was double-counted briefly then lost to zero. AND:
+    // the orphan-bill for the pre-midnight portion was discarded
+    // along with the rollover, the post-midnight portion was lost
+    // too. Now we explicitly:
+    //   1. Advance currentDateUtc to today.
+    //   2. Reset completedTodayUsd to 0 if the persisted row was for
+    //      a different day (rollover semantics).
+    //   3. Bill ONLY the post-midnight portion of each orphan's
+    //      elapsed time into today's bucket.
+    const today = nowUtcDate(now);
+    const isCrossDay = row.currentDateUtc !== today;
+    this.completedTodayUsd = isCrossDay ? 0 : row.completedTodayUsd;
+    this.currentDateUtc = today;
     this.active.clear();
-    // P0-1 (review fix): hydrated `active` entries from DB are
-    // ORPHANED by definition — we just restarted, so no in-process
-    // handle exists for them. The boot-time orphan reaper in
-    // AciExecutionBackend will delete the Azure-side containers
-    // shortly. Roll their accrued time into completedTodayUsd here
-    // so spentTodayUsd doesn't keep growing forever as if they were
-    // still running. Persisting them as `active` was the right
-    // choice during the previous run (they WERE running then), but
-    // the moment we re-init, they're done.
+
+    // P0-1 (first-audit review fix): hydrated `active` entries from
+    // DB are ORPHANED by definition — we just restarted, so no
+    // in-process handle exists for them. The boot-time orphan reaper
+    // in AciExecutionBackend will delete the Azure-side containers
+    // shortly. Roll their TODAY-PORTION accrued time into
+    // completedTodayUsd here so spentTodayUsd doesn't keep growing
+    // forever as if they were still running.
+    const todayMidnightMs = Date.UTC(
+      new Date(now).getUTCFullYear(),
+      new Date(now).getUTCMonth(),
+      new Date(now).getUTCDate(),
+    );
     let orphanedSessions = 0;
     let orphanedUsd = 0;
     for (const entry of row.activeSessions) {
-      const durationMs = Math.max(0, now - entry.startedAt);
+      // Bill only the portion of the orphan's lifetime within today.
+      // For same-day restarts this is `now - entry.startedAt`. For
+      // cross-day restarts, `entry.startedAt` is clamped to midnight
+      // so pre-midnight time is correctly attributed to yesterday's
+      // (closed) bucket and not leaked into today.
+      const billableStart = Math.max(entry.startedAt, todayMidnightMs);
+      const durationMs = Math.max(0, now - billableStart);
       orphanedUsd +=
         (durationMs / 3_600_000) * ACI_RATE_USD_PER_SESSION_HOUR;
       orphanedSessions += 1;
     }
     this.completedTodayUsd += orphanedUsd;
     this.persistEnabled = true;
-    this.maybeRollover(now);
+    this.hydrationState = "hydrated";
+    // No maybeRollover here — we already advanced currentDateUtc above
+    // and rebased orphan time into today's bucket. Calling rollover
+    // would re-zero completedTodayUsd if isCrossDay, undoing the
+    // orphan rollup we just did.
 
     console.log(
       JSON.stringify({
@@ -217,6 +260,10 @@ class AciCostTracker {
     dailyCapUsd: number,
     now: number = Date.now(),
   ): string | null {
+    // P0-2 (second-audit fix): refuse all reservations when degraded.
+    // Mirrors exceedsDailyCap's fail-closed posture so cold-start +
+    // warm-spawn paths both turn into ARM no-ops on a DB outage.
+    if (this.hydrationState === "degraded") return null;
     this.maybeRollover(now);
     const estimatedUsd =
       (Math.max(0, estimatedDurationMs) / 3_600_000) *
@@ -283,9 +330,26 @@ class AciCostTracker {
     return this.completedTodayUsd + inProgressUsd + reservedUsd;
   }
 
-  /** True iff today's spend has hit or exceeded the configured daily cap. */
+  /**
+   * True iff today's spend has hit or exceeded the configured daily cap,
+   * OR the tracker is degraded (init() failed, accumulator is volatile).
+   * P0-2 (second-audit fix): fail-closed when degraded — a $0 accumulator
+   * with the gate open lets overflow spawn unbounded until DB recovers.
+   */
   exceedsDailyCap(dailyCapUsd: number, now: number = Date.now()): boolean {
+    if (this.hydrationState === "degraded") return true;
     return this.spentTodayUsd(now) >= dailyCapUsd;
+  }
+
+  /**
+   * P0-2: hydration-state surface for deep-health and metrics.
+   *   "hydrated" — init() successfully loaded the persisted row.
+   *   "degraded" — init() was attempted but the DB read threw.
+   * Default in unit tests is "hydrated" because tests bypass init();
+   * production sets this via init() at boot.
+   */
+  getHydrationState(): "hydrated" | "degraded" {
+    return this.hydrationState;
   }
 
   /**
@@ -395,6 +459,7 @@ class AciCostTracker {
     currentDateUtc?: string;
     activeSessions?: Array<[string, number]>;
     persistEnabled?: boolean;
+    hydrationState?: "hydrated" | "degraded";
   }): void {
     if (state.completedTodayUsd !== undefined) {
       this.completedTodayUsd = state.completedTodayUsd;
@@ -410,6 +475,14 @@ class AciCostTracker {
     }
     if (state.persistEnabled !== undefined) {
       this.persistEnabled = state.persistEnabled;
+    }
+    if (state.hydrationState !== undefined) {
+      this.hydrationState = state.hydrationState;
+    } else {
+      // Default to "hydrated" for tests not specifically asserting the
+      // degraded fail-closed path. Without this, every existing cap
+      // test would need to explicitly set hydrationState.
+      this.hydrationState = "hydrated";
     }
     // P0-2: reservations are transient and should never survive a test
     // reset — leaks from one test would contaminate another's cap math.

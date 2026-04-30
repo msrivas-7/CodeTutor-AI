@@ -33,6 +33,15 @@ const REFRESH_INTERVAL_MS = 30_000;
 // `enabled: true`) — meaning a DB outage at boot would let overflow
 // stay live even though the operator's runtime DB toggle is unreachable.
 const REFRESH_WATCHDOG_INTERVALS = 5;
+// P1-4 (second-audit fix): hard timeout for a single refreshOnce call.
+// The Supabase transaction pooler + lack of statement_timeout means
+// a stuck `getSystemConfig` could keep `inFlightRefresh` non-null
+// indefinitely. Subsequent `invalidateAciOperationalConfig()` calls
+// (admin-route emergency kill switch) would then short-circuit on
+// the wedged in-flight promise and never resolve. 8 s is generous
+// for a 4-key SELECT batch; anything beyond means DB is on fire and
+// we should null out the in-flight slot so the next caller can retry.
+const REFRESH_HARD_TIMEOUT_MS = 8_000;
 
 // Shape of the synchronous mirror. Initialized from env at module load
 // so reads BEFORE the first refresh still return sensible defaults
@@ -85,16 +94,20 @@ async function refreshOnce(): Promise<void> {
   // same moment.
   if (inFlightRefresh) return inFlightRefresh;
   inFlightRefresh = (async () => {
+    // P1-4 (second-audit fix): hard-cap the refresh body. Without this,
+    // a stuck `getSystemConfig` keeps `inFlightRefresh` non-null forever
+    // and any subsequent `invalidateAciOperationalConfig()` call (admin
+    // emergency kill switch) blocks on the same wedged promise. The
+    // race wraps the DB-batch fetch against a deadline; on miss, we
+    // log the timeout, leave `cached` untouched (last-good values stay
+    // for the watchdog window), and clear `inFlightRefresh` in the
+    // finally so the next caller can retry.
+    let deadlineTimer: NodeJS.Timeout | undefined;
+    const deadline = new Promise<"timeout">((resolve) => {
+      deadlineTimer = setTimeout(() => resolve("timeout"), REFRESH_HARD_TIMEOUT_MS);
+    });
     try {
-      const [
-        enabledRow,
-        capRow,
-        overflowRow,
-        warmPoolRow,
-        highRow,
-        lowRow,
-        maxRow,
-      ] = await Promise.all([
+      const fetchAll = Promise.all([
         getSystemConfig("aci_overflow_enabled", { bypassCache: true }),
         getSystemConfig("aci_daily_usd_cap", { bypassCache: true }),
         getSystemConfig("aci_max_overflow", { bypassCache: true }),
@@ -103,6 +116,26 @@ async function refreshOnce(): Promise<void> {
         getSystemConfig("aci_warm_low_watermark", { bypassCache: true }),
         getSystemConfig("aci_warm_max_pool_size", { bypassCache: true }),
       ]);
+      const winner = await Promise.race([fetchAll, deadline]);
+      if (winner === "timeout") {
+        console.error(
+          JSON.stringify({
+            level: "error",
+            evt: "aci_operational_config_refresh_timeout",
+            budgetMs: REFRESH_HARD_TIMEOUT_MS,
+          }),
+        );
+        return; // skip the cache-update path; finally will clear in-flight
+      }
+      const [
+        enabledRow,
+        capRow,
+        overflowRow,
+        warmPoolRow,
+        highRow,
+        lowRow,
+        maxRow,
+      ] = winner;
       cached = {
         enabled:
           typeof enabledRow?.value === "boolean"
@@ -182,6 +215,7 @@ async function refreshOnce(): Promise<void> {
         }),
       );
     } finally {
+      if (deadlineTimer) clearTimeout(deadlineTimer);
       inFlightRefresh = null;
     }
   })();
@@ -262,10 +296,27 @@ export function stopAciOperationalConfigRefresh(): void {
  * ACI spawns until DB recovers." The watchdog is stateless: it queries
  * the timestamp every read, so a recovered DB unfreezes it on the
  * next successful refresh automatically.
+ *
+ * P1-3 (second-audit fix): the watchdog also zeros `dailyUsdCap` and
+ * `maxOverflow` when stale. Pre-fix, only `enabled` was forced —
+ * meaning the cost sampler emitted a stale cap value, the kill-switch
+ * math read a stale cap, and the factory's effectiveCap reported a
+ * stale max. Different consumers saw different "truth" for the same
+ * stale-watchdog window. Forcing all three knobs to safe defaults
+ * keeps every consumer aligned: cap=0 means anything > 0 trips the
+ * kill switch, max=0 means HybridBackend.effectiveCap collapses to
+ * localCap. Warm-pool watermarks aren't touched because the warm-
+ * pool tick already gates on op.enabled (see P3-5 fix), so making
+ * watermarks safe-default would be redundant.
  */
 export function getAciOperationalConfig(): AciOperationalConfig {
   if (isRefreshStale()) {
-    return { ...cached, enabled: false };
+    return {
+      ...cached,
+      enabled: false,
+      dailyUsdCap: 0,
+      maxOverflow: 0,
+    };
   }
   return cached;
 }

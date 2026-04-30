@@ -111,6 +111,13 @@ export interface AciBackendOptions {
    * harnesses that aren't wired to operational config).
    */
   getDailyUsdCap?: () => number;
+  /**
+   * P2-5 (second-audit fix): delay before kicking the boot-time orphan
+   * reaper. Production: 30 s so initial traffic settles before we hit
+   * ARM with delete pressure. Tests: 0 so the reaper fires synchronously
+   * after `ensureReady()` resolves.
+   */
+  orphanReapDelayMs?: number;
 }
 
 // Internal warm-pool entry. Same shape as AciHandle but the sessionId
@@ -126,6 +133,20 @@ interface WarmEntry {
 }
 
 const DEFAULT_AGENT_READY_TIMEOUT_MS = 10_000;
+
+// P3-2 (audit fix): Azure ACI container-group names are validated as
+// lowercase letters, digits, and hyphens. nanoid()'s default alphabet
+// (`A-Za-z0-9_-`) emits uppercase and underscores, so a fraction of
+// session IDs would have failed at ARM with `InvalidContainerGroupName`
+// — surfacing as `fail_arm` metrics with no obvious cause. Sanitize
+// the session-id portion of the ARM resource name to lowercase + hyphen.
+// The transformation is N→1 in theory (e.g., "A_b" and "a-b" both map
+// to "a-b"), but nanoid IDs are 12 chars and the sessionManager's
+// uniqueness check (in-memory map by sessionId) prevents two
+// concurrent sessions from colliding here in practice.
+function sanitizeForArm(id: string): string {
+  return id.toLowerCase().replace(/_/g, "-");
+}
 
 const DEFAULT_MEMORY_GB = 0.5;
 const DEFAULT_CPU = 1;
@@ -149,6 +170,9 @@ export class AciExecutionBackend implements ExecutionBackend {
   // session-manager sweep cadence so we're never staler than the next
   // sweep would have been anyway.
   private readonly aliveCache = new Map<string, number>();
+  // P2-4 (second-audit fix): periodic prune handle for the aliveCache.
+  // Started inside ensureReady so it shares the backend's lifecycle.
+  private aliveCachePruneTimer: NodeJS.Timeout | null = null;
 
   // Phase 24B Slice 8: warm pool. Pre-spawned containers waiting to be
   // CLAIMED (single-use, never recycled across learners — cross-tenant
@@ -218,18 +242,45 @@ export class AciExecutionBackend implements ExecutionBackend {
     // running (and billing); without this they'd accumulate until the
     // operator notices via the cost-cap alert. Reap is best-effort —
     // failures log + continue so a transient ARM hiccup doesn't block
-    // the boot path. ready=true above already, so any spawn that races
-    // the reaper will spawn a new group (different name); the reaper
-    // only deletes what was on the listing snapshot.
-    this.reapOrphans().catch((err) => {
-      console.error(
-        JSON.stringify({
-          level: "error",
-          evt: "aci_orphan_reap_failed",
-          err: (err as Error).message,
-        }),
-      );
-    });
+    // the boot path.
+    //
+    // P2-5 (second-audit fix): delay the reap so initial traffic has a
+    // chance to settle before we hit ARM with delete pressure. Pre-fix
+    // the reaper started concurrently with the first /exec requests;
+    // combined ARM load triggered 429s and inflated fail_arm metrics
+    // during deploy windows. Tests pass `orphanReapDelayMs: 0` so the
+    // reaper fires synchronously after `ensureReady()` resolves.
+    const reapDelayMs = this.opts.orphanReapDelayMs ?? 30_000;
+    const fireReap = () => {
+      this.reapOrphans().catch((err) => {
+        console.error(
+          JSON.stringify({
+            level: "error",
+            evt: "aci_orphan_reap_failed",
+            err: (err as Error).message,
+          }),
+        );
+      });
+    };
+    if (reapDelayMs <= 0) {
+      fireReap();
+    } else {
+      setTimeout(fireReap, reapDelayMs).unref();
+    }
+
+    // P2-4 (audit fix): periodic eviction of stale aliveCache entries.
+    // Without this, the cache grows monotonically across the process
+    // lifetime as session names cycle through. Sweep every 5 min and
+    // drop any entry older than 2× ALIVE_CACHE_TTL_MS (60 s).
+    if (!this.aliveCachePruneTimer) {
+      this.aliveCachePruneTimer = setInterval(() => {
+        const cutoff = Date.now() - 60_000;
+        for (const [name, ts] of this.aliveCache) {
+          if (ts < cutoff) this.aliveCache.delete(name);
+        }
+      }, 5 * 60_000);
+      if (this.aliveCachePruneTimer.unref) this.aliveCachePruneTimer.unref();
+    }
   }
 
   async ping(): Promise<void> {
@@ -307,7 +358,7 @@ export class AciExecutionBackend implements ExecutionBackend {
       }
     }
 
-    const containerGroupName = `codetutor-ai-aci-${spec.sessionId}`;
+    const containerGroupName = `codetutor-ai-aci-${sanitizeForArm(spec.sessionId)}`;
     let spawned: { privateIp: string; port: number; bearerToken: string };
     try {
       spawned = await this.spawnContainerGroup(containerGroupName);
@@ -325,6 +376,18 @@ export class AciExecutionBackend implements ExecutionBackend {
         ? "fail_agent"
         : "fail_arm";
       aciSpawnAttempts.inc({ result });
+      // P3-4 (audit fix): structured log line so alerts.bicep's
+      // scheduled-query rule can key on `evt:aci_spawn_failure` and
+      // surface ARM-throttle / agent-unresponsive bursts that the Prom
+      // counter alone wouldn't reach (no Prom scraper wired today).
+      console.error(
+        JSON.stringify({
+          level: "error",
+          evt: "aci_spawn_failure",
+          result,
+          err: msg,
+        }),
+      );
       throw err;
     }
 
@@ -510,9 +573,15 @@ export class AciExecutionBackend implements ExecutionBackend {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), AGENT_PROBE_BUDGET_MS);
     try {
+      // P2-3 (audit fix): /health is unauth — sending the bearer token
+      // here is unnecessary and adds a forward-looking risk: any future
+      // request-logger / debug hook on the agent would silently log
+      // valid bearer tokens against an endpoint that doesn't actually
+      // require credentials. The auth round-trip happens once during
+      // waitForAgent (see line 821); subsequent liveness checks just
+      // need to know the agent is listening.
       const res = await fetch(`http://${h.privateIp}:${h.port}/health`, {
         method: "GET",
-        headers: { authorization: `Bearer ${h.bearerToken}` },
         signal: controller.signal,
       });
       if (res.ok) {
@@ -643,7 +712,9 @@ export class AciExecutionBackend implements ExecutionBackend {
     }
     this.warmSpawnSeq += 1;
     const warmId = `aci-warm-${Date.now()}-${this.warmSpawnSeq}`;
-    const containerGroupName = `codetutor-ai-aci-${warmId}`;
+    // P3-2: warm IDs are already lowercase + digits + hyphens, but wrap
+    // through sanitizeForArm anyway so future renames stay safe by default.
+    const containerGroupName = `codetutor-ai-aci-${sanitizeForArm(warmId)}`;
     try {
       const spawned = await this.spawnContainerGroup(containerGroupName);
       const entry: WarmEntry = {
@@ -909,7 +980,13 @@ export class AciExecutionBackend implements ExecutionBackend {
   async reapOrphans(): Promise<{ found: number; deleted: number }> {
     if (!this.client) return { found: 0, deleted: 0 };
     const PREFIX = "codetutor-ai-aci-";
-    const REAP_CONCURRENCY = 5;
+    // P2-5 (second-audit fix): adaptive concurrency. If the backend is
+    // serving live traffic when the reaper fires (post-deploy window
+    // where boot completed quickly + a learner already started a
+    // session), shrink to 1-wide so we share ARM bandwidth. Idle
+    // backends get the original 5-wide for fast cleanup.
+    const REAP_CONCURRENCY =
+      this.active.size > 0 || this.warmPool.length > 0 ? 1 : 5;
 
     const candidates: string[] = [];
     try {
@@ -966,6 +1043,11 @@ export class AciExecutionBackend implements ExecutionBackend {
               continue;
             }
             await this.tryDelete(name);
+            // P2-4: clear any leftover aliveCache entry for this name.
+            // Pre-fix the cache only got cleaned on `destroy()`; reaped
+            // orphans persisted entries that nothing in this process
+            // would ever access again.
+            this.aliveCache.delete(name);
             // tryDelete absorbs errors; treat every successful return as
             // "best-effort completed". The next boot's reap is the
             // safety net for any group that didn't actually delete.

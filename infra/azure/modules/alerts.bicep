@@ -925,3 +925,124 @@ resource aciNsgDriftAlert 'Microsoft.Insights/activityLogAlerts@2020-10-01' = if
     }
   }
 }
+
+// P3-3 (audit fix): aci_counter_drift alert.
+//
+// HybridBackend's localActive/aciActive counters surface lifecycle bugs
+// when they drift negative (a destroy() ran more times than a create()
+// on at least one backend). The aciHealthSampler emits a warn-level
+// log line per minute when drift > 0; this rule pages on any
+// occurrence in a 15-min window. Sev-2 because it's a real bug not a
+// transient condition — drift doesn't self-correct without restart.
+resource aciCounterDriftAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
+  name: 'codetutor-aci-counter-drift'
+  location: location
+  tags: tags
+  properties: {
+    enabled: true
+    severity: 2
+    scopes: [ workspaceId ]
+    evaluationFrequency: 'PT5M'
+    windowSize: 'PT15M'
+    criteria: {
+      allOf: [
+        {
+          query: '''
+ContainerLog_CL
+| where LogEntry has '"evt":"aci_counter_drift"'
+'''
+          timeAggregation: 'Count'
+          operator: 'GreaterThanOrEqual'
+          threshold: 1
+          failingPeriods: {
+            minFailingPeriodsToAlert: 1
+            numberOfEvaluationPeriods: 1
+          }
+        }
+      ]
+    }
+    autoMitigate: true
+    actions: actions
+  }
+}
+
+// P3-4 (audit fix): aci_spawn_failure rate alert.
+//
+// AciExecutionBackend.createSession emits `evt:aci_spawn_failure` on
+// every cold-start failure with `result` ∈ {fail_arm, fail_agent}.
+// 10+ failures in 10 min = either ARM regional outage or systemic
+// spawn issue; sev-2 paging surfaces it before users notice via
+// support tickets. The cost-cap alert (existing) only fires after
+// damage; this is the leading-edge signal.
+resource aciSpawnFailureRateAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
+  name: 'codetutor-aci-spawn-failure-rate'
+  location: location
+  tags: tags
+  properties: {
+    enabled: true
+    severity: 2
+    scopes: [ workspaceId ]
+    evaluationFrequency: 'PT5M'
+    windowSize: 'PT10M'
+    criteria: {
+      allOf: [
+        {
+          query: '''
+ContainerLog_CL
+| where LogEntry has '"evt":"aci_spawn_failure"'
+'''
+          timeAggregation: 'Count'
+          operator: 'GreaterThanOrEqual'
+          threshold: 10
+          failingPeriods: {
+            minFailingPeriodsToAlert: 1
+            numberOfEvaluationPeriods: 1
+          }
+        }
+      ]
+    }
+    autoMitigate: true
+    actions: actions
+  }
+}
+
+// P3-5 (audit fix): aci_op_config watchdog-engaged alert.
+//
+// When the operational-config mirror's last successful refresh exceeds
+// 5 × refresh interval (~150 s), the watchdog forces enabled=false /
+// dailyUsdCap=0 / maxOverflow=0. The aciHealthSampler emits a warn
+// log line per minute while in this state. 3+ occurrences in 10 min
+// (signalling sustained DB unreachability, not a transient blip) →
+// sev-2 page so the operator can fix DB connectivity before the cost
+// cap fully decays.
+resource aciOpConfigWatchdogAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
+  name: 'codetutor-aci-op-config-watchdog'
+  location: location
+  tags: tags
+  properties: {
+    enabled: true
+    severity: 2
+    scopes: [ workspaceId ]
+    evaluationFrequency: 'PT5M'
+    windowSize: 'PT10M'
+    criteria: {
+      allOf: [
+        {
+          query: '''
+ContainerLog_CL
+| where LogEntry has '"evt":"aci_op_config_watchdog_engaged"'
+'''
+          timeAggregation: 'Count'
+          operator: 'GreaterThanOrEqual'
+          threshold: 3
+          failingPeriods: {
+            minFailingPeriodsToAlert: 1
+            numberOfEvaluationPeriods: 1
+          }
+        }
+      ]
+    }
+    autoMitigate: true
+    actions: actions
+  }
+}
