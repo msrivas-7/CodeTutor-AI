@@ -12,6 +12,7 @@ vi.mock("../../config.js", () => ({
   config: {
     email: {
       unsubscribeSecret: "",
+      unsubscribeSecretPrevious: "",
     },
   },
 }));
@@ -26,6 +27,8 @@ import {
 beforeEach(() => {
   // @ts-expect-error mutate the mocked config
   config.email.unsubscribeSecret = "";
+  // @ts-expect-error mutate the mocked config
+  config.email.unsubscribeSecretPrevious = "";
 });
 
 const TEST_USER_ID = "11111111-2222-3333-4444-555555555555";
@@ -142,5 +145,89 @@ describe("verifyUnsubscribeToken — rejection paths (all return null)", () => {
       .toString("base64")
       .replace(/=+$/, "");
     expect(verifyUnsubscribeToken(`${payloadB64}.AAA`)).toBeNull();
+  });
+});
+
+// Phase 23 P1 #5: dual-secret rotation. Tokens minted under the old
+// secret continue to verify against `unsubscribeSecretPrevious` for the
+// rotation window; new tokens use the current secret. No format change
+// — pure dual-key verify.
+describe("verifyUnsubscribeToken — dual-secret rotation", () => {
+  it("verifies a token signed with the previous secret when both are configured", () => {
+    // 1. Mint while SECRET_A is current (the old key).
+    // @ts-expect-error mutate
+    config.email.unsubscribeSecret = SECRET_A;
+    const oldToken = signUnsubscribeToken(TEST_USER_ID);
+
+    // 2. Operator rotates: SECRET_B is now current, SECRET_A becomes
+    //    PREVIOUS for the soak window.
+    // @ts-expect-error mutate
+    config.email.unsubscribeSecret = SECRET_B;
+    // @ts-expect-error mutate
+    config.email.unsubscribeSecretPrevious = SECRET_A;
+
+    // 3. The old token (signed with SECRET_A) MUST still verify.
+    const verified = verifyUnsubscribeToken(oldToken);
+    expect(verified).not.toBeNull();
+    expect(verified?.userId).toBe(TEST_USER_ID);
+  });
+
+  it("verifies a token signed with the current secret regardless of whether previous is set", () => {
+    // @ts-expect-error mutate
+    config.email.unsubscribeSecret = SECRET_B;
+    // @ts-expect-error mutate
+    config.email.unsubscribeSecretPrevious = SECRET_A;
+
+    // Tokens minted under the (current) SECRET_B must verify even when
+    // PREVIOUS is set — fast path on the first compare.
+    const newToken = signUnsubscribeToken(TEST_USER_ID);
+    expect(verifyUnsubscribeToken(newToken)?.userId).toBe(TEST_USER_ID);
+  });
+
+  it("rejects a token signed with neither current nor previous", () => {
+    // @ts-expect-error mutate
+    config.email.unsubscribeSecret = SECRET_B;
+    // @ts-expect-error mutate
+    config.email.unsubscribeSecretPrevious = SECRET_A;
+
+    // Mint with a third (rotated-out two cycles ago) secret — must fail.
+    // @ts-expect-error mutate
+    config.email.unsubscribeSecret = "rotated-out-two-cycles-ago";
+    const orphanToken = signUnsubscribeToken(TEST_USER_ID);
+
+    // Restore the rotation window state (orphan-token's secret is now
+    // neither current nor previous).
+    // @ts-expect-error mutate
+    config.email.unsubscribeSecret = SECRET_B;
+    expect(verifyUnsubscribeToken(orphanToken)).toBeNull();
+  });
+
+  it("falls through to single-secret behavior when previous is empty", () => {
+    // @ts-expect-error mutate
+    config.email.unsubscribeSecret = SECRET_A;
+    // unsubscribeSecretPrevious unset (default "")
+    const token = signUnsubscribeToken(TEST_USER_ID);
+    // Same secret → verifies.
+    expect(verifyUnsubscribeToken(token)?.userId).toBe(TEST_USER_ID);
+
+    // Rotate without setting PREVIOUS → old tokens stop working, as
+    // they did before this dual-secret change. (Documents the
+    // "operator forgot to set PREVIOUS" failure mode.)
+    // @ts-expect-error mutate
+    config.email.unsubscribeSecret = SECRET_B;
+    expect(verifyUnsubscribeToken(token)).toBeNull();
+  });
+
+  it("treats a whitespace-only previous secret as unset", () => {
+    // @ts-expect-error mutate
+    config.email.unsubscribeSecret = SECRET_A;
+    const token = signUnsubscribeToken(TEST_USER_ID);
+
+    // @ts-expect-error mutate — operator typo: spaces only
+    config.email.unsubscribeSecret = SECRET_B;
+    // @ts-expect-error mutate
+    config.email.unsubscribeSecretPrevious = "    ";
+    // No fallthrough to the whitespace string — treat as empty.
+    expect(verifyUnsubscribeToken(token)).toBeNull();
   });
 });

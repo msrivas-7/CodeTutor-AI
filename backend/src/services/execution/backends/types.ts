@@ -95,4 +95,14 @@ export interface ExecutionBackend {
     handle: SessionHandle,
     files: WorkspaceFile[],
   ): Promise<void>;
+
+  /**
+   * Phase 23 P0 #3: capacity-pressure observability. Returns the current
+   * depth of any internal queues / semaphores the backend uses to gate
+   * concurrent runner work. Read on every Prometheus scrape (cheap — pure
+   * counters), surfaced as `docker_exec_inflight` + `docker_exec_queued`
+   * gauges. Backends without queueing (cloud impls that auto-scale) can
+   * return zeros.
+   */
+  queueDepth(): { inFlight: number; queued: number };
 }

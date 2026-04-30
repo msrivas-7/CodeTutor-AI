@@ -48,6 +48,9 @@ function makeFakeBackend(): ExecutionBackend {
       return false;
     },
     async replaceSnapshot() {},
+    queueDepth() {
+      return { inFlight: 0, queued: 0 };
+    },
   };
 }
 

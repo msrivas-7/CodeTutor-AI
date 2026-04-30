@@ -1,6 +1,7 @@
 import { Router, type Request } from "express";
 import { z } from "zod";
 import {
+  countActiveSharesAllTime,
   countSharesLast24h,
   findOwnerShareForLesson,
   getSharedByToken,
@@ -244,6 +245,13 @@ sharesPublicRouter.get("/:token", async (req, res, next) => {
 export const sharesAuthedRouter = Router();
 
 const SHARE_PER_DAY_CAP = 30;
+// Phase 23 P0 #4: per-user lifetime share ceiling. Caps storage growth
+// at 50 shares × ~200 KB-per-share-pair (OG + Story) × N users — keeps
+// any single farmed account from filling the free-tier 1 GB bucket on
+// its own. Revoked shares don't count (legitimate "I want to redo this
+// share" path). Conservative ceiling — operator can raise via env or
+// config if a real user ever asks.
+const SHARE_LIFETIME_CAP = 50;
 
 const slug = (name: string) =>
   z
@@ -320,6 +328,20 @@ sharesAuthedRouter.post("/", async (req, res, next) => {
     if (recent >= SHARE_PER_DAY_CAP) {
       return res.status(429).json({
         error: `share creation limit reached (${SHARE_PER_DAY_CAP}/day)`,
+      });
+    }
+
+    // Phase 23 P0 #4: per-user lifetime ceiling. Even within the daily
+    // cap, a single user can't accumulate more than SHARE_LIFETIME_CAP
+    // active shares. Revoked shares don't count — a learner who's been
+    // sharing legitimately for years can revoke older artifacts and
+    // continue. 429 with a friendly message; the frontend should
+    // surface "you've reached the lifetime limit, revoke an old one
+    // to make room" but the backend's job is the enforcement.
+    const totalActive = await countActiveSharesAllTime(userId);
+    if (totalActive >= SHARE_LIFETIME_CAP) {
+      return res.status(429).json({
+        error: `share lifetime limit reached (${SHARE_LIFETIME_CAP}). Revoke an older share to free up a slot.`,
       });
     }
 

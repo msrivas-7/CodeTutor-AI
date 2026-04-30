@@ -202,6 +202,15 @@ export class LocalDockerBackend implements ExecutionBackend {
     }
   }
 
+  // Phase 23 P0 #3: surface the docker-exec semaphore depth for the
+  // capacity-pressure metrics. Pure read — no mutation, no allocation.
+  queueDepth(): { inFlight: number; queued: number } {
+    return {
+      inFlight: this.execSem.inFlight,
+      queued: this.execSem.waiting,
+    };
+  }
+
   async destroy(handle: SessionHandle): Promise<void> {
     const h = this.cast(handle);
     try {

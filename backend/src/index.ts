@@ -20,6 +20,7 @@ import { authMiddleware } from "./middleware/authMiddleware.js";
 import { aiRateLimit } from "./middleware/aiRateLimit.js";
 import { bodyLimit } from "./middleware/bodyLimit.js";
 import { requestId } from "./middleware/requestId.js";
+import { responseMetrics } from "./middleware/responseMetrics.js";
 import { requestLogger } from "./middleware/requestLogger.js";
 import {
   adminWriteLimit,
@@ -37,9 +38,11 @@ import {
 } from "./services/session/sessionManager.js";
 import { startBudgetWatcher } from "./services/budgetWatcher.js";
 import { startDigestSweeper } from "./services/email/digestSweeper.js";
+import { startOrphanShareGc } from "./services/share/orphanShareGc.js";
 import { reapAbandonedLessonProgress } from "./db/lessonProgress.js";
 import { backendUnhandledRejections } from "./services/metrics.js";
 import { startPlatformCostSampler } from "./services/observability/platformCostSampler.js";
+import { startCapacityPressureSampler } from "./services/observability/capacityPressureSampler.js";
 import {
   abortAllInFlight,
   inFlightCount,
@@ -102,6 +105,10 @@ async function main() {
   // response body is sent so it captures the final status + duration.
   app.use(requestId);
   app.use(requestLogger);
+  // Phase 23 P0 #5: increment http_responses_total{status} on every
+  // response. Drives the 429+503 error-rate alert. Cheap finish-hook
+  // counter; doesn't intercept the response.
+  app.use(responseMetrics);
 
   const executionBackend = makeExecutionBackend();
 
@@ -381,6 +388,11 @@ async function main() {
   // detect abnormal bursts (hourly > 2× daily cap) without Log Analytics
   // needing to read Supabase directly. No-ops when free tier is disabled.
   startPlatformCostSampler();
+  // Phase 23 P0 #3: capacity-pressure sampler emits one structured log
+  // line per minute with session_count + docker_exec depths + render
+  // queue depths. The composite scheduled-query alert in alerts.bicep
+  // keys off `evt:capacity_pressure`. No DB hit — in-memory reads only.
+  startCapacityPressureSampler();
   // Phase 22A: budget watcher fires email alerts at 50/80/100% of the
   // daily $ cap. Polls every 60s, in-memory dedup so each threshold
   // fires once per UTC day. EmailNotConfiguredError is treated as a
@@ -392,6 +404,12 @@ async function main() {
   // prevents double-sends). No-op in dev when ACS or the unsubscribe
   // secret aren't configured — sweeper logs and returns without sending.
   startDigestSweeper();
+  // Phase 23 P0 #4: daily orphan-share-image GC. Fires at 04:00 UTC.
+  // Deletes OG/Story PNGs from the share-og bucket for shares older
+  // than 90 days with zero views; row stays so the share URL still
+  // resolves with a default OG fallback. Bounds storage growth on
+  // the Supabase free tier without breaking actively-used shares.
+  startOrphanShareGc();
 
   // QA-M4: hourly reap of abandoned lesson_progress rows. A drive-by URL
   // visit calls startLesson, which writes an in_progress row even when the

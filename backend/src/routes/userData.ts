@@ -30,6 +30,7 @@ import {
   updateUserStreak,
 } from "../db/userStreak.js";
 import { adminDeleteUser, isAdminAvailable } from "../db/supabaseAdmin.js";
+import { insertDeletedAccount } from "../db/deletedAccounts.js";
 import { destroyUserSessions } from "../services/session/sessionManager.js";
 import { HttpError } from "../middleware/errorHandler.js";
 import { hashUserId } from "../services/crypto/logHash.js";
@@ -644,23 +645,38 @@ userDataRouter.get("/export", async (req, res, next) => {
 //   1. UI posts `{confirmEmail}`; we match it (case-insensitive) against the
 //      email claim on the user's current access token. Belt-and-suspenders
 //      against a confused-click from an accidentally-shared laptop.
-//   2. Tear down any live runner containers owned by this user (the session
+//   2. **Phase 23 P0 #1 — recent-auth gate:** require the JWT to have been
+//      issued within the last 5 minutes. Closes the "stolen laptop with a
+//      60-min-old JWT in localStorage = full account drainage" gap. Returns
+//      428 Precondition Required with `code:"REAUTH_REQUIRED"` when stale;
+//      the frontend (DeleteAccountModal) catches it, prompts a password
+//      reauth, retries with the fresh JWT.
+//   3. Tear down any live runner containers owned by this user (the session
 //      map is per-process in-memory; without this step the container keeps
 //      running after the owning row is gone, billing us CPU until the idle
 //      sweeper reaps it).
-//   3. Call supabase.auth.admin.deleteUser. The public.* tables all have
+//   4. Call supabase.auth.admin.deleteUser. The public.* tables all have
 //      `ON DELETE CASCADE` on their auth.users(id) FK (see 20260420000000_
 //      phase18b_user_data.sql), so user_preferences, course_progress,
 //      lesson_progress, editor_project all drop with the auth row. No need
 //      to enumerate tables here — the FK graph is the source of truth.
 //
-// `SUPABASE_SERVICE_ROLE_KEY` is required for step 3. If it's missing we
+// `SUPABASE_SERVICE_ROLE_KEY` is required for step 4. If it's missing we
 // 501 rather than pretend to succeed; Phase 20-P1 contemplates dropping
 // the key from the VM, at which point this route either flips to an Edge
 // Function or stays 501'd.
 const deleteAccountSchema = z.object({
   confirmEmail: z.string().min(3).max(320),
 }).strict();
+
+// Phase 23 P0 #1: max age of the JWT's `iat` claim (issued-at) for a
+// destructive operation. 5 minutes is enough wall-clock for a learner to
+// reauth + click, while small enough that a stale localStorage JWT
+// (default Supabase session is 1h) is rejected with a re-auth prompt.
+// Supabase auto-refreshes JWTs in-page, so a recently-active tab will
+// have iat < 5min naturally; we don't need a fresh sign-in for active
+// users — only for "left-the-laptop-open" scenarios.
+const ACCOUNT_DELETE_MAX_JWT_AGE_SEC = 5 * 60;
 
 userDataRouter.delete("/account", async (req, res, next) => {
   const userId = requireUser(req);
@@ -673,10 +689,34 @@ userDataRouter.delete("/account", async (req, res, next) => {
   if (!claimEmail || claimEmail !== submitted) {
     return res.status(400).json({ error: "EMAIL_MISMATCH" });
   }
+  // Phase 23 P0 #1: stale JWTs can't authorize destruction. iat is in
+  // seconds-since-epoch (RFC 7519 §4.1.6). Allow 60s of clock skew.
+  // Applies UNIFORMLY to every session — password, OAuth, future
+  // passwordless — because "skip for OAuth" splits the security
+  // guarantee (attackers find the easy path). Reauth mechanism on the
+  // frontend differs per provider, but the gate is identical.
+  const iat = typeof req.authClaims?.iat === "number" ? req.authClaims.iat : null;
+  if (iat === null) {
+    return res.status(428).json({ error: "REAUTH_REQUIRED", reason: "missing_iat" });
+  }
+  const ageSec = Math.floor(Date.now() / 1000) - iat;
+  if (ageSec > ACCOUNT_DELETE_MAX_JWT_AGE_SEC + 60) {
+    return res.status(428).json({ error: "REAUTH_REQUIRED", reason: "stale_jwt" });
+  }
   if (!isAdminAvailable()) {
     return res.status(501).json({ error: "account deletion is not configured" });
   }
   try {
+    // Phase 23 P1 #6: write the audit row BEFORE the cascade. If the
+    // delete then fails, we have proof of intent; if the audit insert
+    // fails (DB blip), we don't proceed — failing closed protects us
+    // from the "user disputes a delete that we have no record of"
+    // scenario.
+    await insertDeletedAccount({
+      userIdHashed: hashUserId(userId),
+      email: claimEmail,
+      reason: "self_service",
+    });
     const killed = await destroyUserSessions(userId);
     if (killed.length) {
       console.log(`[account-delete] reaped ${killed.length} session(s) for user=${hashUserId(userId)}`);

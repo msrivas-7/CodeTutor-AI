@@ -1,4 +1,5 @@
 import { config } from "../../config.js";
+import { insertEmailSentLog } from "../../db/emailSentLog.js";
 import { sendEmail, type SendEmailOptions } from "./acsClient.js";
 import { signUnsubscribeToken } from "./unsubscribeTokens.js";
 
@@ -307,5 +308,27 @@ export async function sendStreakNudge(
     headers: built.headers,
   };
   const { id } = await sendEmail(opts);
+
+  // Phase 23 P1 #10: operator outbox. Persist a copy of what we shipped
+  // so we can audit later (ACS doesn't expose body content; the verified
+  // sender domain isn't a real mailbox). Log failure is non-fatal — the
+  // user already got the email; we'd rather have a missing audit row
+  // than throw on a successful send.
+  try {
+    await insertEmailSentLog({
+      userId: input.userId,
+      kind: "streak_nudge",
+      toEmail: input.email,
+      subject: built.subject,
+      textBody: built.text,
+      htmlBody: built.html,
+      acsOpId: id,
+    });
+  } catch (err) {
+    console.error(
+      `[streakNudge] email_sent_log insert failed for ${input.userId}: ${(err as Error).message}`,
+    );
+  }
+
   return { id, deepLink: built.deepLink, unsubscribeUrl: built.unsubscribeUrl };
 }

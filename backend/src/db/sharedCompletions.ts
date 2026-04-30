@@ -313,3 +313,71 @@ export async function countSharesLast24h(userId: string): Promise<number> {
   `;
   return Number(rows[0]?.c ?? 0);
 }
+
+/**
+ * Phase 23 P0 #4: GC candidate query. Returns share tokens whose OG /
+ * Story images are sitting in storage with **zero views** and are
+ * older than `staleDays`. The cron in
+ * services/share/orphanShareGc.ts deletes the images, then nulls out
+ * the path columns — the row stays so the share URL still resolves
+ * (with default OG fallback) and the per-user lifetime cap math still
+ * counts it.
+ *
+ * Why view_count == 0 only: a share that's been viewed even once is
+ * "in use" — the URL might be in someone's bookmarks, a Slack thread,
+ * etc. Deleting the image there breaks the social-card preview. A
+ * never-viewed share is almost certainly a bot upload or a learner
+ * who never copied the link.
+ */
+export async function listOrphanShareTokens(
+  staleDays: number,
+  limit: number,
+): Promise<string[]> {
+  const sql = db();
+  const rows = await sql<Array<{ share_token: string }>>`
+    SELECT share_token
+      FROM public.shared_lesson_completions
+     WHERE view_count = 0
+       AND revoked_at IS NULL
+       AND created_at < NOW() - (${staleDays} || ' days')::interval
+       AND (og_image_path IS NOT NULL OR og_story_image_path IS NOT NULL)
+     ORDER BY created_at ASC
+     LIMIT ${limit}
+  `;
+  return rows.map((r) => r.share_token);
+}
+
+/**
+ * Phase 23 P0 #4: null out the storage path columns on a share row
+ * after the GC cron has deleted the actual storage objects. Idempotent
+ * — running it on a row whose paths are already null is a no-op.
+ */
+export async function clearShareImagePaths(shareToken: string): Promise<void> {
+  const sql = db();
+  await sql`
+    UPDATE public.shared_lesson_completions
+       SET og_image_path = NULL,
+           og_story_image_path = NULL
+     WHERE share_token = ${shareToken}
+  `;
+}
+
+/**
+ * Phase 23 P0 #4: per-user lifetime share count. The route enforces a
+ * 50/lifetime ceiling so a single bot account can't fill the
+ * (Supabase-free-tier-bounded) `share-og` storage bucket. Excludes
+ * revoked rows — a user who revoked old shares legitimately gets the
+ * slot back. Also excludes shares whose images were already GC'd (the
+ * share-bucket-gc cron sets `image_url = NULL` when it deletes orphan
+ * objects).
+ */
+export async function countActiveSharesAllTime(userId: string): Promise<number> {
+  const sql = db();
+  const rows = await sql<Array<{ c: string }>>`
+    SELECT COUNT(*)::text AS c
+      FROM public.shared_lesson_completions
+     WHERE user_id = ${userId}
+       AND revoked_at IS NULL
+  `;
+  return Number(rows[0]?.c ?? 0);
+}

@@ -36,6 +36,10 @@ vi.mock("../../config.js", () => ({
       acsConnectionString: "endpoint=x;accesskey=y",
       unsubscribeSecret: "test-secret",
       streakNudgeDisabled: false,
+      // Phase 23 P1 #1: bounded parallelism. Tests want predictable
+      // ordering / single-call assertions, so concurrency=1 keeps the
+      // sweep effectively sequential. Real prod default is 3.
+      digestSweepConcurrency: 1,
     },
   },
 }));

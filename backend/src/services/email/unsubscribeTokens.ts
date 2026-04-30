@@ -8,9 +8,7 @@ import { config } from "../../config.js";
 // Properties:
 //   - non-expiring on purpose. Mailchimp / Substack / SendGrid all do this:
 //     a user clicking unsubscribe on a 6-month-old email expects it to
-//     work. If the secret is ever compromised, rotate it via Key Vault —
-//     ALL outstanding tokens become unverifiable, and the next sweep
-//     mints fresh ones.
+//     work.
 //   - opaque to the recipient: the token doesn't expose the user UUID
 //     in plain form (base64url-encoded) but is also NOT a security
 //     boundary — the HMAC is what proves authenticity. URL-safe so it
@@ -22,6 +20,12 @@ import { config } from "../../config.js";
 // Why JWT was rejected: full JWT would carry exp + iat + iss claims, plus
 // header negotiation, plus alg="none" downgrade risk. We only need
 // authenticated identity → a 2-segment HMAC envelope is the minimum.
+//
+// Phase 23 P1 #5: graceful secret rotation. Verify tries the CURRENT
+// secret first, then the PREVIOUS secret if configured. Mint always uses
+// CURRENT. The operator's rotation runbook is documented inline in
+// config.ts on `unsubscribeSecretPrevious`. Without rotation in flight,
+// PREVIOUS is empty and behavior is identical to single-secret.
 
 const SEPARATOR = ".";
 
@@ -40,6 +44,15 @@ function getSecret(): string {
   if (!s || s.trim() === "") {
     throw new UnsubscribeSecretMissingError();
   }
+  return s;
+}
+
+// Returns the previous-rotation secret if one is configured; null when
+// no rotation is in flight (the common case). Verify-only — never used
+// for minting.
+function getPreviousSecret(): string | null {
+  const s = config.email.unsubscribeSecretPrevious;
+  if (!s || s.trim() === "") return null;
   return s;
 }
 
@@ -85,9 +98,15 @@ export interface VerifiedToken {
 
 /**
  * Verify a token and return the user id it was minted for. Returns null on
- * any verification failure — malformed, tampered, or signed by a different
- * secret. Caller should treat null as "401" without leaking which check
- * failed (timing-safe equality is the only check that matters).
+ * any verification failure — malformed, tampered, or signed by a secret
+ * that's neither the current nor the previous rotation key. Caller should
+ * treat null as "401" without leaking which check failed (timing-safe
+ * equality is the only check that matters).
+ *
+ * Phase 23 P1 #5: tries CURRENT first, falls through to PREVIOUS if
+ * configured. Order matters — the common case is CURRENT-signed tokens
+ * (just-minted by the most recent sweep), so we hit the fast path on
+ * the first compare.
  */
 export function verifyUnsubscribeToken(token: string): VerifiedToken | null {
   if (!token || typeof token !== "string") return null;
@@ -96,27 +115,45 @@ export function verifyUnsubscribeToken(token: string): VerifiedToken | null {
   const [payloadRaw, signatureRaw] = parts;
   if (!payloadRaw || !signatureRaw) return null;
 
-  let secret: string;
+  let currentSecret: string;
   try {
-    secret = getSecret();
+    currentSecret = getSecret();
   } catch {
     // Boot misconfig: never validate any token rather than 200-ing on
     // the basis of an empty-string secret comparison.
     return null;
   }
 
-  const expected = hmac(payloadRaw, secret);
   let provided: Buffer;
   try {
     provided = b64urlDecode(signatureRaw);
   } catch {
     return null;
   }
-  if (provided.length !== expected.length) return null;
 
-  // timingSafeEqual is constant-time over the two buffers; a same-length
-  // mismatch leaks no information about WHICH byte diverged.
-  if (!timingSafeEqual(expected, provided)) return null;
+  // Tries one secret; returns true on a constant-time match. Same-length
+  // check is required before timingSafeEqual (which throws otherwise).
+  const matches = (secret: string): boolean => {
+    const expected = hmac(payloadRaw, secret);
+    if (provided.length !== expected.length) return false;
+    return timingSafeEqual(expected, provided);
+  };
+
+  let signedBy: "current" | "previous" | null = null;
+  if (matches(currentSecret)) {
+    signedBy = "current";
+  } else {
+    const prev = getPreviousSecret();
+    // CRITICAL: when PREVIOUS is set we MUST also evaluate the current
+    // path even on miss — both compares must run unconditionally so an
+    // attacker can't time-distinguish "current matched" vs "fell through
+    // to previous". Both `matches()` calls above + below run for the
+    // full HMAC + timingSafeEqual so total time is ~constant per token.
+    if (prev !== null && matches(prev)) {
+      signedBy = "previous";
+    }
+  }
+  if (signedBy === null) return null;
 
   let userId: string;
   try {

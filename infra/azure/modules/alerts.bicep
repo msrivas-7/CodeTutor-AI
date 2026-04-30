@@ -469,6 +469,86 @@ resource swaAvailabilityAlert 'Microsoft.Insights/metricAlerts@2018-03-01' = {
   }
 }
 
+// Phase 23 P1 #8: TLS cert-expiry early warning.
+//
+// The existing health/swa webtests already enforce `SSLCertRemainingLifetimeCheck: 7`,
+// so a cert <7 days from expiry trips the sev-1 availability alert.
+// That's "house already on fire" — Caddy renews 30 days before expiry,
+// so a cert reaching 7 days remaining means the renewal job has been
+// failing silently for ~3 weeks.
+//
+// This webtest is a separate 14-day-threshold probe — it fails (and
+// sev-3 emails) when the cert drops below 14 days. That's a 7-day
+// runway before the sev-1 fires, plenty of time to investigate the
+// renewal job (Caddy logs, ACME challenge, DNS, etc.) without an
+// outage clock running.
+//
+// Single location (Virginia) on purpose: cert validity is a property
+// of OUR origin's TLS handshake, not a per-region reachability signal.
+// Multi-location debouncing here would just multiply noise from
+// transient network errors that have nothing to do with cert expiry.
+//
+// Frequency 900s (15 min) is the slowest webtest cadence Azure allows.
+// The metric alert wraps it with PT1H eval / PT6H window so the
+// operator gets at most a few emails per day if the threshold is held —
+// closer to "weekly check" than the 5-min webtest cadence implies.
+resource certExpiryWarningWebtest 'Microsoft.Insights/webtests@2022-06-15' = {
+  name: 'codetutor-tls-cert-14d'
+  location: location
+  tags: union(tags, {
+    'hidden-link:${appInsightsId}': 'Resource'
+  })
+  kind: 'standard'
+  properties: {
+    SyntheticMonitorId: 'codetutor-tls-cert-14d'
+    Name: 'codetutor-tls-cert-14d'
+    Enabled: true
+    Frequency: 900
+    Timeout: 30
+    Kind: 'standard'
+    RetryEnabled: true
+    Locations: [
+      { Id: 'us-va-ash-azr' }
+    ]
+    Request: {
+      RequestUrl: healthEndpoint
+      HttpVerb: 'GET'
+      ParseDependentRequests: false
+    }
+    ValidationRules: {
+      ExpectedHttpStatusCode: 200
+      SSLCheck: true
+      SSLCertRemainingLifetimeCheck: 14
+    }
+  }
+}
+
+resource certExpiryWarningAlert 'Microsoft.Insights/metricAlerts@2018-03-01' = {
+  name: 'codetutor-tls-cert-expiry-warning'
+  location: 'global'
+  tags: tags
+  properties: {
+    enabled: true
+    severity: 3
+    scopes: [
+      certExpiryWarningWebtest.id
+      appInsightsId
+    ]
+    evaluationFrequency: 'PT1H'
+    windowSize: 'PT6H'
+    criteria: {
+      'odata.type': 'Microsoft.Azure.Monitor.WebtestLocationAvailabilityCriteria'
+      webTestId: certExpiryWarningWebtest.id
+      componentId: appInsightsId
+      failedLocationCount: 1
+    }
+    autoMitigate: true
+    actions: [
+      { actionGroupId: actionGroupId }
+    ]
+  }
+}
+
 // S-12 (bucket 6): platform AI spend anomaly. The backend emits a
 // structured log line once an hour with the rolling-hour platform cost in
 // USD (see platformCostSampler.ts) and an `exceeded` boolean keyed on
@@ -543,5 +623,187 @@ resource acsDeliveryFailedAlert 'Microsoft.Insights/metricAlerts@2018-03-01' = i
         actionGroupId: actionGroupId
       }
     ]
+  }
+}
+
+// Phase 23 P0 #3: capacity-pressure composite alert. Keys off the
+// 60s-cadence `evt:capacity_pressure` log lines emitted by
+// services/observability/capacityPressureSampler.ts. Single rule covers
+// three signals — a sustained breach in any one is enough to page:
+//   sessions      > 12 (we cap globally at 14; 12 = 85% utilization)
+//   exec_queued   > 4 (queueing means runner-exec capacity is starved)
+//   render_waiting> 10 (share-creation burst outpacing renders)
+// PT15M evaluation × PT15M window = effectively "sustained 10 min" given
+// the 60s emit cadence (10+ samples in the window). Single email per
+// breach via existing action group; matches the operator's "alerts are
+// always email" rule.
+resource capacityPressureAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
+  name: 'codetutor-capacity-pressure'
+  location: location
+  tags: tags
+  properties: {
+    enabled: true
+    severity: 2
+    scopes: [ workspaceId ]
+    evaluationFrequency: 'PT15M'
+    windowSize: 'PT15M'
+    criteria: {
+      allOf: [
+        {
+          query: '''
+ContainerLog_CL
+| where LogEntry has '"evt":"capacity_pressure"'
+| extend sessions = toint(extract('"sessions":(\\d+)', 1, LogEntry))
+| extend execQueued = toint(extract('"exec_queued":(\\d+)', 1, LogEntry))
+| extend renderWaiting = toint(extract('"render_waiting":(\\d+)', 1, LogEntry))
+| where sessions > 12 or execQueued > 4 or renderWaiting > 10
+'''
+          timeAggregation: 'Count'
+          operator: 'GreaterThanOrEqual'
+          threshold: 10
+          failingPeriods: {
+            minFailingPeriodsToAlert: 1
+            numberOfEvaluationPeriods: 1
+          }
+        }
+      ]
+    }
+    autoMitigate: true
+    actions: actions
+  }
+}
+
+// Phase 23 P0 #5: HTTP error-rate alert. Reads the existing
+// requestLogger output (every response logs `"status":<n>`) so no new
+// emitter is needed. Threshold: 4xx-or-5xx-rate > 5% sustained 10 min.
+// Tuning rationale — at our scale, a single misclick produces 1-2% in
+// a 1-min bucket; sustained 5% over 10 min means a real broken path,
+// not noise. 429s + 503s are the codes most directly tied to capacity
+// pressure (rate limit + cap rejection); the alert deliberately doesn't
+// page on 4xx-only patterns (validation errors aren't an ops problem).
+resource errorRateAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
+  name: 'codetutor-http-error-rate'
+  location: location
+  tags: tags
+  properties: {
+    enabled: true
+    severity: 2
+    scopes: [ workspaceId ]
+    evaluationFrequency: 'PT5M'
+    windowSize: 'PT15M'
+    criteria: {
+      allOf: [
+        {
+          query: '''
+ContainerLog_CL
+| where LogEntry has '"status":'
+| extend status = toint(extract('"status":(\\d+)', 1, LogEntry))
+| where isnotnull(status)
+| summarize
+    total = count(),
+    errors = countif(status == 429 or status == 503)
+    by bin(TimeGenerated, 1m)
+| extend errorRatePct = todouble(errors) / todouble(total) * 100
+| where total >= 10  // ignore 1-request buckets to keep noise out
+| where errorRatePct >= 5
+'''
+          timeAggregation: 'Count'
+          operator: 'GreaterThanOrEqual'
+          threshold: 10
+          failingPeriods: {
+            minFailingPeriodsToAlert: 1
+            numberOfEvaluationPeriods: 1
+          }
+        }
+      ]
+    }
+    autoMitigate: true
+    actions: actions
+  }
+}
+
+// Phase 23 P0 #4: storage bucket fill alert. The orphan-share-image GC
+// runs daily and deletes OG/Story PNGs older than 90 days with zero
+// views, but the only way to know whether GC is keeping pace with new
+// uploads is to watch the bucket-size trend. The cron emits its
+// `evt:orphan_share_gc_complete` log line each fire; we don't have a
+// direct bucket-size metric without scraping the Supabase admin API
+// (out of scope for tonight). Use the GC's own non-zero-attempts
+// signal as the canary: more than 50 GC attempts in a single run for
+// 3 consecutive runs means we're persistently catching up to a fast
+// fill rate. PT24H eval × P3D matches "3 consecutive daily fires".
+resource storageGcPressureAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
+  name: 'codetutor-storage-gc-pressure'
+  location: location
+  tags: tags
+  properties: {
+    enabled: true
+    severity: 3
+    scopes: [ workspaceId ]
+    evaluationFrequency: 'PT12H'
+    windowSize: 'P3D'
+    criteria: {
+      allOf: [
+        {
+          query: '''
+ContainerLog_CL
+| where LogEntry has '"evt":"orphan_share_gc_complete"'
+| extend attempted = toint(extract('"attempted":(\\d+)', 1, LogEntry))
+| where attempted > 50
+'''
+          timeAggregation: 'Count'
+          operator: 'GreaterThanOrEqual'
+          threshold: 3
+          failingPeriods: {
+            minFailingPeriodsToAlert: 1
+            numberOfEvaluationPeriods: 1
+          }
+        }
+      ]
+    }
+    autoMitigate: true
+    actions: actions
+  }
+}
+
+// Phase 23 P1 #2: AI spend velocity alert. Today's budget alerts fire
+// at 50/80/100% of the daily $15 cap — a runaway loop hitting the cap
+// in 30 min surfaces with the same severity as one that took 23 hours.
+// This alert surfaces VELOCITY — $/hour — so a fast burn pages before
+// L4 actually hits cap. Threshold: rolling 1-hour platform spend > $5
+// (= one-third of daily cap consumed in one hour). The
+// platformCostSampler already emits `evt:platform_cost_hourly` every
+// hour; we evaluate every 15 min by reading the latest sample.
+resource aiSpendVelocityAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
+  name: 'codetutor-ai-spend-velocity'
+  location: location
+  tags: tags
+  properties: {
+    enabled: true
+    severity: 1
+    scopes: [ workspaceId ]
+    evaluationFrequency: 'PT15M'
+    windowSize: 'PT1H'
+    criteria: {
+      allOf: [
+        {
+          query: '''
+ContainerLog_CL
+| where LogEntry has '"evt":"platform_cost_hourly"'
+| extend sumUsd = todouble(extract('"sum_usd":([0-9.]+)', 1, LogEntry))
+| where sumUsd >= 5.0
+'''
+          timeAggregation: 'Count'
+          operator: 'GreaterThanOrEqual'
+          threshold: 1
+          failingPeriods: {
+            minFailingPeriodsToAlert: 1
+            numberOfEvaluationPeriods: 1
+          }
+        }
+      ]
+    }
+    autoMitigate: true
+    actions: actions
   }
 }

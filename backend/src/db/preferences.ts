@@ -2,7 +2,11 @@ import type { JSONValue } from "postgres";
 import { z } from "zod";
 import { db } from "./client.js";
 import { HttpError } from "../middleware/errorHandler.js";
-import { decryptKey, encryptKey } from "../services/crypto/byok.js";
+import {
+  BYOK_CURRENT_VERSION,
+  decryptKey,
+  encryptKey,
+} from "../services/crypto/byok.js";
 
 export interface UserPreferences {
   persona: "beginner" | "intermediate" | "advanced";
@@ -270,12 +274,16 @@ export async function setOpenAIKey(
   const sql = db();
   await sql`
     INSERT INTO public.user_preferences (
-      user_id, openai_api_key_cipher, openai_api_key_nonce
+      user_id,
+      openai_api_key_cipher,
+      openai_api_key_nonce,
+      byok_cipher_version
     )
-    VALUES (${userId}, ${cipher}, ${nonce})
+    VALUES (${userId}, ${cipher}, ${nonce}, ${BYOK_CURRENT_VERSION})
     ON CONFLICT (user_id) DO UPDATE SET
       openai_api_key_cipher = EXCLUDED.openai_api_key_cipher,
       openai_api_key_nonce  = EXCLUDED.openai_api_key_nonce,
+      byok_cipher_version   = EXCLUDED.byok_cipher_version,
       updated_at            = now()
   `;
 }
@@ -286,6 +294,7 @@ export async function clearOpenAIKey(userId: string): Promise<void> {
     UPDATE public.user_preferences
        SET openai_api_key_cipher = NULL,
            openai_api_key_nonce  = NULL,
+           byok_cipher_version   = NULL,
            updated_at            = now()
      WHERE user_id = ${userId}
   `;

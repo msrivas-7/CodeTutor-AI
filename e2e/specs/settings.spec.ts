@@ -236,6 +236,62 @@ test.describe("settings panel", () => {
     expect((capturedBody as { confirmEmail: string }).confirmEmail).toBe(user.email);
   });
 
+  // Phase 23 P0 #1: account-delete recent-auth gate.
+  test("Delete account: REAUTH_REQUIRED pivots the modal to a sign-out-to-continue prompt", async ({ page }, testInfo) => {
+    // Backend rejects a stale JWT with 428 {error:"REAUTH_REQUIRED"}. The
+    // modal must pivot to a "Sign out and continue" prompt — same UX for
+    // every auth method (password, Google, GitHub, future). We mock the
+    // 428 here and assert the modal swap; we DO NOT actually click the
+    // sign-out button because that would tear down the worker's Supabase
+    // session for the rest of the suite. The button itself is unit-style
+    // verified by checking it's visible + enabled.
+    const user = await getWorkerUser(testInfo.workerIndex);
+    let deleteCalls = 0;
+    await page.route("**/api/user/account", async (route) => {
+      if (route.request().method() !== "DELETE") {
+        return route.continue();
+      }
+      deleteCalls += 1;
+      return route.fulfill({
+        status: 428,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "REAUTH_REQUIRED", reason: "stale_jwt" }),
+      });
+    });
+
+    await page.goto("/start");
+    await openSettings(page, "account");
+
+    const openDelete = page.getByRole("button", { name: /^delete account$/i });
+    await openDelete.click();
+
+    const dialog = page.getByRole("alertdialog");
+    await dialog.getByRole("textbox", { name: /confirm email/i }).fill(user.email);
+    await dialog.getByRole("button", { name: /^delete account$/i }).click();
+
+    // Wait for the first 428 to land, then assert the modal pivoted: new
+    // heading, copy explaining the sign-out-and-back-in flow, and a
+    // visible "Sign out and continue" button. Original Delete-account
+    // submit is gone.
+    await expect.poll(() => deleteCalls).toBe(1);
+    await expect(
+      dialog.getByRole("heading", { name: /sign in again to confirm/i }),
+    ).toBeVisible();
+    await expect(
+      dialog.getByText(/settings.*account/i).first(),
+    ).toBeVisible();
+    const signOutBtn = dialog.getByRole("button", {
+      name: /^sign out and continue$/i,
+    });
+    await expect(signOutBtn).toBeVisible();
+    await expect(signOutBtn).toBeEnabled();
+    // The original destructive submit is gone (the modal is in reauth
+    // mode, not confirm mode).
+    await expect(
+      dialog.getByRole("button", { name: /^delete account$/i }),
+    ).toHaveCount(0);
+  });
+
   test("Modal traps Tab focus inside the panel (Phase 20-P1)", async ({ page }) => {
     // Phase 20-P1: Modal.tsx cycles Tab/Shift+Tab back to the first/last
     // focusable element inside the panel. Without the trap, pressing Tab at

@@ -19,9 +19,20 @@ vi.mock("../db/supabaseAdmin.js", () => ({
   adminDeleteUser: vi.fn(async () => {}),
 }));
 
+// Phase 23 P1 #6: stub the deletion-audit insert in this suite because
+// `adminDeleteUser` is itself mocked — so we never produce a real
+// "account is gone" event whose audit trail we'd want to write. The
+// real insert path is covered in `deletedAccounts.test.ts` which uses
+// the live DB. Mocking here also avoids polluting the test DB with
+// audit rows that have no corresponding deletion.
+vi.mock("../db/deletedAccounts.js", () => ({
+  insertDeletedAccount: vi.fn(async () => {}),
+}));
+
 const { db, closeDb } = await import("../db/client.js");
 const { userDataRouter } = await import("./userData.js");
 const supabaseAdmin = await import("../db/supabaseAdmin.js");
+const deletedAccountsDb = await import("../db/deletedAccounts.js");
 
 let srv: Server;
 let base: string;
@@ -65,7 +76,36 @@ beforeAll(async () => {
     const u = req.header("x-test-user");
     if (u) req.userId = u;
     const email = req.header("x-test-email");
-    if (email) req.authClaims = { email } as typeof req.authClaims;
+    // Phase 23 P0 #1: account-delete recent-auth gate reads `iat` from
+    // the JWT. Tests pass `x-test-iat` (seconds-since-epoch) to simulate
+    // a token of a specific age. Default to "now" when absent so the
+    // gate doesn't reject existing tests that don't care about it.
+    // The literal string "absent" forces no iat claim at all (used by
+    // the missing-iat test case).
+    const iatHeader = req.header("x-test-iat");
+    // Phase 23 P0 #1: provider claim distinguishes password vs OAuth
+    // sessions. The recent-auth gate only fires for password sessions;
+    // OAuth-issued sessions skip it (no provider | "email" → password).
+    const providerHeader = req.header("x-test-provider");
+    let claims: {
+      email?: string;
+      iat?: number;
+      app_metadata?: Record<string, unknown>;
+    } | undefined;
+    if (email !== undefined || iatHeader !== undefined || providerHeader !== undefined) {
+      claims = { email };
+      if (iatHeader === "absent") {
+        // leave iat unset
+      } else if (iatHeader !== undefined) {
+        claims.iat = Number(iatHeader);
+      } else {
+        claims.iat = Math.floor(Date.now() / 1000);
+      }
+      if (providerHeader !== undefined) {
+        claims.app_metadata = { provider: providerHeader };
+      }
+    }
+    if (claims) req.authClaims = claims as typeof req.authClaims;
     next();
   });
   app.use("/api/user", userDataRouter);
@@ -304,6 +344,112 @@ describe("DELETE /api/user/account (Phase 20-P0 #9)", () => {
     expect(res.status).toBe(200);
     expect(supabaseAdmin.adminDeleteUser).toHaveBeenCalledWith(userId);
     expect(supabaseAdmin.adminDeleteUser).toHaveBeenCalledOnce();
+  });
+
+  // Phase 23 P0 #1: recent-auth gate.
+  it("returns 428 REAUTH_REQUIRED when the JWT was issued more than 5 minutes ago", async () => {
+    if (!dbReachable) return;
+    const userId = await mkUser();
+    vi.mocked(supabaseAdmin.isAdminAvailable).mockReturnValue(true);
+    vi.mocked(supabaseAdmin.adminDeleteUser).mockClear();
+    // 30 minutes old → well past the 5min + 60s skew window.
+    const staleIat = Math.floor(Date.now() / 1000) - 30 * 60;
+    const res = await req(
+      userId,
+      "/api/user/account",
+      {
+        method: "DELETE",
+        body: JSON.stringify({ confirmEmail: `u-${userId}@test.local` }),
+      },
+      {
+        "x-test-email": `u-${userId}@test.local`,
+        "x-test-iat": String(staleIat),
+      },
+    );
+    expect(res.status).toBe(428);
+    const body = await res.json();
+    expect(body.error).toBe("REAUTH_REQUIRED");
+    expect(body.reason).toBe("stale_jwt");
+    // Stale JWT must NOT trigger destruction.
+    expect(supabaseAdmin.adminDeleteUser).not.toHaveBeenCalled();
+  });
+
+  it("accepts a JWT just over the 5min window if it's within the 60s clock skew tolerance", async () => {
+    if (!dbReachable) return;
+    const userId = await mkUser();
+    vi.mocked(supabaseAdmin.isAdminAvailable).mockReturnValue(true);
+    vi.mocked(supabaseAdmin.adminDeleteUser).mockClear();
+    // 5min + 30s old — inside the +60s skew tolerance.
+    const skewedIat = Math.floor(Date.now() / 1000) - (5 * 60 + 30);
+    const res = await req(
+      userId,
+      "/api/user/account",
+      {
+        method: "DELETE",
+        body: JSON.stringify({ confirmEmail: `u-${userId}@test.local` }),
+      },
+      {
+        "x-test-email": `u-${userId}@test.local`,
+        "x-test-iat": String(skewedIat),
+      },
+    );
+    expect(res.status).toBe(200);
+    expect(supabaseAdmin.adminDeleteUser).toHaveBeenCalledWith(userId);
+  });
+
+  it("applies the recent-auth gate UNIFORMLY — OAuth sessions are gated too", async () => {
+    if (!dbReachable) return;
+    const userId = await mkUser();
+    vi.mocked(supabaseAdmin.isAdminAvailable).mockReturnValue(true);
+    vi.mocked(supabaseAdmin.adminDeleteUser).mockClear();
+    // Same stale JWT, but with provider=google to assert the gate fires
+    // regardless of session origin. Carving out OAuth would split the
+    // security guarantee — attackers would find the easier path.
+    const staleIat = Math.floor(Date.now() / 1000) - 60 * 60;
+    const res = await req(
+      userId,
+      "/api/user/account",
+      {
+        method: "DELETE",
+        body: JSON.stringify({ confirmEmail: `u-${userId}@test.local` }),
+      },
+      {
+        "x-test-email": `u-${userId}@test.local`,
+        "x-test-iat": String(staleIat),
+        "x-test-provider": "google",
+      },
+    );
+    expect(res.status).toBe(428);
+    const body = await res.json();
+    expect(body.error).toBe("REAUTH_REQUIRED");
+    expect(supabaseAdmin.adminDeleteUser).not.toHaveBeenCalled();
+  });
+
+  it("returns 428 REAUTH_REQUIRED when the JWT lacks an iat claim entirely", async () => {
+    if (!dbReachable) return;
+    const userId = await mkUser();
+    // Clear adminDeleteUser mock so prior tests' calls don't leak.
+    vi.mocked(supabaseAdmin.adminDeleteUser).mockClear();
+    // Build a request that bypasses our default-iat shim by passing the
+    // header as empty string (the test middleware treats `undefined` as
+    // "set iat=now"; an explicit empty string forces NaN → no claim).
+    const res = await req(
+      userId,
+      "/api/user/account",
+      {
+        method: "DELETE",
+        body: JSON.stringify({ confirmEmail: `u-${userId}@test.local` }),
+      },
+      {
+        "x-test-email": `u-${userId}@test.local`,
+        "x-test-iat": "absent",
+      },
+    );
+    expect(res.status).toBe(428);
+    const body = await res.json();
+    expect(body.error).toBe("REAUTH_REQUIRED");
+    expect(body.reason).toBe("missing_iat");
+    expect(supabaseAdmin.adminDeleteUser).not.toHaveBeenCalled();
   });
 });
 

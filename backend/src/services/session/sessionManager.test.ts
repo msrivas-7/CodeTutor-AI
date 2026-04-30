@@ -48,6 +48,9 @@ function makeFakeBackend(): ExecutionBackend {
       return false;
     },
     async replaceSnapshot() {},
+    queueDepth() {
+      return { inFlight: 0, queued: 0 };
+    },
   };
   return backend;
 }
@@ -277,6 +280,9 @@ describe("zombie session reaping (Phase 20-P3)", () => {
         return false;
       },
       async replaceSnapshot() {},
+      queueDepth() {
+        return { inFlight: 0, queued: 0 };
+      },
     };
     return { backend, live, destroyed };
   }
@@ -425,6 +431,9 @@ describe("shutdownAllSessions timeout (S-20)", () => {
         return false;
       },
       async replaceSnapshot() {},
+      queueDepth() {
+        return { inFlight: 0, queued: 0 };
+      },
     };
     initSessionManager(hangingBackend);
 

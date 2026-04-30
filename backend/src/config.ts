@@ -28,13 +28,18 @@ export const config = {
     idleTimeoutMs: num(process.env.SESSION_IDLE_TIMEOUT_MS, 2 * 60 * 1000),
     sweepIntervalMs: num(process.env.SESSION_SWEEP_INTERVAL_MS, 45 * 1000),
     // Phase 20-P3: session caps. One abusive tab-spammer can otherwise
-    // saturate the B2s (8 × 512 MB runners > 4 GB total). Per-user ceiling
+    // saturate the host (~512 MB runners × N > host RAM). Per-user ceiling
     // keeps any single account from monopolizing capacity; global ceiling
     // bounds total exposure. Both emit 429 with Retry-After so the frontend
-    // can show a friendly message. Defaults are conservative relative to
-    // current usage (low single-digits); raise in env when scaling vertically.
+    // can show a friendly message.
+    //
+    // Phase 23: maxGlobal lowered 20 → 14 to match the actual physical RAM
+    // ceiling on B2ms (8 GB host ÷ ~512 MB-per-runner = ~16, leave headroom
+    // for OS + backend container + page cache). Original 20 was wishful and
+    // would let cap-rejection thrash before the OOM killer woke up. Raise
+    // proportionally when upgrading SKU (B4ms → 28, B8ms → 60, etc.).
     maxPerUser: num(process.env.MAX_SESSIONS_PER_USER, 2),
-    maxGlobal: num(process.env.MAX_SESSIONS_GLOBAL, 20),
+    maxGlobal: num(process.env.MAX_SESSIONS_GLOBAL, 14),
   },
 
   // Phase 20-P3: semaphore on concurrent `docker exec` calls. Each exec
@@ -53,6 +58,18 @@ export const config = {
   // AI-route throttle. Applied per session id, IP-fallback for pre-session
   // endpoints. Defaults: 60 requests per rolling minute — plenty for
   // interactive learner use, tight enough that an abusive script is capped.
+  //
+  // SCALE-NOTE (Phase 23): the aiRateLimit token bucket lives in the
+  // backend process memory (see middleware/aiRateLimit.ts and
+  // services/ai/credential.ts caches). Single-instance Express is the
+  // assumption — when we eventually horizontal-scale to 2+ pods, the
+  // effective per-user limit doubles (each pod tracks independently). The
+  // real backstop against runaway spend is `freeTier.dailyUsdPerUser`
+  // (DB-locked via `countPlatformQuestionsTodayLocked`), which DOES hold
+  // across pods. Don't migrate this to Redis / Postgres until horizontal
+  // scale is forced — DB-write per AI request is too expensive at our
+  // anticipated launch volumes. When/if we hit the trigger, this comment
+  // is the bookmark.
   aiRateLimit: {
     windowMs: num(process.env.AI_RATE_LIMIT_WINDOW_MS, 60_000),
     max: num(process.env.AI_RATE_LIMIT_MAX, 60),
@@ -151,11 +168,30 @@ export const config = {
     // Phase 22D: streak-nudge re-engagement email.
     //
     // unsubscribeSecret — HMAC-SHA256 secret for signing one-click
-    // unsubscribe URLs. Tokens are non-expiring; rotating this secret
-    // invalidates ALL outstanding unsubscribe links at once. Empty in
-    // dev = unsubscribe route returns 503 with a clear "not configured"
-    // message rather than minting unverifiable tokens.
+    // unsubscribe URLs. Empty in dev = unsubscribe route returns 503
+    // with a clear "not configured" message rather than minting
+    // unverifiable tokens.
+    //
+    // Phase 23 P1 #5: dual-secret rotation. Tokens are non-expiring on
+    // purpose (Mailchimp / Substack pattern — clicking unsubscribe on a
+    // 6-month-old email must work). Naive rotation invalidates every
+    // outstanding link at once. With `unsubscribeSecretPrevious` set,
+    // verify tries CURRENT first, then PREVIOUS — so the operator can:
+    //   1. set new EMAIL_UNSUBSCRIBE_SECRET, copy old → EMAIL_UNSUBSCRIBE_SECRET_PREVIOUS
+    //   2. refresh-env on the VM (both flow into the container env)
+    //   3. wait ~60 days (or however long emails persist in inboxes)
+    //   4. drop _PREVIOUS once stale tokens have aged out
+    // Empty `_PREVIOUS` = single-secret behavior (today's posture).
     unsubscribeSecret: process.env.EMAIL_UNSUBSCRIBE_SECRET ?? "",
+    unsubscribeSecretPrevious:
+      process.env.EMAIL_UNSUBSCRIBE_SECRET_PREVIOUS ?? "",
+
+    // Phase 23 P1 #1: digestSweeper bounded parallelism. Default 3 keeps
+    // steady-state throughput at ~60-180 sends/min — under ACS's
+    // ~100/min default ceiling — while cutting sweep latency 3× vs the
+    // sequential v1. Tunable via env if/when ACS tier or send volume
+    // changes.
+    digestSweepConcurrency: num(process.env.DIGEST_SWEEP_CONCURRENCY, 3),
 
     // Display name + reply-to for the streak nudge.
     //   From:      CodeTutor <noreply@mail.codetutor.msrivas.com>  (acsSenderEmail)

@@ -1,6 +1,7 @@
 import { config } from "../../config.js";
 import { db } from "../../db/client.js";
 import { markStreakNudgeSent } from "../../db/preferences.js";
+import { createSemaphore } from "../execution/concurrency.js";
 import { EmailNotConfiguredError } from "./acsClient.js";
 import { sendStreakNudge } from "./streakNudge.js";
 import { UnsubscribeSecretMissingError } from "./unsubscribeTokens.js";
@@ -182,11 +183,17 @@ export async function runDigestSweepOnce(): Promise<{
 
     let succeeded = 0;
     let failed = 0;
-    // Sequential send. ACS's poll-pattern is ~1-3s per send; for the
-    // launch-tier user count (under ~100/day) this is fine. If the
-    // sweep ever exceeds ~30s we'd switch to bounded parallelism via
-    // p-limit (already a backend dep). Premature for v1.
-    for (const row of rows) {
+    // Phase 23 P1 #1: bounded parallelism. Sequential sends took 17-50
+    // min at 1k users; ACS poll-pattern is 1-3s/send. Concurrency 3 ≈
+    // 60-180 sends/min steady state — well under ACS's default
+    // ~100/min ceiling per resource (the pacing keeps us off the 429
+    // cliff while cutting sweep latency by 3×). Reuses the
+    // createSemaphore primitive from services/execution/concurrency.ts
+    // (same FIFO + per-slot retry behavior the docker-exec semaphore
+    // uses). Tunable via DIGEST_SWEEP_CONCURRENCY for future ACS-tier
+    // upgrades or load-test calibration.
+    const sem = createSemaphore(config.email.digestSweepConcurrency);
+    const sendOne = async (row: SweepRow): Promise<"ok" | "fail"> => {
       try {
         await sendStreakNudge({
           email: row.email,
@@ -197,7 +204,7 @@ export async function runDigestSweepOnce(): Promise<{
           lastLessonId: row.last_lesson_id,
         });
         await markStreakNudgeSent(row.user_id);
-        succeeded += 1;
+        return "ok";
       } catch (err) {
         // Per-user failure: log + continue. Do NOT mark the flag — the
         // next day's cron will pick this user back up (subject to them
@@ -210,8 +217,15 @@ export async function runDigestSweepOnce(): Promise<{
         console.error(
           `[digestSweeper] send failed for user ${row.user_id}: ${reason}`,
         );
-        failed += 1;
+        return "fail";
       }
+    };
+    const results = await Promise.all(
+      rows.map((row) => sem.run(() => sendOne(row))),
+    );
+    for (const r of results) {
+      if (r === "ok") succeeded += 1;
+      else failed += 1;
     }
 
     if (rows.length > 0) {

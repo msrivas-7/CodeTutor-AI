@@ -182,6 +182,52 @@ describe("POST /api/shares", () => {
     );
     expect(r.status).toBe(400);
   });
+
+  // Phase 23 P0 #4: per-user share lifetime cap. Pre-seed 50 active
+  // rows directly (skipping the route's daily-cap + sanitizer + image
+  // render path), then confirm the 51st via the route is rejected with
+  // 429 + a friendly "revoke an older share" hint. Revoked rows must
+  // NOT count, so we also seed an extra revoked row to prove it.
+  it("rejects creation past the 50-share lifetime cap (429)", async () => {
+    if (!dbReachable) return;
+    const u = await mkUser();
+    await seedCompletedLesson(u, "python-fundamentals", "hello-world");
+
+    const seedTokens: string[] = [];
+    for (let i = 0; i < 50; i += 1) {
+      seedTokens.push(`cap-${randomUUID().slice(0, 8)}-${i}`);
+    }
+    seedTokens.push(`cap-${randomUUID().slice(0, 8)}-revoked`);
+
+    await db()`
+      INSERT INTO public.shared_lesson_completions (
+        share_token, user_id, course_id, lesson_id,
+        lesson_title, lesson_order, course_title, course_total_lessons,
+        mastery, time_spent_ms, attempt_count, code_snippet, revoked_at
+      )
+      SELECT
+        t,
+        ${u}::uuid,
+        'python-fundamentals',
+        'hello-world',
+        'Hello, world',
+        1,
+        'Python Fundamentals',
+        12,
+        'strong',
+        360000,
+        1,
+        'print("hi")',
+        CASE WHEN t LIKE '%-revoked' THEN now() ELSE NULL END
+      FROM unnest(${seedTokens}::text[]) AS t
+    `;
+    tokens.push(...seedTokens);
+
+    const r = await postCreate(u, sampleBody());
+    expect(r.status).toBe(429);
+    const body = await r.json();
+    expect(body.error).toMatch(/lifetime limit/i);
+  });
 });
 
 describe("GET /api/shares/:token (public, anon-readable)", () => {

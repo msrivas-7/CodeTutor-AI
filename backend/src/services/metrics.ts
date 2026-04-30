@@ -16,7 +16,8 @@
 // or env-bearer can be added later without touching these definitions.
 
 import { Counter, Gauge, Histogram, Registry } from "prom-client";
-import { listSessions } from "./session/sessionManager.js";
+import { backendQueueDepth, listSessions } from "./session/sessionManager.js";
+import { _renderQueueDepth } from "./share/renderQueue.js";
 
 export const registry = new Registry();
 
@@ -30,6 +31,60 @@ export const sessionCount = new Gauge({
   collect() {
     this.set(listSessions().length);
   },
+});
+
+// Phase 23 P0 #3: capacity-pressure observability. Three signals share
+// one composite Azure alert — `session_count`, `docker_exec_queued`,
+// `render_queue_waiting` — sustained 10 min, single email. The gauges
+// emit at every scrape via collect hooks so we never thread an inc/dec
+// through every code path. Reading the source-of-truth on demand keeps
+// the metrics impossible to drift from reality.
+export const dockerExecInflight = new Gauge({
+  name: "docker_exec_inflight",
+  help: "In-flight `docker exec` calls (semaphore acquired).",
+  registers: [registry],
+  collect() {
+    this.set(backendQueueDepth().inFlight);
+  },
+});
+
+export const dockerExecQueued = new Gauge({
+  name: "docker_exec_queued",
+  help: "Queued `docker exec` calls waiting on the semaphore. Rising sustained value = capacity pressure on the runner backend.",
+  registers: [registry],
+  collect() {
+    this.set(backendQueueDepth().queued);
+  },
+});
+
+export const renderQueueActive = new Gauge({
+  name: "render_queue_active",
+  help: "Active Satori/resvg renders (max 2 — see services/share/renderQueue.ts).",
+  registers: [registry],
+  collect() {
+    this.set(_renderQueueDepth().active);
+  },
+});
+
+export const renderQueueWaiting = new Gauge({
+  name: "render_queue_waiting",
+  help: "Queued share renders waiting on a slot. Rising sustained value = share-creation burst is outpacing render capacity.",
+  registers: [registry],
+  collect() {
+    this.set(_renderQueueDepth().waiting);
+  },
+});
+
+// Phase 23 P0 #5: HTTP response counter. Drives the `429 + 503 rate >
+// 5% sustained 10 min` alert. `status` label is the response status
+// code as a string (e.g., "200", "429"). Cardinality is bounded — we
+// only ever send a small handful of distinct codes — so labelling
+// without aggregation is fine here.
+export const httpResponses = new Counter({
+  name: "http_responses_total",
+  help: "HTTP responses by status code. The error-rate alert (Phase 23 P0 #5) reads this.",
+  labelNames: ["status"] as const,
+  registers: [registry],
 });
 
 export const aiTokensConsumed = new Counter({

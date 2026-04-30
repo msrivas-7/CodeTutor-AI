@@ -33,6 +33,12 @@ const IV_BYTES = 12; // GCM standard nonce length
 const TAG_BYTES = 16;
 const CURRENT_VERSION = 0x01;
 
+// Exported so writes set `user_preferences.byok_cipher_version` in
+// lockstep with the version byte embedded in `openai_api_key_cipher[0]`.
+// Used by the rotation runbook (operator-only doc in `ops/`) to find
+// rows still on the old key after a master-key bump.
+export const BYOK_CURRENT_VERSION = CURRENT_VERSION;
+
 let cachedKey: Buffer | null = null;
 
 function masterKey(version: number): Buffer {

@@ -60,6 +60,14 @@ function requireBackend(): ExecutionBackend {
   return backend;
 }
 
+// Phase 23 P0 #3: capacity-pressure visibility into the exec backend's
+// internal queue. Returns zeros before initSessionManager() runs (e.g.
+// during /api/health probes that race the boot sequence). Backends
+// without internal queueing (cloud/auto-scale impls) return zeros too.
+export function backendQueueDepth(): { inFlight: number; queued: number } {
+  return backend ? backend.queueDepth() : { inFlight: 0, queued: 0 };
+}
+
 // Only accept IDs the same shape nanoid produces — prevents a client from
 // pushing a path-traversal string into the workspace path.
 const ID_RE = /^[A-Za-z0-9_-]{8,32}$/;

@@ -35,6 +35,15 @@ vi.mock("./acsClient.js", () => ({
   sendEmail: (...args: unknown[]) => mockSendEmail(...args),
 }));
 
+// Phase 23 P1 #10: stub the operator-outbox DB write so unit tests don't
+// hit a real Postgres. Failure of this insert is non-fatal in production
+// (logged + swallowed) but the test mock should resolve cleanly so we
+// can also assert callers pass the expected shape on the happy path.
+const mockInsertEmailSentLog = vi.fn();
+vi.mock("../../db/emailSentLog.js", () => ({
+  insertEmailSentLog: (...args: unknown[]) => mockInsertEmailSentLog(...args),
+}));
+
 import { buildStreakNudge, sendStreakNudge } from "./streakNudge.js";
 
 const baseInput = {
@@ -49,6 +58,8 @@ const baseInput = {
 beforeEach(() => {
   mockSendEmail.mockReset();
   mockSendEmail.mockResolvedValue({ id: "op-abc" });
+  mockInsertEmailSentLog.mockReset();
+  mockInsertEmailSentLog.mockResolvedValue(undefined);
 });
 
 describe("buildStreakNudge — canonical pieces", () => {
@@ -224,5 +235,36 @@ describe("sendStreakNudge — wiring", () => {
   it("propagates a downstream sendEmail failure (caller decides retry)", async () => {
     mockSendEmail.mockRejectedValueOnce(new Error("ACS 500"));
     await expect(sendStreakNudge(baseInput)).rejects.toThrow("ACS 500");
+    // Outbox should NOT be written when the ACS call itself failed —
+    // there's nothing meaningful to record (no opId, send didn't happen).
+    expect(mockInsertEmailSentLog).not.toHaveBeenCalled();
+  });
+
+  // Phase 23 P1 #10: operator outbox.
+  it("writes an email_sent_log row with the rendered body + ACS opId on success", async () => {
+    const result = await sendStreakNudge(baseInput);
+    expect(result.id).toBe("op-abc");
+    expect(mockInsertEmailSentLog).toHaveBeenCalledTimes(1);
+    const arg = mockInsertEmailSentLog.mock.calls[0]?.[0];
+    expect(arg).toEqual(
+      expect.objectContaining({
+        userId: "u-123",
+        kind: "streak_nudge",
+        toEmail: "learner@test.dev",
+        subject: "Picking up where you left off",
+        textBody: expect.stringContaining("Hi Mehul"),
+        htmlBody: expect.stringContaining("Hi Mehul"),
+        acsOpId: "op-abc",
+      }),
+    );
+  });
+
+  it("does NOT throw when the outbox insert fails (logging is non-fatal)", async () => {
+    mockInsertEmailSentLog.mockRejectedValueOnce(new Error("DB down"));
+    // The send should still resolve cleanly because the user already
+    // got the email; the audit-log insert is best-effort.
+    await expect(sendStreakNudge(baseInput)).resolves.toMatchObject({
+      id: "op-abc",
+    });
   });
 });
