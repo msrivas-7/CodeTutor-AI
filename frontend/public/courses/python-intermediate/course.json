@@ -23,6 +23,7 @@
     "iterators-and-generators",
     "decorators",
     "testing-basics",
-    "regex-basics"
+    "regex-basics",
+    "capstone-csv-analyzer"
   ]
 }
