@@ -40,6 +40,17 @@
       "expected": "error: insufficient funds\nAlice's balance: 120"
     },
     {
+      "type": "function_tests",
+      "tests": [
+        { "name": "owner stored", "call": "BankAccount('Alice', 100).owner", "expected": "'Alice'" },
+        { "name": "balance stored", "call": "BankAccount('Alice', 100).balance", "expected": "100" },
+        { "name": "default balance is zero", "call": "BankAccount('Alice').balance", "expected": "0" },
+        { "name": "deposit adds to balance", "setup": "a = BankAccount('X', 100)\na.deposit(50)", "call": "a.balance", "expected": "150" },
+        { "name": "withdraw subtracts from balance", "setup": "a = BankAccount('X', 100)\na.withdraw(30)", "call": "a.balance", "expected": "70" },
+        { "name": "different accounts independent", "setup": "a = BankAccount('A', 100)\nb = BankAccount('B', 200)\na.deposit(10)", "call": "[a.balance, b.balance]", "expected": "[110, 200]", "hidden": true }
+      ]
+    },
+    {
       "type": "required_file_contains",
       "file": "main.py",
       "pattern": "class BankAccount"

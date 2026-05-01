@@ -45,6 +45,21 @@
       "expected": "all users: 3\nadmins: 2\noldest admin: Cara"
     },
     {
+      "type": "function_tests",
+      "tests": [
+        { "name": "len of query", "call": "len(Query([1, 2, 3]))", "expected": "3" },
+        { "name": "len of empty", "call": "len(Query([]))", "expected": "0" },
+        { "name": "iter yields rows", "call": "list(Query([10, 20, 30]))", "expected": "[10, 20, 30]" },
+        { "name": "where filters", "call": "list(Query([{'n': 1}, {'n': 2}, {'n': 3}]).where(lambda r: r['n'] >= 2))", "expected": "[{'n': 2}, {'n': 3}]" },
+        { "name": "sort_by ascending", "call": "list(Query([{'n': 3}, {'n': 1}, {'n': 2}]).sort_by(lambda r: r['n']))", "expected": "[{'n': 1}, {'n': 2}, {'n': 3}]" },
+        { "name": "first item", "call": "Query([10, 20, 30]).first()", "expected": "10" },
+        { "name": "first of empty is None", "call": "Query([]).first()", "expected": "None" },
+        { "name": "repr format", "call": "repr(Query([1, 2, 3]))", "expected": "'Query(3 rows)'" },
+        { "name": "where returns Query", "call": "type(Query([1]).where(lambda r: True)).__name__", "expected": "'Query'" },
+        { "name": "chained operations", "call": "Query([{'a': 3}, {'a': 1}, {'a': 2}]).sort_by(lambda r: r['a']).first()", "expected": "{'a': 1}", "hidden": true }
+      ]
+    },
+    {
       "type": "required_file_contains",
       "file": "main.py",
       "pattern": "class Query"

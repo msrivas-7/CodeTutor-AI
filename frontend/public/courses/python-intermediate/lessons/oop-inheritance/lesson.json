@@ -36,6 +36,20 @@
       "expected": "Alice: 150\nBob: 275 (10% interest)"
     },
     {
+      "type": "function_tests",
+      "tests": [
+        { "name": "Account stores fields", "call": "Account('X', 100).owner", "expected": "'X'" },
+        { "name": "Account default balance", "call": "Account('X').balance", "expected": "0" },
+        { "name": "Account describe", "call": "Account('Alice', 150).describe()", "expected": "'Alice: 150'" },
+        { "name": "Savings inherits balance", "call": "SavingsAccount('X', 100).balance", "expected": "100" },
+        { "name": "Savings default rate", "call": "SavingsAccount('X', 100).rate_percent", "expected": "5" },
+        { "name": "Savings custom rate", "call": "SavingsAccount('X', 100, rate_percent=10).rate_percent", "expected": "10" },
+        { "name": "add_interest applies rate", "setup": "s = SavingsAccount('X', 200, rate_percent=10)\ns.add_interest()", "call": "s.balance", "expected": "220" },
+        { "name": "Savings describe shows rate", "call": "SavingsAccount('Bob', 250, rate_percent=10).describe()", "expected": "'Bob: 250 (10% interest)'" },
+        { "name": "Savings inherits deposit", "setup": "s = SavingsAccount('X', 100, rate_percent=5)\ns.deposit(50)", "call": "s.balance", "expected": "150", "hidden": true }
+      ]
+    },
+    {
       "type": "required_file_contains",
       "file": "main.py",
       "pattern": "class Account"

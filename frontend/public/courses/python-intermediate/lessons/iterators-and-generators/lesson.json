@@ -41,6 +41,16 @@
       "expected": "first 10 fib: [0, 1, 1, 2, 3, 5, 8, 13, 21, 34]\nsum: 88"
     },
     {
+      "type": "function_tests",
+      "tests": [
+        { "name": "first value is zero", "call": "next(fibonacci())", "expected": "0" },
+        { "name": "first two values", "setup": "g = fibonacci()", "call": "[next(g), next(g)]", "expected": "[0, 1]" },
+        { "name": "first ten values", "setup": "g = fibonacci()", "call": "[next(g) for _ in range(10)]", "expected": "[0, 1, 1, 2, 3, 5, 8, 13, 21, 34]" },
+        { "name": "is a generator", "call": "type(fibonacci()).__name__", "expected": "'generator'" },
+        { "name": "two independent generators", "setup": "a = fibonacci()\nb = fibonacci()\nnext(a)\nnext(a)", "call": "next(b)", "expected": "0", "hidden": true }
+      ]
+    },
+    {
       "type": "required_file_contains",
       "file": "main.py",
       "pattern": "yield"

@@ -44,6 +44,18 @@
       "expected": "100 USD\nMoney(100, 'USD')\nTrue\nFalse"
     },
     {
+      "type": "function_tests",
+      "tests": [
+        { "name": "str format", "call": "str(Money(100, 'USD'))", "expected": "'100 USD'" },
+        { "name": "repr format", "call": "repr(Money(100, 'USD'))", "expected": "\"Money(100, 'USD')\"" },
+        { "name": "equal money", "call": "Money(100, 'USD') == Money(100, 'USD')", "expected": "True" },
+        { "name": "different amount", "call": "Money(100, 'USD') == Money(50, 'USD')", "expected": "False" },
+        { "name": "different currency", "call": "Money(100, 'USD') == Money(100, 'EUR')", "expected": "False" },
+        { "name": "compare to string", "call": "Money(100, 'USD') == 'USD'", "expected": "False" },
+        { "name": "compare to None", "call": "Money(100, 'USD') == None", "expected": "False", "hidden": true }
+      ]
+    },
+    {
       "type": "required_file_contains",
       "file": "main.py",
       "pattern": "class Money"
