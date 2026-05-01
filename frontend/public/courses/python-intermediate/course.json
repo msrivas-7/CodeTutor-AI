@@ -16,6 +16,7 @@
     "lambdas-and-higher-order",
     "error-handling",
     "file-io",
-    "modules-and-imports"
+    "modules-and-imports",
+    "oop-classes"
   ]
 }
