@@ -37,9 +37,10 @@ test.describe("marketing page (Phase 22C) — anonymous", () => {
     await expect(hero).toHaveText(HERO_CLAIM);
 
     // Match-cut panel renders a JetBrains Mono code line — the typewriter
-    // is mid-animation when the assertion runs, so we assert on the
-    // identifier we know lands within the first ~600ms.
-    const monoLine = page.getByText(/isPalindrome/, { exact: false });
+    // is mid-animation when the assertion runs, so we assert on the string
+    // literal "Maya" we know lands within the first ~250ms (line 1 of
+    // the new Python TypeError beat).
+    const monoLine = page.getByText(/Maya/, { exact: false });
     await expect(monoLine.first()).toBeVisible({ timeout: 5_000 });
 
     // Primary CTA (in-hero). Two CTAs on the page (hero + repeat) —
@@ -131,11 +132,11 @@ test.describe("marketing page (Phase 22C) — reduced motion", () => {
     // The match-cut panel skips its scheduled beats and renders the
     // final state directly — code visible AND tutor question visible
     // from first paint, no waiting on the ~8.4s play-through.
-    await expect(page.getByText(/isPalindrome/).first()).toBeVisible({
+    await expect(page.getByText(/Maya/).first()).toBeVisible({
       timeout: 3_000,
     });
     await expect(
-      page.getByText(/Why does this fail on 'racecar '\?/),
+      page.getByText(/Why does this fail when points is 100\?/),
     ).toBeVisible({ timeout: 3_000 });
 
     // CTA still functions.
