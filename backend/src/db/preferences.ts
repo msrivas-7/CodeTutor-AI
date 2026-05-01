@@ -1,6 +1,6 @@
 import type { JSONValue } from "postgres";
 import { z } from "zod";
-import { db } from "./client.js";
+import { db, withRlsContext } from "./client.js";
 import { HttpError } from "../middleware/errorHandler.js";
 import {
   BYOK_CURRENT_VERSION,
@@ -90,17 +90,21 @@ function rowToPrefs(raw: unknown): UserPreferences {
 }
 
 export async function getPreferences(userId: string): Promise<UserPreferences> {
-  const sql = db();
-  const rows = await sql`
-    SELECT persona, openai_model, theme, welcome_done, workspace_coach_done,
-           editor_coach_done, ui_layout,
-           (openai_api_key_cipher IS NOT NULL) AS has_openai_key,
-           last_welcome_back_at,
-           email_opt_in,
-           updated_at
-      FROM public.user_preferences
-     WHERE user_id = ${userId}
-  `;
+  // Phase 26 (audit C-3): wrap in RLS context. The WHERE user_id = ${userId}
+  // is now defense-in-depth; RLS would also filter the row out if a
+  // route handler bug threaded the wrong userId through.
+  const rows = await withRlsContext(userId, async (tx) => {
+    return await tx`
+      SELECT persona, openai_model, theme, welcome_done, workspace_coach_done,
+             editor_coach_done, ui_layout,
+             (openai_api_key_cipher IS NOT NULL) AS has_openai_key,
+             last_welcome_back_at,
+             email_opt_in,
+             updated_at
+        FROM public.user_preferences
+       WHERE user_id = ${userId}
+    `;
+  });
   if (rows.length === 0) return { ...DEFAULT_PREFS };
   return rowToPrefs(rows[0]);
 }
@@ -125,7 +129,6 @@ export async function upsertPreferences(
   userId: string,
   patch: PreferencesPatch,
 ): Promise<UserPreferences> {
-  const sql = db();
   // lastWelcomeBackAt is a Date | null payload — callers send an ISO
   // string, but postgres wants a timestamptz comparison. Normalize here
   // so the SQL below can bind a single typed value.
@@ -135,42 +138,49 @@ export async function upsertPreferences(
       : patch.lastWelcomeBackAt === null
         ? null
         : new Date(patch.lastWelcomeBackAt);
-  const rows = await sql`
-    INSERT INTO public.user_preferences (
-      user_id, persona, openai_model, theme, welcome_done,
-      workspace_coach_done, editor_coach_done, ui_layout, last_welcome_back_at,
-      email_opt_in
-    )
-    VALUES (
-      ${userId},
-      ${patch.persona ?? DEFAULT_PREFS.persona},
-      ${patch.openaiModel ?? null},
-      ${patch.theme ?? DEFAULT_PREFS.theme},
-      ${patch.welcomeDone ?? false},
-      ${patch.workspaceCoachDone ?? false},
-      ${patch.editorCoachDone ?? false},
-      ${sql.json((patch.uiLayout ?? {}) as JSONValue)},
-      ${lastWelcomeBackAt ?? null},
-      ${patch.emailOptIn ?? DEFAULT_PREFS.emailOptIn}
-    )
-    ON CONFLICT (user_id) DO UPDATE SET
-      persona              = COALESCE(${patch.persona ?? null}, public.user_preferences.persona),
-      openai_model         = CASE WHEN ${patch.openaiModel !== undefined} THEN ${patch.openaiModel ?? null} ELSE public.user_preferences.openai_model END,
-      theme                = COALESCE(${patch.theme ?? null}, public.user_preferences.theme),
-      welcome_done         = COALESCE(${patch.welcomeDone ?? null}, public.user_preferences.welcome_done),
-      workspace_coach_done = COALESCE(${patch.workspaceCoachDone ?? null}, public.user_preferences.workspace_coach_done),
-      editor_coach_done    = COALESCE(${patch.editorCoachDone ?? null}, public.user_preferences.editor_coach_done),
-      ui_layout            = CASE WHEN ${patch.uiLayout !== undefined} THEN ${sql.json((patch.uiLayout ?? {}) as JSONValue)} ELSE public.user_preferences.ui_layout END,
-      last_welcome_back_at = CASE WHEN ${lastWelcomeBackAt !== undefined} THEN ${lastWelcomeBackAt ?? null} ELSE public.user_preferences.last_welcome_back_at END,
-      email_opt_in         = COALESCE(${patch.emailOptIn ?? null}, public.user_preferences.email_opt_in),
-      updated_at           = now()
-    RETURNING persona, openai_model, theme, welcome_done, workspace_coach_done,
-              editor_coach_done, ui_layout,
-              (openai_api_key_cipher IS NOT NULL) AS has_openai_key,
-              last_welcome_back_at,
-              email_opt_in,
-              updated_at
-  `;
+  // Phase 26: RLS-scoped UPSERT. The WITH CHECK on user_preferences_own
+  // policy enforces that we can't insert a row claiming user_id != our
+  // auth.uid(); a route-handler bug threading the wrong userId now
+  // throws "new row violates row-level security policy" instead of
+  // silently writing under another user's row.
+  const rows = await withRlsContext(userId, async (tx) => {
+    return await tx`
+      INSERT INTO public.user_preferences (
+        user_id, persona, openai_model, theme, welcome_done,
+        workspace_coach_done, editor_coach_done, ui_layout, last_welcome_back_at,
+        email_opt_in
+      )
+      VALUES (
+        ${userId},
+        ${patch.persona ?? DEFAULT_PREFS.persona},
+        ${patch.openaiModel ?? null},
+        ${patch.theme ?? DEFAULT_PREFS.theme},
+        ${patch.welcomeDone ?? false},
+        ${patch.workspaceCoachDone ?? false},
+        ${patch.editorCoachDone ?? false},
+        ${tx.json((patch.uiLayout ?? {}) as JSONValue)},
+        ${lastWelcomeBackAt ?? null},
+        ${patch.emailOptIn ?? DEFAULT_PREFS.emailOptIn}
+      )
+      ON CONFLICT (user_id) DO UPDATE SET
+        persona              = COALESCE(${patch.persona ?? null}, public.user_preferences.persona),
+        openai_model         = CASE WHEN ${patch.openaiModel !== undefined} THEN ${patch.openaiModel ?? null} ELSE public.user_preferences.openai_model END,
+        theme                = COALESCE(${patch.theme ?? null}, public.user_preferences.theme),
+        welcome_done         = COALESCE(${patch.welcomeDone ?? null}, public.user_preferences.welcome_done),
+        workspace_coach_done = COALESCE(${patch.workspaceCoachDone ?? null}, public.user_preferences.workspace_coach_done),
+        editor_coach_done    = COALESCE(${patch.editorCoachDone ?? null}, public.user_preferences.editor_coach_done),
+        ui_layout            = CASE WHEN ${patch.uiLayout !== undefined} THEN ${tx.json((patch.uiLayout ?? {}) as JSONValue)} ELSE public.user_preferences.ui_layout END,
+        last_welcome_back_at = CASE WHEN ${lastWelcomeBackAt !== undefined} THEN ${lastWelcomeBackAt ?? null} ELSE public.user_preferences.last_welcome_back_at END,
+        email_opt_in         = COALESCE(${patch.emailOptIn ?? null}, public.user_preferences.email_opt_in),
+        updated_at           = now()
+      RETURNING persona, openai_model, theme, welcome_done, workspace_coach_done,
+                editor_coach_done, ui_layout,
+                (openai_api_key_cipher IS NOT NULL) AS has_openai_key,
+                last_welcome_back_at,
+                email_opt_in,
+                updated_at
+    `;
+  });
   return rowToPrefs(rows[0]);
 }
 
@@ -216,14 +226,17 @@ export async function markStreakNudgeSent(userId: string): Promise<void> {
 // serialized to the client. `setOpenAIKey` upserts so a first-time caller
 // that has no preferences row yet still works — defaults are inlined.
 export async function getOpenAIKey(userId: string): Promise<string | null> {
-  const sql = db();
-  const rows = await sql<
-    Array<{ cipher: Buffer | null; nonce: Buffer | null }>
-  >`
-    SELECT openai_api_key_cipher AS cipher, openai_api_key_nonce AS nonce
-      FROM public.user_preferences
-     WHERE user_id = ${userId}
-  `;
+  // Phase 26: BYOK ciphertext + nonce read under RLS scope. Highest-
+  // sensitivity user data — RLS-as-defense is the most important here.
+  const rows = await withRlsContext(userId, async (tx) => {
+    return await tx<
+      Array<{ cipher: Buffer | null; nonce: Buffer | null }>
+    >`
+      SELECT openai_api_key_cipher AS cipher, openai_api_key_nonce AS nonce
+        FROM public.user_preferences
+       WHERE user_id = ${userId}
+    `;
+  });
   if (rows.length === 0) return null;
   const { cipher, nonce } = rows[0];
   if (!cipher || !nonce) return null;
@@ -243,20 +256,22 @@ export interface AIStatusPrefs {
 }
 
 export async function getAIStatusPrefs(userId: string): Promise<AIStatusPrefs> {
-  const sql = db();
-  const rows = await sql<
-    Array<{
-      cipher: Buffer | null;
-      nonce: Buffer | null;
-      paid_access_shown_at: Date | null;
-    }>
-  >`
-    SELECT openai_api_key_cipher AS cipher,
-           openai_api_key_nonce  AS nonce,
-           paid_access_shown_at
-      FROM public.user_preferences
-     WHERE user_id = ${userId}
-  `;
+  // Phase 26: same shape as getOpenAIKey, RLS-scoped.
+  const rows = await withRlsContext(userId, async (tx) => {
+    return await tx<
+      Array<{
+        cipher: Buffer | null;
+        nonce: Buffer | null;
+        paid_access_shown_at: Date | null;
+      }>
+    >`
+      SELECT openai_api_key_cipher AS cipher,
+             openai_api_key_nonce  AS nonce,
+             paid_access_shown_at
+        FROM public.user_preferences
+       WHERE user_id = ${userId}
+    `;
+  });
   if (rows.length === 0) {
     return { openaiKey: null, hasShownPaidInterest: false };
   }
@@ -271,31 +286,36 @@ export async function setOpenAIKey(
   key: string,
 ): Promise<void> {
   const { cipher, nonce } = encryptKey(key, userId);
-  const sql = db();
-  await sql`
-    INSERT INTO public.user_preferences (
-      user_id,
-      openai_api_key_cipher,
-      openai_api_key_nonce,
-      byok_cipher_version
-    )
-    VALUES (${userId}, ${cipher}, ${nonce}, ${BYOK_CURRENT_VERSION})
-    ON CONFLICT (user_id) DO UPDATE SET
-      openai_api_key_cipher = EXCLUDED.openai_api_key_cipher,
-      openai_api_key_nonce  = EXCLUDED.openai_api_key_nonce,
-      byok_cipher_version   = EXCLUDED.byok_cipher_version,
-      updated_at            = now()
-  `;
+  // Phase 26: BYOK ciphertext WRITE under RLS scope. WITH CHECK on the
+  // policy guarantees we can't INSERT/UPDATE under a wrong user_id.
+  await withRlsContext(userId, async (tx) => {
+    await tx`
+      INSERT INTO public.user_preferences (
+        user_id,
+        openai_api_key_cipher,
+        openai_api_key_nonce,
+        byok_cipher_version
+      )
+      VALUES (${userId}, ${cipher}, ${nonce}, ${BYOK_CURRENT_VERSION})
+      ON CONFLICT (user_id) DO UPDATE SET
+        openai_api_key_cipher = EXCLUDED.openai_api_key_cipher,
+        openai_api_key_nonce  = EXCLUDED.openai_api_key_nonce,
+        byok_cipher_version   = EXCLUDED.byok_cipher_version,
+        updated_at            = now()
+    `;
+  });
 }
 
 export async function clearOpenAIKey(userId: string): Promise<void> {
-  const sql = db();
-  await sql`
-    UPDATE public.user_preferences
-       SET openai_api_key_cipher = NULL,
-           openai_api_key_nonce  = NULL,
-           byok_cipher_version   = NULL,
-           updated_at            = now()
-     WHERE user_id = ${userId}
-  `;
+  // Phase 26: BYOK ciphertext clear under RLS scope.
+  await withRlsContext(userId, async (tx) => {
+    await tx`
+      UPDATE public.user_preferences
+         SET openai_api_key_cipher = NULL,
+             openai_api_key_nonce  = NULL,
+             byok_cipher_version   = NULL,
+             updated_at            = now()
+       WHERE user_id = ${userId}
+    `;
+  });
 }

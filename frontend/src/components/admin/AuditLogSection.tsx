@@ -28,6 +28,8 @@ const EVENT_LABEL: Record<AdminAuditEventType, string> = {
   user_unfrozen: "Unfroze user account",
   budget_watcher_reset: "Reset budget watcher",
   platform_auth_unstick: "Unstick platform auth",
+  // Phase 26
+  user_force_signout: "Force sign-out",
 };
 
 const EVENT_TONE: Record<AdminAuditEventType, string> = {
@@ -46,6 +48,8 @@ const EVENT_TONE: Record<AdminAuditEventType, string> = {
   user_unfrozen: "bg-muted/15 text-muted",
   budget_watcher_reset: "bg-warn/15 text-warn",
   platform_auth_unstick: "bg-warn/15 text-warn",
+  // Phase 26
+  user_force_signout: "bg-warn/15 text-warn",
 };
 
 const EVENT_TYPES: AdminAuditEventType[] = [
@@ -62,6 +66,7 @@ const EVENT_TYPES: AdminAuditEventType[] = [
   "user_unfrozen",
   "budget_watcher_reset",
   "platform_auth_unstick",
+  "user_force_signout",
   "tab_opened",
 ];
 

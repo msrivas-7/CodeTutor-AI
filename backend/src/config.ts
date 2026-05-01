@@ -1,5 +1,37 @@
 const num = (v: string | undefined, d: number) => (v ? Number(v) : d);
 
+function parseIntEnv(v: string | undefined): number | undefined {
+  if (!v) return undefined;
+  const n = Number(v);
+  return Number.isFinite(n) && Number.isInteger(n) && n > 0 ? n : undefined;
+}
+
+// Phase 26 (audit M-1): collect every BYOK master-key version from env
+// into a single Map<version, base64-string>. The format `BYOK_ENCRYPTION_KEY_VN`
+// (case-sensitive, N a positive integer) is the canonical shape. The
+// legacy `BYOK_ENCRYPTION_KEY` (no version suffix) is treated as V1 if
+// `BYOK_ENCRYPTION_KEY_V1` isn't set — backward-compat for existing
+// single-key deployments. Validation of base64 + 32-byte length happens
+// inside assertConfigValid; here we just collect what's present.
+function collectByokEncryptionKeys(): ReadonlyMap<number, string> {
+  const out = new Map<number, string>();
+  const versioned = /^BYOK_ENCRYPTION_KEY_V(\d+)$/;
+  for (const [key, value] of Object.entries(process.env)) {
+    const m = versioned.exec(key);
+    if (!m || !value) continue;
+    const version = Number(m[1]);
+    if (!Number.isInteger(version) || version <= 0) continue;
+    out.set(version, value);
+  }
+  // Legacy fallback: BYOK_ENCRYPTION_KEY (no suffix) → V1, only if V1
+  // wasn't already populated by the explicit shape.
+  const legacy = process.env.BYOK_ENCRYPTION_KEY;
+  if (legacy && !out.has(1)) {
+    out.set(1, legacy);
+  }
+  return out;
+}
+
 export const config = {
   port: num(process.env.PORT, 4000),
   corsOrigin: process.env.CORS_ORIGIN ?? "http://localhost:5173",
@@ -125,11 +157,33 @@ export const config = {
   // environment (transaction pooler URL from Project Settings → Database).
   databaseUrl: process.env.DATABASE_URL,
 
-  // Phase 18e: master key for AES-256-GCM envelope encryption of user BYOK
-  // OpenAI keys. 32 raw bytes, base64-encoded at rest. Generate with
-  // `openssl rand -base64 32`. Rotating this invalidates every stored key —
-  // users would have to re-enter theirs in Settings.
-  byokEncryptionKey: process.env.BYOK_ENCRYPTION_KEY,
+  // Phase 18e + Phase 26 (audit M-1): master keys for AES-256-GCM
+  // envelope encryption of user BYOK OpenAI keys. 32 raw bytes each,
+  // base64-encoded at rest. Generate with `openssl rand -base64 32`.
+  //
+  // Rotation model — version-keyed map. Multiple master keys can coexist:
+  //   BYOK_ENCRYPTION_KEY      → version 1 (legacy single-key shape)
+  //   BYOK_ENCRYPTION_KEY_V1   → version 1 (overrides the legacy var)
+  //   BYOK_ENCRYPTION_KEY_V2   → version 2
+  //   ... (any positive integer)
+  //
+  // BYOK_CURRENT_VERSION (default 1) selects which version new writes
+  // encrypt under. Decrypts auto-pick by reading the version byte from
+  // the ciphertext and looking up the matching key. Backward-compat:
+  // if neither V1-specific var is set but BYOK_ENCRYPTION_KEY is, that
+  // becomes V1 — existing single-key deployments need no env changes.
+  //
+  // Rotation runbook (high level):
+  //   1. Generate K2; set BYOK_ENCRYPTION_KEY_V2 in Key Vault.
+  //   2. Deploy backend → V2 now decryptable; old V1 rows still readable.
+  //   3. Set BYOK_CURRENT_VERSION=2 in KV → new writes encrypt under V2.
+  //   4. Run re-encrypt sweep over user_preferences rows whose
+  //      byok_cipher_version=1 (one-shot, idempotent).
+  //   5. Once 0 v1 rows remain, drop BYOK_ENCRYPTION_KEY_V1 from KV.
+  // Old releases of this code (pre-Phase 26, single-key shape) keep
+  // working because they only read BYOK_ENCRYPTION_KEY.
+  byokEncryptionKeys: collectByokEncryptionKeys(),
+  byokCurrentVersion: parseIntEnv(process.env.BYOK_CURRENT_VERSION) ?? 1,
 
   // Phase 20-P4: free AI tier on the operator's OpenAI key. Default OFF so
   // a fresh deployment doesn't start burning the operator's $ on first boot
@@ -328,6 +382,11 @@ function parseOptionalInt(v: string | undefined): number | undefined {
 // a future RCE that echoes env) finds nothing. The backend reads these only
 // through `config.*` from this point forward.
 delete process.env.BYOK_ENCRYPTION_KEY;
+// Phase 26: also strip every versioned BYOK key from process.env. The
+// keys were copied into the frozen `byokEncryptionKeys` map above.
+for (const k of Object.keys(process.env)) {
+  if (/^BYOK_ENCRYPTION_KEY_V\d+$/.test(k)) delete process.env[k];
+}
 delete process.env.SUPABASE_SERVICE_ROLE_KEY;
 delete process.env.DATABASE_URL;
 delete process.env.METRICS_TOKEN;
@@ -361,22 +420,35 @@ export function assertConfigValid(): void {
         "with your project's transaction-pooler connection string.",
     );
   }
-  if (!config.byokEncryptionKey || config.byokEncryptionKey.trim() === "") {
+  if (config.byokEncryptionKeys.size === 0) {
     throw new Error(
-      "[config] BYOK_ENCRYPTION_KEY is required. Generate one with " +
-        "`openssl rand -base64 32` and set it in `.env`.",
+      "[config] BYOK_ENCRYPTION_KEY (or BYOK_ENCRYPTION_KEY_V1) is required. " +
+        "Generate one with `openssl rand -base64 32` and set it in `.env`.",
     );
   }
-  try {
-    const buf = Buffer.from(config.byokEncryptionKey, "base64");
-    if (buf.length !== 32) {
+  for (const [version, raw] of config.byokEncryptionKeys) {
+    if (!raw || raw.trim() === "") {
       throw new Error(
-        `[config] BYOK_ENCRYPTION_KEY must decode to 32 bytes (got ${buf.length}).`,
+        `[config] BYOK_ENCRYPTION_KEY_V${version} must not be empty.`,
       );
     }
-  } catch (err) {
+    try {
+      const buf = Buffer.from(raw, "base64");
+      if (buf.length !== 32) {
+        throw new Error(
+          `[config] BYOK_ENCRYPTION_KEY_V${version} must decode to 32 bytes (got ${buf.length}).`,
+        );
+      }
+    } catch (err) {
+      throw new Error(
+        `[config] BYOK_ENCRYPTION_KEY_V${version} must be valid base64: ${(err as Error).message}`,
+      );
+    }
+  }
+  if (!config.byokEncryptionKeys.has(config.byokCurrentVersion)) {
     throw new Error(
-      `[config] BYOK_ENCRYPTION_KEY must be valid base64: ${(err as Error).message}`,
+      `[config] BYOK_CURRENT_VERSION=${config.byokCurrentVersion} but no master key is configured for that version. ` +
+        `Set BYOK_ENCRYPTION_KEY_V${config.byokCurrentVersion} (or BYOK_ENCRYPTION_KEY for V1).`,
     );
   }
   if (config.freeTier.enabled) {

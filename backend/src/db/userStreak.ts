@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { db } from "./client.js";
+import { db, withRlsContext } from "./client.js";
 import { HttpError } from "../middleware/errorHandler.js";
 
 // Phase 21B: per-user learning streak.
@@ -213,26 +213,28 @@ function shapeFor(
  * returns the public shape with wasFirstToday=false, freezeUsedToday=false.
  */
 export async function getUserStreak(userId: string, now: Date = new Date()): Promise<UserStreakRow> {
-  const sql = db();
-  // Ensure row exists with a single UPSERT — avoids race between SELECT
-  // and a missing-row INSERT in concurrent calls.
-  const rows = await sql`
-    INSERT INTO public.user_streak (user_id)
-    VALUES (${userId})
-    ON CONFLICT (user_id) DO UPDATE SET updated_at = public.user_streak.updated_at
-    RETURNING user_id, current_streak, longest_streak, last_active_date, last_freeze_used
-  `;
-  const parsed = parseRow(rows[0]);
-  const decay = applyDecay(parsed, now);
-  if (decay.decayed) {
-    await sql`
-      UPDATE public.user_streak
-         SET current_streak = ${decay.current},
-             updated_at     = now()
-       WHERE user_id = ${userId}
+  // Phase 26: ensure-row UPSERT + optional decay UPDATE under one RLS
+  // context. The two queries land in the same transaction so the row
+  // lock implied by ON CONFLICT is held across the read.
+  return await withRlsContext(userId, async (tx) => {
+    const rows = await tx`
+      INSERT INTO public.user_streak (user_id)
+      VALUES (${userId})
+      ON CONFLICT (user_id) DO UPDATE SET updated_at = public.user_streak.updated_at
+      RETURNING user_id, current_streak, longest_streak, last_active_date, last_freeze_used
     `;
-  }
-  return shapeFor(parsed, decay, false, false, now);
+    const parsed = parseRow(rows[0]);
+    const decay = applyDecay(parsed, now);
+    if (decay.decayed) {
+      await tx`
+        UPDATE public.user_streak
+           SET current_streak = ${decay.current},
+               updated_at     = now()
+         WHERE user_id = ${userId}
+      `;
+    }
+    return shapeFor(parsed, decay, false, false, now);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -254,7 +256,6 @@ export async function getUserStreak(userId: string, now: Date = new Date()): Pro
  * caller can include it in the API response without a follow-up read.
  */
 export async function updateUserStreak(userId: string, now: Date = new Date()): Promise<UserStreakRow> {
-  const sql = db();
   const today = todayUtc(now);
   const todayStr = fmtDate(today);
   const yesterday = addDays(today, -1);
@@ -276,8 +277,12 @@ export async function updateUserStreak(userId: string, now: Date = new Date()): 
   // locked AND the most recent committed state visible (READ COMMITTED
   // semantics give per-statement snapshots after a lock acquisition).
   // No race on wasFirstToday.
+  //
+  // Phase 26: withRlsContext wraps the whole sequence in a transaction
+  // with SET LOCAL ROLE authenticated; the existing FOR UPDATE row lock
+  // semantics are unchanged.
   let result: UserStreakRow | null = null;
-  await sql.begin(async (tx) => {
+  await withRlsContext(userId, async (tx) => {
     // Ensure row exists, then lock it.
     await tx`
       INSERT INTO public.user_streak (user_id)
@@ -374,7 +379,6 @@ export async function getStreakHistory(
   days: number = 14,
   now: Date = new Date(),
 ): Promise<StreakHistory> {
-  const sql = db();
   const today = todayUtc(now);
   const start = addDays(today, -(days - 1));
   // Build the contiguous date window from `start` to `today` inclusive.
@@ -382,34 +386,36 @@ export async function getStreakHistory(
   for (let i = 0; i < days; i++) {
     windowDates.push(fmtDate(addDays(start, i)));
   }
-  // Distinct activity dates from lesson_progress in the window. updated_at
-  // is the broadest proxy: any progressStore action that PATCHes the row
-  // (start, run, hint, complete, code-save) bumps it. Cheap because the
-  // (user_id, updated_at DESC) index from migration 20260420130000 covers
-  // exactly this query shape.
-  const rows = await sql<Array<{ d: string }>>`
-    SELECT DISTINCT to_char((updated_at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS d
-      FROM public.lesson_progress
-     WHERE user_id = ${userId}
-       AND updated_at >= ${fmtDate(start)}::date
-       AND updated_at <  ${fmtDate(addDays(today, 1))}::date
-  `;
-  const active = new Set(rows.map((r) => r.d));
-  // Read both user_streak fields in a single query — earlier impl ran
-  // two separate SELECTs, opening a (microscopic) race window where
-  // an updateUserStreak between the queries could yield an
-  // inconsistent freeze + active-date pair. Single SELECT = atomic.
-  // Both fields are also used: last_freeze_used → mark freeze grace
-  // dates; last_active_date → fallback for qualifying actions that
-  // didn't touch lesson_progress (pure tutor questions on fresh
-  // lessons, future paths).
-  const streakRow = await sql<
-    Array<{ last_freeze_used: Date | null; last_active_date: Date | null }>
-  >`
-    SELECT last_freeze_used, last_active_date
-      FROM public.user_streak
-     WHERE user_id = ${userId}
-  `;
+  // Phase 26: both queries land in one RLS-scoped transaction. lesson_progress
+  // and user_streak both have RLS policies on auth.uid() = user_id; the
+  // explicit WHERE user_id = ${userId} clauses are defense-in-depth.
+  const { activityRows, streakRow } = await withRlsContext(userId, async (tx) => {
+    // Distinct activity dates from lesson_progress in the window. updated_at
+    // is the broadest proxy: any progressStore action that PATCHes the row
+    // (start, run, hint, complete, code-save) bumps it. Cheap because the
+    // (user_id, updated_at DESC) index from migration 20260420130000 covers
+    // exactly this query shape.
+    const activityRows = await tx<Array<{ d: string }>>`
+      SELECT DISTINCT to_char((updated_at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS d
+        FROM public.lesson_progress
+       WHERE user_id = ${userId}
+         AND updated_at >= ${fmtDate(start)}::date
+         AND updated_at <  ${fmtDate(addDays(today, 1))}::date
+    `;
+    // Read both user_streak fields in a single query — earlier impl ran
+    // two separate SELECTs, opening a (microscopic) race window where
+    // an updateUserStreak between the queries could yield an
+    // inconsistent freeze + active-date pair. Single SELECT = atomic.
+    const streakRow = await tx<
+      Array<{ last_freeze_used: Date | null; last_active_date: Date | null }>
+    >`
+      SELECT last_freeze_used, last_active_date
+        FROM public.user_streak
+       WHERE user_id = ${userId}
+    `;
+    return { activityRows, streakRow };
+  });
+  const active = new Set(activityRows.map((r) => r.d));
   const lf = streakRow[0]?.last_freeze_used;
   const la = streakRow[0]?.last_active_date;
   const freezeUsedDates: string[] = [];

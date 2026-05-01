@@ -103,7 +103,8 @@ Every route requires `Authorization: Bearer <supabase-access-token>` — `authMi
 | --- | --- | --- |
 | `GET`  | `/api/health` | Liveness probe — always `{ok:true}` |
 | `GET`  | `/api/health/deep` | Readiness probe — exercises Postgres + docker socket-proxy; 503 on either failure. Also returns `platformAuth: "ok" \| "failed"` so alerts can distinguish "backend is dead" from "free tier is paused on a bad key" without flipping to 503 |
-| `POST` | `/api/admin/unstick-platform-auth` | Operator break-glass after rotating `PLATFORM_OPENAI_API_KEY`. Clears the provider-auth kill flag set by a 401 on `/api/ai/ask`; gated by `METRICS_TOKEN` (or loopback if unset). Auto-clears after 30 min otherwise |
+| `POST` | `/api/admin/platform-auth/unstick` | Production path — admin-JWT gated, phrase-confirmed, audit-logged. Clears the provider-auth kill flag set by a 401 on `/api/ai/ask` (auto-clears after 30 min otherwise) |
+| `POST` | `/api/admin/unstick-platform-auth` | Loopback-only break-glass (SSH onto VM and curl 127.0.0.1) for the case where the admin is locked out / JWT expired. Phase 26 dropped the prior `METRICS_TOKEN` dual-use to avoid trust-tier conflation |
 | `GET`  | `/api/metrics` | Prometheus exposition (loopback-only by default; Bearer-gated when `METRICS_TOKEN` is set) |
 | `POST` | `/api/session` | Create session + runner container (owner = `req.userId`). Returns `backendBootId` — a per-process `nanoid` the frontend caches so a later 404 can be diagnosed as "individual session reaped" vs "whole process restarted" |
 | `POST` | `/api/session/ping` | Heartbeat — 404 for "not found" and "not yours" (privacy). 404 body carries `backendBootId` so the frontend can detect a process restart and show a replaced-session modal instead of storming rebind |

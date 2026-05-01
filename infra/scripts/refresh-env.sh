@@ -61,6 +61,17 @@ fetch_optional() {
   echo "SUPABASE_SERVICE_ROLE_KEY=$(fetch SUPABASE-SERVICE-ROLE-KEY)"
   echo "DATABASE_URL=$(fetch DATABASE-URL)"
   echo "BYOK_ENCRYPTION_KEY=$(fetch BYOK-ENCRYPTION-KEY)"
+  # Phase 26 (audit M-1): BYOK rotation support. V2/V3 + CURRENT_VERSION
+  # are optional; absent → legacy single-key shape (V1 only). Operator
+  # uses these for the rotation sequence:
+  #   1. Set BYOK-ENCRYPTION-KEY-V2 in KV (new key)
+  #   2. refresh-env on VM → V2 now decryptable
+  #   3. Set BYOK-CURRENT-VERSION=2 → new writes use V2
+  #   4. Run re-encrypt sweep cron (separate job)
+  #   5. After 0 V1 rows remain, delete BYOK-ENCRYPTION-KEY (or KEY-V1)
+  echo "BYOK_ENCRYPTION_KEY_V2=$(fetch_optional BYOK-ENCRYPTION-KEY-V2)"
+  echo "BYOK_ENCRYPTION_KEY_V3=$(fetch_optional BYOK-ENCRYPTION-KEY-V3)"
+  echo "BYOK_CURRENT_VERSION=$(fetch_optional BYOK-CURRENT-VERSION)"
   echo "VITE_SUPABASE_URL=$(fetch VITE-SUPABASE-URL)"
   echo "VITE_SUPABASE_ANON_KEY=$(fetch VITE-SUPABASE-ANON-KEY)"
   # Optional: METRICS-TOKEN gates /api/metrics. When absent from KV

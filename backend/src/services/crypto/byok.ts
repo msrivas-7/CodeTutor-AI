@@ -19,45 +19,56 @@ import { byokDecryptFailures } from "../metrics.js";
 // data alongside the user id, so a row-swap attack (copying user A's cipher
 // + nonce into user B's row) fails the tag check instead of silently
 // decrypting A's OpenAI key under B's identity. Version also gives us a
-// clean upgrade path: bumping to 0x02 with a second master key lets new
-// writes land under the new key while old reads keep working until a
-// re-encrypt migration catches up. Today only v1 is defined.
+// clean upgrade path: bumping CURRENT_VERSION + adding a new key to the
+// version map lets new writes land under the new key while old reads keep
+// working — until a re-encrypt sweep catches up.
 //
-// Rotation plan (when it comes up): add BYOK_ENCRYPTION_KEY_V2 to env,
-// bump CURRENT_VERSION to 0x02, teach masterKey(version) to return the
-// matching key, and re-save rewrites under v2. Losing the master key still
-// invalidates every stored row; only the row user re-enters their key.
+// Phase 26 (audit M-1): the version map is now real. Multiple master keys
+// can coexist under BYOK_ENCRYPTION_KEY_V{N} env vars (legacy
+// BYOK_ENCRYPTION_KEY = V1). encrypt() uses config.byokCurrentVersion
+// for new writes; decrypt() reads the version byte from the ciphertext
+// and looks up the matching key. Rotating no longer instantly fails
+// existing rows.
+//
+// Rotation runbook (operator):
+//   1. Generate K2; set BYOK_ENCRYPTION_KEY_V2 in Key Vault.
+//   2. Deploy backend → V2 decryptable; old V1 rows still readable.
+//   3. Set BYOK_CURRENT_VERSION=2 in KV → new writes encrypt under V2.
+//   4. Run re-encrypt sweep over user_preferences (separate cron job)
+//      whose byok_cipher_version=1.
+//   5. After 0 v1 rows remain, drop BYOK_ENCRYPTION_KEY_V1 from KV.
 
 const ALGO = "aes-256-gcm";
 const IV_BYTES = 12; // GCM standard nonce length
 const TAG_BYTES = 16;
-const CURRENT_VERSION = 0x01;
 
 // Exported so writes set `user_preferences.byok_cipher_version` in
 // lockstep with the version byte embedded in `openai_api_key_cipher[0]`.
-// Used by the rotation runbook (operator-only doc in `ops/`) to find
-// rows still on the old key after a master-key bump.
-export const BYOK_CURRENT_VERSION = CURRENT_VERSION;
+// Used by the rotation runbook to find rows still on the old key after a
+// master-key bump. Reads from config so a deploy with a different
+// BYOK_CURRENT_VERSION env value flips the write target without code
+// change.
+export const BYOK_CURRENT_VERSION = config.byokCurrentVersion;
 
-let cachedKey: Buffer | null = null;
+const cachedKeys = new Map<number, Buffer>();
 
 function masterKey(version: number): Buffer {
-  if (version !== CURRENT_VERSION) {
-    throw new Error(`[byok] unsupported cipher version 0x${version.toString(16)}`);
-  }
-  if (cachedKey) return cachedKey;
-  const raw = config.byokEncryptionKey;
+  const cached = cachedKeys.get(version);
+  if (cached) return cached;
+  const raw = config.byokEncryptionKeys.get(version);
   if (!raw) {
-    // Should never reach here — assertConfigValid() gates on this at boot.
-    throw new Error("[byok] BYOK_ENCRYPTION_KEY not configured");
+    throw new Error(
+      `[byok] no master key configured for version ${version} ` +
+        `(set BYOK_ENCRYPTION_KEY_V${version} or BYOK_ENCRYPTION_KEY for V1)`,
+    );
   }
   const buf = Buffer.from(raw, "base64");
   if (buf.length !== 32) {
     throw new Error(
-      `[byok] BYOK_ENCRYPTION_KEY must decode to 32 bytes (got ${buf.length})`,
+      `[byok] BYOK_ENCRYPTION_KEY_V${version} must decode to 32 bytes (got ${buf.length})`,
     );
   }
-  cachedKey = buf;
+  cachedKeys.set(version, buf);
   return buf;
 }
 
@@ -78,7 +89,10 @@ export function encryptKey(
 ): { cipher: Buffer; nonce: Buffer } {
   if (!userId) throw new Error("[byok] userId required for AAD binding");
   const nonce = randomBytes(IV_BYTES);
-  const version = CURRENT_VERSION;
+  // Phase 26: encrypt under the operator-configured CURRENT version,
+  // not a code-level constant. Lets the operator rotate by setting
+  // BYOK_CURRENT_VERSION in env without a code release.
+  const version = config.byokCurrentVersion;
   const cipher = createCipheriv(ALGO, masterKey(version), nonce);
   cipher.setAAD(buildAad(version, userId));
   const encrypted = Buffer.concat([

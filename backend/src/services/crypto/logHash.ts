@@ -9,15 +9,24 @@ import { config } from "../../config.js";
 // master key rotates — matches the existing rotation cadence, no new env
 // var. Truncated to 12 hex chars — enough to distinguish ~280M distinct
 // users at <1% collision, short enough not to clutter log lines.
+//
+// Phase 26 (audit M-1): now reads V1 from the version map (the legacy
+// BYOK_ENCRYPTION_KEY single-var or BYOK_ENCRYPTION_KEY_V1 — whichever
+// is set lands at version 1). We deliberately pin to V1, not the
+// rotating CURRENT version, so a master-key rotation doesn't change
+// userId hashes mid-process (which would break log correlation across
+// the rotation event). The salt rotates only on V1 rotation, which is
+// only ever performed during incident response — at which point a
+// log-correlation discontinuity is acceptable.
 
 let saltBuf: Buffer | null = null;
 
 function getSalt(): Buffer {
   if (saltBuf) return saltBuf;
-  const master = config.byokEncryptionKey;
+  const master = config.byokEncryptionKeys.get(1);
   if (!master) {
-    // assertConfigValid() enforces BYOK_ENCRYPTION_KEY at boot in prod, so
-    // this branch only runs in unit tests that don't go through that
+    // assertConfigValid() enforces at least one BYOK key at boot in prod,
+    // so this branch only runs in unit tests that don't go through that
     // bootstrap. Use a per-process random so test output is still scrubbed.
     saltBuf = crypto.randomBytes(32);
     return saltBuf;

@@ -30,6 +30,34 @@ function adminHeaders(): Record<string, string> {
   };
 }
 
+// Phase 26 (audit H-1 / SRE F3.2): force-signout via Supabase admin REST.
+// Invalidates ALL refresh tokens for the user — they have to sign in
+// again on every device. Used after demoting a compromised admin so
+// their existing ~1h JWT can't continue carrying app_metadata.role=admin
+// claims.
+//
+// Endpoint: POST /auth/v1/admin/users/{user_id}/logout
+// scope: 'global' revokes every refresh token; 'local' would only kill
+// the current session — `global` is what we want for incident response.
+export async function adminForceSignOut(userId: string): Promise<void> {
+  const base = config.supabase.url;
+  if (!base) throw new Error("SUPABASE_URL not configured");
+  const res = await fetch(
+    `${base.replace(/\/$/, "")}/auth/v1/admin/users/${encodeURIComponent(userId)}/logout`,
+    {
+      method: "POST",
+      headers: adminHeaders(),
+      body: JSON.stringify({ scope: "global" }),
+    },
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(
+      `supabase admin force-signout failed: ${res.status} ${text}`,
+    );
+  }
+}
+
 // DELETE /auth/v1/admin/users/{user_id}. On success the row is removed from
 // auth.users and every public.* table referencing it via ON DELETE CASCADE
 // drops with it — so we don't need to enumerate tables here.

@@ -1,10 +1,10 @@
 // Phase 25: admin-role-gated platform-auth unstick.
 //
-// The legacy METRICS_TOKEN/loopback-only POST /api/admin/unstick-platform-auth
-// in index.ts stays as a break-glass path (operator can curl it from the VM
-// without a JWT). This route is the same operation behind the standard admin
-// chain so the dashboard's "Clear flag" button works without leaking the
-// metrics token to the browser.
+// Phase 26 audit C-1: the legacy POST /api/admin/unstick-platform-auth in
+// index.ts is now LOOPBACK-ONLY (METRICS_TOKEN dual-use was removed —
+// scraper-tier secret should not gate a state-mutating endpoint). This
+// route is the production path: full admin chain + phrase-confirm +
+// audit-log entry.
 
 import { Router } from "express";
 import { z } from "zod";

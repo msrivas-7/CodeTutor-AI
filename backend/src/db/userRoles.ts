@@ -4,12 +4,17 @@
 // 1h until refresh — the table check closes that gap on the next admin
 // route call).
 //
-// Cached 30s rather than the standard 60s so demotion takes effect within
-// half a minute. The cache is module-local; restart-safe.
+// Phase 26 (audit H-1): cache TTL tightened from 30s → 5s. Admin
+// demotion is the highest-leverage incident-response action — 30s of
+// continued admin authority post-demote is too long when a compromised
+// admin is actively writing. 5s of latency × 1 DB read/admin/5s is
+// trivial cost (a single PK lookup). Combined with the new
+// invalidateUserRoleCache() called from force-signout, the operator
+// can synchronously confirm demotion took effect.
 
 import { db } from "./client.js";
 
-const CACHE_TTL_MS = 30_000;
+const CACHE_TTL_MS = 5_000;
 
 interface CacheEntry {
   role: string | null;
@@ -38,6 +43,14 @@ export async function getUserRole(
 
 export async function isAdmin(userId: string): Promise<boolean> {
   return (await getUserRole(userId)) === "admin";
+}
+
+// Phase 26: invalidate a single user's cached role. Called from the
+// force-signout admin path so a demote-then-force-signout combo takes
+// effect on the next admin request without waiting up to 5s for the
+// cache to expire.
+export function invalidateUserRoleCache(userId: string): void {
+  cache.delete(userId);
 }
 
 // Test-only.

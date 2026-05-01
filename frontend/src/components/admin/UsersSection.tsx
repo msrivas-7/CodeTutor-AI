@@ -452,10 +452,133 @@ function AbuseControls({
         )}
       </div>
 
+      {/* Phase 26: force-signout. Distinct from freeze — doesn't persist
+          state, just invalidates every JWT this user holds. Use after
+          demoting a compromised admin (DELETE FROM user_roles) so their
+          ~1h refresh window can't keep them authed. */}
+      <ForceSignOutControl userId={userId} onChanged={onChanged} />
+
       {err && (
         <div className="rounded border border-danger/40 bg-danger/10 px-2 py-1 text-[10px] text-danger">
           {err}
         </div>
+      )}
+    </div>
+  );
+}
+
+const PHRASE_FORCE_SIGNOUT =
+  "I understand this terminates all sessions and signs them out everywhere";
+
+function ForceSignOutControl({
+  userId,
+  onChanged,
+}: {
+  userId: string;
+  onChanged: () => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const [phrase, setPhrase] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [result, setResult] = useState<{
+    sessionsKilled: number;
+    streamsAborted: number;
+  } | null>(null);
+  const ready = reason.trim().length >= 4 && phrase === PHRASE_FORCE_SIGNOUT;
+
+  return (
+    <div className="flex flex-col gap-1 border-t border-border pt-2">
+      {!open ? (
+        <button
+          type="button"
+          onClick={() => {
+            setResult(null);
+            setOpen(true);
+          }}
+          className="self-start rounded-md border border-warn/40 bg-warn/10 px-3 py-1 text-[11px] font-semibold text-warn"
+        >
+          Force sign-out…
+        </button>
+      ) : (
+        <>
+          <p className="text-[10px] text-muted">
+            Revokes every refresh token this user holds. Their existing JWT
+            stops working on every device immediately. Pair with{" "}
+            <code className="text-ink">DELETE FROM user_roles</code> when
+            demoting a compromised admin.
+          </p>
+          <label className="text-[11px]">
+            <span className="text-muted">Reason (≥4 chars)</span>
+            <input
+              type="text"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              disabled={busy}
+              placeholder="e.g. compromised admin — demoted at 14:02 UTC"
+              className="mt-0.5 w-full rounded border border-border bg-bg px-2 py-1 text-ink"
+            />
+          </label>
+          <label className="text-[11px]">
+            <span className="text-muted">
+              Phrase:{" "}
+              <span className="font-mono text-warn">{PHRASE_FORCE_SIGNOUT}</span>
+            </span>
+            <input
+              type="text"
+              value={phrase}
+              onChange={(e) => setPhrase(e.target.value)}
+              disabled={busy}
+              className={`mt-0.5 w-full rounded border bg-bg px-2 py-1 ${phrase === PHRASE_FORCE_SIGNOUT ? "border-success/40 text-success" : "border-border text-ink"}`}
+            />
+          </label>
+          {err && <div className="text-[11px] text-danger">{err}</div>}
+          {result && (
+            <div className="rounded border border-success/40 bg-success/10 px-2 py-1 text-[10px] text-success">
+              Signed out. Killed {result.sessionsKilled} session(s),
+              aborted {result.streamsAborted} in-flight stream(s).
+            </div>
+          )}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={!ready || busy}
+              onClick={async () => {
+                setBusy(true);
+                setErr(null);
+                setResult(null);
+                try {
+                  const r = await api.adminForceSignOut(userId, {
+                    reason: reason.trim(),
+                    confirmSignout: phrase,
+                  });
+                  setResult({
+                    sessionsKilled: r.sessionsKilled,
+                    streamsAborted: r.streamsAborted,
+                  });
+                  setReason("");
+                  setPhrase("");
+                  await onChanged();
+                } catch (e) {
+                  setErr(e instanceof Error ? e.message : String(e));
+                } finally {
+                  setBusy(false);
+                }
+              }}
+              className="rounded-md bg-warn px-3 py-1 text-[11px] font-semibold text-bg disabled:opacity-50"
+            >
+              {busy ? "Signing out…" : "Force sign-out"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              className="rounded-md border border-border bg-elevated px-3 py-1 text-[11px] text-muted hover:text-ink"
+            >
+              Cancel
+            </button>
+          </div>
+        </>
       )}
     </div>
   );

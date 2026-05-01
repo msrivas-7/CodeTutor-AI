@@ -333,6 +333,91 @@ resource unhandledRejectionAlert 'Microsoft.Insights/scheduledQueryRules@2023-03
   }
 }
 
+// Phase 26 (audit SRE F1.2): JWT validation failure rate. Backend's
+// authMiddleware emits `evt:auth_reject` (level=warn) on every 401 —
+// missing/empty bearer, expired token, invalid token, no matching JWKS
+// kid, generic verify error. A SUSTAINED spike is the leading edge of
+// either (a) forged-token probing (someone iterating JWTs against /api),
+// (b) stolen-key replay after expiry, (c) a Supabase JWKS rotation gone
+// wrong (legitimate users hitting `no_matching_jwks_key` en masse).
+//
+// Threshold 50 over 15m: a single user's expired-token-then-refresh
+// cycle generates a couple of rejects per session; 50 sustained means
+// real volume, not background noise. Sev 2 because case (a) and (b)
+// warrant operator attention but rarely paging-grade — paging would
+// fire on EVERY user's expired token event without this floor.
+resource authRejectAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
+  name: 'codetutor-auth-reject-rate'
+  location: location
+  tags: tags
+  properties: {
+    enabled: true
+    severity: 2
+    scopes: [ workspaceId ]
+    evaluationFrequency: 'PT5M'
+    windowSize: 'PT15M'
+    criteria: {
+      allOf: [
+        {
+          query: 'ContainerLog_CL | where LogEntry has \'"evt":"auth_reject"\''
+          timeAggregation: 'Count'
+          operator: 'GreaterThanOrEqual'
+          threshold: 50
+          failingPeriods: {
+            minFailingPeriodsToAlert: 1
+            numberOfEvaluationPeriods: 1
+          }
+        }
+      ]
+    }
+    autoMitigate: true
+    actions: actions
+  }
+}
+
+// Phase 26 (audit SRE F1.1): admin-action rejected-attempt rate. Every
+// admin route logs to admin_audit_log on validation failure / missing
+// phrase / out-of-bounds value, AND emits a stdout shadow line with
+// `"action":"rejected_attempt"`. A spike means either (a) admin typo
+// storm (low-severity, just confirm it's the operator), (b) someone
+// has a non-admin JWT and is hitting /api/admin/* (adminGuard blocks
+// them with 403, but the audit log still records the rejection — this
+// alert catches probing), or (c) a compromised admin account trying
+// to escalate (the bounds-violation pattern is distinctive).
+//
+// Threshold 10 over 15m: routine admin work generates at most 1-2
+// rejections (typed phrase wrong once, fixed second try); 10 in a
+// 15-minute window is well above noise. Sev 2 to surface it without
+// paging — the admin should be notified, not woken up.
+resource rejectedAttemptAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
+  name: 'codetutor-admin-rejected-attempt-rate'
+  location: location
+  tags: tags
+  properties: {
+    enabled: true
+    severity: 2
+    scopes: [ workspaceId ]
+    evaluationFrequency: 'PT5M'
+    windowSize: 'PT15M'
+    criteria: {
+      allOf: [
+        {
+          query: 'ContainerLog_CL | where LogEntry has \'"action":"rejected_attempt"\''
+          timeAggregation: 'Count'
+          operator: 'GreaterThanOrEqual'
+          threshold: 10
+          failingPeriods: {
+            minFailingPeriodsToAlert: 1
+            numberOfEvaluationPeriods: 1
+          }
+        }
+      ]
+    }
+    autoMitigate: true
+    actions: actions
+  }
+}
+
 // S-6 (bucket 6): backend deep-health availability. Hits /api/health/deep
 // every 5 minutes from five Azure regions; alert fires when 2+ regions
 // fail over a 10-minute window (debounce flakes — single-region egress

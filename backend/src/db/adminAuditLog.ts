@@ -25,7 +25,10 @@ export type AuditEventType =
   | "user_frozen"
   | "user_unfrozen"
   | "budget_watcher_reset"
-  | "platform_auth_unstick";
+  | "platform_auth_unstick"
+  // Phase 26 additions — must stay in sync with the CHECK constraint
+  // in supabase/migrations/20260430080300_audit_force_signout_event.sql.
+  | "user_force_signout";
 
 export interface AdminAuditLogRow {
   id: string;

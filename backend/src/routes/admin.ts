@@ -52,6 +52,7 @@ import {
 import { invalidateAciOperationalConfig } from "../services/observability/aciOperationalConfig.js";
 import { listAdminAuditLog, logAdminAction } from "../db/adminAuditLog.js";
 import {
+  adminForceSignOut,
   getAuthUser,
   listAuthUsersPaginated,
 } from "../db/supabaseAdmin.js";
@@ -61,7 +62,8 @@ import {
   sumPlatformCostLifetimeForUser,
   sumPlatformCostTodayForUser,
 } from "../db/usageLedger.js";
-import { isAdmin } from "../db/userRoles.js";
+import { isAdmin, invalidateUserRoleCache } from "../db/userRoles.js";
+import { abortAllForUser } from "../services/shutdown/abortRegistry.js";
 import { adminDestroyUserSessions } from "../services/session/sessionManager.js";
 import { adminBudgetWatcherRouter } from "./adminBudgetWatcher.js";
 import { adminDashboardRouter } from "./adminDashboard.js";
@@ -864,6 +866,15 @@ adminRouter.put("/users/:userId/freeze", async (req, res, next) => {
     // user is fully out. Audit trail records the bulk-kill as a child
     // event of the freeze (separate audit row, same actor + same minute).
     const killed = await adminDestroyUserSessions(userId);
+    // Phase 26 (audit H-6): fan-abort every in-flight AI stream the
+    // user owns. The denylist cache was already invalidated by setFreeze,
+    // so NEW requests will be denied — but a streaming completion that
+    // already passed the credential gate will keep consuming OpenAI
+    // tokens until the model finishes or the 90s request timeout fires.
+    // abortAllForUser fires AbortController.abort() on every registered
+    // controller for this userId; the openai client forwards the signal
+    // to its upstream fetch, stopping the token burn within ~1 RTT.
+    const aborted = abortAllForUser(userId, "frozen: account suspended");
     const after = await getDenylistRow(userId);
     await logAdminAction({
       actorId,
@@ -882,7 +893,91 @@ adminRouter.put("/users/:userId/freeze", async (req, res, next) => {
         reason: parsed.data.reason,
       });
     }
-    res.json({ status: after, sessionsKilled: killed.length });
+    res.json({
+      status: after,
+      sessionsKilled: killed.length,
+      streamsAborted: aborted,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Phase 26 (audit H-1 / SRE F3.2): force-signout. The standard admin-
+// demote path (deleting a user_roles row) closes the next admin-route
+// call within the cache TTL (Phase 26: 5s) — but the user's existing
+// JWT keeps validating on non-admin routes for up to 1h until refresh.
+// This endpoint revokes every refresh token for the target user and
+// fan-aborts their in-flight AI streams, forcing them to re-auth on
+// every device immediately. The standard incident-response combo is:
+//   1. DELETE FROM user_roles WHERE user_id = '<theirs>';   (operator)
+//   2. POST /api/admin/users/<theirs>/force-signout         (this route)
+// After (2) the user has no valid JWT and no active sessions; their
+// next page load lands them on /login.
+const PHRASE_FORCE_SIGNOUT =
+  "I understand this terminates all sessions and signs them out everywhere";
+
+const forceSignoutBody = z
+  .object({
+    reason: z.string().min(4).max(500),
+    confirmSignout: z.string(),
+  })
+  .strict();
+
+adminRouter.post("/users/:userId/force-signout", async (req, res, next) => {
+  const userId = req.params.userId;
+  const actorId = req.userId!;
+  const parsed = forceSignoutBody.safeParse(req.body);
+  if (!parsed.success) {
+    await logAdminAction({
+      actorId,
+      eventType: "rejected_attempt",
+      targetUserId: userId,
+      after: req.body,
+      reason: `validation: ${parsed.error.message}`,
+    });
+    return res.status(400).json({ error: parsed.error.message });
+  }
+  if (parsed.data.confirmSignout !== PHRASE_FORCE_SIGNOUT) {
+    await logAdminAction({
+      actorId,
+      eventType: "rejected_attempt",
+      targetUserId: userId,
+      after: parsed.data,
+      reason: "missing or wrong confirmSignout phrase",
+    });
+    return res.status(400).json({
+      error: "confirmSignout phrase required",
+      requiredPhrase: PHRASE_FORCE_SIGNOUT,
+    });
+  }
+  try {
+    const target = await getAuthUser(userId);
+    if (!target) return res.status(404).json({ error: "user not found" });
+    // Revoke every refresh token at the Supabase auth layer. This
+    // invalidates all existing JWTs once they expire (worst-case 1h)
+    // AND prevents new ones from being minted via refresh.
+    await adminForceSignOut(userId);
+    // Drop our local user_roles cache so the user's next request (if
+    // they manage to hit one before their JWT expires) gets a fresh
+    // role lookup — important if they were just demoted.
+    invalidateUserRoleCache(userId);
+    // Kill in-flight AI streams + active sessions. Same pattern as the
+    // freeze flow but without the persistent denylist/freeze state.
+    const aborted = abortAllForUser(userId, "shutdown: force-signout");
+    const killed = await adminDestroyUserSessions(userId);
+    await logAdminAction({
+      actorId,
+      eventType: "user_force_signout",
+      targetUserId: userId,
+      after: { sessionsKilled: killed.length, streamsAborted: aborted },
+      reason: parsed.data.reason,
+    });
+    res.json({
+      ok: true,
+      sessionsKilled: killed.length,
+      streamsAborted: aborted,
+    });
   } catch (err) {
     next(err);
   }

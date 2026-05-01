@@ -39,13 +39,21 @@ import { updateUserStreak } from "../db/userStreak.js";
 // the moment the client disconnects or the deadline hits. Returns the
 // signal plus a cleanup fn; call cleanup on successful completion so the
 // timer doesn't sit in the event loop for 90s after we're done.
-function requestAbortSignal(res: Response): {
+//
+// Phase 26 (audit H-6): registers with the per-user registry so admin
+// freeze can fan-abort just this user's in-flight streams without
+// taking down everyone else's. The userId arg is required on auth'd
+// AI routes (every caller threads req.userId through here).
+function requestAbortSignal(
+  res: Response,
+  userId: string | null,
+): {
   signal: AbortSignal;
   cleanup: () => void;
-  reason: () => "timeout" | "client-close" | "shutdown" | null;
+  reason: () => "timeout" | "client-close" | "shutdown" | "frozen" | null;
 } {
   const controller = new AbortController();
-  let reason: "timeout" | "client-close" | "shutdown" | null = null;
+  let reason: "timeout" | "client-close" | "shutdown" | "frozen" | null = null;
   const timer = setTimeout(() => {
     if (!controller.signal.aborted) {
       reason = "timeout";
@@ -59,14 +67,16 @@ function requestAbortSignal(res: Response): {
     }
   };
   res.on("close", onClose);
-  // S-13 (bucket 7): register with the process-level registry so SIGTERM
-  // can fan-abort every in-flight stream and each handler gets a chance to
-  // write its partial ledger row before the grace window expires.
-  registerAbortController(controller);
+  // S-13 (bucket 7) + Phase 26 H-6: register with the process-level
+  // registry so SIGTERM can fan-abort every in-flight stream AND admin
+  // freeze can fan-abort one user's streams. Each handler gets a chance
+  // to write its partial ledger row before the grace window expires.
+  const entry = registerAbortController(controller, userId);
   const onAbortFromRegistry = () => {
     if (reason === null && controller.signal.reason instanceof Error) {
       const msg = controller.signal.reason.message;
       if (msg.startsWith("shutdown:")) reason = "shutdown";
+      else if (msg.startsWith("frozen:")) reason = "frozen";
     }
   };
   controller.signal.addEventListener("abort", onAbortFromRegistry, { once: true });
@@ -75,7 +85,7 @@ function requestAbortSignal(res: Response): {
     cleanup: () => {
       clearTimeout(timer);
       res.off("close", onClose);
-      unregisterAbortController(controller);
+      unregisterAbortController(entry);
     },
     reason: () => reason,
   };
@@ -343,7 +353,7 @@ aiRouter.post("/ask", async (req, res, next) => {
   // sends a bigger model. BYOK users use whatever they want.
   if (!enforceModelAllowlist(cred, parsed.data.model, res, "ask")) return;
   const requestId = randomUUID();
-  const abort = requestAbortSignal(res);
+  const abort = requestAbortSignal(res, userId);
   try {
     const result = await openaiProvider.ask({
       key: cred.key,
@@ -501,7 +511,7 @@ aiRouter.post("/ask/stream", async (req, res) => {
   // (start-cancel-retry spam) and makes "where did my request go?"
   // support threads unanswerable.
   let terminalFired = false;
-  const abort = requestAbortSignal(res);
+  const abort = requestAbortSignal(res, userId);
   res.on("close", () => {
     closed = true;
   });

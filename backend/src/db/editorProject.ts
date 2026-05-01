@@ -1,6 +1,6 @@
 import type { JSONValue } from "postgres";
 import { z } from "zod";
-import { db } from "./client.js";
+import { withRlsContext } from "./client.js";
 import { HttpError } from "../middleware/errorHandler.js";
 
 export interface EditorProject {
@@ -55,12 +55,14 @@ function rowToProject(raw: unknown): EditorProject {
 }
 
 export async function getEditorProject(userId: string): Promise<EditorProject> {
-  const sql = db();
-  const rows = await sql`
-    SELECT language, files, active_file, open_tabs, file_order, stdin, updated_at
-      FROM public.editor_project
-     WHERE user_id = ${userId}
-  `;
+  // Phase 26: RLS-scoped read.
+  const rows = await withRlsContext(userId, async (tx) => {
+    return await tx`
+      SELECT language, files, active_file, open_tabs, file_order, stdin, updated_at
+        FROM public.editor_project
+       WHERE user_id = ${userId}
+    `;
+  });
   if (rows.length === 0) return { ...DEFAULT_PROJECT };
   return rowToProject(rows[0]);
 }
@@ -78,29 +80,33 @@ export async function saveEditorProject(
   userId: string,
   project: EditorProjectInput,
 ): Promise<EditorProject> {
-  const sql = db();
-  const rows = await sql`
-    INSERT INTO public.editor_project (
-      user_id, language, files, active_file, open_tabs, file_order, stdin
-    )
-    VALUES (
-      ${userId},
-      ${project.language},
-      ${sql.json(project.files as JSONValue)},
-      ${project.activeFile},
-      ${project.openTabs},
-      ${project.fileOrder},
-      ${project.stdin}
-    )
-    ON CONFLICT (user_id) DO UPDATE SET
-      language    = EXCLUDED.language,
-      files       = EXCLUDED.files,
-      active_file = EXCLUDED.active_file,
-      open_tabs   = EXCLUDED.open_tabs,
-      file_order  = EXCLUDED.file_order,
-      stdin       = EXCLUDED.stdin,
-      updated_at  = now()
-    RETURNING language, files, active_file, open_tabs, file_order, stdin, updated_at
-  `;
+  // Phase 26: RLS-scoped UPSERT. WITH CHECK on the policy enforces that
+  // the row's user_id must equal auth.uid() — defense against a route-
+  // handler bug threading the wrong userId.
+  const rows = await withRlsContext(userId, async (tx) => {
+    return await tx`
+      INSERT INTO public.editor_project (
+        user_id, language, files, active_file, open_tabs, file_order, stdin
+      )
+      VALUES (
+        ${userId},
+        ${project.language},
+        ${tx.json(project.files as JSONValue)},
+        ${project.activeFile},
+        ${project.openTabs},
+        ${project.fileOrder},
+        ${project.stdin}
+      )
+      ON CONFLICT (user_id) DO UPDATE SET
+        language    = EXCLUDED.language,
+        files       = EXCLUDED.files,
+        active_file = EXCLUDED.active_file,
+        open_tabs   = EXCLUDED.open_tabs,
+        file_order  = EXCLUDED.file_order,
+        stdin       = EXCLUDED.stdin,
+        updated_at  = now()
+      RETURNING language, files, active_file, open_tabs, file_order, stdin, updated_at
+    `;
+  });
   return rowToProject(rows[0]);
 }

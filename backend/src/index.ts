@@ -38,6 +38,7 @@ import {
 } from "./services/session/sessionManager.js";
 import { startBudgetWatcher } from "./services/budgetWatcher.js";
 import { startDigestSweeper } from "./services/email/digestSweeper.js";
+import { startInvariantValidator } from "./services/observability/invariantValidator.js";
 import { startOrphanShareGc } from "./services/share/orphanShareGc.js";
 import { reapAbandonedLessonProgress } from "./db/lessonProgress.js";
 import { backendUnhandledRejections } from "./services/metrics.js";
@@ -61,7 +62,6 @@ import {
   clearPlatformAuthFailed,
   getPlatformAuthStatus,
 } from "./services/ai/credential.js";
-import { timingSafeEqual } from "node:crypto";
 
 async function main() {
   // Validate env-sourced config before any wiring. Prefer a loud, fast failure
@@ -265,38 +265,34 @@ async function main() {
     res.status(result.ok ? 200 : 503).json(result);
   });
 
-  // S-3 / QA-C4: admin break-glass. When operator rotates the platform key
-  // after a 401, the kill flag stays on until the 30-min probe window
-  // elapses — this endpoint lets them clear it immediately. Gated on
-  // METRICS_TOKEN (same posture as /api/metrics); no token → loopback only.
-  // On success the next /api/ai/ask will attempt upstream normally.
+  // S-3 / QA-C4 / Phase 26 zero-trust: admin break-glass for the
+  // platform-auth kill flag.
+  //
+  // Phase 26 audit C-1: removed the METRICS_TOKEN dual-use that conflated
+  // two trust tiers (the Prometheus scraper token shouldn't gate a
+  // state-mutating admin endpoint — any party with scraper access could
+  // flip the flag). Production-path is the new admin-role-gated
+  // POST /api/admin/platform-auth/unstick (see routes/adminPlatformAuth.ts);
+  // this endpoint is now LOOPBACK-ONLY and serves the SSH-into-VM
+  // break-glass case (admin locked out / JWT expired / dev iteration).
+  //
+  // Loopback is intrinsically privileged — only someone with shell access
+  // to the VM can reach it. No CSRF concern (CSRF assumes browser
+  // credential reuse; this endpoint can't be reached from a browser).
   app.post("/api/admin/unstick-platform-auth", (req, res) => {
-    const expected = config.metricsToken;
-    if (expected && expected.length > 0) {
-      const header = req.headers.authorization ?? "";
-      const prefix = "Bearer ";
-      if (!header.startsWith(prefix)) {
-        return res.status(401).json({ error: "unauthorized" });
-      }
-      const provided = header.slice(prefix.length);
-      const providedBuf = Buffer.from(provided);
-      const expectedBuf = Buffer.from(expected);
-      if (
-        providedBuf.length !== expectedBuf.length ||
-        !timingSafeEqual(providedBuf, expectedBuf)
-      ) {
-        return res.status(401).json({ error: "unauthorized" });
-      }
-    } else {
-      const ip = req.ip ?? "";
-      const isLoopback =
-        ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
-      if (!isLoopback) return res.status(403).json({ error: "forbidden" });
+    const ip = req.ip ?? "";
+    const isLoopback =
+      ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
+    if (!isLoopback) {
+      return res.status(403).json({
+        error: "forbidden",
+        hint: "use POST /api/admin/platform-auth/unstick (admin-gated) for non-loopback access",
+      });
     }
     const before = getPlatformAuthStatus();
     clearPlatformAuthFailed();
     console.log(
-      `[admin] platform-auth kill flag cleared` +
+      `[admin] platform-auth kill flag cleared via loopback break-glass` +
         (before ? ` (was failing for ${before.sinceMs}ms)` : " (was already ok)"),
     );
     res.json({ ok: true, wasFailed: !!before });
@@ -576,6 +572,12 @@ async function main() {
   // resolves with a default OG fallback. Bounds storage growth on
   // the Supabase free tier without breaking actively-used shares.
   startOrphanShareGc();
+  // Phase 26 (audit SRE F7.1): daily drift check on canonical-vs-derived
+  // data sources (admin role mirror, AI cost denorm vs ledger). Every
+  // violation lands as `evt:invariant_drift` in Log Analytics; alert
+  // wiring TBD (low priority — daily inspection is enough until volume
+  // makes a paging rule worthwhile).
+  startInvariantValidator();
 
   // QA-M4: hourly reap of abandoned lesson_progress rows. A drive-by URL
   // visit calls startLesson, which writes an in_progress row even when the

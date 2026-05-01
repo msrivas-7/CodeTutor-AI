@@ -109,6 +109,28 @@ export function __resetJwksCacheForTests(): void {
   cachedAuthIssuer = null;
 }
 
+// Phase 26 (audit SRE F1.2): structured auth-reject log line. Drives the
+// "spike in 401s = forged-token probing or stolen-key replay" alert.
+// Stays at level=warn (not error) because 401s during normal sign-out
+// are expected — sustained volume is the signal, not a single line.
+// Cardinality is bounded by IP × reason (handful of distinct reasons,
+// IP space is the natural bucket); KQL groups on these fields.
+function logAuthReject(req: Request, reason: string): void {
+  console.warn(
+    JSON.stringify({
+      level: "warn",
+      evt: "auth_reject",
+      reason,
+      ip: req.ip ?? null,
+      path: req.path,
+      // Truncate user-agent so a botnet using a long-tail UA can't blow
+      // up Log Analytics ingest cost.
+      ua: (req.get("user-agent") ?? "").slice(0, 80),
+      t: new Date().toISOString(),
+    }),
+  );
+}
+
 export async function authMiddleware(
   req: Request,
   _res: Response,
@@ -117,10 +139,14 @@ export async function authMiddleware(
   try {
     const header = req.get("authorization") ?? req.get("Authorization");
     if (!header || !header.toLowerCase().startsWith("bearer ")) {
+      logAuthReject(req, "missing_bearer");
       throw new HttpError(401, "missing bearer token");
     }
     const token = header.slice("bearer ".length).trim();
-    if (!token) throw new HttpError(401, "empty bearer token");
+    if (!token) {
+      logAuthReject(req, "empty_bearer");
+      throw new HttpError(401, "empty bearer token");
+    }
 
     const { payload } = await jwtVerify(token, getJwks(), {
       issuer: authIssuer(),
@@ -129,7 +155,10 @@ export async function authMiddleware(
       audience: "authenticated",
     });
     const sub = typeof payload.sub === "string" ? payload.sub : null;
-    if (!sub) throw new HttpError(401, "token missing sub claim");
+    if (!sub) {
+      logAuthReject(req, "missing_sub");
+      throw new HttpError(401, "token missing sub claim");
+    }
     req.userId = sub;
     req.authClaims = payload;
     // Phase 20-P5: extract role from app_metadata.role (set by the
@@ -146,10 +175,12 @@ export async function authMiddleware(
   } catch (err) {
     // HttpError from the guards above just propagates — the global
     // errorHandler serializes it and skips the noisy log for 401s.
+    // (logAuthReject was already called at the throw site for those.)
     if (err instanceof HttpError) return next(err);
     // Branch on jose's typed errors so we can return actionable messages
     // without leaking internals. Anything else collapses to a generic 401.
     if (err instanceof joseErrors.JWTExpired) {
+      logAuthReject(req, "token_expired");
       return next(new HttpError(401, "token expired"));
     }
     if (
@@ -158,25 +189,28 @@ export async function authMiddleware(
       err instanceof joseErrors.JWSInvalid ||
       err instanceof joseErrors.JWTInvalid
     ) {
+      logAuthReject(req, "invalid_token");
       return next(new HttpError(401, "invalid token"));
     }
     // kid not found in JWKS — usually a token minted for a different project,
     // or a stale token signed with a rotated-out key. Same user-facing result
     // as a plain invalid-token, but we log distinctly for operability.
     if (err instanceof joseErrors.JWKSNoMatchingKey) {
+      logAuthReject(req, "no_matching_jwks_key");
       console.error("[auth] jwks: no matching key for token kid");
       return next(new HttpError(401, "invalid token"));
     }
     // Upstream auth server is unreachable / slow. 503 is the honest answer —
     // this is a transient server-side problem, not a client credential issue.
     // Distinguishing this from 401 keeps "silent auth outage" out of "user
-    // got logged out" alerts.
+    // got logged out" alerts. NOT counted as auth_reject (different alert).
     if (err instanceof joseErrors.JWKSTimeout) {
       console.error("[auth] jwks: timeout fetching keys");
       return next(new HttpError(503, "auth server unavailable"));
     }
     // JWKS fetch failure, unknown error. The client can't fix it; log
     // server-side and 401 so the UI falls back to the sign-in page.
+    logAuthReject(req, "verify_error");
     console.error("[auth] jwks/verify error:", (err as Error).message);
     return next(new HttpError(401, "token verification failed"));
   }

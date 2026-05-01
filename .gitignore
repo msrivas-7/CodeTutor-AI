@@ -46,7 +46,8 @@ supabase/.temp/
 # plus `ops/runbook-values.local.md` (live resource names, last rotation
 # dates, deployer CIDR). Keep these local so we can scribble real values
 # freely. `.example` templates + README sit alongside so new operators
-# have a starting point.
+# have a starting point. Repo is public — runbooks reference resource
+# names / KV names / RG IDs that we don't publish.
 ops/*
 !ops/README.md
 !ops/*.example.md

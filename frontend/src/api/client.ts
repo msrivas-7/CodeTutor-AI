@@ -476,7 +476,9 @@ export type AdminAuditEventType =
   | "user_frozen"
   | "user_unfrozen"
   | "budget_watcher_reset"
-  | "platform_auth_unstick";
+  | "platform_auth_unstick"
+  // Phase 26 additions
+  | "user_force_signout";
 
 export interface AdminAuditLogEntry {
   id: string;
@@ -1283,6 +1285,19 @@ export const api = {
   adminUnfreezeUser: (userId: string) =>
     del<{ status: AdminDenylistRow }>(
       `/api/admin/users/${encodeURIComponent(userId)}/freeze`,
+    ),
+
+  // Phase 26 (audit H-1 / SRE F3.2): force-signout. Use AFTER demoting a
+  // compromised admin (DELETE FROM user_roles) to invalidate their
+  // existing JWT. Without this, their ~1h refresh window keeps them
+  // authed for non-admin routes.
+  adminForceSignOut: (
+    userId: string,
+    body: { reason: string; confirmSignout: string },
+  ) =>
+    post<{ ok: boolean; sessionsKilled: number; streamsAborted: number }>(
+      `/api/admin/users/${encodeURIComponent(userId)}/force-signout`,
+      body,
     ),
 
   adminListEmailLog: (

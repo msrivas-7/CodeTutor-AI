@@ -4,9 +4,14 @@ import { randomBytes } from "node:crypto";
 // Mock the config module before byok.js imports it — byok caches the master
 // key on first use and config.ts reads process.env at module load, so
 // setting env in the test file is too late. Mock is the reliable path.
+//
+// Phase 26: byok now reads config.byokEncryptionKeys (Map<version, base64>)
+// + config.byokCurrentVersion. Test mock provides V1 only — same as the
+// pre-Phase-26 single-key shape for byok behavior.
 vi.mock("../../config.js", () => ({
   config: {
-    byokEncryptionKey: randomBytes(32).toString("base64"),
+    byokEncryptionKeys: new Map([[1, randomBytes(32).toString("base64")]]),
+    byokCurrentVersion: 1,
   },
 }));
 

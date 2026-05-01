@@ -1,6 +1,6 @@
 import type { JSONValue } from "postgres";
 import { z } from "zod";
-import { db } from "./client.js";
+import { withRlsContext } from "./client.js";
 import { HttpError } from "../middleware/errorHandler.js";
 
 // Phase 21A: per-user saved tutor messages.
@@ -73,17 +73,19 @@ export async function listSavedTutorMessages(
   userId: string,
   scope: SavedScope,
 ): Promise<SavedTutorMessage[]> {
-  const sql = db();
-  const rows = await sql`
-    SELECT id, course_id, lesson_id, exercise_id, message_id, role, content,
-           sections, model, created_at, updated_at
-      FROM public.saved_tutor_messages
-     WHERE user_id = ${userId}
-       AND course_id   IS NOT DISTINCT FROM ${scope.courseId}
-       AND lesson_id   IS NOT DISTINCT FROM ${scope.lessonId}
-       AND exercise_id IS NOT DISTINCT FROM ${scope.exerciseId}
-     ORDER BY created_at DESC
-  `;
+  // Phase 26: RLS-scoped read.
+  const rows = await withRlsContext(userId, async (tx) => {
+    return await tx`
+      SELECT id, course_id, lesson_id, exercise_id, message_id, role, content,
+             sections, model, created_at, updated_at
+        FROM public.saved_tutor_messages
+       WHERE user_id = ${userId}
+         AND course_id   IS NOT DISTINCT FROM ${scope.courseId}
+         AND lesson_id   IS NOT DISTINCT FROM ${scope.lessonId}
+         AND exercise_id IS NOT DISTINCT FROM ${scope.exerciseId}
+       ORDER BY created_at DESC
+    `;
+  });
   return rows.map(rowToSaved);
 }
 
@@ -94,14 +96,17 @@ export async function countSavedForLesson(
   courseId: string | null,
   lessonId: string | null,
 ): Promise<number> {
-  const sql = db();
-  const rows = await sql<Array<{ c: string }>>`
-    SELECT COUNT(*)::text AS c
-      FROM public.saved_tutor_messages
-     WHERE user_id = ${userId}
-       AND course_id IS NOT DISTINCT FROM ${courseId}
-       AND lesson_id IS NOT DISTINCT FROM ${lessonId}
-  `;
+  // Phase 26: RLS-scoped count read. Cap enforcement was already correct
+  // via WHERE user_id = ${userId} but RLS adds defense-in-depth.
+  const rows = await withRlsContext(userId, async (tx) => {
+    return await tx<Array<{ c: string }>>`
+      SELECT COUNT(*)::text AS c
+        FROM public.saved_tutor_messages
+       WHERE user_id = ${userId}
+         AND course_id IS NOT DISTINCT FROM ${courseId}
+         AND lesson_id IS NOT DISTINCT FROM ${lessonId}
+    `;
+  });
   return Number(rows[0]?.c ?? 0);
 }
 
@@ -117,33 +122,35 @@ export async function insertSavedTutorMessage(
   userId: string,
   input: SaveInput,
 ): Promise<SavedTutorMessage> {
-  const sql = db();
-  const sectionsJson =
-    input.sections === null ? null : sql.json(input.sections as JSONValue);
-  // ON CONFLICT (user_id, message_id) DO UPDATE — re-saving the same
-  // message id is a no-op upsert that returns the existing row. Avoids
-  // a 409 round-trip from an inadvertent double-click.
-  const rows = await sql`
-    INSERT INTO public.saved_tutor_messages (
-      user_id, course_id, lesson_id, exercise_id, message_id, role,
-      content, sections, model
-    )
-    VALUES (
-      ${userId},
-      ${input.scope.courseId},
-      ${input.scope.lessonId},
-      ${input.scope.exerciseId},
-      ${input.messageId},
-      'assistant',
-      ${input.content},
-      ${sectionsJson},
-      ${input.model}
-    )
-    ON CONFLICT (user_id, message_id) DO UPDATE
-      SET updated_at = now()
-    RETURNING id, course_id, lesson_id, exercise_id, message_id, role, content,
-              sections, model, created_at, updated_at
-  `;
+  // Phase 26: RLS-scoped INSERT. WITH CHECK enforces user_id binding.
+  const rows = await withRlsContext(userId, async (tx) => {
+    const sectionsJson =
+      input.sections === null ? null : tx.json(input.sections as JSONValue);
+    // ON CONFLICT (user_id, message_id) DO UPDATE — re-saving the same
+    // message id is a no-op upsert that returns the existing row. Avoids
+    // a 409 round-trip from an inadvertent double-click.
+    return await tx`
+      INSERT INTO public.saved_tutor_messages (
+        user_id, course_id, lesson_id, exercise_id, message_id, role,
+        content, sections, model
+      )
+      VALUES (
+        ${userId},
+        ${input.scope.courseId},
+        ${input.scope.lessonId},
+        ${input.scope.exerciseId},
+        ${input.messageId},
+        'assistant',
+        ${input.content},
+        ${sectionsJson},
+        ${input.model}
+      )
+      ON CONFLICT (user_id, message_id) DO UPDATE
+        SET updated_at = now()
+      RETURNING id, course_id, lesson_id, exercise_id, message_id, role, content,
+                sections, model, created_at, updated_at
+    `;
+  });
   return rowToSaved(rows[0]);
 }
 
@@ -151,11 +158,13 @@ export async function deleteSavedTutorMessage(
   userId: string,
   id: string,
 ): Promise<boolean> {
-  const sql = db();
-  const rows = await sql`
-    DELETE FROM public.saved_tutor_messages
-     WHERE user_id = ${userId} AND id = ${id}
-     RETURNING id
-  `;
+  // Phase 26: RLS-scoped DELETE.
+  const rows = await withRlsContext(userId, async (tx) => {
+    return await tx`
+      DELETE FROM public.saved_tutor_messages
+       WHERE user_id = ${userId} AND id = ${id}
+       RETURNING id
+    `;
+  });
   return rows.length > 0;
 }
