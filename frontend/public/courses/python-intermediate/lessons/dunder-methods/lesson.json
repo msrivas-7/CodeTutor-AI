@@ -1,0 +1,159 @@
+{
+  "id": "dunder-methods",
+  "courseId": "python-intermediate",
+  "title": "Dunder Methods",
+  "description": "Make your classes feel native — define __repr__, __eq__, __len__, and friends so Python's built-in operators just work.",
+  "order": 8,
+  "language": "python",
+  "estimatedMinutes": 20,
+  "objectives": [
+    "Define `__repr__` and `__str__` so `repr()` and `print()` produce useful output",
+    "Define `__eq__` so `==` compares by value, not identity",
+    "Define `__len__` so `len()` works on your own objects"
+  ],
+  "teachesConceptTags": [
+    "dunder-methods",
+    "__repr__",
+    "__str__",
+    "__eq__",
+    "__len__"
+  ],
+  "usesConceptTags": [
+    "class",
+    "__init__",
+    "self",
+    "instance-attribute",
+    "instance-method",
+    "def",
+    "for",
+    "iteration",
+    "list",
+    "print",
+    "f-strings",
+    "int",
+    "if",
+    "comparison",
+    "return",
+    "strings",
+    "len"
+  ],
+  "completionRules": [
+    {
+      "type": "expected_stdout",
+      "expected": "100 USD\nMoney(100, 'USD')\nTrue\nFalse"
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "class Money"
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "__repr__"
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "__eq__"
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "__str__"
+    }
+  ],
+  "prerequisiteLessonIds": ["oop-inheritance"],
+  "recap": "Dunder methods are how your class plugs into Python's built-in operators. `__repr__` controls what `repr(obj)` returns (the debug view); `__str__` controls `print(obj)` and `str(obj)` (the human view); `__eq__` controls `==`; `__len__` controls `len()`. The rule of thumb: always define `__repr__` (it makes debugging painless); define `__str__` only when the user-facing form is genuinely different; define `__eq__` and `__len__` when those operations are obviously meaningful for your type.",
+  "practicePrompts": [
+    "Look at a class you've written. What's printed when you put it in a list and print the list? Would `__repr__` make that less ugly?",
+    "When does defining `__eq__` change behavior in subtle ways — for example, when an instance is used as a dict key or put in a set?"
+  ],
+  "practiceExercises": [
+    {
+      "id": "point-repr",
+      "title": "Repr a Point",
+      "prompt": "Define a class `Point` with `__init__(self, x, y)` storing both attributes, and `__repr__(self)` returning the string `\"Point(x=<x>, y=<y>)\"`. For example, `repr(Point(1, 2))` should return `\"Point(x=1, y=2)\"`.",
+      "goal": "Write a `__repr__` that gives a readable, copy-pasteable view of an instance.",
+      "starterCode": "class Point:\n    def __init__(self, x, y):\n        self.x = x\n        self.y = y\n\n    def __repr__(self):\n        # TODO: return f\"Point(x={self.x}, y={self.y})\"\n        pass\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "basic point", "call": "repr(Point(1, 2))", "expected": "'Point(x=1, y=2)'" },
+            { "name": "negative coords", "call": "repr(Point(-3, 4))", "expected": "'Point(x=-3, y=4)'" },
+            { "name": "zero", "call": "repr(Point(0, 0))", "expected": "'Point(x=0, y=0)'" },
+            { "name": "shows in list", "call": "repr([Point(1, 2)])", "expected": "'[Point(x=1, y=2)]'", "hidden": true }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "__repr__"
+        }
+      ],
+      "hints": [
+        "`__repr__` is just a method that returns a string — Python calls it when something needs a debug view of your object (the REPL, `repr()`, putting an instance inside a list and printing the list).",
+        "Shape:\n```python\ndef __repr__(self):\n    return f\"Point(x={self.x}, y={self.y})\"\n```\nThe convention is to return something that *looks like the call to construct the object* — useful when you copy-paste it into a debugger.",
+        "The same pattern in a different domain:\n```python\nclass Color:\n    def __init__(self, r, g, b):\n        self.r, self.g, self.b = r, g, b\n\n    def __repr__(self):\n        return f\"Color(r={self.r}, g={self.g}, b={self.b})\"\n```"
+      ]
+    },
+    {
+      "id": "card-eq",
+      "title": "Equal cards",
+      "prompt": "Define a class `Card` with `__init__(self, rank, suit)` storing both attributes, and `__eq__(self, other)` that returns `True` only when `other` is a `Card` with the same `rank` *and* `suit`. For example, `Card(\"A\", \"spades\") == Card(\"A\", \"spades\")` is `True`, but `Card(\"A\", \"spades\") == Card(\"K\", \"spades\")` is `False`. Also handle the case where `other` isn't a `Card` at all — return `False` rather than crashing.",
+      "goal": "Write `__eq__` so `==` compares by value, and guard against being asked to compare against a non-Card.",
+      "starterCode": "class Card:\n    def __init__(self, rank, suit):\n        self.rank = rank\n        self.suit = suit\n\n    def __eq__(self, other):\n        # TODO: return True if other is a Card with the same rank and suit\n        pass\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "same card equals", "call": "Card('A', 'spades') == Card('A', 'spades')", "expected": "True" },
+            { "name": "different rank", "call": "Card('A', 'spades') == Card('K', 'spades')", "expected": "False" },
+            { "name": "different suit", "call": "Card('A', 'spades') == Card('A', 'hearts')", "expected": "False" },
+            { "name": "compare to non-card", "call": "Card('A', 'spades') == 'A'", "expected": "False" },
+            { "name": "compare to None", "call": "Card('A', 'spades') == None", "expected": "False", "hidden": true }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "__eq__"
+        }
+      ],
+      "hints": [
+        "Two checks: is `other` even the same kind of thing, and if so, do its fields match yours? `isinstance(other, Card)` answers the first.",
+        "Shape:\n```python\ndef __eq__(self, other):\n    if not isinstance(other, Card):\n        return False\n    return self.rank == other.rank and self.suit == other.suit\n```\nThe `isinstance` guard is what stops `card == 'A'` from raising an error.",
+        "The same pattern with three fields:\n```python\nclass Time:\n    def __init__(self, h, m, s):\n        self.h, self.m, self.s = h, m, s\n\n    def __eq__(self, other):\n        if not isinstance(other, Time):\n            return False\n        return (self.h, self.m, self.s) == (other.h, other.m, other.s)\n```"
+      ]
+    },
+    {
+      "id": "wordlist-len",
+      "title": "Length of a WordList",
+      "prompt": "Define a class `WordList` with `__init__(self, words)` storing `words` as `self.words` (a list of strings), and `__len__(self)` returning the number of words. For example, `len(WordList([\"hi\", \"there\"]))` should be `2`, and `len(WordList([]))` should be `0`.",
+      "goal": "Define `__len__` so `len(my_obj)` works on instances of your class.",
+      "starterCode": "class WordList:\n    def __init__(self, words):\n        self.words = words\n\n    def __len__(self):\n        # TODO: return the number of words\n        pass\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "two words", "call": "len(WordList(['hi', 'there']))", "expected": "2" },
+            { "name": "empty list", "call": "len(WordList([]))", "expected": "0" },
+            { "name": "many words", "call": "len(WordList(['a', 'b', 'c', 'd', 'e']))", "expected": "5" },
+            { "name": "single word", "call": "len(WordList(['solo']))", "expected": "1", "hidden": true }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "__len__"
+        }
+      ],
+      "hints": [
+        "Python's `len()` doesn't know how to measure your custom object — but it asks the object directly via `__len__`. Whatever that method returns, `len()` returns.",
+        "Shape:\n```python\ndef __len__(self):\n    return len(self.words)\n```\nYou're delegating to the list's own `__len__`. That's perfectly fine — most dunders in real code are one-liners that delegate to a more primitive type.",
+        "The same pattern wrapping a string:\n```python\nclass Sentence:\n    def __init__(self, text):\n        self.text = text\n\n    def __len__(self):\n        return len(self.text.split())\n```"
+      ]
+    }
+  ]
+}
