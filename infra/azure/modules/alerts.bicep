@@ -21,6 +21,9 @@ param healthEndpoint string
 @description('Full URL the availability test hits for the SWA root.')
 param swaEndpoint string
 
+@description('P0-5a: ACI NSG resource ID. Used by the NSG-drift Activity Log alert that fires whenever someone modifies the security rules on the ACI subnet NSG. Empty string skips the alert (e.g., test deploys without ACI infra).')
+param aciNsgId string = ''
+
 var actions = {
   actionGroups: [ actionGroupId ]
 }
@@ -730,8 +733,11 @@ ContainerLog_CL
 // direct bucket-size metric without scraping the Supabase admin API
 // (out of scope for tonight). Use the GC's own non-zero-attempts
 // signal as the canary: more than 50 GC attempts in a single run for
-// 3 consecutive runs means we're persistently catching up to a fast
-// fill rate. PT24H eval × P3D matches "3 consecutive daily fires".
+// 2 consecutive runs (over a 48-hour window) means we're persistently
+// catching up to a fast fill rate. PT12H eval × P2D matches "2
+// consecutive daily fires." Note: Azure scheduledQueryRules cap window
+// size at 2880 minutes (48 hours) — earlier P3D (4320 min) was
+// rejected by ARM as unsupported.
 resource storageGcPressureAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
   name: 'codetutor-storage-gc-pressure'
   location: location
@@ -741,7 +747,7 @@ resource storageGcPressureAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-
     severity: 3
     scopes: [ workspaceId ]
     evaluationFrequency: 'PT12H'
-    windowSize: 'P3D'
+    windowSize: 'P2D'
     criteria: {
       allOf: [
         {
@@ -796,6 +802,242 @@ ContainerLog_CL
           timeAggregation: 'Count'
           operator: 'GreaterThanOrEqual'
           threshold: 1
+          failingPeriods: {
+            minFailingPeriodsToAlert: 1
+            numberOfEvaluationPeriods: 1
+          }
+        }
+      ]
+    }
+    autoMitigate: true
+    actions: actions
+  }
+}
+
+// Phase 24B: ACI cost-cap exceeded. The cost tracker emits `evt:
+// aci_cost_hourly` once an hour with `exceeded:true` whenever today's
+// spend has hit the daily cap (config.aci.dailyUsdCap, default $20).
+// The kill switch in HybridBackend has already disabled overflow at
+// that point — this alert is the operator notification that we hit
+// the ceiling. Severity 2: not paging-grade because no user-facing
+// regression beyond "overflow's off" (primary 14 slots still serve),
+// but loud enough to surface in the daily ops triage.
+//
+// Evaluate every hour to match the emit cadence — anything tighter
+// just re-evaluates the same data. windowSize PT2H to ride out a
+// missed sample without false-clearing.
+resource aciCostCapAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
+  name: 'codetutor-aci-cost-cap-exceeded'
+  location: location
+  tags: tags
+  properties: {
+    enabled: true
+    severity: 2
+    scopes: [ workspaceId ]
+    evaluationFrequency: 'PT1H'
+    windowSize: 'PT2H'
+    criteria: {
+      allOf: [
+        {
+          query: '''
+ContainerLog_CL
+| where LogEntry has '"evt":"aci_cost_hourly"'
+| where LogEntry has '"exceeded":true'
+'''
+          timeAggregation: 'Count'
+          operator: 'GreaterThanOrEqual'
+          threshold: 1
+          failingPeriods: {
+            minFailingPeriodsToAlert: 1
+            numberOfEvaluationPeriods: 1
+          }
+        }
+      ]
+    }
+    autoMitigate: true
+    actions: actions
+  }
+}
+
+// P0-5a (audit fix): NSG-drift detector for the ACI subnet NSG.
+//
+// The ACI NSG is the firewall layer that keeps learner code from
+// reaching the VM subnet's internal ports — every rule on it is part
+// of the C2 (no-internet-egress) + cross-tenant isolation guarantee.
+// Pre-fix there was NO observability: an admin (or compromised SP)
+// could disable AllowReplyToVmSubnet's deny twin or punch a port hole,
+// and we'd only learn about it when a learner exfiltrated something.
+//
+// Activity Log Alert (not scheduled query) chosen because:
+//   - Fires within ~1 min of the write, vs. 5+ min for query-based.
+//   - Free at this volume. Scheduled queries cost ~$1.50/mo each.
+//   - No dependency on AzureActivity table being forwarded to LA
+//     workspace (which is currently NOT configured in this tenant).
+//
+// Severity 1: this is a security-perimeter mutation, page on it. The
+// only legitimate writers are the OIDC SP via deploy.yml — anything
+// else is suspicious until proven otherwise. The runbook entry: open
+// the activity log, identify caller, confirm intent or rollback.
+resource aciNsgDriftAlert 'Microsoft.Insights/activityLogAlerts@2020-10-01' = if (!empty(aciNsgId)) {
+  name: 'codetutor-aci-nsg-drift'
+  location: 'global'
+  tags: tags
+  properties: {
+    enabled: true
+    description: 'ACI subnet NSG was modified — investigate immediately. Only the deploy SP should write here.'
+    scopes: [ aciNsgId ]
+    condition: {
+      allOf: [
+        {
+          field: 'category'
+          equals: 'Administrative'
+        }
+        {
+          // anyOf at the inner level matches either the NSG-level write
+          // (rule add/remove that touches the parent resource) OR the
+          // securityRules sub-resource write. Either fires the alert.
+          anyOf: [
+            {
+              field: 'operationName'
+              equals: 'Microsoft.Network/networkSecurityGroups/write'
+            }
+            {
+              field: 'operationName'
+              equals: 'Microsoft.Network/networkSecurityGroups/securityRules/write'
+            }
+            {
+              field: 'operationName'
+              equals: 'Microsoft.Network/networkSecurityGroups/securityRules/delete'
+            }
+          ]
+        }
+        {
+          // Only fire on completed mutations, not the staged "started"
+          // / "accepted" entries that ARM emits as part of every write.
+          field: 'status'
+          equals: 'Succeeded'
+        }
+      ]
+    }
+    actions: {
+      actionGroups: [
+        {
+          actionGroupId: actionGroupId
+        }
+      ]
+    }
+  }
+}
+
+// P3-3 (audit fix): aci_counter_drift alert.
+//
+// HybridBackend's localActive/aciActive counters surface lifecycle bugs
+// when they drift negative (a destroy() ran more times than a create()
+// on at least one backend). The aciHealthSampler emits a warn-level
+// log line per minute when drift > 0; this rule pages on any
+// occurrence in a 15-min window. Sev-2 because it's a real bug not a
+// transient condition — drift doesn't self-correct without restart.
+resource aciCounterDriftAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
+  name: 'codetutor-aci-counter-drift'
+  location: location
+  tags: tags
+  properties: {
+    enabled: true
+    severity: 2
+    scopes: [ workspaceId ]
+    evaluationFrequency: 'PT5M'
+    windowSize: 'PT15M'
+    criteria: {
+      allOf: [
+        {
+          query: '''
+ContainerLog_CL
+| where LogEntry has '"evt":"aci_counter_drift"'
+'''
+          timeAggregation: 'Count'
+          operator: 'GreaterThanOrEqual'
+          threshold: 1
+          failingPeriods: {
+            minFailingPeriodsToAlert: 1
+            numberOfEvaluationPeriods: 1
+          }
+        }
+      ]
+    }
+    autoMitigate: true
+    actions: actions
+  }
+}
+
+// P3-4 (audit fix): aci_spawn_failure rate alert.
+//
+// AciExecutionBackend.createSession emits `evt:aci_spawn_failure` on
+// every cold-start failure with `result` ∈ {fail_arm, fail_agent}.
+// 10+ failures in 10 min = either ARM regional outage or systemic
+// spawn issue; sev-2 paging surfaces it before users notice via
+// support tickets. The cost-cap alert (existing) only fires after
+// damage; this is the leading-edge signal.
+resource aciSpawnFailureRateAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
+  name: 'codetutor-aci-spawn-failure-rate'
+  location: location
+  tags: tags
+  properties: {
+    enabled: true
+    severity: 2
+    scopes: [ workspaceId ]
+    evaluationFrequency: 'PT5M'
+    windowSize: 'PT10M'
+    criteria: {
+      allOf: [
+        {
+          query: '''
+ContainerLog_CL
+| where LogEntry has '"evt":"aci_spawn_failure"'
+'''
+          timeAggregation: 'Count'
+          operator: 'GreaterThanOrEqual'
+          threshold: 10
+          failingPeriods: {
+            minFailingPeriodsToAlert: 1
+            numberOfEvaluationPeriods: 1
+          }
+        }
+      ]
+    }
+    autoMitigate: true
+    actions: actions
+  }
+}
+
+// P3-5 (audit fix): aci_op_config watchdog-engaged alert.
+//
+// When the operational-config mirror's last successful refresh exceeds
+// 5 × refresh interval (~150 s), the watchdog forces enabled=false /
+// dailyUsdCap=0 / maxOverflow=0. The aciHealthSampler emits a warn
+// log line per minute while in this state. 3+ occurrences in 10 min
+// (signalling sustained DB unreachability, not a transient blip) →
+// sev-2 page so the operator can fix DB connectivity before the cost
+// cap fully decays.
+resource aciOpConfigWatchdogAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
+  name: 'codetutor-aci-op-config-watchdog'
+  location: location
+  tags: tags
+  properties: {
+    enabled: true
+    severity: 2
+    scopes: [ workspaceId ]
+    evaluationFrequency: 'PT5M'
+    windowSize: 'PT10M'
+    criteria: {
+      allOf: [
+        {
+          query: '''
+ContainerLog_CL
+| where LogEntry has '"evt":"aci_op_config_watchdog_engaged"'
+'''
+          timeAggregation: 'Count'
+          operator: 'GreaterThanOrEqual'
+          threshold: 3
           failingPeriods: {
             minFailingPeriodsToAlert: 1
             numberOfEvaluationPeriods: 1

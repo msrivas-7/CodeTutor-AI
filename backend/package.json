@@ -12,7 +12,9 @@
     "seed:dev-users": "tsx scripts/seed-dev-users.ts"
   },
   "dependencies": {
+    "@azure/arm-containerinstance": "^9.1.0",
     "@azure/communication-email": "^1.1.0",
+    "@azure/identity": "^4.5.0",
     "@fontsource/fraunces": "^5.2.9",
     "@fontsource/jetbrains-mono": "^5.2.8",
     "@resvg/resvg-js": "^2.6.2",

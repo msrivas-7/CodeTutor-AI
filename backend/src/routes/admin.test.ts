@@ -137,7 +137,12 @@ afterAll(async () => {
       // rows that reference these users. system_config rows have set_by
       // SET NULL, so they survive — sweep them by reason.
       await db()`DELETE FROM public.admin_audit_log WHERE actor_id = ANY(${userIds}::uuid[]) OR target_user_id = ANY(${userIds}::uuid[])`;
-      await db()`DELETE FROM public.system_config WHERE reason LIKE 'admin route test%'`;
+      // P1-1: system_config writes need the per-transaction admin opt-in
+      // because of the guard_system_config_writes BEFORE trigger.
+      await db().begin(async (tx) => {
+        await tx`SELECT set_config('app.allow_system_config_write', 'true', true)`;
+        await tx`DELETE FROM public.system_config WHERE reason LIKE 'admin route test%'`;
+      });
       await db()`DELETE FROM auth.users WHERE id = ANY(${userIds}::uuid[])`;
     }
   }
@@ -318,8 +323,12 @@ describe("system-config", () => {
   it("GET returns env defaults when no rows exist", async () => {
     if (!dbReachable) return;
     const admin = await mkUser("admin");
-    // Sweep any leftover rows.
-    await db()`DELETE FROM public.system_config`;
+    // Sweep any leftover rows. P1-1: same per-transaction admin opt-in
+    // as the global cleanup hook above — system_config DELETE is gated.
+    await db().begin(async (tx) => {
+      await tx`SELECT set_config('app.allow_system_config_write', 'true', true)`;
+      await tx`DELETE FROM public.system_config`;
+    });
     systemConfigModule.__resetSystemConfigCacheForTests();
     const res = await call("/api/admin/system-config", {
       userId: admin,

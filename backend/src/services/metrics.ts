@@ -9,14 +9,21 @@
 //     ok. First-boot Rust compiles will pile the top bucket; steady-state
 //     Python should sit under 1s.
 //
-// No scraper is wired yet — the endpoint ships ahead of the Prom stack so
-// the instrumentation is live when we turn one on. Endpoint is public (no
-// bearer): the data is aggregate-only and consistency with the Prometheus
-// convention outweighs hiding magnitudes at this size. A Caddy path guard
-// or env-bearer can be added later without touching these definitions.
+// Access control: `/api/metrics` is gated by `gateMetrics` in
+// routes/metrics.ts — Authorization: Bearer ${METRICS_TOKEN} when the env
+// is set, loopback-only when it isn't. The scraper-fingerprint risk that
+// motivates P3-1 (warm-pool exhaustion + ARM-throttle state visible
+// through `aci_spawn_attempts_total{result=…}` labels) is bounded by
+// that gate: an attacker would need either the token or shell access on
+// the VM. Extra-paranoid deploys can additionally strip labels at
+// exposition time, but the gate alone is the primary defense.
 
 import { Counter, Gauge, Histogram, Registry } from "prom-client";
-import { backendQueueDepth, listSessions } from "./session/sessionManager.js";
+import {
+  backendCounterDrift,
+  backendQueueDepth,
+  listSessions,
+} from "./session/sessionManager.js";
 import { _renderQueueDepth } from "./share/renderQueue.js";
 
 export const registry = new Registry();
@@ -73,6 +80,53 @@ export const renderQueueWaiting = new Gauge({
   collect() {
     this.set(_renderQueueDepth().waiting);
   },
+});
+
+// Phase 24B P1-7: HybridBackend counter drift. The localActive/aciActive
+// counters in HybridBackend deliberately do NOT clamp to zero on
+// decrement so any lifecycle bug surfaces here. A non-zero value means
+// either (a) destroy() was called more times than createSession() on
+// some backend, or (b) a createSession success path skipped its
+// post-await increment. Either is a real bug, not normal operation —
+// alert on any sustained non-zero value.
+export const aciCounterDrift = new Gauge({
+  name: "aci_counter_drift",
+  help: "HybridBackend localActive/aciActive drift (always 0 in steady state; non-zero = destroy/create lifecycle invariant broken).",
+  registers: [registry],
+  collect() {
+    this.set(backendCounterDrift());
+  },
+});
+
+// Phase 24B P1-9: ACI spawn outcome counter. `result` distinguishes the
+// happy paths from the failures so a regression in one (e.g. cold-start
+// timeout rate climbs) is loud independent of total volume.
+//   warm_claim     — pool had a slot ready; ~1ms latency
+//   cold_success   — full beginCreateOrUpdateAndWait + agent ready
+//   fail_cap       — daily $-cap reservation refused before ARM
+//   fail_arm       — Azure ARM error (auth, throttle, region outage)
+//   fail_agent     — container Running but agent /health never responded
+export const aciSpawnAttempts = new Counter({
+  name: "aci_spawn_attempts_total",
+  help: "ACI spawn outcomes (warm_claim | cold_success | fail_cap | fail_arm | fail_agent).",
+  labelNames: ["result"] as const,
+  registers: [registry],
+});
+
+// Phase 24B P1-9: ACI cold-start latency histogram. Drives the P2-1
+// budget-tuning decision (currently 30 s; if P99 sits at 28 s we have
+// almost no slack). `path` is "cold" for fresh spawns (the long path)
+// and "warm_claim" for pool hits (the short path) so the buckets
+// aren't dominated by the warm path's 1ms.
+//
+// Buckets sized for the cold path: most spawns 4–15 s, P99 in the
+// 20-30s range, anything above 30 s is a timeout.
+export const aciSpawnDuration = new Histogram({
+  name: "aci_spawn_duration_seconds",
+  help: "End-to-end ACI spawn time (ARM begin → agent /health 200), bucketed for cold-start budget tuning.",
+  labelNames: ["path"] as const,
+  buckets: [0.001, 0.01, 1, 3, 5, 8, 12, 16, 20, 25, 30, 45],
+  registers: [registry],
 });
 
 // Phase 23 P0 #5: HTTP response counter. Drives the `429 + 503 rate >

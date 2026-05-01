@@ -17,6 +17,7 @@ holds all runtime secrets; Log Analytics + Azure Monitor alert on VM health.
 | `modules/vm-health-alert.bicep` | Activity log alert on VM ResourceHealth. |
 | `modules/alerts.bicep` | Scheduled-query alerts against Log Analytics — memory ≥90%, CPU ≥85%, OS disk ≥80% (+ 70% warning tier), syslog OOM-kill, container-log-backed alerts on BYOK decrypt failure / unhandled rejections / platform-cost anomaly + App Insights availability tests for `/api/health/deep` and SWA root. |
 | `modules/vm-kv-access.bicep` | Grants VM MI "Key Vault Secrets User" on the KV. |
+| `modules/vm-aci-access.bicep` | Phase 24B: custom "Codetutor ACI Executor" role + VM MI assignment for ACI overflow lifecycle (no Contributor-on-RG fanout). |
 | `modules/swa.bicep` | Azure Static Web App (Free), unlinked. |
 | `modules/backup.bicep` | Recovery Services Vault + weekly backup policy (4-week retention). |
 
@@ -72,6 +73,67 @@ az keyvault secret set --vault-name "$KV" --name VITE-SUPABASE-URL         --val
 az keyvault secret set --vault-name "$KV" --name VITE-SUPABASE-ANON-KEY    --value "..."
 az keyvault secret set --vault-name "$KV" --name CORS-ORIGIN               --value "https://codetutor.msrivas.com"
 ```
+
+### Phase 24B — ACI hybrid burst overflow (optional)
+
+Seed these to wire the AciExecutionBackend. With any required key
+absent, the factory logs a warning and falls back to local-only —
+overflow stays off in the running backend regardless of
+`ENABLE_ACI_OVERFLOW`. Operational knobs (the daily cap, max overflow,
+runtime kill switch) are admin-panel-editable post-deploy via
+[Settings → Admin → Project caps](../../frontend/src/components/admin/),
+so KV here is the boot-time floor + DR fallback.
+
+```bash
+SUB=$(az account show --query id -o tsv)
+ACI_SUBNET=$(az deployment group show -g codetutor-ai-prod-rg -n main \
+  --query properties.outputs.aciSubnetId.value -o tsv)
+RUNNER_DIGEST=ghcr.io/msrivas-7/codetutor-runner@sha256:<digest>
+
+az keyvault secret set --vault-name "$KV" --name ENABLE-ACI-OVERFLOW       --value "1"
+az keyvault secret set --vault-name "$KV" --name AZURE-SUBSCRIPTION-ID     --value "$SUB"
+az keyvault secret set --vault-name "$KV" --name AZURE-RG                  --value "codetutor-ai-prod-rg"
+az keyvault secret set --vault-name "$KV" --name AZURE-LOCATION            --value "eastus2"
+az keyvault secret set --vault-name "$KV" --name ACI-SUBNET-ID             --value "$ACI_SUBNET"
+az keyvault secret set --vault-name "$KV" --name ACI-RUNNER-IMAGE          --value "$RUNNER_DIGEST"
+# Operational knobs — boot-time defaults. Admin panel can override at runtime.
+az keyvault secret set --vault-name "$KV" --name ACI-DAILY-USD-CAP         --value "20"
+az keyvault secret set --vault-name "$KV" --name ACI-MAX-OVERFLOW          --value "36"
+az keyvault secret set --vault-name "$KV" --name ACI-COLD-START-TIMEOUT-MS --value "30000"
+az keyvault secret set --vault-name "$KV" --name ACI-SIDECAR-PORT          --value "5757"
+```
+
+Pin `ACI-RUNNER-IMAGE` by digest (`@sha256:...`), not tag — a registry
+tag-flip would otherwise change the binary running in overflow
+containers without operator approval. Get the digest via:
+```bash
+docker pull ghcr.io/msrivas-7/codetutor-runner:latest
+docker inspect --format='{{index .RepoDigests 0}}' ghcr.io/msrivas-7/codetutor-runner:latest
+```
+
+**One-time IAM apply.** The custom "Codetutor ACI Executor" role + role
+assignment to the VM's MI live behind the same `manageRoleAssignments`
+flag as the KV access module. Set it true on the initial deploy by an
+Owner-level operator, then drop back to false for incremental redeploys
+by the Contributor-only deploy SP:
+```bash
+az deployment group create \
+  -g codetutor-ai-prod-rg --template-file main.bicep \
+  --parameters @main.parameters.json \
+  --parameters manageRoleAssignments=true \
+    adminPublicKey="$(cat ~/.ssh/codetutor_ai_vm.pub)" \
+    sshSourceIp="$(curl -s https://checkip.amazonaws.com)/32" \
+    bootstrapPrincipalObjectId="$BOOTSTRAP_OID"
+# Subsequent redeploys leave it false (default).
+```
+
+**Network posture.** The ACI subnet's NSG denies all outbound to the
+Internet (preserving the C2 `network=none` claim from the security
+suite). Inbound is locked to TCP 5757 from the VM subnet only. Image
+pulls happen via Azure's hosting plane — they don't traverse the
+container's runtime network namespace, so `DenyAllOutbound` does NOT
+break image-pull from GHCR. The Slice 10 soak test verifies this end
+to end before launch.
 
 ### Operator-funded tutor tier (optional)
 

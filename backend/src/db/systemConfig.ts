@@ -9,7 +9,7 @@ import { db } from "./client.js";
 
 const CACHE_TTL_MS = 60_000;
 
-// The five well-known keys. The DB column is text + JSONB so we can add
+// The well-known keys. The DB column is text + JSONB so we can add
 // keys without a migration; this constant is the validated list at the
 // admin-route layer (zod enum) so we can't write a typo'd key.
 export const KNOWN_KEYS = [
@@ -25,6 +25,32 @@ export const KNOWN_KEYS = [
   "share_public_disabled",
   "share_create_disabled",
   "share_render_disabled",
+  // Phase 24B operational knobs — admin-toggleable so an operator can
+  // turn ACI overflow off, raise/lower the daily cap, or shrink the
+  // overflow ceiling at 2am during a spike WITHOUT a redeploy. The env
+  // vars (config.aci.*) are the boot-time defaults + the fallback when
+  // the DB is unreachable. Static infra config (subscription, subnet,
+  // image, etc.) deliberately stays out of this list — those want
+  // version control via the Key Vault refresh-env runbook, not a UI.
+  "aci_overflow_enabled",
+  "aci_daily_usd_cap",
+  "aci_max_overflow",
+  // Slice 8: warm-pool toggle — pre-spawn 1–2 ACI containers when local
+  // capacity is close to its cap so the next overflow user gets a
+  // sub-second handoff instead of 5–15s cold start. Default off; flip
+  // on if cold-start latency surfaces post-launch. Capped at 2 warm
+  // containers ever (~$2.54/day idle cost, bounded further by the
+  // daily $-cap kill switch).
+  "aci_warm_pool_enabled",
+  // Phase 24B P2-2 (audit fix): warm-pool sizing knobs admin-editable
+  // so the operator can tune hysteresis without a redeploy. Defaults
+  // come from config.aci.warmPoolHighWatermark/etc; system_config
+  // values override at runtime. Useful when post-launch data shows the
+  // default 12/10/2 trio is wrong for actual traffic (e.g. spikes are
+  // smaller and we want pool=1, low=8 instead of pool=2, low=10).
+  "aci_warm_high_watermark",
+  "aci_warm_low_watermark",
+  "aci_warm_max_pool_size",
 ] as const;
 export type SystemConfigKey = (typeof KNOWN_KEYS)[number];
 
@@ -116,6 +142,39 @@ export async function getAllSystemConfig(): Promise<
   return result;
 }
 
+// P1-5 (second-audit fix): inner statement timeout + outer abort
+// timeout. The Supabase transaction pooler holds a backend connection
+// across the BEGIN/COMMIT span; without bounds, an admin's emergency
+// kill switch at 2 a.m. can hang on a pool stall or vacuum-pinned row.
+// The inner SET LOCAL statement_timeout aborts at the DB layer; the
+// outer Promise.race guards against connection-acquire stalls before
+// any statement gets to run. 5 s is generous for a single-row upsert.
+const SYSTEM_CONFIG_WRITE_BUDGET_MS = 5_000;
+
+async function withTimeout<T>(
+  work: Promise<T>,
+  budgetMs: number,
+  evt: string,
+): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(
+      () =>
+        reject(
+          Object.assign(new Error(`${evt}: exceeded ${budgetMs} ms budget`), {
+            code: "SYSTEM_CONFIG_WRITE_TIMEOUT",
+          }),
+        ),
+      budgetMs,
+    );
+  });
+  try {
+    return await Promise.race([work, deadline]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export async function setSystemConfig(args: {
   key: SystemConfigKey;
   value: SystemConfigValue;
@@ -123,21 +182,48 @@ export async function setSystemConfig(args: {
   reason: string;
 }): Promise<void> {
   const sql = db();
-  await sql`
-    INSERT INTO public.system_config (key, value, set_by, set_at, reason)
-    VALUES (${args.key}, ${sql.json(args.value)}, ${args.setBy}, NOW(), ${args.reason})
-    ON CONFLICT (key) DO UPDATE
-      SET value  = EXCLUDED.value,
-          set_by = EXCLUDED.set_by,
-          set_at = EXCLUDED.set_at,
-          reason = EXCLUDED.reason
-  `;
+  // P1-1 (audit fix): the BEFORE trigger guard_system_config_writes
+  // rejects any write that does NOT either come from a member of
+  // app_system_config_writer OR set app.allow_system_config_write=true
+  // for the current transaction. We use the second path (single-pool
+  // deploy) — wrap the upsert in a transaction with SET LOCAL so the
+  // GUC is scoped to this transaction only and cannot leak into a
+  // pooled connection's next query.
+  await withTimeout(
+    sql.begin(async (tx) => {
+      // P1-5: inner statement timeout. Each statement inside this
+      // transaction self-aborts at 5 s if the DB is wedged.
+      await tx`SET LOCAL statement_timeout = '5s'`;
+      await tx`SELECT set_config('app.allow_system_config_write', 'true', true)`;
+      await tx`
+        INSERT INTO public.system_config (key, value, set_by, set_at, reason)
+        VALUES (${args.key}, ${tx.json(args.value)}, ${args.setBy}, NOW(), ${args.reason})
+        ON CONFLICT (key) DO UPDATE
+          SET value  = EXCLUDED.value,
+              set_by = EXCLUDED.set_by,
+              set_at = EXCLUDED.set_at,
+              reason = EXCLUDED.reason
+      `;
+    }),
+    SYSTEM_CONFIG_WRITE_BUDGET_MS,
+    "system_config_set_timeout",
+  );
   cache.delete(args.key);
 }
 
 export async function clearSystemConfig(key: SystemConfigKey): Promise<void> {
   const sql = db();
-  await sql`DELETE FROM public.system_config WHERE key = ${key}`;
+  // P1-1: same admin-context opt-in as setSystemConfig.
+  // P1-5: same outer + inner timeout as setSystemConfig.
+  await withTimeout(
+    sql.begin(async (tx) => {
+      await tx`SET LOCAL statement_timeout = '5s'`;
+      await tx`SELECT set_config('app.allow_system_config_write', 'true', true)`;
+      await tx`DELETE FROM public.system_config WHERE key = ${key}`;
+    }),
+    SYSTEM_CONFIG_WRITE_BUDGET_MS,
+    "system_config_clear_timeout",
+  );
   cache.delete(key);
 }
 

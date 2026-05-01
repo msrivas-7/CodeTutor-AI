@@ -41,6 +41,7 @@ import {
   setSystemConfig,
   type SystemConfigKey,
 } from "../db/systemConfig.js";
+import { invalidateAciOperationalConfig } from "../services/observability/aciOperationalConfig.js";
 import { listAdminAuditLog, logAdminAction } from "../db/adminAuditLog.js";
 import {
   getAuthUser,
@@ -75,6 +76,37 @@ const KEY_BOUNDS: Record<
   share_public_disabled: { type: "boolean" },
   share_create_disabled: { type: "boolean" },
   share_render_disabled: { type: "boolean" },
+  // Phase 24B ACI operational knobs.
+  // - aci_overflow_enabled: runtime kill switch. False stops new ACI
+  //   spawns (existing sessions ride out their lifetimes) and shrinks
+  //   the absolute cap back to local-only.
+  // - aci_daily_usd_cap: $/day before the cost-cap kill switch fires.
+  //   Bound 0–100 so a typo can't let a runaway spike burn $1000.
+  //   Practical operator range is 0–50; 100 is the hard ceiling.
+  // - aci_max_overflow: how many concurrent ACI sessions allowed past
+  //   the local cap of 14. Bound 0–50 (P0-2 audit fix; was 100). 0 =
+  //   "off without disabling" (overflow returns 503 immediately).
+  //   The 50 ceiling reflects realistic burst sizing — past that the
+  //   cost cap fires anyway, AND a 50-spawn fan-out costs ~$2.65/hr
+  //   which already brushes the daily envelope. A higher value would
+  //   only mask a misconfigured cost cap.
+  aci_overflow_enabled: { type: "boolean" },
+  aci_daily_usd_cap: { type: "number", min: 0, max: 100 },
+  aci_max_overflow: { type: "number", min: 0, max: 50 },
+  // Slice 8: warm-pool toggle. Boolean; the high/low watermarks +
+  // pool size live in env (config.aci.*) since they're operational-
+  // tuning values that don't need 2am admin access.
+  aci_warm_pool_enabled: { type: "boolean" },
+  // P2-2: warm-pool hysteresis knobs. Bounds keep operator typos from
+  // (a) accidentally setting the pool higher than `aci_max_overflow`
+  // (would never spawn that many), or (b) inverting low/high (caught
+  // at read time below by HybridBackend's effectiveCap math). Hard
+  // upper-bound 14 on watermarks because that's the local-cap default;
+  // anything higher means the pool tries to ramp but local never gets
+  // there.
+  aci_warm_high_watermark: { type: "number", min: 0, max: 14 },
+  aci_warm_low_watermark: { type: "number", min: 0, max: 14 },
+  aci_warm_max_pool_size: { type: "number", min: 0, max: 10 },
 };
 
 // Env defaults exposed in GET /api/admin/system-config so the UI can
@@ -97,6 +129,20 @@ function envDefaultFor(key: SystemConfigKey): boolean | number {
       return config.share.createDisabled;
     case "share_render_disabled":
       return config.share.renderDisabled;
+    case "aci_overflow_enabled":
+      return config.aci.enabled;
+    case "aci_daily_usd_cap":
+      return config.aci.dailyUsdCap;
+    case "aci_max_overflow":
+      return config.aci.maxOverflow;
+    case "aci_warm_pool_enabled":
+      return config.aci.warmPoolEnabled;
+    case "aci_warm_high_watermark":
+      return config.aci.warmHighWatermark ?? 12;
+    case "aci_warm_low_watermark":
+      return config.aci.warmLowWatermark ?? 10;
+    case "aci_warm_max_pool_size":
+      return config.aci.warmMaxPoolSize ?? 2;
   }
 }
 
@@ -422,6 +468,60 @@ adminRouter.put("/system-config/:key", async (req, res, next) => {
     }
   }
 
+  // P2-2 (second-audit fix): cross-validate warm-pool watermarks so an
+  // admin typo can't invert low > high. Pre-fix the two keys had
+  // independent 0..14 bounds, but if low > high the warm-pool tick
+  // flaps every cycle (each /exec triggers a spawn-then-drain pair,
+  // burning ARM call budget + cost). The fix reads sibling values
+  // and refuses the write that would invert the order.
+  if (
+    (typedKey === "aci_warm_high_watermark" ||
+      typedKey === "aci_warm_low_watermark") &&
+    typeof value === "number"
+  ) {
+    const high =
+      typedKey === "aci_warm_high_watermark"
+        ? value
+        : (() => {
+            const r = (envDefaultFor("aci_warm_high_watermark") as number) ?? 12;
+            return r;
+          })();
+    const low =
+      typedKey === "aci_warm_low_watermark"
+        ? value
+        : (() => {
+            const r = (envDefaultFor("aci_warm_low_watermark") as number) ?? 10;
+            return r;
+          })();
+    // Read the sibling's CURRENT value (system_config or env fallback).
+    const siblingKey =
+      typedKey === "aci_warm_high_watermark"
+        ? "aci_warm_low_watermark"
+        : "aci_warm_high_watermark";
+    const siblingRow = await getSystemConfig(siblingKey);
+    const siblingValue =
+      typeof siblingRow?.value === "number"
+        ? siblingRow.value
+        : (envDefaultFor(siblingKey) as number);
+    const effectiveHigh =
+      typedKey === "aci_warm_high_watermark" ? value : siblingValue;
+    const effectiveLow =
+      typedKey === "aci_warm_low_watermark" ? value : siblingValue;
+    if (effectiveLow > effectiveHigh) {
+      await logAdminAction({
+        actorId,
+        eventType: "rejected_attempt",
+        targetKey: typedKey,
+        before: { high, low },
+        after: { value },
+        reason: `lowWatermark (${effectiveLow}) > highWatermark (${effectiveHigh}) — would flap warm pool every tick`,
+      });
+      return res.status(400).json({
+        error: `aci_warm_low_watermark (${effectiveLow}) cannot exceed aci_warm_high_watermark (${effectiveHigh}) — warm pool would flap`,
+      });
+    }
+  }
+
   // Phase 4.5 server #5: confirmReduction for global $ cap > 75% drop.
   if (typedKey === "free_tier_daily_usd_cap" && typeof value === "number") {
     const current = (await getSystemConfig(typedKey))?.value;
@@ -457,6 +557,21 @@ adminRouter.put("/system-config/:key", async (req, res, next) => {
       reason: parsed.data.reason,
     });
     const after = await getSystemConfig(typedKey, { bypassCache: true });
+    // Phase 24B: ACI operational knobs need their synchronous mirror
+    // refreshed immediately so the admin's change takes effect within
+    // ms instead of waiting for the periodic 30s refresh (e.g., emergency
+    // kill during a runaway spike). Other keys don't have this mirror.
+    if (
+      typedKey === "aci_overflow_enabled" ||
+      typedKey === "aci_daily_usd_cap" ||
+      typedKey === "aci_max_overflow" ||
+      typedKey === "aci_warm_pool_enabled" ||
+      typedKey === "aci_warm_high_watermark" ||
+      typedKey === "aci_warm_low_watermark" ||
+      typedKey === "aci_warm_max_pool_size"
+    ) {
+      await invalidateAciOperationalConfig();
+    }
     await logAdminAction({
       actorId,
       eventType: "system_config_set",
@@ -549,6 +664,17 @@ adminRouter.delete("/system-config/:key", async (req, res, next) => {
   try {
     const before = await getSystemConfig(typedKey);
     await clearSystemConfig(typedKey);
+    if (
+      typedKey === "aci_overflow_enabled" ||
+      typedKey === "aci_daily_usd_cap" ||
+      typedKey === "aci_max_overflow" ||
+      typedKey === "aci_warm_pool_enabled"
+    ) {
+      // Revert-to-env path. Refresh the sync mirror so the env default
+      // takes effect immediately rather than the previous DB-held value
+      // sticking around for 30s.
+      await invalidateAciOperationalConfig();
+    }
     await logAdminAction({
       actorId,
       eventType: "system_config_cleared",

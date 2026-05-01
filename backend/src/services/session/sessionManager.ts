@@ -44,11 +44,45 @@ export const BACKEND_BOOT_ID = nanoid();
 let backend: ExecutionBackend | null = null;
 
 /**
- * Inject the ExecutionBackend used for all session lifecycle. Must be called
- * once from the app bootstrap before any route handler runs.
+ * Phase 24B: absolute global session cap. With ACI overflow off this stays
+ * at config.session.maxGlobal (14). With ACI on, the backend factory
+ * returns `maxGlobal + aci.maxOverflow` (50 by default). The 503 in
+ * startSession trips on this; the local-vs-ACI routing decision is made
+ * inside the HybridBackend wrapper using `maxGlobal` as the threshold.
+ *
+ * Stored as `null` until initSessionManager runs so `config.session` is
+ * never read at module load time — that allows tests with partial config
+ * mocks (e.g., byok.test.ts mocks only byokEncryptionKey) to import this
+ * module transitively without crashing.
  */
-export function initSessionManager(b: ExecutionBackend): void {
+let absoluteSessionCap: number | null = null;
+
+function effectiveAbsoluteCap(): number {
+  // Phase 24B: HybridBackend exposes a dynamic cap that shrinks to
+  // localCap when the cost-cap kill switch trips, so the 15th+ session
+  // 503s instead of cascading into ACI spawns we know will be rejected.
+  // Local-only backends don't expose this; they fall through to the
+  // static `absoluteSessionCap` (= config.session.maxGlobal).
+  const dyn = (backend as { effectiveCap?: () => number } | null)?.effectiveCap?.();
+  if (typeof dyn === "number") return dyn;
+  return absoluteSessionCap ?? config.session.maxGlobal;
+}
+
+/**
+ * Inject the ExecutionBackend used for all session lifecycle. Must be called
+ * once from the app bootstrap before any route handler runs. The optional
+ * `opts.absoluteSessionCap` overrides the default (config.session.maxGlobal)
+ * when ACI overflow is enabled — see `makeExecutionBackend()` for the
+ * derivation.
+ */
+export function initSessionManager(
+  b: ExecutionBackend,
+  opts: { absoluteSessionCap?: number } = {},
+): void {
   backend = b;
+  if (typeof opts.absoluteSessionCap === "number") {
+    absoluteSessionCap = opts.absoluteSessionCap;
+  }
 }
 
 function requireBackend(): ExecutionBackend {
@@ -66,6 +100,16 @@ function requireBackend(): ExecutionBackend {
 // without internal queueing (cloud/auto-scale impls) return zeros too.
 export function backendQueueDepth(): { inFlight: number; queued: number } {
   return backend ? backend.queueDepth() : { inFlight: 0, queued: 0 };
+}
+
+// P1-7 (audit fix): drift signal for the metrics scrape. Only the
+// HybridBackend tracks per-backend session counters that can drift —
+// other backends (LocalDocker by itself) read sessionManager directly.
+// Returns 0 if the active backend doesn't expose getCounterDrift.
+export function backendCounterDrift(): number {
+  if (!backend) return 0;
+  const probe = (backend as { getCounterDrift?: () => number }).getCounterDrift;
+  return typeof probe === "function" ? probe.call(backend) : 0;
 }
 
 // Only accept IDs the same shape nanoid produces — prevents a client from
@@ -170,7 +214,12 @@ export async function startSession(
       { "Retry-After": "2" },
     );
   }
-  if (sessions.size >= config.session.maxGlobal) {
+  // Phase 24B: 503 trigger is now `effectiveAbsoluteCap()` (set at boot
+  // via initSessionManager). Without ACI: same behavior as before — caps
+  // at config.session.maxGlobal. With ACI: caps at maxGlobal +
+  // aci.maxOverflow, and the HybridBackend.createSession routes the 15th+
+  // session to ACI.
+  if (sessions.size >= effectiveAbsoluteCap()) {
     kickReap();
     throw new HttpError(
       503,

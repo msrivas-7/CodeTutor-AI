@@ -37,6 +37,14 @@ const KEY_LABEL: Record<SystemConfigKey, string> = {
   share_public_disabled: "Block public share viewing",
   share_create_disabled: "Block new share creation",
   share_render_disabled: "Block share image rendering",
+  // Phase 24B ACI overflow knobs. "Enabled" reads positively (the
+  // overflow IS allowed) — opposite of the share kill switches
+  // because turning ACI off reduces capacity rather than blocking a
+  // feature, so the natural default is "on" (overflow available).
+  aci_overflow_enabled: "ACI overflow enabled",
+  aci_daily_usd_cap: "ACI daily $ cap",
+  aci_max_overflow: "ACI max overflow sessions",
+  aci_warm_pool_enabled: "ACI warm pool enabled",
 };
 
 // Inline help for each row — surfaced as a one-line description so the
@@ -48,6 +56,14 @@ const KEY_DESCRIPTION: Partial<Record<SystemConfigKey, string>> = {
     "503s POST /api/shares. New shares blocked; existing shares stay viewable.",
   share_render_disabled:
     "Skips Satori render+upload. Share row still gets created (URL works), images stay null, dialog falls back gracefully.",
+  aci_overflow_enabled:
+    "Master gate. When off, the 15th+ concurrent session 503s instead of spilling over to ACI. Existing ACI sessions ride out their lifetimes. No new ACI cost while off.",
+  aci_daily_usd_cap:
+    "Cost-cap kill switch. When today's ACI spend ≥ this value, overflow disables for the rest of the UTC day. Resets at midnight UTC. Each ACI session bills at $0.053/hr.",
+  aci_max_overflow:
+    "Concurrent ACI sessions allowed past the local cap of 14. 0 = effectively off (overflow returns 503). Higher values let an HN-spike route many sessions through ACI before the daily cap intervenes.",
+  aci_warm_pool_enabled:
+    "Pre-spawn 1–2 ACI containers when local capacity is close to its cap so the next overflow user gets a sub-second handoff (vs. 5–15s cold start). Off by default — turn on if cold-start latency complaints surface. Hard-capped at 2 idle containers, ~$2.54/day worst-case idle cost; cost-cap kill switch is the absolute backstop.",
 };
 
 const KEY_BOUNDS: Record<
@@ -62,6 +78,10 @@ const KEY_BOUNDS: Record<
   share_public_disabled: { type: "boolean" },
   share_create_disabled: { type: "boolean" },
   share_render_disabled: { type: "boolean" },
+  aci_overflow_enabled: { type: "boolean" },
+  aci_daily_usd_cap: { type: "number", min: 0, max: 100, step: "1" },
+  aci_max_overflow: { type: "number", min: 0, max: 100, step: "1" },
+  aci_warm_pool_enabled: { type: "boolean" },
 };
 
 const PHRASE_DISABLE = "I understand this stops free AI for everyone";
