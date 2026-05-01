@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useStreak } from "../../../state/useStreak";
+import { useDisableStreaks } from "../../../state/preferencesStore";
 import { StreakDetailPopover } from "./StreakDetailPopover";
 
 // Phase 21B: streak chip — single component, parameterized escalation.
@@ -239,6 +240,11 @@ function StreakArc({ segmentsClosed, tier, freezeActive, isAtRisk }: ArcProps) {
 
 export function StreakChip({ override, compact, interactive = true, prominent = false }: ChipProps) {
   const { streak } = useStreak();
+  // Phase 27: per-user opt-out for the streak system. When the
+  // preference flag is on we render nothing — same shape as the day-0
+  // fallback below. `override` (used by cinematic frame snapshots and
+  // tests) bypasses the flag so e2e fixtures stay deterministic.
+  const disableStreaks = useDisableStreaks();
   const data = override
     ? { current: override.current, longest: override.longest, isAtRisk: override.isAtRisk, freezeActive: override.freezeActive }
     : streak
@@ -286,6 +292,11 @@ export function StreakChip({ override, compact, interactive = true, prominent = 
 
   // Day 0 — render nothing. Don't lecture.
   if (!data || data.current === 0) return null;
+  // Phase 27 opt-out — streak system fully hidden for this user.
+  // `override` bypasses (e2e + cinematic snapshots) by virtue of
+  // its data path skipping useStreak entirely above; we still
+  // gate here so a non-override caller respects the user choice.
+  if (!override && disableStreaks) return null;
 
   const tier = resolveTier(data.current);
   const segmentsClosed = Math.min(data.current, SEGMENTS);

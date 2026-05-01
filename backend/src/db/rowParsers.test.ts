@@ -98,6 +98,9 @@ describe("DB row parsers", () => {
       // via the migration, but the row parser still requires the
       // boolean to be present in the SELECT result.
       email_opt_in: true,
+      // Phase 27: per-user opt-out for the streak system. Defaults
+      // false at the DB layer; row parser requires the boolean.
+      disable_streaks: false,
       updated_at: new Date(),
     };
 

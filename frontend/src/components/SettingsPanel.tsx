@@ -5,7 +5,9 @@ import { HOUSE_EASE } from "./cinema/easing";
 import { api } from "../api/client";
 import { useAIStore } from "../state/aiStore";
 import {
+  setDisableStreaks,
   setEmailOptIn,
+  useDisableStreaks,
   useEmailOptIn,
   usePreferencesStore,
 } from "../state/preferencesStore";
@@ -898,6 +900,10 @@ function AccountTab({ onClose }: { onClose?: () => void }) {
 
       <hr className="border-border" />
 
+      <StreakDisplaySection />
+
+      <hr className="border-border" />
+
       <section className="flex flex-col gap-2">
         <h3 className="text-xs font-semibold text-ink">Replay the intro</h3>
         {replayErr && (
@@ -997,6 +1003,75 @@ function NotificationsSection() {
             aria-hidden="true"
             className={`inline-block h-3.5 w-3.5 transform rounded-full bg-bg shadow transition ${
               optIn ? "translate-x-[18px]" : "translate-x-[3px]"
+            }`}
+          />
+        </button>
+      </div>
+      {error && (
+        <div
+          role="alert"
+          className="rounded-md border border-danger/40 bg-danger/10 px-2 py-1 text-[11px] text-danger"
+        >
+          {error}
+        </div>
+      )}
+    </section>
+  );
+}
+
+// Phase 27: opt-out for the streak system. Some learners (career-changers
+// burned by streak-pressure on prior apps) genuinely learn worse with the
+// chip ticking in the corner. Defaults OFF (streaks visible — the modal
+// audience benefits from the signal). Toggle ON suppresses every streak
+// surface (toolbar chip, lesson-complete celebration, share-page count)
+// AND the daily streak nudge email. Streak data on the server is
+// preserved — toggling back resumes display from where it was.
+function StreakDisplaySection() {
+  const disabled = useDisableStreaks();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const onToggle = async () => {
+    setError(null);
+    setBusy(true);
+    try {
+      await setDisableStreaks(!disabled);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="flex flex-col gap-2">
+      <h3 className="text-xs font-semibold text-ink">Streaks</h3>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1">
+          <div className="text-[12px] font-medium text-ink">Hide streaks</div>
+          <p className="mt-0.5 text-[10px] leading-relaxed text-faint">
+            Some people learn better without streaks. Turn this on to hide the
+            streak chip, lesson-complete streak celebration, and the daily
+            streak email. We'll keep tracking yours quietly so you can flip
+            this back on whenever.
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={disabled}
+          aria-label="Toggle hide streaks"
+          aria-busy={busy}
+          disabled={busy}
+          onClick={onToggle}
+          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60 ${
+            disabled ? "border-accent/60 bg-accent/80" : "border-border bg-elevated"
+          }`}
+        >
+          <span
+            aria-hidden="true"
+            className={`inline-block h-3.5 w-3.5 transform rounded-full bg-bg shadow transition ${
+              disabled ? "translate-x-[18px]" : "translate-x-[3px]"
             }`}
           />
         </button>

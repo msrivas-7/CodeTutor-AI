@@ -102,6 +102,15 @@ const prefsPatchSchema = z
     // ISO-8601 string accepted from the client; null clears.
     // Undefined = not present on patch = no-op on the server.
     lastWelcomeBackAt: z.string().datetime().nullable().optional(),
+    // Phase 22D: streak-nudge email opt-in. Settings UI fires this via
+    // setEmailOptIn → patch. The unsubscribe email route bypasses this
+    // path and writes directly via setEmailOptInDirect.
+    emailOptIn: z.boolean().optional(),
+    // Phase 27: disable the streak system entirely for this user.
+    // Settings UI exposes a toggle; downstream UI surfaces (StreakChip,
+    // LessonCompletePanel streak section, share-page streak count) and
+    // the digest sweeper all gate on this flag.
+    disableStreaks: z.boolean().optional(),
   })
   .strict();
 

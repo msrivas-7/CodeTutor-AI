@@ -240,6 +240,12 @@ export interface UserPreferences {
   // unsubscribe link flips this to false directly via the unsubscribe
   // route (bypasses the patch path).
   emailOptIn: boolean;
+  // Phase 27: hide the streak system entirely for this user. Defaults
+  // FALSE; when TRUE, StreakChip + lesson-complete streak section +
+  // share-page streak count + daily streak email are all suppressed.
+  // Streak data on the server is preserved; toggling back to FALSE
+  // resumes display from the persisted value.
+  disableStreaks: boolean;
   updatedAt: string;
   // Phase 25: account-freeze flag. When true, the user is blocked from
   // creating new sessions and the authed shell renders a generic
@@ -260,6 +266,7 @@ export interface UserPreferencesPatch {
   uiLayout?: Record<string, unknown>;
   lastWelcomeBackAt?: string | null;
   emailOptIn?: boolean;
+  disableStreaks?: boolean;
 }
 
 export interface ServerCourseProgress {

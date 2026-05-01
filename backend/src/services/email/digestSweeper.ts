@@ -68,6 +68,7 @@ const SELECT_ELIGIBLE_USERS_SQL = `
   WHERE s.current_streak >= 1
     AND s.last_active_date = (CURRENT_DATE AT TIME ZONE 'UTC')::date - INTERVAL '1 day'
     AND p.email_opt_in = TRUE
+    AND p.disable_streaks = FALSE
     AND (p.last_streak_email_sent_at IS NULL
          OR p.last_streak_email_sent_at < (CURRENT_DATE AT TIME ZONE 'UTC')::date)
     AND au.email IS NOT NULL

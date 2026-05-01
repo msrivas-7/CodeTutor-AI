@@ -44,6 +44,11 @@ interface PreferencesState {
   // Phase 22D: streak-nudge email opt-in. Defaults TRUE on new accounts;
   // Settings panel toggle + email's one-click unsubscribe both flip it.
   emailOptIn: boolean;
+  // Phase 27: disable the streak system entirely for this user. Defaults
+  // FALSE. When TRUE, every streak-related UI surface (toolbar chip,
+  // lesson-complete celebration, share-page count, daily nudge email)
+  // is suppressed. Streak data is preserved server-side.
+  disableStreaks: boolean;
   // Phase 25: account-freeze flag. When true, the authed shell renders
   // a generic "contact support" banner. Server enforces by 403 on
   // session creation; this UI signal is purely informational. The
@@ -77,6 +82,7 @@ const DEFAULTS: Omit<
   hasOpenaiKey: false,
   lastWelcomeBackAt: null,
   emailOptIn: true,
+  disableStreaks: false,
   accountFrozen: false,
 };
 
@@ -92,6 +98,7 @@ function applyServer(prefs: UserPreferences): Partial<PreferencesState> {
     hasOpenaiKey: prefs.hasOpenaiKey,
     lastWelcomeBackAt: prefs.lastWelcomeBackAt,
     emailOptIn: prefs.emailOptIn,
+    disableStreaks: prefs.disableStreaks,
     accountFrozen: prefs.accountFrozen ?? false,
     hydrated: true,
   };
@@ -146,6 +153,8 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
     if (body.lastWelcomeBackAt !== undefined)
       optimistic.lastWelcomeBackAt = body.lastWelcomeBackAt;
     if (body.emailOptIn !== undefined) optimistic.emailOptIn = body.emailOptIn;
+    if (body.disableStreaks !== undefined)
+      optimistic.disableStreaks = body.disableStreaks;
     set(optimistic);
 
     try {
@@ -163,6 +172,7 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
         uiLayout: prior.uiLayout,
         lastWelcomeBackAt: prior.lastWelcomeBackAt,
         emailOptIn: prior.emailOptIn,
+        disableStreaks: prior.disableStreaks,
       });
       throw err;
     }
@@ -230,6 +240,18 @@ export function useEmailOptIn(): boolean {
 
 export async function setEmailOptIn(optIn: boolean): Promise<void> {
   await usePreferencesStore.getState().patch({ emailOptIn: optIn });
+}
+
+// Phase 27: streak system opt-out. Same optimistic-with-rollback pattern.
+// Defaults to false on new accounts; flipping to true hides every streak
+// surface (toolbar chip, lesson-complete celebration, share-page count)
+// and suppresses the daily streak email.
+export function useDisableStreaks(): boolean {
+  return usePreferencesStore((s) => s.disableStreaks);
+}
+
+export async function setDisableStreaks(disabled: boolean): Promise<void> {
+  await usePreferencesStore.getState().patch({ disableStreaks: disabled });
 }
 
 export function useUiLayoutValue<T>(path: string, fallback: T): T {
