@@ -19,6 +19,7 @@
     "modules-and-imports",
     "oop-classes",
     "oop-inheritance",
-    "dunder-methods"
+    "dunder-methods",
+    "iterators-and-generators"
   ]
 }

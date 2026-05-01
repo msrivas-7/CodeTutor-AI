@@ -1,0 +1,149 @@
+{
+  "id": "iterators-and-generators",
+  "courseId": "python-intermediate",
+  "title": "Iterators & Generators",
+  "description": "Produce values lazily with yield — write infinite sequences, stream large files, and stop computing the moment you've seen enough.",
+  "order": 9,
+  "language": "python",
+  "estimatedMinutes": 25,
+  "objectives": [
+    "Write a generator function with `yield`",
+    "Consume a generator with `for` or `next()`",
+    "Reach for a generator when a list would be wasteful or impossible (huge files, infinite sequences)"
+  ],
+  "teachesConceptTags": [
+    "generator",
+    "yield",
+    "lazy-evaluation",
+    "next",
+    "generator-expression"
+  ],
+  "usesConceptTags": [
+    "def",
+    "for",
+    "iteration",
+    "list",
+    "print",
+    "f-strings",
+    "int",
+    "if",
+    "comparison",
+    "return",
+    "while",
+    "comprehension",
+    "len",
+    "range",
+    "sorting"
+  ],
+  "completionRules": [
+    {
+      "type": "expected_stdout",
+      "expected": "first 10 fib: [0, 1, 1, 2, 3, 5, 8, 13, 21, 34]\nsum: 88"
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "yield"
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "def fibonacci"
+    }
+  ],
+  "prerequisiteLessonIds": ["dunder-methods"],
+  "recap": "A generator is a function that uses `yield` instead of `return`. Each `yield` hands a value back to the caller and pauses; the next request resumes right where it left off. That's *lazy evaluation* — values are produced one at a time, on demand, so you can write infinite sequences and stream huge inputs without ever holding them all in memory. Reach for a generator when materializing the full list would be wasteful or impossible; reach for a list when you'll need to iterate the same data more than once.",
+  "practicePrompts": [
+    "Take a list comprehension you've written. Rewrite it as a generator expression by changing `[...]` to `(...)`. What changes about how you'd use it?",
+    "When would a generator be a *bad* choice? Think about random access, length, and re-iteration."
+  ],
+  "practiceExercises": [
+    {
+      "id": "count-up-to",
+      "title": "A finite counter generator",
+      "prompt": "Write a generator function `count_up_to(n)` that yields the integers 1, 2, 3, ..., n in order. For example, `list(count_up_to(5))` should be `[1, 2, 3, 4, 5]`, and `list(count_up_to(0))` should be `[]`.",
+      "goal": "Convert a `for` loop into a generator by replacing the `append` with a `yield`.",
+      "starterCode": "def count_up_to(n):\n    # TODO: yield 1, 2, ..., n\n    pass\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "count to five", "call": "list(count_up_to(5))", "expected": "[1, 2, 3, 4, 5]" },
+            { "name": "count to one", "call": "list(count_up_to(1))", "expected": "[1]" },
+            { "name": "count to zero", "call": "list(count_up_to(0))", "expected": "[]" },
+            { "name": "count to ten", "call": "list(count_up_to(10))", "expected": "[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]", "hidden": true }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "yield"
+        }
+      ],
+      "hints": [
+        "If you'd written this as a `for` loop that builds a list, you'd `range(1, n + 1)` and `append`. A generator does the same loop but `yield`s instead.",
+        "Shape:\n```python\ndef count_up_to(n):\n    for i in range(1, n + 1):\n        yield i\n```\nThe presence of `yield` is what turns this from a regular function into a generator.",
+        "The same idea wrapped around a different range:\n```python\ndef countdown(n):\n    for i in range(n, 0, -1):\n        yield i\n```"
+      ]
+    },
+    {
+      "id": "squares-under",
+      "title": "Squares under a limit",
+      "prompt": "Write a generator function `squares_under(limit)` that yields the squares 1, 4, 9, 16, ... — but only those strictly less than `limit`. For example, `list(squares_under(20))` should be `[1, 4, 9, 16]`, and `list(squares_under(1))` should be `[]`. Use a `while` loop and stop when the next square would equal or exceed `limit`.",
+      "goal": "Use a `while` loop in a generator and yield only the values that pass a condition.",
+      "starterCode": "def squares_under(limit):\n    # TODO: yield 1, 4, 9, 16, ... while the value is < limit\n    pass\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "under twenty", "call": "list(squares_under(20))", "expected": "[1, 4, 9, 16]" },
+            { "name": "under one is empty", "call": "list(squares_under(1))", "expected": "[]" },
+            { "name": "under fifty", "call": "list(squares_under(50))", "expected": "[1, 4, 9, 16, 25, 36, 49]" },
+            { "name": "boundary excludes equal", "call": "list(squares_under(16))", "expected": "[1, 4, 9]" },
+            { "name": "under hundred", "call": "list(squares_under(100))", "expected": "[1, 4, 9, 16, 25, 36, 49, 64, 81]", "hidden": true }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "yield"
+        }
+      ],
+      "hints": [
+        "A `while` loop runs forever unless you `return` (or `break`). In a generator, `return` ends the iteration. So: keep an `i` counter, yield `i*i` while it's under the limit, return when it isn't.",
+        "Shape:\n```python\ndef squares_under(limit):\n    i = 1\n    while i * i < limit:\n        yield i * i\n        i += 1\n```\nFalling through the bottom of a generator (the `while` exits) automatically stops iteration. No explicit `return` is needed.",
+        "The same shape with a different formula — powers of two:\n```python\ndef powers_under(limit):\n    n = 1\n    while n < limit:\n        yield n\n        n *= 2\n```"
+      ]
+    },
+    {
+      "id": "first-n",
+      "title": "Take the first n items",
+      "prompt": "Write `first_n(iterable, n)` that returns a list of the first `n` items from `iterable`. It should work whether `iterable` is a list, a finite generator, or an *infinite* generator — so don't try to convert it to a list up front. Use a `for` loop with a counter, or `enumerate` and `break`. For example, `first_n([10, 20, 30, 40], 2)` returns `[10, 20]`. `first_n(count_up_to(100), 3)` returns `[1, 2, 3]`. If `n <= 0` or the iterable is empty, return `[]`.",
+      "goal": "Consume a finite prefix of an iterable without materializing the rest — works on infinite sources too.",
+      "starterCode": "def first_n(iterable, n):\n    # TODO: collect the first n items into a list and stop\n    pass\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "first two of list", "call": "first_n([10, 20, 30, 40], 2)", "expected": "[10, 20]" },
+            { "name": "more than available", "call": "first_n([1, 2], 5)", "expected": "[1, 2]" },
+            { "name": "n is zero", "call": "first_n([1, 2, 3], 0)", "expected": "[]" },
+            { "name": "n is negative", "call": "first_n([1, 2, 3], -1)", "expected": "[]" },
+            { "name": "first 5 of infinite naturals", "setup": "def naturals():\n    i = 0\n    while True:\n        yield i\n        i += 1", "call": "first_n(naturals(), 5)", "expected": "[0, 1, 2, 3, 4]" },
+            { "name": "empty iterable", "call": "first_n([], 3)", "expected": "[]", "hidden": true }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "def first_n"
+        }
+      ],
+      "hints": [
+        "You need to stop reading from `iterable` after `n` items — and you must not call `len()` or `list()` on it up front, because that would hang on an infinite generator.",
+        "Shape:\n```python\ndef first_n(iterable, n):\n    out = []\n    for item in iterable:\n        if len(out) >= n:\n            break\n        out.append(item)\n    return out\n```\nThe `for` loop on an iterable just calls `next()` under the hood, one item at a time. `break` stops it cleanly.",
+        "Equivalent shape using `enumerate`:\n```python\ndef first_n(iterable, n):\n    out = []\n    for i, item in enumerate(iterable):\n        if i >= n:\n            break\n        out.append(item)\n    return out\n```"
+      ]
+    }
+  ]
+}
