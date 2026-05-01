@@ -54,6 +54,17 @@ const FUNCTION_TESTS_ORDER_FLOOR_BY_LANGUAGE: Record<string, number> = {
 };
 const FUNCTION_TESTS_ORDER_FLOOR_DEFAULT = 6;
 
+// Phase 22F2: function-keyword concept tag per language. Used by the
+// floor check to see if functions were taught in a parent course (via
+// inheritsBaseVocabularyFrom). When this tag appears in the inherited
+// vocabulary, the floor doesn't apply — a child course like
+// python-intermediate inherits fundamentals' `def` tag and can use
+// function_tests from order 1.
+const FUNCTION_KEYWORD_TAG_BY_LANGUAGE: Record<string, string> = {
+  python: "def",
+  javascript: "function",
+};
+
 // ── Main ───────────────────────────────────────────────────────────
 function main() {
   const issues: LintIssue[] = [];
@@ -98,8 +109,34 @@ function main() {
     }
   }
 
+  // Phase 22F2: collect taught-tags per course up-front so a child course's
+  // resolveInheritedVocabulary call can pull in parent lessons' tags. This
+  // is what makes `inheritsBaseVocabularyFrom` actually useful for
+  // cross-course curricula (otherwise only parent baseVocabulary inherits,
+  // which is typically a tiny "primitives" list).
+  const taughtByCourseId = new Map<string, string[]>();
+  for (const [courseId] of coursesById) {
+    const lessonsDir = join(COURSES_DIR, courseId, "lessons");
+    if (!existsSync(lessonsDir)) continue;
+    const taught = new Set<string>();
+    for (const lessonId of readdirSync(lessonsDir)) {
+      const lessonPath = join(lessonsDir, lessonId, "lesson.json");
+      if (!existsSync(lessonPath)) continue;
+      try {
+        const raw = JSON.parse(readFileSync(lessonPath, "utf8"));
+        const parsed = lessonMetaSchema.safeParse(raw);
+        if (parsed.success) {
+          for (const tag of parsed.data.teachesConceptTags) taught.add(tag);
+        }
+      } catch {
+        // skip — full validation surfaces in lintCourse
+      }
+    }
+    taughtByCourseId.set(courseId, Array.from(taught));
+  }
+
   for (const courseId of courseIds) {
-    lintCourse(courseId, coursesById, issues);
+    lintCourse(courseId, coursesById, taughtByCourseId, issues);
   }
 
   report(issues);
@@ -111,6 +148,7 @@ function main() {
 function lintCourse(
   courseFolder: string,
   coursesById: ReadonlyMap<string, Course>,
+  taughtByCourseId: ReadonlyMap<string, readonly string[]>,
   issues: LintIssue[],
 ) {
   const courseDir = join(COURSES_DIR, courseFolder);
@@ -183,6 +221,16 @@ function lintCourse(
     }
   }
 
+  // Phase 22F2: compute inherited concept tags once (per-course) so the
+  // function_tests floor check + concept graph share the same view of
+  // "what the learner brought in from earlier courses." Cycles surface
+  // here too — but lintConceptGraph reports them; suppress here to avoid
+  // duplicate error messages.
+  const inheritedSet = new Set(
+    resolveInheritedVocabulary(course.id, coursesById, taughtByCourseId)
+      .vocabulary,
+  );
+
   // Load every lesson file
   const lessons: Array<{ lesson: Lesson; path: string; relPath: string }> = [];
   for (const lessonId of course.lessonOrder) {
@@ -220,14 +268,14 @@ function lintCourse(
 
     const lesson = res.data;
     lessons.push({ lesson, path: lessonPath, relPath: relLesson });
-    lintLesson(lesson, lessonDir, relLesson, course.id, issues);
+    lintLesson(lesson, lessonDir, relLesson, course.id, inheritedSet, issues);
   }
 
   // Cross-lesson checks (orders, prerequisites, concept graph)
   lintOrderContiguity(lessons, relCourse, issues);
   lintPrerequisites(lessons, course.lessonOrder, issues);
   lintCrossCourseRefs(course, coursesById, relCourse, issues);
-  lintConceptGraph(course, coursesById, lessons, issues);
+  lintConceptGraph(course, coursesById, taughtByCourseId, lessons, issues);
 }
 
 // Phase 22F2A — B5/B6: validate cross-course id references and surface
@@ -279,13 +327,18 @@ function lintCrossCourseRefs(
 function lintConceptGraph(
   course: Course,
   coursesById: ReadonlyMap<string, Course>,
+  taughtByCourseId: ReadonlyMap<string, readonly string[]>,
   lessons: Array<{ lesson: Lesson; relPath: string }>,
   issues: LintIssue[],
 ) {
   const lessonMap = new Map<string, Lesson>();
   for (const { lesson } of lessons) lessonMap.set(lesson.id, lesson);
 
-  const inherited = resolveInheritedVocabulary(course.id, coursesById);
+  const inherited = resolveInheritedVocabulary(
+    course.id,
+    coursesById,
+    taughtByCourseId,
+  );
   for (const err of inherited.errors) {
     // unknown-parent is also caught by lintCrossCourseRefs; cycles are
     // exclusive to this resolver. Surface both for parity but dedupe by
@@ -328,6 +381,7 @@ function lintLesson(
   lessonDir: string,
   relLesson: string,
   courseId: string,
+  inheritedTags: ReadonlySet<string>,
   issues: LintIssue[],
 ) {
   // id must match folder name
@@ -471,7 +525,7 @@ function lintLesson(
   }
 
   // Completion rules: function_tests ordering gate, required_file_contains file presence
-  lintCompletionRules(lesson.completionRules, lesson.order, lesson.language, lessonDir, relLesson, "completionRules", issues);
+  lintCompletionRules(lesson.completionRules, lesson.order, lesson.language, lessonDir, relLesson, "completionRules", inheritedTags, issues);
 
   // Practice exercises
   const practiceIds = new Set<string>();
@@ -493,6 +547,7 @@ function lintLesson(
       lessonDir,
       relLesson,
       `practiceExercises[${i}].completionRules`,
+      inheritedTags,
       issues,
     );
   });
@@ -505,6 +560,7 @@ function lintCompletionRules(
   lessonDir: string,
   relLesson: string,
   pointerPrefix: string,
+  inheritedTags: ReadonlySet<string>,
   issues: LintIssue[],
 ) {
   rules.forEach((rule, i) => {
@@ -512,7 +568,14 @@ function lintCompletionRules(
       const floor =
         FUNCTION_TESTS_ORDER_FLOOR_BY_LANGUAGE[lessonLanguage] ??
         FUNCTION_TESTS_ORDER_FLOOR_DEFAULT;
-      if (lessonOrder < floor) {
+      // Phase 22F2: skip the floor error if the language's function-keyword
+      // tag was taught in a parent course (via inheritsBaseVocabularyFrom).
+      // Intermediate-tier courses inherit fundamentals' `def` tag, so a
+      // lesson with order < floor is fine — functions ARE taught, just in
+      // a different course.
+      const fnKeywordTag = FUNCTION_KEYWORD_TAG_BY_LANGUAGE[lessonLanguage];
+      const fnTaughtElsewhere = !!fnKeywordTag && inheritedTags.has(fnKeywordTag);
+      if (lessonOrder < floor && !fnTaughtElsewhere) {
         issues.push({
           severity: "error",
           file: relLesson,

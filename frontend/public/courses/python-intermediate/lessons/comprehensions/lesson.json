@@ -1,0 +1,135 @@
+{
+  "id": "comprehensions",
+  "courseId": "python-intermediate",
+  "title": "Comprehensions",
+  "description": "Build lists, dicts, and sets in one line — the Pythonic shorthand for transforming collections.",
+  "order": 1,
+  "language": "python",
+  "estimatedMinutes": 20,
+  "objectives": [
+    "Build dicts and sets with comprehensions, not just lists",
+    "Combine filtering and transformation in a single comprehension",
+    "Recognize when a comprehension hurts readability and reach for a loop instead"
+  ],
+  "teachesConceptTags": [
+    "dict-comprehension",
+    "set-comprehension"
+  ],
+  "usesConceptTags": [
+    "comprehension",
+    "for",
+    "if",
+    "dict",
+    "list",
+    "range",
+    "strings",
+    "iteration",
+    "len",
+    "print",
+    "f-strings"
+  ],
+  "completionRules": [
+    {
+      "type": "expected_stdout",
+      "expected": "passing students: ['Alice', 'Cara']\ngrades by student: {'Alice': 87, 'Bob': 54, 'Cara': 91}\nunique grade tens: [5, 8, 9]"
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "for "
+    }
+  ],
+  "prerequisiteLessonIds": [],
+  "recap": "Comprehensions condense build-and-filter loops into one expression — `[x for x in xs if c]` for lists, `{k: v for ...}` for dicts, `{x for ...}` for sets. Reach for a regular loop the moment the body needs more than one short expression.",
+  "practicePrompts": [
+    "Rewrite a comprehension you wrote here as a regular for loop. Which is clearer?",
+    "Try building a dict that flips a dict's keys and values in one line."
+  ],
+  "practiceExercises": [
+    {
+      "id": "squares",
+      "title": "List of squares",
+      "prompt": "Write a function `squares(n)` that returns a list of the squares of 0, 1, 2, ..., n-1. For example, `squares(5)` should return `[0, 1, 4, 9, 16]`. Use a list comprehension.",
+      "goal": "Reach for a list comprehension instead of an explicit accumulator loop.",
+      "starterCode": "def squares(n):\n    # TODO: return a list of i * i for i in range(n)\n    pass\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "five squares", "call": "squares(5)", "expected": "[0, 1, 4, 9, 16]" },
+            { "name": "zero is empty", "call": "squares(0)", "expected": "[]" },
+            { "name": "single element", "call": "squares(1)", "expected": "[0]" },
+            { "name": "ten squares", "call": "squares(10)", "expected": "[0, 1, 4, 9, 16, 25, 36, 49, 64, 81]", "hidden": true }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "def squares"
+        }
+      ],
+      "hints": [
+        "You need to build a new list where each item is computed from a number in `range(n)`.",
+        "List comprehension shape: `[expression for variable in iterable]`. Here the expression is `i * i`.",
+        "Three lines that show the pattern in a different context:\n```python\n# squares of an existing list\nnums = [1, 2, 3]\nresult = [n * n for n in nums]\n# result is [1, 4, 9]\n```"
+      ]
+    },
+    {
+      "id": "length-map",
+      "title": "Map words to their length",
+      "prompt": "Write `length_map(words)` that takes a list of strings and returns a dict mapping each word to its length. For example, `length_map([\"hi\", \"hello\"])` should return `{\"hi\": 2, \"hello\": 5}`. Use a dict comprehension.",
+      "goal": "Build a dict with `{key: value for ...}` syntax.",
+      "starterCode": "def length_map(words):\n    # TODO: return a dict mapping each word to len(word)\n    pass\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "two words", "call": "length_map(['hi', 'hello'])", "expected": "{'hi': 2, 'hello': 5}" },
+            { "name": "empty list", "call": "length_map([])", "expected": "{}" },
+            { "name": "duplicates collapse", "call": "length_map(['a', 'a', 'bb'])", "expected": "{'a': 1, 'bb': 2}" },
+            { "name": "long word", "call": "length_map(['comprehension'])", "expected": "{'comprehension': 13}", "hidden": true }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "def length_map"
+        }
+      ],
+      "hints": [
+        "You're building a dict, so you need both a key and a value for each item.",
+        "Dict comprehension shape: `{key_expr: value_expr for variable in iterable}`. The key is the word, the value is `len(word)`.",
+        "Three lines that show the pattern:\n```python\n# numbers mapped to their squares\nnums = [1, 2, 3]\ntable = {n: n * n for n in nums}\n# table is {1: 1, 2: 4, 3: 9}\n```"
+      ]
+    },
+    {
+      "id": "unique-long-lengths",
+      "title": "Unique lengths of long words",
+      "prompt": "Write `unique_lengths(words)` that returns a set containing the lengths of every word in `words` whose length is greater than 3. Duplicates collapse automatically because it's a set. For example, `unique_lengths([\"a\", \"hello\", \"world\", \"hi\"])` should return `{5}`. Use a set comprehension with a filter.",
+      "goal": "Combine a set comprehension with an `if` filter clause.",
+      "starterCode": "def unique_lengths(words):\n    # TODO: return a set of len(word) for words where len(word) > 3\n    pass\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "filters short words", "call": "unique_lengths(['a', 'hello', 'world', 'hi'])", "expected": "{5}" },
+            { "name": "all short", "call": "unique_lengths(['a', 'b', 'cc'])", "expected": "set()" },
+            { "name": "varied lengths", "call": "unique_lengths(['four', 'fives', 'sixers'])", "expected": "{4, 5, 6}" },
+            { "name": "empty list", "call": "unique_lengths([])", "expected": "set()" },
+            { "name": "duplicates collapse", "call": "unique_lengths(['hello', 'world', 'hello'])", "expected": "{5}", "hidden": true }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "def unique_lengths"
+        }
+      ],
+      "hints": [
+        "You want a SET (curly braces, no key:value pairs) of lengths, but only for words longer than 3 characters.",
+        "Set comprehension with a filter: `{expression for variable in iterable if condition}`. The condition decides which items even get evaluated.",
+        "Three lines that show the pattern:\n```python\n# even squares only\nnums = [1, 2, 3, 4, 5]\nresult = {n * n for n in nums if n % 2 == 0}\n# result is {4, 16}\n```"
+      ]
+    }
+  ]
+}
