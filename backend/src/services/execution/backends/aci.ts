@@ -874,8 +874,22 @@ export class AciExecutionBackend implements ExecutionBackend {
   ): Promise<void> {
     // Cold start: container group is Running but the agent process inside
     // may still be in `node` startup. Poll /health (which is unauth) until
-    // we get 200, then a single auth-bearing call to confirm the bearer
-    // path works end-to-end.
+    // we get 200, then declare the agent ready. The first real /exec call
+    // validates the bearer end-to-end; any mismatch surfaces there as a
+    // 401 at sidecarFetch which the route handler maps to a user-visible
+    // 5xx + structured log.
+    //
+    // Z-P2-1 (third-audit fix): dropped the auth-bearing /fileExists probe
+    // that previously ran here. It was sending the bearer token over
+    // plaintext HTTP at the moment the container's network namespace is
+    // most likely to be in a transitional state (DNS race during cold-
+    // start, possibly visible to ARM diagnostic infrastructure). Bearer-
+    // mismatch detection moves from cold-start to first-real-request,
+    // which is acceptable because: (a) the spawn-failure metric still
+    // surfaces it (just one /exec call later), (b) a token-mismatch bug
+    // is a regression-class issue caught in CI before deploy, not an
+    // expected runtime condition.
+    void bearerToken;
     const url = `http://${privateIp}:${port}/health`;
     const budget =
       this.opts.agentReadyTimeoutMs ?? DEFAULT_AGENT_READY_TIMEOUT_MS;
@@ -886,19 +900,8 @@ export class AciExecutionBackend implements ExecutionBackend {
         const res = await fetch(url, {
           signal: AbortSignal.timeout(1500),
         });
-        if (res.ok) {
-          // Auth round-trip: tries an authed call to prove bearer works.
-          // Use /fileExists?path=__health_probe (cheap, doesn't mutate).
-          const probe = await fetch(
-            `http://${privateIp}:${port}/fileExists?path=__health_probe`,
-            {
-              headers: { authorization: `Bearer ${bearerToken}` },
-              signal: AbortSignal.timeout(1500),
-            },
-          );
-          if (probe.ok) return;
-          lastErr = new Error(`auth probe → ${probe.status}`);
-        }
+        if (res.ok) return;
+        lastErr = new Error(`health probe → ${res.status}`);
       } catch (err) {
         lastErr = err as Error;
       }

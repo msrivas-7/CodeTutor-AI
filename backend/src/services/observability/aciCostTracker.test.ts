@@ -130,8 +130,10 @@ describe("AciCostTracker", () => {
     expect(aciCostTracker.exceedsDailyCap(20, t0 + MIN_MS)).toBe(false);
 
     // Force the bucket above the cap to confirm the comparison works.
+    // Pass an explicit `now` so maybeRollover doesn't zero completedTodayUsd
+    // when the wall-clock date has moved past the forced currentDateUtc.
     aciCostTracker.__forceForTests({ completedTodayUsd: 20.01 });
-    expect(aciCostTracker.exceedsDailyCap(20)).toBe(true);
+    expect(aciCostTracker.exceedsDailyCap(20, t0 + MIN_MS)).toBe(true);
   });
 
   it("getStatus reports activeSessions, hourly burn, and spent today", () => {
