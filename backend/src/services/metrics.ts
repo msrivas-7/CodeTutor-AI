@@ -238,3 +238,38 @@ export const execDuration = new Histogram({
   buckets: [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
   registers: [registry],
 });
+
+// Phase 25: counter snapshots for the admin dashboard. The frontend
+// computes per-poll deltas, so we ship cumulative counts and let the UI
+// turn that into a "last 5 min" rate locally — keeps the backend
+// stateless. prom-client's `Counter.get()` returns labelled bucket data;
+// we flatten it to a label→value map keyed on a single dimension.
+
+interface CounterSnapshot {
+  [labelValue: string]: number;
+}
+
+async function snapshotCounter(
+  c: Counter<string>,
+  labelKey: string,
+): Promise<CounterSnapshot> {
+  const json = (await c.get()) as {
+    values?: Array<{ labels?: Record<string, string>; value: number }>;
+  };
+  const out: CounterSnapshot = {};
+  for (const v of json.values ?? []) {
+    const k = v.labels?.[labelKey] ?? "_unlabeled";
+    out[k] = (out[k] ?? 0) + v.value;
+  }
+  return out;
+}
+
+export async function getMetricsSnapshot(): Promise<{
+  httpResponses: CounterSnapshot;
+  aciSpawnAttempts: CounterSnapshot;
+}> {
+  return {
+    httpResponses: await snapshotCounter(httpResponses, "status"),
+    aciSpawnAttempts: await snapshotCounter(aciSpawnAttempts, "result"),
+  };
+}

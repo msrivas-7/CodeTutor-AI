@@ -178,13 +178,16 @@ test.describe("settings panel", () => {
   });
 
   // Phase 24A: tab structure + BYOK status card coverage.
-  test("Tab structure: Profile, Tutor, Account visible; Admin hidden for non-admin", async ({ page }) => {
+  // Phase 25: admin tab removed from Settings entirely (moved to /admin route).
+  test("Tab structure: Profile, Tutor, Account only; Admin tab fully removed", async ({ page }) => {
     await page.goto("/start");
     await S.openSettings(page);
     const sidenav = page.locator('nav[aria-label="Settings sections"]');
     await expect(sidenav.getByRole("button", { name: /^profile$/i })).toBeVisible();
     await expect(sidenav.getByRole("button", { name: /^tutor$/i })).toBeVisible();
     await expect(sidenav.getByRole("button", { name: /^account$/i })).toBeVisible();
+    // Phase 25: Admin tab removed for ALL users (not just non-admins).
+    // Admin operators access controls via /admin (link in UserMenu).
     await expect(sidenav.getByRole("button", { name: /^admin$/i })).toHaveCount(0);
     // Old labels are gone.
     await expect(sidenav.getByRole("button", { name: /^ai$/i })).toHaveCount(0);

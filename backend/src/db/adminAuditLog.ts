@@ -17,7 +17,15 @@ export type AuditEventType =
   | "denylist_added"
   | "denylist_removed"
   | "tab_opened"
-  | "rejected_attempt";
+  | "rejected_attempt"
+  // Phase 25 additions — must stay in sync with the CHECK constraint
+  // in supabase/migrations/20260430080100_audit_event_types.sql.
+  | "session_terminated"
+  | "session_terminated_bulk"
+  | "user_frozen"
+  | "user_unfrozen"
+  | "budget_watcher_reset"
+  | "platform_auth_unstick";
 
 export interface AdminAuditLogRow {
   id: string;
@@ -89,6 +97,9 @@ export async function logAdminAction(args: LogAdminActionArgs): Promise<void> {
 interface ListOpts {
   limit?: number;
   cursor?: string | null; // ISO timestamp; rows older than this are returned
+  // Phase 25: optional event_type filter for the redesigned audit-log
+  // section. Validated at the route layer; here we just splice it in.
+  eventType?: string | null;
 }
 
 export async function listAdminAuditLog(
@@ -96,46 +107,34 @@ export async function listAdminAuditLog(
 ): Promise<{ entries: AdminAuditLogRow[]; nextCursor: string | null }> {
   const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200);
   const sql = db();
-  const rows = opts.cursor
-    ? await sql<
-        Array<{
-          id: string;
-          actor_id: string;
-          event_type: AuditEventType;
-          target_user_id: string | null;
-          target_key: string | null;
-          before: unknown;
-          after: unknown;
-          reason: string | null;
-          created_at: Date;
-        }>
-      >`
-        SELECT id, actor_id, event_type, target_user_id, target_key,
-               before, after, reason, created_at
-          FROM public.admin_audit_log
-         WHERE created_at < ${opts.cursor}
-         ORDER BY created_at DESC
-         LIMIT ${limit + 1}
-      `
-    : await sql<
-        Array<{
-          id: string;
-          actor_id: string;
-          event_type: AuditEventType;
-          target_user_id: string | null;
-          target_key: string | null;
-          before: unknown;
-          after: unknown;
-          reason: string | null;
-          created_at: Date;
-        }>
-      >`
-        SELECT id, actor_id, event_type, target_user_id, target_key,
-               before, after, reason, created_at
-          FROM public.admin_audit_log
-         ORDER BY created_at DESC
-         LIMIT ${limit + 1}
-      `;
+  const cursorClause = opts.cursor
+    ? sql`AND created_at < ${opts.cursor}`
+    : sql``;
+  const eventTypeClause = opts.eventType
+    ? sql`AND event_type = ${opts.eventType}`
+    : sql``;
+  const rows = await sql<
+    Array<{
+      id: string;
+      actor_id: string;
+      event_type: AuditEventType;
+      target_user_id: string | null;
+      target_key: string | null;
+      before: unknown;
+      after: unknown;
+      reason: string | null;
+      created_at: Date;
+    }>
+  >`
+    SELECT id, actor_id, event_type, target_user_id, target_key,
+           before, after, reason, created_at
+      FROM public.admin_audit_log
+     WHERE 1=1
+       ${cursorClause}
+       ${eventTypeClause}
+     ORDER BY created_at DESC
+     LIMIT ${limit + 1}
+  `;
   const hasMore = rows.length > limit;
   const sliced = hasMore ? rows.slice(0, limit) : rows;
   const entries: AdminAuditLogRow[] = sliced.map((r) => ({

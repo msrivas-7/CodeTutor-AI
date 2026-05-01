@@ -1,4 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Phase 25: sessionManager.startSession now hits the denylist module to
+// check `isFrozen(userId)`. These tests run without a DATABASE_URL, so
+// mock the module to default-not-frozen. Tests that care about the
+// frozen path can override per-spec via vi.mocked(isFrozen).mockResolvedValueOnce.
+vi.mock("../../db/denylist.js", () => ({
+  isFrozen: vi.fn(async () => false),
+  isDenylisted: vi.fn(async () => false),
+}));
+
 import {
   destroyUserSessions,
   endSession,

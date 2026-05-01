@@ -6,6 +6,7 @@ import {
   setOpenAIKey,
   upsertPreferences,
 } from "../db/preferences.js";
+import { isFrozen } from "../db/denylist.js";
 import {
   listCourseProgress,
   upsertCourseProgress,
@@ -106,8 +107,17 @@ const prefsPatchSchema = z
 
 userDataRouter.get("/preferences", async (req, res, next) => {
   try {
-    const prefs = await getPreferences(requireUser(req));
-    res.json(prefs);
+    const userId = requireUser(req);
+    const [prefs, frozen] = await Promise.all([
+      getPreferences(userId),
+      isFrozen(userId),
+    ]);
+    // Phase 25: surface ONLY the boolean flag — the operator's internal
+    // reason text stays server-side. It's intended as an audit-trail
+    // record, not user-facing copy: it can leak detection heuristics,
+    // ticket IDs, reporter names, internal slang. The user's banner
+    // shows a generic "contact support" message instead.
+    res.json({ ...prefs, accountFrozen: frozen });
   } catch (err) {
     next(err);
   }
@@ -119,8 +129,18 @@ userDataRouter.patch("/preferences", async (req, res, next) => {
     return res.status(400).json({ error: "invalid preferences patch" });
   }
   try {
-    const prefs = await upsertPreferences(requireUser(req), parsed.data);
-    res.json(prefs);
+    const userId = requireUser(req);
+    // Phase 25: PATCH response must mirror GET shape — must include
+    // accountFrozen — or the frontend's preferences store will overwrite
+    // its true value with `false` after every patch (the store reads
+    // `prefs.accountFrozen ?? false` from the response). A frozen user
+    // toggling email-opt-in or any uiLayout splitter would briefly hide
+    // the suspension banner.
+    const [prefs, frozen] = await Promise.all([
+      upsertPreferences(userId, parsed.data),
+      isFrozen(userId),
+    ]);
+    res.json({ ...prefs, accountFrozen: frozen });
   } catch (err) {
     next(err);
   }

@@ -64,6 +64,7 @@ function initialsFrom(user: User): string {
 export function UserMenu({ className }: { className?: string } = {}) {
   const user = useAuthStore((s) => s.user);
   const signOut = useAuthStore((s) => s.signOut);
+  const isAdmin = useAuthStore((s) => s.isAdmin());
   const nav = useNavigate();
   const [open, setOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
@@ -179,6 +180,23 @@ export function UserMenu({ className }: { className?: string } = {}) {
           >
             Settings
           </button>
+
+          {isAdmin && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                nav("/admin");
+              }}
+              className="mt-0.5 flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-[11px] font-semibold text-accent transition hover:bg-elevated focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              <span>Admin console</span>
+              <span className="text-[9px] uppercase tracking-wider text-accent/70">
+                operator
+              </span>
+            </button>
+          )}
 
           <button
             type="button"

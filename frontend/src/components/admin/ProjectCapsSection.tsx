@@ -45,6 +45,9 @@ const KEY_LABEL: Record<SystemConfigKey, string> = {
   aci_daily_usd_cap: "ACI daily $ cap",
   aci_max_overflow: "ACI max overflow sessions",
   aci_warm_pool_enabled: "ACI warm pool enabled",
+  aci_warm_high_watermark: "ACI warm high watermark",
+  aci_warm_low_watermark: "ACI warm low watermark",
+  aci_warm_max_pool_size: "ACI warm max pool size",
 };
 
 // Inline help for each row — surfaced as a one-line description so the
@@ -80,8 +83,11 @@ const KEY_BOUNDS: Record<
   share_render_disabled: { type: "boolean" },
   aci_overflow_enabled: { type: "boolean" },
   aci_daily_usd_cap: { type: "number", min: 0, max: 100, step: "1" },
-  aci_max_overflow: { type: "number", min: 0, max: 100, step: "1" },
+  aci_max_overflow: { type: "number", min: 0, max: 50, step: "1" },
   aci_warm_pool_enabled: { type: "boolean" },
+  aci_warm_high_watermark: { type: "number", min: 0, max: 14, step: "1" },
+  aci_warm_low_watermark: { type: "number", min: 0, max: 14, step: "1" },
+  aci_warm_max_pool_size: { type: "number", min: 0, max: 10, step: "1" },
 };
 
 const PHRASE_DISABLE = "I understand this stops free AI for everyone";

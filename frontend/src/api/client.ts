@@ -142,6 +142,23 @@ async function del<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+// Phase 25: DELETE-with-body. Some admin destructive endpoints
+// (kill session, kill all-for-user) carry a phrase-confirm body even
+// though the HTTP semantics are deletion.
+async function delJson<T>(path: string, body: unknown): Promise<T> {
+  const auth = await authHeaders();
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json", ...CSRF_HEADER, ...auth },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    await handle401(res);
+    await throwApiError(res, path);
+  }
+  return res.json() as Promise<T>;
+}
+
 async function get<T>(path: string, extraHeaders?: Record<string, string>): Promise<T> {
   const auth = await authHeaders();
   const res = await fetch(`${API_BASE}${path}`, { headers: { ...auth, ...(extraHeaders ?? {}) } });
@@ -224,6 +241,13 @@ export interface UserPreferences {
   // route (bypasses the patch path).
   emailOptIn: boolean;
   updatedAt: string;
+  // Phase 25: account-freeze flag. When true, the user is blocked from
+  // creating new sessions and the authed shell renders a generic
+  // "account suspended — contact support" banner. Backend's
+  // sessionManager.startSession returns 403 ACCOUNT_FROZEN. The
+  // operator's internal freeze reason is NOT exposed here — it's
+  // audit-trail only and stays server-side.
+  accountFrozen?: boolean;
 }
 
 export interface UserPreferencesPatch {
@@ -364,6 +388,16 @@ export interface AdminUserListEntry {
   denylisted: boolean;
 }
 
+export interface AdminDenylistRow {
+  userId: string;
+  reason: string;
+  deniedAt: string;
+  frozen: boolean;
+  frozenReason: string | null;
+  frozenAt: string | null;
+  frozenSetBy: string | null;
+}
+
 export interface AdminUsersListResponse {
   users: AdminUserListEntry[];
   page: number;
@@ -384,6 +418,8 @@ export interface AdminUserDetailResponse {
   usdLifetime: number;
   override: AdminUserOverride | null;
   denylisted: boolean;
+  // Phase 25: full denylist row when present (frozen state + reasons).
+  denylist: AdminDenylistRow | null;
 }
 
 export type SystemConfigKey =
@@ -406,7 +442,11 @@ export type SystemConfigKey =
   | "aci_max_overflow"
   // Slice 8.5: warm-pool master toggle. Default off; flip on if cold-
   // start latency surfaces post-launch.
-  | "aci_warm_pool_enabled";
+  | "aci_warm_pool_enabled"
+  // P2-2: warm-pool hysteresis knobs.
+  | "aci_warm_high_watermark"
+  | "aci_warm_low_watermark"
+  | "aci_warm_max_pool_size";
 
 export interface SystemConfigEntry {
   value: boolean | number;
@@ -429,7 +469,14 @@ export type AdminAuditEventType =
   | "denylist_added"
   | "denylist_removed"
   | "tab_opened"
-  | "rejected_attempt";
+  | "rejected_attempt"
+  // Phase 25 additions
+  | "session_terminated"
+  | "session_terminated_bulk"
+  | "user_frozen"
+  | "user_unfrozen"
+  | "budget_watcher_reset"
+  | "platform_auth_unstick";
 
 export interface AdminAuditLogEntry {
   id: string;
@@ -446,6 +493,92 @@ export interface AdminAuditLogEntry {
 export interface AdminAuditLogResponse {
   entries: AdminAuditLogEntry[];
   nextCursor: string | null;
+}
+
+// Phase 25: dashboard snapshot.
+export interface AdminDashboardSnapshot {
+  generatedAt: string;
+  sessions: {
+    local: number;
+    aci: number;
+    total: number;
+    capLocal: number;
+    capAbsolute: number;
+    counterDrift: number;
+  };
+  aci: {
+    enabled: boolean;
+    costTrackerState: "hydrated" | "degraded";
+    spentTodayUsd: number;
+    dailyUsdCap: number;
+    activeSessions: number;
+    configRefreshAgeMs: number | null;
+  };
+  freeTier: {
+    enabled: boolean;
+    spentTodayUsd: number;
+    dailyUsdCap: number;
+    lastFiredKey: string | null;
+  };
+  queues: {
+    dockerExecInflight: number;
+    dockerExecQueued: number;
+    renderActive: number;
+    renderWaiting: number;
+  };
+  health: {
+    db: "ok" | "fail";
+    platformAuth: "ok" | "failed";
+    platformAuthSinceMs: number | null;
+  };
+  bootId: string;
+  rates: {
+    httpResponses: Record<string, number>;
+    aciSpawnAttempts: Record<string, number>;
+  };
+}
+
+export interface AdminSession {
+  sessionId: string;
+  userId: string;
+  userEmail: string | null;
+  backend: "local" | "aci";
+  ageMs: number;
+  lastSeenMs: number;
+  selectedModel: string | null;
+}
+
+export interface AdminSessionsResponse {
+  sessions: AdminSession[];
+  total: number;
+}
+
+export interface AdminEmailLogEntry {
+  id: string;
+  userId: string;
+  kind: string;
+  toEmail: string;
+  subject: string;
+  textBody: string;
+  htmlBody: string;
+  acsOpId: string | null;
+  sentAt: string;
+}
+
+export interface AdminEmailLogResponse {
+  entries: AdminEmailLogEntry[];
+  nextCursor: string | null;
+}
+
+export interface AdminBudgetWatcherState {
+  lastFiredKey: string | null;
+  dailyCapUsd: number;
+  spentTodayUsd: number;
+}
+
+export interface AdminPlatformAuthState {
+  failed: boolean;
+  sinceMs: number | null;
 }
 
 // Phase 21B: learning streak.
@@ -1090,13 +1223,102 @@ export const api = {
       `/api/admin/system-config/${encodeURIComponent(key)}`,
     ),
 
-  adminGetAuditLog: (opts: { cursor?: string; limit?: number } = {}) => {
+  adminGetAuditLog: (
+    opts: { cursor?: string; limit?: number; eventType?: string } = {},
+  ) => {
     const qs = new URLSearchParams();
     if (opts.cursor) qs.set("cursor", opts.cursor);
     if (opts.limit) qs.set("limit", String(opts.limit));
+    if (opts.eventType) qs.set("eventType", opts.eventType);
     const suffix = qs.toString() ? `?${qs}` : "";
     return get<AdminAuditLogResponse>(`/api/admin/audit-log${suffix}`);
   },
+
+  // ----------------------------------------------------------------------
+  // Phase 25 admin additions
+  // ----------------------------------------------------------------------
+
+  adminGetDashboard: () => get<AdminDashboardSnapshot>("/api/admin/dashboard"),
+
+  adminListSessions: () => get<AdminSessionsResponse>("/api/admin/sessions"),
+
+  adminKillSession: (
+    sessionId: string,
+    body: { reason: string; confirmKill: string },
+  ) =>
+    delJson<{ ok: boolean; sessionId: string }>(
+      `/api/admin/sessions/${encodeURIComponent(sessionId)}`,
+      body,
+    ),
+
+  adminKillSessionsByUser: (
+    userId: string,
+    body: { reason: string; confirmKill: string },
+  ) =>
+    delJson<{ ok: boolean; count: number; sessionIds: string[] }>(
+      `/api/admin/sessions/by-user/${encodeURIComponent(userId)}`,
+      body,
+    ),
+
+  adminSetDenylist: (userId: string, body: { reason: string }) =>
+    putJson<{ denylist: AdminDenylistRow }>(
+      `/api/admin/users/${encodeURIComponent(userId)}/denylist`,
+      body,
+    ),
+
+  adminClearDenylist: (userId: string) =>
+    del<{ ok: boolean }>(
+      `/api/admin/users/${encodeURIComponent(userId)}/denylist`,
+    ),
+
+  adminFreezeUser: (
+    userId: string,
+    body: { reason: string; confirmFreeze: string },
+  ) =>
+    putJson<{ status: AdminDenylistRow }>(
+      `/api/admin/users/${encodeURIComponent(userId)}/freeze`,
+      body,
+    ),
+
+  adminUnfreezeUser: (userId: string) =>
+    del<{ status: AdminDenylistRow }>(
+      `/api/admin/users/${encodeURIComponent(userId)}/freeze`,
+    ),
+
+  adminListEmailLog: (
+    opts: {
+      cursor?: string;
+      limit?: number;
+      kind?: string;
+      toEmailLike?: string;
+    } = {},
+  ) => {
+    const qs = new URLSearchParams();
+    if (opts.cursor) qs.set("cursor", opts.cursor);
+    if (opts.limit) qs.set("limit", String(opts.limit));
+    if (opts.kind) qs.set("kind", opts.kind);
+    if (opts.toEmailLike) qs.set("toEmailLike", opts.toEmailLike);
+    const suffix = qs.toString() ? `?${qs}` : "";
+    return get<AdminEmailLogResponse>(`/api/admin/email-log${suffix}`);
+  },
+
+  adminListEmailLogKinds: () =>
+    get<{ kinds: string[] }>("/api/admin/email-log/kinds"),
+
+  adminGetBudgetWatcher: () =>
+    get<AdminBudgetWatcherState>("/api/admin/budget-watcher"),
+
+  adminResetBudgetWatcher: (body: { reason: string; confirmReset: string }) =>
+    post<{ ok: boolean }>("/api/admin/budget-watcher/reset", body),
+
+  adminGetPlatformAuth: () =>
+    get<AdminPlatformAuthState>("/api/admin/platform-auth"),
+
+  adminUnstickPlatformAuth: (body: { reason: string; confirmUnstick: string }) =>
+    post<{ ok: boolean; wasFailed: boolean }>(
+      "/api/admin/platform-auth/unstick",
+      body,
+    ),
 };
 
 // PUT JSON helper (the existing post / patch helpers don't cover PUT,

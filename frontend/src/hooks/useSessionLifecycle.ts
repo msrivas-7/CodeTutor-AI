@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { api, API_BASE, abortSessionRequests } from "../api/client";
 import { useSessionStore } from "../state/sessionStore";
 import { useAuthStore } from "../auth/authStore";
+import { usePreferencesStore } from "../state/preferencesStore";
 
 const HEARTBEAT_MS = 25_000;
 // How many consecutive heartbeat failures before we stop saying "reconnecting"
@@ -26,6 +27,13 @@ export function useSessionLifecycle() {
   // a container for them.
   const authLoading = useAuthStore((s) => s.loading);
   const user = useAuthStore((s) => s.user);
+  // Phase 25: skip session-start entirely for frozen accounts — the
+  // backend would 403 with ACCOUNT_FROZEN and the FrozenAccountBanner
+  // is already explaining the situation up top. Wait for preferences
+  // to hydrate first so we don't race-start a session for a user we'd
+  // immediately discover is frozen.
+  const prefsHydrated = usePreferencesStore((s) => s.hydrated);
+  const accountFrozen = usePreferencesStore((s) => s.accountFrozen);
   const started = useRef(false);
   const failures = useRef(0);
   const recovering = useRef(false);
@@ -45,11 +53,19 @@ export function useSessionLifecycle() {
 
   useEffect(() => {
     if (authLoading || !user) return;
+    if (!prefsHydrated) return; // wait for accountFrozen to be authoritative
     if (started.current) return;
     // sessionStore persists across page navigations; if the previous page
     // (Editor ⇄ Lesson) already started a session, reuse it instead of
     // leaking another container on the backend.
     if (sessionId) {
+      started.current = true;
+      return;
+    }
+    if (accountFrozen) {
+      // Frozen — don't even try; the FrozenAccountBanner explains. Leave
+      // phase at its initial value so no Run button activates and no
+      // misleading "Session lost" banner appears below the freeze banner.
       started.current = true;
       return;
     }
@@ -65,7 +81,16 @@ export function useSessionLifecycle() {
         setError(err.message);
         setPhase("error");
       });
-  }, [authLoading, user, sessionId, setSession, setPhase, setError]);
+  }, [
+    authLoading,
+    user,
+    prefsHydrated,
+    accountFrozen,
+    sessionId,
+    setSession,
+    setPhase,
+    setError,
+  ]);
 
   useEffect(() => {
     if (!sessionId) return;

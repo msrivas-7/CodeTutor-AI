@@ -252,3 +252,21 @@ export function _resetBudgetWatcherForTests(): void {
   if (watcher) clearInterval(watcher);
   watcher = null;
 }
+
+// Phase 25: admin-console visibility into watcher state. Returns the
+// last-fired threshold key (e.g. "2026-04-30:cap=15:0.5") or null when
+// no threshold has fired today. Pure in-memory read; no DB hit.
+export function getBudgetWatcherSnapshot(): {
+  lastFiredKey: string | null;
+} {
+  return { lastFiredKey };
+}
+
+// Phase 25: admin can clear the dedup so the next tick re-evaluates and
+// re-fires the appropriate threshold email. Useful when ACS was
+// misconfigured and the operator wants the alerts to land for real this
+// time. Phrase-confirmed at the route layer because clearing while a
+// real threshold is already crossed will fire a duplicate email.
+export function resetBudgetWatcherDedup(): void {
+  lastFiredKey = null;
+}

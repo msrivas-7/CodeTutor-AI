@@ -1,10 +1,18 @@
 import { Routes, Route, Navigate, Outlet } from "react-router-dom";
 import { lazy, Suspense } from "react";
 import { StorageQuotaBanner } from "./components/StorageQuotaBanner";
+import { FrozenAccountBanner } from "./components/FrozenAccountBanner";
 import { GlobalShortcuts } from "./components/GlobalShortcuts";
 import { RequireAuth } from "./auth/RequireAuth";
+import { RequireAdmin } from "./auth/RequireAdmin";
 import { HydrationGate } from "./auth/HydrationGate";
 import { WelcomeBackOverlay } from "./features/firstRun/WelcomeBackOverlay";
+import { OverviewSection } from "./components/admin/OverviewSection";
+import { SessionsSection } from "./components/admin/SessionsSection";
+import { UsersSection } from "./components/admin/UsersSection";
+import { ProjectCapsSection } from "./components/admin/ProjectCapsSection";
+import { EmailLogSection } from "./components/admin/EmailLogSection";
+import { AuditLogSection } from "./components/admin/AuditLogSection";
 const MarketingPage = lazy(() => import("./pages/MarketingPage"));
 const StartPage = lazy(() => import("./pages/StartPage"));
 const EditorPage = lazy(() => import("./pages/EditorPage"));
@@ -17,6 +25,7 @@ const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
 const AuthCallbackPage = lazy(() => import("./pages/AuthCallbackPage"));
 const FirstRunPage = lazy(() => import("./features/firstRun/pages/FirstRunPage"));
 const SharePage = lazy(() => import("./features/share/pages/SharePage"));
+const AdminPage = lazy(() => import("./pages/AdminPage"));
 
 // Dev-only /dev/content dashboard. Guarded by import.meta.env.DEV so the
 // import (and its transitive deps) are stripped from prod bundles.
@@ -55,6 +64,7 @@ function AuthedLayout() {
   return (
     <RequireAuth>
       <HydrationGate>
+        <FrozenAccountBanner />
         <Outlet />
         {/* Mounted alongside every authenticated route. Renders null
             unless the trigger rule in useWelcomeBack says fire — so
@@ -112,6 +122,26 @@ export default function App() {
           {ContentHealthPage && (
             <Route path="/dev/content" element={<ContentHealthPage />} />
           )}
+          {/* Phase 25: admin console at /admin/*. Nested routes for each
+              section so links can be bookmarked/shared. RequireAdmin
+              gates the whole subtree client-side; the backend's
+              adminGuard middleware enforces server-side. */}
+          <Route
+            path="/admin"
+            element={
+              <RequireAdmin>
+                <AdminPage />
+              </RequireAdmin>
+            }
+          >
+            <Route index element={<Navigate to="overview" replace />} />
+            <Route path="overview" element={<OverviewSection />} />
+            <Route path="sessions" element={<SessionsSection />} />
+            <Route path="users" element={<UsersSection />} />
+            <Route path="project" element={<ProjectCapsSection />} />
+            <Route path="email" element={<EmailLogSection />} />
+            <Route path="audit" element={<AuditLogSection />} />
+          </Route>
           {/* Catch-all under the auth layout: send authed users to
               /start. Anonymous users get bounced to /login by RequireAuth
               before this rule matches. */}

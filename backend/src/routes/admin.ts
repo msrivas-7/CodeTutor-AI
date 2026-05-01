@@ -34,6 +34,14 @@ import {
   setOverride as setUserOverride,
 } from "../db/aiFreeTierOverrides.js";
 import {
+  addToDenylist,
+  clearFreeze,
+  getDenylistRow,
+  isDenylisted,
+  removeFromDenylist,
+  setFreeze,
+} from "../db/denylist.js";
+import {
   KNOWN_KEYS,
   clearSystemConfig,
   getAllSystemConfig,
@@ -53,8 +61,13 @@ import {
   sumPlatformCostLifetimeForUser,
   sumPlatformCostTodayForUser,
 } from "../db/usageLedger.js";
-import { isDenylisted } from "../db/denylist.js";
 import { isAdmin } from "../db/userRoles.js";
+import { adminDestroyUserSessions } from "../services/session/sessionManager.js";
+import { adminBudgetWatcherRouter } from "./adminBudgetWatcher.js";
+import { adminDashboardRouter } from "./adminDashboard.js";
+import { adminEmailLogRouter } from "./adminEmailLog.js";
+import { adminPlatformAuthRouter } from "./adminPlatformAuth.js";
+import { adminSessionsRouter } from "./adminSessions.js";
 
 // Phrase-confirm strings. Server-validated; the UI sends them verbatim
 // when the dangerous action is requested.
@@ -243,13 +256,13 @@ adminRouter.get("/users/:userId", async (req, res, next) => {
     const user = await getAuthUser(userId);
     if (!user) return res.status(404).json({ error: "user not found" });
     const dayStart = startOfUtcDay();
-    const [questionsToday, usdToday, usdLifetime, override, denied] =
+    const [questionsToday, usdToday, usdLifetime, override, denylistRow] =
       await Promise.all([
         countPlatformQuestionsTodayLocked(userId, dayStart),
         sumPlatformCostTodayForUser(userId, dayStart),
         sumPlatformCostLifetimeForUser(userId),
         getUserOverride(userId),
-        isDenylisted(userId),
+        getDenylistRow(userId),
       ]);
     res.json({
       user,
@@ -257,7 +270,8 @@ adminRouter.get("/users/:userId", async (req, res, next) => {
       usdToday,
       usdLifetime,
       override,
-      denylisted: denied,
+      denylisted: !!denylistRow,
+      denylist: denylistRow,
     });
   } catch (err) {
     next(err);
@@ -693,6 +707,9 @@ adminRouter.delete("/system-config/:key", async (req, res, next) => {
 const auditLogQuery = z.object({
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
+  // Phase 25: optional event_type filter for the redesigned audit-log
+  // section. Validated against the literal union in db/adminAuditLog.ts.
+  eventType: z.string().optional(),
 });
 
 adminRouter.get("/audit-log", async (req, res, next) => {
@@ -701,10 +718,206 @@ adminRouter.get("/audit-log", async (req, res, next) => {
     if (!parsed.success) {
       return res.status(400).json({ error: parsed.error.message });
     }
-    const { cursor, limit } = parsed.data;
-    const result = await listAdminAuditLog({ cursor: cursor ?? null, limit });
+    const { cursor, limit, eventType } = parsed.data;
+    const result = await listAdminAuditLog({
+      cursor: cursor ?? null,
+      limit,
+      eventType: eventType ?? null,
+    });
     res.json(result);
   } catch (err) {
     next(err);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Phase 25: denylist + freeze controls
+// ---------------------------------------------------------------------------
+//
+// Denylist blocks platform AI for the user. Freeze additionally blocks
+// session creation and surfaces an "account suspended" banner via /api/me.
+// The two share one row in ai_platform_denylist; freeze upserts a row if
+// the user wasn't already denylisted, and clearing freeze leaves the
+// denylist row alone (admin clears denylist separately if desired).
+
+const PHRASE_FREEZE_USER =
+  "I understand this blocks all access for this user";
+
+const denylistBody = z.object({ reason: z.string().min(4).max(500) }).strict();
+const freezeBody = z
+  .object({
+    reason: z.string().min(4).max(500),
+    confirmFreeze: z.string(),
+  })
+  .strict();
+
+adminRouter.put("/users/:userId/denylist", async (req, res, next) => {
+  const userId = req.params.userId;
+  const actorId = req.userId!;
+  const parsed = denylistBody.safeParse(req.body);
+  if (!parsed.success) {
+    await logAdminAction({
+      actorId,
+      eventType: "rejected_attempt",
+      targetUserId: userId,
+      after: req.body,
+      reason: `validation: ${parsed.error.message}`,
+    });
+    return res.status(400).json({ error: parsed.error.message });
+  }
+  try {
+    const target = await getAuthUser(userId);
+    if (!target) return res.status(404).json({ error: "user not found" });
+    const before = await getDenylistRow(userId);
+    await addToDenylist({ userId, reason: parsed.data.reason });
+    const after = await getDenylistRow(userId);
+    await logAdminAction({
+      actorId,
+      eventType: "denylist_added",
+      targetUserId: userId,
+      before,
+      after,
+      reason: parsed.data.reason,
+    });
+    res.json({ denylist: after });
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.delete("/users/:userId/denylist", async (req, res, next) => {
+  const userId = req.params.userId;
+  const actorId = req.userId!;
+  try {
+    const before = await getDenylistRow(userId);
+    // Phase 25 audit fix: refuse to delete the row while the user is
+    // frozen. Pre-fix, the DELETE would silently drop frozen=true with
+    // only a `denylist_removed` audit entry — the freeze change had no
+    // `user_unfrozen` row, breaking audit-log integrity for the most
+    // consequential admin action. Force a two-step workflow: clear
+    // freeze first (logs `user_unfrozen`), then clear denylist.
+    if (before?.frozen === true) {
+      await logAdminAction({
+        actorId,
+        eventType: "rejected_attempt",
+        targetUserId: userId,
+        after: { op: "delete-denylist" },
+        reason:
+          "user is currently frozen — clear freeze first (DELETE /freeze) so the unfreeze action gets its own audit row",
+      });
+      return res.status(409).json({
+        error: "user is currently frozen — clear freeze first",
+      });
+    }
+    await removeFromDenylist(userId);
+    await logAdminAction({
+      actorId,
+      eventType: "denylist_removed",
+      targetUserId: userId,
+      before,
+      after: null,
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.put("/users/:userId/freeze", async (req, res, next) => {
+  const userId = req.params.userId;
+  const actorId = req.userId!;
+  const parsed = freezeBody.safeParse(req.body);
+  if (!parsed.success) {
+    await logAdminAction({
+      actorId,
+      eventType: "rejected_attempt",
+      targetUserId: userId,
+      after: req.body,
+      reason: `validation: ${parsed.error.message}`,
+    });
+    return res.status(400).json({ error: parsed.error.message });
+  }
+  if (parsed.data.confirmFreeze !== PHRASE_FREEZE_USER) {
+    await logAdminAction({
+      actorId,
+      eventType: "rejected_attempt",
+      targetUserId: userId,
+      after: parsed.data,
+      reason: "missing or wrong confirmFreeze phrase",
+    });
+    return res.status(400).json({
+      error: "confirmFreeze phrase required to freeze account",
+      requiredPhrase: PHRASE_FREEZE_USER,
+    });
+  }
+  try {
+    const target = await getAuthUser(userId);
+    if (!target) return res.status(404).json({ error: "user not found" });
+    const before = await getDenylistRow(userId);
+    await setFreeze({ userId, reason: parsed.data.reason, setBy: actorId });
+    // Phase 25 audit fix: freeze means "blocks all access" (per the
+    // banner copy + product semantics). Without this, the user keeps
+    // running their existing session — heartbeat refreshes lastSeen
+    // every 25s so the idle sweeper never reaps it, and the per-request
+    // auth path (requireOwnedSession) doesn't re-check frozen state.
+    // Atomic-with-freeze is the right shape: one admin action = the
+    // user is fully out. Audit trail records the bulk-kill as a child
+    // event of the freeze (separate audit row, same actor + same minute).
+    const killed = await adminDestroyUserSessions(userId);
+    const after = await getDenylistRow(userId);
+    await logAdminAction({
+      actorId,
+      eventType: "user_frozen",
+      targetUserId: userId,
+      before,
+      after,
+      reason: parsed.data.reason,
+    });
+    if (killed.length > 0) {
+      await logAdminAction({
+        actorId,
+        eventType: "session_terminated_bulk",
+        targetUserId: userId,
+        after: { count: killed.length, sessionIds: killed, cause: "freeze" },
+        reason: parsed.data.reason,
+      });
+    }
+    res.json({ status: after, sessionsKilled: killed.length });
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.delete("/users/:userId/freeze", async (req, res, next) => {
+  const userId = req.params.userId;
+  const actorId = req.userId!;
+  try {
+    const before = await getDenylistRow(userId);
+    await clearFreeze(userId);
+    const after = await getDenylistRow(userId);
+    await logAdminAction({
+      actorId,
+      eventType: "user_unfrozen",
+      targetUserId: userId,
+      before,
+      after,
+    });
+    res.json({ status: after });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Phase 25: compose new admin sub-routers
+// ---------------------------------------------------------------------------
+//
+// Each sub-router lives in its own file and exports a Router with no
+// middleware of its own — the chain (csrfGuard + authMiddleware +
+// mutationLimit + adminGuard + adminWriteLimit) is applied once at the
+// /api/admin mount in index.ts.
+adminRouter.use(adminDashboardRouter);
+adminRouter.use(adminSessionsRouter);
+adminRouter.use(adminEmailLogRouter);
+adminRouter.use(adminBudgetWatcherRouter);
+adminRouter.use(adminPlatformAuthRouter);

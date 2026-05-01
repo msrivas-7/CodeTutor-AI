@@ -1,5 +1,6 @@
 import { nanoid } from "nanoid";
 import { config } from "../../config.js";
+import { isFrozen } from "../../db/denylist.js";
 import { HttpError } from "../../middleware/errorHandler.js";
 import type {
   ExecutionBackend,
@@ -192,6 +193,14 @@ export async function startSession(
   userId: string,
   requestedId?: string,
 ): Promise<SessionRecord> {
+  // Phase 25: account-freeze gate. Frozen users still authenticate and
+  // hit this route (so the frontend can render a "suspended" banner from
+  // the 403 body), but they can't spawn a runner. Cached 60s in denylist
+  // module — admin freeze takes effect on next /me poll worst case.
+  if (await isFrozen(userId)) {
+    throw new HttpError(403, "ACCOUNT_FROZEN");
+  }
+
   // Phase 20-P3: cap enforcement before any container work. Per-user first
   // (the common abusive case — one learner spamming refresh), then global
   // (protects the VM even if caps bypass via many users). 429 lets the
@@ -349,6 +358,48 @@ export async function getSessionStatus(id: string, userId: string) {
 
 export function listSessions(): SessionRecord[] {
   return [...sessions.values()];
+}
+
+// Phase 25: admin-only termination. Bypasses the ownership check that
+// `endSession` enforces — admin can kill any session by ID, regardless of
+// owner. Returns true if the session existed (and was destroyed), false
+// if it was already gone. The route layer handles audit logging and
+// phrase-confirm gating.
+export async function adminDestroySession(id: string): Promise<boolean> {
+  const s = sessions.get(id);
+  if (!s) return false;
+  sessions.delete(id);
+  if (s.handle) {
+    try {
+      await requireBackend().destroy(s.handle);
+    } catch (err) {
+      // Match `destroyUserSessions` policy: log but don't fail the route.
+      // The sweeper will reap any straggler container; the in-memory
+      // record is gone either way, so the cap slot frees up immediately.
+      console.error(`[admin] destroy ${id} failed`, err);
+    }
+  }
+  return true;
+}
+
+// Phase 25: admin-only bulk termination for a single user. Same
+// ownership-bypass posture as adminDestroySession. Returns the IDs of
+// sessions actually destroyed.
+export async function adminDestroyUserSessions(userId: string): Promise<string[]> {
+  const owned = [...sessions.values()].filter((s) => s.userId === userId);
+  await Promise.all(
+    owned.map(async (s) => {
+      sessions.delete(s.id);
+      if (s.handle) {
+        try {
+          await requireBackend().destroy(s.handle);
+        } catch (err) {
+          console.error(`[admin] destroy ${s.id} failed`, err);
+        }
+      }
+    }),
+  );
+  return owned.map((s) => s.id);
 }
 
 export async function sweepStaleSessions(now = Date.now()): Promise<string[]> {

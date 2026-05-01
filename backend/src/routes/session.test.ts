@@ -8,9 +8,18 @@
 // and x-test-user headers take the place of the JWKS auth middleware.
 
 import express from "express";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
+
+// Phase 25: sessionManager.startSession now consults isFrozen() which
+// hits the DB. This route-level test runs DB-less; mock the denylist
+// module so the freeze check defaults to false.
+vi.mock("../db/denylist.js", () => ({
+  isFrozen: vi.fn(async () => false),
+  isDenylisted: vi.fn(async () => false),
+}));
+
 import {
   initSessionManager,
   shutdownAllSessions,

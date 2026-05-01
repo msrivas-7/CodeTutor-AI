@@ -44,6 +44,11 @@ interface PreferencesState {
   // Phase 22D: streak-nudge email opt-in. Defaults TRUE on new accounts;
   // Settings panel toggle + email's one-click unsubscribe both flip it.
   emailOptIn: boolean;
+  // Phase 25: account-freeze flag. When true, the authed shell renders
+  // a generic "contact support" banner. Server enforces by 403 on
+  // session creation; this UI signal is purely informational. The
+  // operator's internal reason is intentionally NOT exposed to clients.
+  accountFrozen: boolean;
 
   hydrate: (gen?: number) => Promise<void>;
   reset: () => void;
@@ -72,6 +77,7 @@ const DEFAULTS: Omit<
   hasOpenaiKey: false,
   lastWelcomeBackAt: null,
   emailOptIn: true,
+  accountFrozen: false,
 };
 
 function applyServer(prefs: UserPreferences): Partial<PreferencesState> {
@@ -86,6 +92,7 @@ function applyServer(prefs: UserPreferences): Partial<PreferencesState> {
     hasOpenaiKey: prefs.hasOpenaiKey,
     lastWelcomeBackAt: prefs.lastWelcomeBackAt,
     emailOptIn: prefs.emailOptIn,
+    accountFrozen: prefs.accountFrozen ?? false,
     hydrated: true,
   };
 }

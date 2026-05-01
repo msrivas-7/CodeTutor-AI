@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api } from "../api/client";
 import { useSessionStore } from "../state/sessionStore";
+import { usePreferencesStore } from "../state/preferencesStore";
 
 // When heartbeat fails past MAX_FAILURES or rebind throws, session.phase
 // goes to "error" and the Run button silently greys out. Without this
@@ -9,9 +10,16 @@ import { useSessionStore } from "../state/sessionStore";
 // below their headers.
 export function SessionErrorBanner() {
   const { phase, error, setPhase, setSession, setError } = useSessionStore();
+  const accountFrozen = usePreferencesStore((s) => s.accountFrozen);
   const [retrying, setRetrying] = useState(false);
 
   if (phase !== "error") return null;
+  // Phase 25: frozen accounts get the FrozenAccountBanner at the top of
+  // every authed page already — a stacked "Session lost / Retry" banner
+  // would be confusing AND the Retry button is useless (the 403 will
+  // repeat). Skip rendering this banner; the freeze banner is the only
+  // explanation the learner needs.
+  if (accountFrozen) return null;
 
   const retry = async () => {
     setRetrying(true);

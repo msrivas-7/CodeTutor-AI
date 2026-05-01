@@ -14,19 +14,21 @@ import type { Persona } from "../types";
 import { useThemePref, type ThemePref } from "../util/theme";
 import { DeleteAccountModal } from "./DeleteAccountModal";
 import { useAIStatus } from "../state/useAIStatus";
-import { AdminTab } from "./admin/AdminTab";
 
 // Phase 24A: tab structure simplified to three user-facing surfaces.
 // "AI" → "Tutor" (the word a beginner uses when they think about this
 // feature). "Appearance" + "Data" folded back into Profile and Account
 // — single-control tabs were tab-budget waste.
-type Tab = "profile" | "tutor" | "account" | "admin";
+//
+// Phase 25: admin moved out of Settings entirely. Admin operators get a
+// dedicated /admin route via the user-menu link. Settings now serves
+// only end-user concerns.
+type Tab = "profile" | "tutor" | "account";
 
 const TAB_LABEL: Record<Tab, string> = {
   profile: "Profile",
   tutor: "Tutor",
   account: "Account",
-  admin: "Admin",
 };
 
 const THEME_LABEL: Record<ThemePref, string> = {
@@ -53,13 +55,7 @@ const PERSONA_BLURB: Record<Persona, string> = {
 
 export function SettingsPanel({ onClose }: { onClose?: () => void }) {
   const [tab, setTab] = useState<Tab>("profile");
-  const isAdmin = useAuthStore((s) => s.isAdmin());
-
-  // Admin tab is hidden from non-admin users entirely. Backend route is
-  // also gated; suppressing the tab keeps the surface clean for the 99% case.
-  const visibleTabs = (Object.keys(TAB_LABEL) as Tab[]).filter(
-    (t) => t !== "admin" || isAdmin,
-  );
+  const visibleTabs = Object.keys(TAB_LABEL) as Tab[];
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
@@ -120,7 +116,6 @@ export function SettingsPanel({ onClose }: { onClose?: () => void }) {
               {tab === "profile" && <ProfileTab onClose={onClose} />}
               {tab === "tutor" && <TutorTab />}
               {tab === "account" && <AccountTab onClose={onClose} />}
-              {tab === "admin" && isAdmin && <AdminTab />}
             </motion.div>
           </AnimatePresence>
         </div>

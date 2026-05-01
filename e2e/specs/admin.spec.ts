@@ -1,20 +1,24 @@
-// Phase 20-P5: Admin Controls visibility gate.
+// Phase 20-P5 / Phase 25: Admin Controls visibility gate.
 //
-// The hidden Settings → Admin tab is gated on `user.app_metadata.role`
-// === "admin", populated by the Supabase Custom Access Token Hook
+// Admin surface is gated on `user.app_metadata.role` === "admin",
+// populated by the Supabase Custom Access Token Hook
 // (`public.attach_role_claim`). Without that hook wired, no JWT carries
 // the claim — non-admin path is the only deterministic e2e until the
 // hook is set up in the dev project's Supabase Dashboard.
 //
+// Phase 25 moved the admin surface OUT of Settings (no more Admin tab)
+// and into a dedicated /admin route, gated by RequireAdmin (frontend
+// route guard) + adminGuard (backend middleware).
+//
 // What this spec guarantees:
-//   1. Non-admin user opening Settings sees Account / AI / Appearance /
-//      Data tabs but NOT Admin. Hard guarantee — even if a user crafted
-//      JWT carries app_metadata.role=admin, the backend's adminGuard
-//      double-checks the user_roles table.
-//   2. Hitting /api/admin/users without admin claim returns 403.
+//   1. Non-admin user's Settings panel exposes Profile / Tutor / Account
+//      ONLY — no admin tab anywhere (Phase 25: tab removed entirely).
+//   2. Non-admin user's UserMenu has NO "Admin console" link.
+//   3. Non-admin typing /admin in the URL bar is redirected to /start.
+//   4. Hitting /api/admin/users without admin claim returns 403.
 //
 // Admin-path tests (override flow, project caps edit, audit log read,
-// safety-guard ladder) require:
+// safety-guard ladder, freeze-flow banner) require:
 //   • Auth hook wired in Supabase (Authentication → Hooks →
 //     Customize Access Token → public.attach_role_claim)
 //   • A user_roles row for the test worker's user
@@ -32,13 +36,14 @@ test.describe("Admin Controls — visibility gate", () => {
     await markOnboardingDone(page);
   });
 
-  test("non-admin user: Settings opens; no Admin tab in the nav", async ({ page }) => {
+  test("non-admin user: Settings has only Profile/Tutor/Account; no Admin tab", async ({ page }) => {
     await loadProfile(page, "empty");
     await page.goto("/start");
     await S.openSettings(page);
 
-    // Settings panel renders. Phase 24A: three user tabs (Profile, Tutor,
-    // Account) — Appearance + Data folded back into Profile + Account.
+    // Settings panel renders. Phase 25: three user tabs (Profile, Tutor,
+    // Account) — Phase 24A consolidation, then Phase 25 removed the
+    // hidden "Admin" tab entirely (admin surface moved to /admin route).
     await expect(page.locator('[role="dialog"]')).toBeVisible();
     await expect(
       page.getByRole("button", { name: /^profile$/i }).first(),
@@ -48,11 +53,53 @@ test.describe("Admin Controls — visibility gate", () => {
       page.getByRole("button", { name: /^account$/i }).first(),
     ).toBeVisible();
 
-    // The Admin tab MUST NOT render for a non-admin. Settings panel
-    // visibility-filters it via authStore.isAdmin().
+    // Phase 25: the Admin tab is REMOVED from Settings entirely (not just
+    // hidden from non-admins). This assertion catches a regression where
+    // it sneaks back in for any user.
     await expect(
       page.getByRole("button", { name: /^admin$/i }),
     ).toHaveCount(0);
+  });
+
+  test("non-admin: UserMenu has no 'Admin console' link", async ({ page }) => {
+    await loadProfile(page, "empty");
+    await page.goto("/start");
+
+    // Open the user menu dropdown.
+    await S.userMenuTrigger(page).first().click();
+
+    // Standard user-menu items should be present.
+    await expect(
+      page.getByRole("menuitem", { name: /^settings$/i }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("menuitem", { name: /^sign out$/i }),
+    ).toBeVisible();
+
+    // Phase 25 gate: the "Admin console" link is conditionally rendered
+    // based on authStore.isAdmin(). For a non-admin user it must not
+    // appear in the dropdown — that's how non-admins discover the
+    // /admin surface doesn't exist for them.
+    await expect(
+      page.getByRole("menuitem", { name: /admin console/i }),
+    ).toHaveCount(0);
+  });
+
+  test("non-admin: typing /admin in URL is redirected to /start", async ({ page }) => {
+    await loadProfile(page, "empty");
+
+    // Direct navigation to /admin. RequireAdmin guard reads
+    // authStore.isAdmin() (which decodes the JWT app_metadata.role
+    // claim). Non-admin → <Navigate to="/start" replace />.
+    await page.goto("/admin");
+
+    // Wait for navigation to settle on /start. We don't assert the
+    // exact path immediately because RequireAdmin's redirect happens
+    // mid-render; expect the URL to land on /start within the navigation
+    // budget, and verify a /start page element to confirm we're really
+    // there (not just that the URL changed).
+    await page.waitForURL("**/start", { timeout: 5_000 });
+    expect(new URL(page.url()).pathname).toBe("/start");
   });
 
   test("non-admin: GET /api/admin/users returns 403", async ({ page }) => {

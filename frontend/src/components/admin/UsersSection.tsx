@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   api,
+  type AdminDenylistRow,
   type AdminUserListEntry,
   type AdminUserOverride,
 } from "../../api/client";
@@ -125,14 +126,14 @@ export function UsersSection() {
                     ${u.usdLifetime.toFixed(4)}
                   </td>
                   <td className="px-2 py-1.5">
-                    <div className="flex gap-1">
+                    <div className="flex flex-wrap gap-1">
                       {u.override && (
                         <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[9px] text-accent ring-1 ring-accent/30">
                           override
                         </span>
                       )}
                       {u.denylisted && (
-                        <span className="rounded bg-danger/15 px-1.5 py-0.5 text-[9px] text-danger ring-1 ring-danger/30">
+                        <span className="rounded bg-warn/15 px-1.5 py-0.5 text-[9px] text-warn ring-1 ring-warn/30">
                           denylisted
                         </span>
                       )}
@@ -198,6 +199,7 @@ interface UserDrawerProps {
 
 function UserDrawer({ userId, onClose, onSaved }: UserDrawerProps) {
   const [override, setOverride] = useState<AdminUserOverride | null>(null);
+  const [denylist, setDenylist] = useState<AdminDenylistRow | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -205,6 +207,7 @@ function UserDrawer({ userId, onClose, onSaved }: UserDrawerProps) {
     try {
       const r = await api.adminGetUser(userId);
       setOverride(r.override);
+      setDenylist(r.denylist);
       setLoaded(true);
     } catch (e) {
       setError((e as Error).message);
@@ -217,10 +220,10 @@ function UserDrawer({ userId, onClose, onSaved }: UserDrawerProps) {
   }, [userId]);
 
   return (
-    <div className="rounded-md border border-accent/30 bg-accent/5 p-3">
-      <div className="mb-2 flex items-center justify-between">
+    <div className="flex flex-col gap-3 rounded-md border border-accent/30 bg-accent/5 p-3">
+      <div className="flex items-center justify-between">
         <h4 className="text-[12px] font-semibold text-ink">
-          Override caps for{" "}
+          User{" "}
           <span className="font-mono text-[11px]">{userId.slice(0, 8)}…</span>
         </h4>
         <button
@@ -238,14 +241,221 @@ function UserDrawer({ userId, onClose, onSaved }: UserDrawerProps) {
       {!loaded ? (
         <div className="text-[11px] text-muted">Loading…</div>
       ) : (
-        <OverrideForm
-          userId={userId}
-          override={override}
-          onSaved={async () => {
-            await refresh();
-            await onSaved();
-          }}
-        />
+        <>
+          <section>
+            <h5 className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted">
+              Cap overrides
+            </h5>
+            <OverrideForm
+              userId={userId}
+              override={override}
+              onSaved={async () => {
+                await refresh();
+                await onSaved();
+              }}
+            />
+          </section>
+          <section className="border-t border-border pt-3">
+            <h5 className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted">
+              Abuse controls
+            </h5>
+            <AbuseControls
+              userId={userId}
+              denylist={denylist}
+              onChanged={async () => {
+                await refresh();
+                await onSaved();
+              }}
+            />
+          </section>
+        </>
+      )}
+    </div>
+  );
+}
+
+const PHRASE_FREEZE_USER =
+  "I understand this blocks all access for this user";
+
+function AbuseControls({
+  userId,
+  denylist,
+  onChanged,
+}: {
+  userId: string;
+  denylist: AdminDenylistRow | null;
+  onChanged: () => Promise<void>;
+}) {
+  const [denyReason, setDenyReason] = useState("");
+  const [freezeReason, setFreezeReason] = useState("");
+  const [freezePhrase, setFreezePhrase] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const isDenied = !!denylist;
+  const isFrozen = denylist?.frozen === true;
+
+  const denyOk = denyReason.trim().length >= 4;
+  const freezeOk =
+    freezeReason.trim().length >= 4 && freezePhrase === PHRASE_FREEZE_USER;
+
+  const wrap = async (fn: () => Promise<unknown>) => {
+    setBusy(true);
+    setErr(null);
+    try {
+      await fn();
+      await onChanged();
+      setDenyReason("");
+      setFreezeReason("");
+      setFreezePhrase("");
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap gap-1.5 text-[10px]">
+        <span
+          className={`inline-block rounded-full border px-2 py-0.5 font-semibold ${isDenied ? "border-danger/40 bg-danger/10 text-danger" : "border-success/40 bg-success/10 text-success"}`}
+        >
+          {isDenied ? "denylisted" : "AI access OK"}
+        </span>
+        <span
+          className={`inline-block rounded-full border px-2 py-0.5 font-semibold ${isFrozen ? "border-danger/40 bg-danger/10 text-danger" : "border-success/40 bg-success/10 text-success"}`}
+        >
+          {isFrozen ? "FROZEN" : "active"}
+        </span>
+      </div>
+
+      {denylist?.reason && (
+        <div className="rounded border border-border bg-elevated/30 px-2 py-1 text-[10px] text-muted">
+          <div>
+            <strong className="text-ink">Denylist reason:</strong>{" "}
+            {denylist.reason}
+          </div>
+          {denylist.frozenReason && (
+            <div className="mt-0.5">
+              <strong className="text-danger">Freeze reason:</strong>{" "}
+              {denylist.frozenReason}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Denylist toggle */}
+      <div className="flex flex-col gap-1">
+        <label className="text-[11px]">
+          <span className="text-muted">Denylist reason (≥4 chars)</span>
+          <input
+            type="text"
+            value={denyReason}
+            onChange={(e) => setDenyReason(e.target.value)}
+            disabled={busy}
+            placeholder={isDenied ? "(unused — only needed to add)" : "why deny platform AI"}
+            className="mt-0.5 w-full rounded border border-border bg-bg px-2 py-1 text-ink"
+          />
+        </label>
+        <div className="flex gap-2">
+          {!isDenied && (
+            <button
+              type="button"
+              disabled={busy || !denyOk}
+              onClick={() =>
+                wrap(() =>
+                  api.adminSetDenylist(userId, { reason: denyReason.trim() }),
+                )
+              }
+              className="rounded-md bg-warn px-3 py-1 text-[11px] font-semibold text-bg disabled:opacity-50"
+            >
+              Add to denylist
+            </button>
+          )}
+          {isDenied && !isFrozen && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => wrap(() => api.adminClearDenylist(userId))}
+              className="rounded-md border border-border bg-elevated px-3 py-1 text-[11px] text-muted hover:text-ink"
+            >
+              Remove from denylist
+            </button>
+          )}
+          {isDenied && isFrozen && (
+            <span className="text-[10px] text-muted">
+              Unfreeze first to remove denylist (audit-trail integrity).
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Freeze toggle */}
+      <div className="flex flex-col gap-1 border-t border-border pt-2">
+        {!isFrozen ? (
+          <>
+            <label className="text-[11px]">
+              <span className="text-muted">Freeze reason (≥4 chars)</span>
+              <input
+                type="text"
+                value={freezeReason}
+                onChange={(e) => setFreezeReason(e.target.value)}
+                disabled={busy}
+                placeholder="why this account must be fully blocked"
+                className="mt-0.5 w-full rounded border border-border bg-bg px-2 py-1 text-ink"
+              />
+            </label>
+            <label className="text-[11px]">
+              <span className="text-muted">
+                Phrase:{" "}
+                <span className="font-mono text-danger">{PHRASE_FREEZE_USER}</span>
+              </span>
+              <input
+                type="text"
+                value={freezePhrase}
+                onChange={(e) => setFreezePhrase(e.target.value)}
+                disabled={busy}
+                className={`mt-0.5 w-full rounded border bg-bg px-2 py-1 ${freezePhrase === PHRASE_FREEZE_USER ? "border-success/40 text-success" : "border-border text-ink"}`}
+              />
+            </label>
+            <p className="text-[10px] text-muted">
+              Freeze blocks platform AI <em>and</em> session creation. The
+              learner sees an &ldquo;account suspended&rdquo; banner with the
+              reason on next page load.
+            </p>
+            <button
+              type="button"
+              disabled={busy || !freezeOk}
+              onClick={() =>
+                wrap(() =>
+                  api.adminFreezeUser(userId, {
+                    reason: freezeReason.trim(),
+                    confirmFreeze: freezePhrase,
+                  }),
+                )
+              }
+              className="self-start rounded-md bg-danger px-3 py-1 text-[11px] font-semibold text-bg disabled:opacity-50"
+            >
+              Freeze account
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => wrap(() => api.adminUnfreezeUser(userId))}
+            className="self-start rounded-md border border-border bg-elevated px-3 py-1 text-[11px] text-muted hover:text-ink"
+          >
+            Unfreeze account
+          </button>
+        )}
+      </div>
+
+      {err && (
+        <div className="rounded border border-danger/40 bg-danger/10 px-2 py-1 text-[10px] text-danger">
+          {err}
+        </div>
       )}
     </div>
   );
