@@ -29,8 +29,58 @@ const OPENAI_BASE = "https://api.openai.com/v1";
 // platform key and keeps any single call's $ predictable. 2000 output
 // tokens at nano rates is ~$0.0008 — well inside the per-call cost math.
 // Applied to ALL AI calls, not just platform, because there's no legitimate
-// tutor exchange that needs more.
+// tutor exchange that needs more. Phase 27: callers may pass
+// AIAskParams.maxOutputTokens to request a TIGHTER cap (e.g. anonymous
+// users get 512); the provider clamps to min(supplied, MAX_OUTPUT_TOKENS).
 const MAX_OUTPUT_TOKENS = 2000;
+
+// Phase 27 precondition: server-side request deadline. Caps any single AI
+// call so a stalled upstream / runaway stream / client that walked away
+// can't hold the response slot indefinitely. 25s is generous for a
+// streaming tutor response (typical: 4–8s for nano on tutor sections);
+// callers needing a tighter SLA can pass their own AbortSignal in
+// params.signal — the two are merged.
+const REQUEST_DEADLINE_MS = 25_000;
+
+// Phase 27 precondition: pre-flight input-size guard. Refuses to send if
+// the rendered prompt (instructions + userTurn) exceeds this byte count.
+// 250 KB ≈ ~62K tokens upper bound — well below model context windows
+// for any current GPT family, but small enough to bound malicious
+// payload growth (a content-injected 1MB userTurn would otherwise burn
+// ~250K input tokens at nano = ~$0.025 per request, multiplied across
+// rapid retries). At this layer we fail fast with a 413 rather than
+// truncate silently — silent truncation can change the prompt's
+// meaning in ways that are worse than a clear refusal.
+const MAX_PROMPT_BYTES = 250_000;
+
+/**
+ * Merge a caller-supplied AbortSignal with a server-side deadline timer.
+ * Either source firing aborts the returned signal. Returns a `cancel`
+ * function the call site MUST invoke after the upstream resolves so the
+ * timer doesn't leak — TS `Promise.finally` is the right place.
+ */
+function buildSignalWithDeadline(
+  caller: AbortSignal | undefined,
+  deadlineMs: number,
+): { signal: AbortSignal; cancel: () => void; timedOut: () => boolean } {
+  const ctl = new AbortController();
+  let timedOutFlag = false;
+  if (caller?.aborted) ctl.abort();
+  const onCallerAbort = () => ctl.abort();
+  caller?.addEventListener("abort", onCallerAbort, { once: true });
+  const timer = setTimeout(() => {
+    timedOutFlag = true;
+    ctl.abort();
+  }, deadlineMs);
+  return {
+    signal: ctl.signal,
+    cancel: () => {
+      clearTimeout(timer);
+      caller?.removeEventListener("abort", onCallerAbort);
+    },
+    timedOut: () => timedOutFlag,
+  };
+}
 
 // Phase 17 / M-A3: full prompt content can contain the learner's code —
 // keep it out of the log unless a developer explicitly opts in. In normal
@@ -228,11 +278,29 @@ export const openaiProvider: AIProvider = {
       console.log(`[openai]   --- input (user turn) ---\n${clip(userTurn, 1500)}`);
     }
 
+    // Phase 27 precondition: pre-flight prompt-size guard. Refuse oversize
+    // payloads at this layer rather than silently sending; cheap defense
+    // against a malicious client smuggling a multi-MB context.
+    const promptBytes = instructions.length + userTurn.length;
+    if (promptBytes > MAX_PROMPT_BYTES) {
+      console.log(`[openai] ask refused: promptBytes=${promptBytes} > MAX_PROMPT_BYTES=${MAX_PROMPT_BYTES}`);
+      throw new AIProviderError(
+        `prompt too large (${promptBytes} bytes; cap ${MAX_PROMPT_BYTES})`,
+        413,
+      );
+    }
+    // Phase 27 precondition: clamp to global output-token ceiling. Callers
+    // may request lower (anonymous = 512); none can exceed MAX_OUTPUT_TOKENS.
+    const maxOutputTokens = Math.min(
+      params.maxOutputTokens ?? MAX_OUTPUT_TOKENS,
+      MAX_OUTPUT_TOKENS,
+    );
+
     const body = {
       model: params.model,
       instructions,
       input: userTurn,
-      max_output_tokens: MAX_OUTPUT_TOKENS,
+      max_output_tokens: maxOutputTokens,
       text: {
         format: {
           type: "json_schema",
@@ -243,26 +311,41 @@ export const openaiProvider: AIProvider = {
       },
     };
 
+    // Phase 27 precondition: server-side request deadline merged with the
+    // caller's signal. Either firing aborts the upstream fetch AND the
+    // response-body read — the try/finally must wrap BOTH, otherwise a
+    // chunked / slow body read past 25s holds the response slot
+    // indefinitely (defeating the purpose of the deadline).
+    const deadline = buildSignalWithDeadline(params.signal, REQUEST_DEADLINE_MS);
     const started = Date.now();
-    const res = await openaiFetch("/responses", params.key, {
-      method: "POST",
-      body: JSON.stringify(body),
-      signal: params.signal,
-    });
-    if (!res.ok) {
-      const err = await parseError(res);
-      console.log(`[openai] ask error status=${res.status} body=${clip(err, 300)}`);
-      throw new AIProviderError(err, res.status);
-    }
-
-    // The Responses API returns `output_text` as a convenience concat of all
-    // text content in the response. For json_schema format this is the JSON
-    // document. Fall back to walking `output[].content[].text` if absent.
-    const json = (await res.json()) as {
+    let res: Response;
+    let json: {
       output_text?: string;
       output?: { content?: { type?: string; text?: string }[] }[];
       usage?: { input_tokens?: number; output_tokens?: number; total_tokens?: number };
     };
+    try {
+      res = await openaiFetch("/responses", params.key, {
+        method: "POST",
+        body: JSON.stringify(body),
+        signal: deadline.signal,
+      });
+      if (!res.ok) {
+        const err = await parseError(res);
+        console.log(`[openai] ask error status=${res.status} body=${clip(err, 300)}`);
+        throw new AIProviderError(err, res.status);
+      }
+      // The Responses API returns `output_text` as a convenience concat of all
+      // text content in the response. For json_schema format this is the JSON
+      // document. Fall back to walking `output[].content[].text` if absent.
+      json = (await res.json()) as {
+        output_text?: string;
+        output?: { content?: { type?: string; text?: string }[] }[];
+        usage?: { input_tokens?: number; output_tokens?: number; total_tokens?: number };
+      };
+    } finally {
+      deadline.cancel();
+    }
 
     let raw = json.output_text ?? "";
     if (!raw && json.output) {
@@ -382,12 +465,28 @@ export const openaiProvider: AIProvider = {
       console.log(`[openai]   --- question ---\n${clip(params.question, 300)}`);
     }
 
+    // Phase 27 precondition: pre-flight prompt-size guard.
+    const promptBytes = instructions.length + userTurn.length;
+    if (promptBytes > MAX_PROMPT_BYTES) {
+      console.log(`[openai] stream refused: promptBytes=${promptBytes} > MAX_PROMPT_BYTES=${MAX_PROMPT_BYTES}`);
+      handlers.onError(
+        `prompt too large (${promptBytes} bytes; cap ${MAX_PROMPT_BYTES})`,
+        413,
+      );
+      return;
+    }
+    // Phase 27 precondition: clamp output cap.
+    const maxOutputTokens = Math.min(
+      params.maxOutputTokens ?? MAX_OUTPUT_TOKENS,
+      MAX_OUTPUT_TOKENS,
+    );
+
     const body = {
       model: params.model,
       instructions,
       input: userTurn,
       stream: true,
-      max_output_tokens: MAX_OUTPUT_TOKENS,
+      max_output_tokens: maxOutputTokens,
       text: {
         format: {
           type: "json_schema",
@@ -398,17 +497,21 @@ export const openaiProvider: AIProvider = {
       },
     };
 
+    // Phase 27 precondition: server-side deadline merged with caller's signal.
+    const deadline = buildSignalWithDeadline(params.signal, REQUEST_DEADLINE_MS);
     const started = Date.now();
     let res: Response;
     try {
       res = await openaiFetch("/responses", params.key, {
         method: "POST",
         body: JSON.stringify(body),
-        signal: params.signal,
+        signal: deadline.signal,
       });
     } catch (err) {
+      deadline.cancel();
       if (isAbortError(err)) {
-        console.log(`[openai] stream aborted before headers`);
+        const reason = deadline.timedOut() ? "deadline" : "client";
+        console.log(`[openai] stream aborted (${reason}) before headers`);
         // Even pre-headers, OpenAI may have received the request body and
         // billed input tokens. Record an estimated-cost ledger row.
         handlers.onAbort?.("", {
@@ -422,6 +525,7 @@ export const openaiProvider: AIProvider = {
     }
 
     if (!res.ok || !res.body) {
+      deadline.cancel();
       const err = await parseError(res);
       console.log(`[openai] stream error status=${res.status} body=${clip(err, 300)}`);
       handlers.onError(err, res.status);
@@ -493,8 +597,10 @@ export const openaiProvider: AIProvider = {
         }
       }
     } catch (err) {
+      deadline.cancel();
       if (isAbortError(err)) {
-        console.log(`[openai] stream aborted after ${Date.now() - started}ms, raw=${raw.length} chars`);
+        const reason = deadline.timedOut() ? "deadline" : "client";
+        console.log(`[openai] stream aborted (${reason}) after ${Date.now() - started}ms, raw=${raw.length} chars`);
         // Input: full prompt is billed by OpenAI once the request was
         // accepted. Output: what we actually received via delta events
         // before the abort. Both are rough — see estimateTokens comment.
@@ -507,6 +613,8 @@ export const openaiProvider: AIProvider = {
       handlers.onError((err as Error).message);
       return;
     }
+    // Stream loop exited normally — clear the deadline timer.
+    deadline.cancel();
 
     if (finalFailure) {
       handlers.onError(finalFailure);

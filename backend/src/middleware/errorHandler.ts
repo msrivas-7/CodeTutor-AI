@@ -1,5 +1,6 @@
 import type { ErrorRequestHandler } from "express";
 import { ZodError } from "zod";
+import { AIProviderError } from "../services/ai/provider.js";
 
 // Thrown from routes/services when a specific HTTP status is meaningful
 // (404 not-found, 409 conflict, 422 unsupported). Anything else still falls
@@ -55,6 +56,28 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
     }
     if (err.headers) {
       for (const [k, v] of Object.entries(err.headers)) res.setHeader(k, v);
+    }
+    res.status(err.status).json({ error: err.message });
+    return;
+  }
+  // Phase 27 precondition: AIProviderError with a known status (e.g. 413
+  // for prompt-too-large from openaiProvider's pre-flight guard) must
+  // surface its status to the client — otherwise oversize-prompt
+  // refusals look like generic 500s in logs/metrics, hiding the very
+  // signal the guard exists to provide. Errors without `.status` (a
+  // bare upstream message) still fall through to the 500 path so we
+  // don't leak provider internals.
+  if (err instanceof AIProviderError && typeof err.status === "number") {
+    if (err.status !== 401) {
+      console.error(
+        JSON.stringify({
+          level: "warn",
+          t: new Date().toISOString(),
+          id: req.id,
+          status: err.status,
+          err: err.message,
+        }),
+      );
     }
     res.status(err.status).json({ error: err.message });
     return;
