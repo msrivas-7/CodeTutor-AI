@@ -21,6 +21,7 @@
     "oop-inheritance",
     "dunder-methods",
     "iterators-and-generators",
-    "decorators"
+    "decorators",
+    "testing-basics"
   ]
 }
