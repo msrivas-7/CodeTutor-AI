@@ -97,6 +97,23 @@ fetch_optional() {
   # Then store: az keyvault secret set --vault-name <kv> \
   #               --name EMAIL-UNSUBSCRIBE-SECRET --value "<value>"
   echo "EMAIL_UNSUBSCRIBE_SECRET=$(fetch_optional EMAIL-UNSUBSCRIBE-SECRET)"
+  # Phase 24B: ACI hybrid burst overflow. All optional — when these
+  # secrets are absent (default), the backend's factory falls through
+  # to plain LocalDocker and HybridBackend is never constructed. To
+  # activate: seed the secrets in KV and flip ENABLE-ACI-OVERFLOW=1.
+  # See memory: project_phase_24b_iam_bootstrap.md for the full
+  # 5-step activation runbook.
+  echo "ENABLE_ACI_OVERFLOW=$(fetch_optional ENABLE-ACI-OVERFLOW)"
+  echo "AZURE_SUBSCRIPTION_ID=$(fetch_optional AZURE-SUBSCRIPTION-ID)"
+  echo "AZURE_RG=$(fetch_optional AZURE-RG)"
+  echo "AZURE_LOCATION=$(fetch_optional AZURE-LOCATION)"
+  echo "ACI_SUBNET_ID=$(fetch_optional ACI-SUBNET-ID)"
+  echo "ACI_RUNNER_IMAGE=$(fetch_optional ACI-RUNNER-IMAGE)"
+  echo "ACI_SIDECAR_PORT=$(fetch_optional ACI-SIDECAR-PORT)"
+  echo "ACI_COLD_START_TIMEOUT_MS=$(fetch_optional ACI-COLD-START-TIMEOUT-MS)"
+  echo "ACI_DAILY_USD_CAP=$(fetch_optional ACI-DAILY-USD-CAP)"
+  echo "ACI_MAX_OVERFLOW=$(fetch_optional ACI-MAX-OVERFLOW)"
+  echo "ACI_WARM_POOL_ENABLED=$(fetch_optional ACI-WARM-POOL-ENABLED)"
   # Non-secret prod config. CORS is sourced from KV (`CORS-ORIGIN`)
   # so the frontend hostname is never hardcoded in the provisioning
   # template — avoids the template/live-script drift that bit us when
