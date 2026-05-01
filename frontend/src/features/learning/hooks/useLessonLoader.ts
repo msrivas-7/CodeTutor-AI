@@ -214,6 +214,14 @@ export function useLessonLoader({
     // re-hydrate the user's previously-edited buffer for this context
     // and the scripted "change Hello, Python! to Hello, world!" beat
     // would land against text the user already changed.
+    //
+    // Phase 22F2 prep: openTabs now includes EVERY starter file, not
+    // just the entry point. Multi-file lessons (e.g. modules-and-imports)
+    // would otherwise leave helper.py invisible — the file would load
+    // into projectStore.files (Run + imports work) but the learner
+    // would have no tab to click. The active tab still defaults to
+    // order[0] (the entry point) so the visual starting point is
+    // unchanged for single-file lessons.
     switchProjectContext(
       ctxKey,
       {
@@ -221,7 +229,7 @@ export function useLessonLoader({
         files,
         order,
         activeFile: order[0],
-        openTabs: [order[0]],
+        openTabs: [...order],
       },
       forceStarter ? { forceDefaults: true } : undefined,
     );

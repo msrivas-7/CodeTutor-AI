@@ -728,7 +728,12 @@ export default function LessonPage() {
                 Your code was restored — resuming where you left off
               </div>
             )}
-            <EditorTabs />
+            {/* Phase 22F2 prep: lock the tab strip in lesson mode — no
+                X to close, no middle-click. A beginner accidentally
+                closing helper.py and getting "ModuleNotFoundError" on
+                Run is exactly the friction we want to remove. Reset Code
+                button (below, next to Run) is the recovery path. */}
+            <EditorTabs mode="lesson" />
             <div className="min-h-0 flex-1">
               <Suspense fallback={<div className="p-4 text-sm text-muted">Loading editor…</div>}>
                 <MonacoPane />
@@ -750,9 +755,11 @@ export default function LessonPage() {
             </div>
 
             {/* Run toolbar — 2 rows: primary actions (+ overflow menu),
-                validation feedback. Secondary actions (Reset Code / Reset
-                Lesson) + stats are tucked behind ⋯ so the toolbar stays a
-                single visual strip. */}
+                validation feedback. Phase 22F2 prep: Reset Code is now
+                a top-level "↺ Reset" link next to Run (the recovery
+                parachute should sit next to the cockpit, not buried in
+                a menu). Reset LESSON (destructive — wipes progress)
+                stays behind ⋯ so beginners can't trigger it accidentally. */}
             <div className="border-t border-border bg-panel/80">
               {/* Row 1 — Primary actions */}
               <div className="flex items-center gap-2 px-4 py-1.5">
@@ -817,6 +824,22 @@ export default function LessonPage() {
                     )}
                   </motion.button>
                 </span>
+                {/* Phase 22F2 prep: quiet Reset link. Always visible
+                    in lesson mode — when learner edits code into garbage
+                    and Run fails, this is the one-click parachute back
+                    to the starter. Muted styling so it doesn't compete
+                    with Run / Check My Work. */}
+                <button
+                  type="button"
+                  onClick={validator.handleReset}
+                  disabled={runner.running}
+                  title="Reset code to starter"
+                  aria-label="Reset code to starter"
+                  className="flex items-center gap-1 px-2 py-1.5 text-[11px] text-muted transition hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <span aria-hidden="true">↺</span>
+                  Reset
+                </button>
                 <span className="relative inline-flex">
                   {/* Sonar ring removed — the lesson-complete
                       celebration is the win moment; the per-pass
@@ -942,23 +965,17 @@ export default function LessonPage() {
                     // Opens UPWARD (bottom-full) — the kebab sits low in the
                     // viewport (between editor and output panel) so a downward
                     // dropdown falls off-screen.
+                    //
+                    // Phase 22F2 prep: Reset CODE moved out to a top-level
+                    // link (next to Run). This menu is now destructive-only:
+                    // Reset Lesson wipes ALL progress and lives behind a
+                    // confirmation modal. Keeping it hidden in the ⋯ menu
+                    // is intentional — beginners shouldn't discover it
+                    // accidentally.
                     <div
                       role="menu"
                       className="absolute right-0 bottom-full z-40 mb-1 w-48 overflow-hidden rounded-lg border border-border bg-panel/95 p-1 shadow-xl backdrop-blur"
                     >
-                      <button
-                        role="menuitem"
-                        onClick={() => {
-                          layout.setResetMenuOpen(false);
-                          validator.handleReset();
-                        }}
-                        disabled={runner.running}
-                        className="block w-full rounded-md px-3 py-1.5 text-left text-xs text-ink transition hover:bg-elevated disabled:cursor-not-allowed disabled:opacity-40"
-                        title="Reset code to starter"
-                      >
-                        Reset Code
-                      </button>
-                      <div className="my-0.5 border-t border-border/50" />
                       <button
                         role="menuitem"
                         onClick={() => {

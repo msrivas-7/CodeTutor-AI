@@ -5,9 +5,19 @@ import { useAIStatus } from "../state/useAIStatus";
 import { fileIcon } from "../util/fileIcon";
 
 // Horizontal tab strip above the editor. Mirrors VSCode-style ergonomics:
-// click to switch, X or middle-click to close, active tab visually merges
-// into the editor below by sharing its bg color.
-export function EditorTabs() {
+// click to switch; in editor mode X or middle-click closes a tab.
+//
+// Phase 22F2 prep — `mode` prop: in `"lesson"` mode we hide the close
+// affordances (no X button, no middle-click handler). Lesson starter
+// files are part of the curated experience; a beginner accidentally
+// closing helper.py and getting "ModuleNotFoundError" on Run is exactly
+// the friction we want to remove. Recovery via "Reset Code" still
+// exists as a backstop. Free-roam editor mode keeps full freedom.
+export interface EditorTabsProps {
+  mode?: "editor" | "lesson";
+}
+
+export function EditorTabs({ mode = "editor" }: EditorTabsProps = {}) {
   const { openTabs, activeFile, setActive, closeTab } = useProjectStore();
   const hasKey = usePreferencesStore((s) => s.hasOpenaiKey);
   const selectedModel = useAIStore((s) => s.selectedModel);
@@ -16,6 +26,7 @@ export function EditorTabs() {
   const { status } = useAIStatus();
   const onPlatform = status?.source === "platform";
   const tutorReady = onPlatform || (hasKey && !!selectedModel);
+  const allowClose = mode === "editor";
 
   if (openTabs.length === 0) return null;
 
@@ -34,12 +45,16 @@ export function EditorTabs() {
           <div
             key={path}
             onClick={() => setActive(path)}
-            onAuxClick={(e) => {
-              if (e.button === 1) {
-                e.preventDefault();
-                closeTab(path);
-              }
-            }}
+            onAuxClick={
+              allowClose
+                ? (e) => {
+                    if (e.button === 1) {
+                      e.preventDefault();
+                      closeTab(path);
+                    }
+                  }
+                : undefined
+            }
             title={path}
             className={`group flex cursor-pointer items-center gap-1.5 border-r border-border px-3 py-1.5 text-xs transition ${
               isActive
@@ -51,21 +66,23 @@ export function EditorTabs() {
               {icon.label}
             </span>
             <span className="max-w-[180px] truncate font-mono" aria-label={path}>{name}</span>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                closeTab(path);
-              }}
-              title={`Close ${name}`}
-              aria-label={`Close ${name}`}
-              className={`ml-1 rounded px-1 text-[10px] leading-none transition ${
-                isActive
-                  ? "text-muted hover:bg-danger/20 hover:text-danger"
-                  : "text-faint hover:bg-danger/20 hover:text-danger"
-              }`}
-            >
-              ✕
-            </button>
+            {allowClose && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  closeTab(path);
+                }}
+                title={`Close ${name}`}
+                aria-label={`Close ${name}`}
+                className={`ml-1 rounded px-1 text-[10px] leading-none transition ${
+                  isActive
+                    ? "text-muted hover:bg-danger/20 hover:text-danger"
+                    : "text-faint hover:bg-danger/20 hover:text-danger"
+                }`}
+              >
+                ✕
+              </button>
+            )}
           </div>
         );
       })}

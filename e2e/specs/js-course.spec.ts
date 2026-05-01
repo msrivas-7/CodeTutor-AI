@@ -108,7 +108,7 @@ test.describe("javascript-fundamentals course", () => {
     await expectLessonComplete(page);
   });
 
-  test("reset code via overflow menu restores the JS starter", async ({ page }) => {
+  test("reset code button restores the JS starter", async ({ page }) => {
     await loadProfile(page, "empty");
     await page.goto(`/learn/course/${COURSE_ID}/lesson/hello-print`);
     await waitForMonacoReady(page);
@@ -117,8 +117,9 @@ test.describe("javascript-fundamentals course", () => {
     await setMonacoValue(page, "// scratch — about to be reset");
     expect(await getMonacoValue(page)).not.toEqual(starter);
 
-    await S.overflowMenuButton(page).click();
-    await S.resetCodeMenuItem(page).click();
+    // Phase 22F2: Reset Code is a top-level toolbar button now (not in
+    // the ⋯ menu). Reset Lesson stays in the menu.
+    await S.resetCodeButton(page).click();
 
     // Reset Code has no confirm dialog — Monaco reverts immediately to the
     // starter. Compare after trimming trailing whitespace: the starter file

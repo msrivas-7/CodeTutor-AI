@@ -127,8 +127,9 @@ test.describe("learning", () => {
     await setMonacoValue(page, '# wiped by the test\nprint("gone")\n');
     expect(await getMonacoValue(page)).not.toBe(starter);
 
-    await S.overflowMenuButton(page).click();
-    await S.resetCodeMenuItem(page).click();
+    // Phase 22F2: Reset Code is a top-level toolbar button now (not in
+    // the ⋯ menu). Reset Lesson stays in the menu.
+    await S.resetCodeButton(page).click();
 
     // After reset, Monaco should match the starter again.
     await expect.poll(async () => await getMonacoValue(page), { timeout: 5_000 }).toBe(starter);

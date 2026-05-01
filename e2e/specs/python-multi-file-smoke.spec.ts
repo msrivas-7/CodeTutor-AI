@@ -59,6 +59,64 @@ test.describe("python multi-file smoke course (Phase 22F2A — B4)", () => {
     expect(starter).toContain('print(greet("world"))');
   });
 
+  test("lesson-mode tab strip hides the close (X) affordance on every tab", async ({
+    page,
+  }) => {
+    // Phase 22F2 prep: starter files are part of the curated lesson
+    // experience. Closing main.py from the tab strip and then hitting
+    // Run would break the lesson — exactly the friction we want to
+    // remove for beginners. EditorTabs's `mode="lesson"` prop suppresses
+    // the X button + the middle-click handler. Recovery via the new
+    // top-level "Reset code" button is the parachute.
+    //
+    // E2E rather than a frontend unit test because the project has no
+    // jsdom/testing-library setup; rendered DOM inside Playwright's
+    // chromium is the cheapest place to assert the affordance is gone.
+    //
+    // Phase 22F2 prep: lesson mode now auto-opens EVERY starter file
+    // as a tab (previously only the entry point opened). For
+    // modules-and-imports style lessons, the learner needs to see
+    // helper.py exists and click into it — without the tab, helper.py
+    // is invisible.
+    await loadProfile(page, "empty");
+    await page.goto(`/learn/course/${COURSE_ID}/lesson/${LESSON_ID}`);
+    await waitForMonacoReady(page);
+
+    // Both tabs should be visible (multi-file _index.json: main.py + helper.py).
+    await expect(page.locator('[aria-label="main.py"]')).toBeVisible({
+      timeout: 5_000,
+    });
+    await expect(page.locator('[aria-label="helper.py"]')).toBeVisible();
+
+    // No "Close ..." buttons should exist anywhere on the page in lesson
+    // mode — covers every tab regardless of how many are open.
+    await expect(
+      page.getByRole("button", { name: /^close .+\.py$/i }),
+    ).toHaveCount(0);
+  });
+
+  test("Reset code button restores the starter after edits (multi-file)", async ({
+    page,
+  }) => {
+    // Phase 22F2 prep: the new top-level Reset button (next to Run) is
+    // the recovery path now that the tab X is gone. Verify it actually
+    // restores both files for a multi-file lesson.
+    await loadProfile(page, "empty");
+    await page.goto(`/learn/course/${COURSE_ID}/lesson/${LESSON_ID}`);
+    await waitForMonacoReady(page);
+
+    const starter = await getMonacoValue(page);
+    // Mangle main.py — pretend the learner accidentally broke it.
+    await setMonacoValue(page, "# garbage\n");
+    expect(await getMonacoValue(page)).not.toBe(starter);
+
+    await S.resetCodeButton(page).click();
+
+    await expect
+      .poll(async () => await getMonacoValue(page), { timeout: 5_000 })
+      .toBe(starter);
+  });
+
   test("Run executes the multi-file lesson and produces 'Hello, world!' stdout", async ({
     page,
   }) => {

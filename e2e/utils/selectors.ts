@@ -108,8 +108,11 @@ export const lessonRunButton = (page: Page): Locator =>
 export const overflowMenuButton = (page: Page): Locator =>
   page.getByRole("button", { name: /more lesson actions/i });
 
-export const resetCodeMenuItem = (page: Page): Locator =>
-  page.getByRole("menuitem", { name: /^reset code$/i });
+// Phase 22F2 prep: Reset Code is now a top-level button next to Run
+// (not buried in the ⋯ menu). Reset Lesson stays in the menu because
+// it's destructive — wipes all lesson progress.
+export const resetCodeButton = (page: Page): Locator =>
+  page.getByRole("button", { name: /^reset code to starter$/i });
 
 export const resetLessonMenuItem = (page: Page): Locator =>
   page.getByRole("menuitem", { name: /^reset lesson$/i });
