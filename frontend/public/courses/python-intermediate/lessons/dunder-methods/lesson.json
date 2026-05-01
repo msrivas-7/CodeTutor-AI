@@ -9,14 +9,15 @@
   "objectives": [
     "Define `__repr__` and `__str__` so `repr()` and `print()` produce useful output",
     "Define `__eq__` so `==` compares by value, not identity",
-    "Define `__len__` so `len()` works on your own objects"
+    "Define `__len__` and `__iter__` so `len()` and `for` loops work on your own objects"
   ],
   "teachesConceptTags": [
     "dunder-methods",
     "__repr__",
     "__str__",
     "__eq__",
-    "__len__"
+    "__len__",
+    "__iter__"
   ],
   "usesConceptTags": [
     "class",

@@ -73,7 +73,7 @@
     {
       "id": "safe-index",
       "title": "Assert as a precondition",
-      "prompt": "Write `safe_index(lst, i)` that returns `lst[i]`, but uses `assert 0 <= i < len(lst), \"index out of range\"` *as an internal invariant* — the assumption being that the caller has already validated `i` upstream and a bad index here means a bug, not bad user input. (For runtime input validation, you'd use `if`/`raise ValueError` instead — see content.md's note on when `assert` is the wrong tool.)\n\nFor example, `safe_index([10, 20, 30], 1)` returns `20`. Calling `safe_index([], 0)` raises `AssertionError(\"index out of range\")`.\n\n(The automated tests verify the success path. The assertion path is enforced by requiring `assert` in your code.)",
+      "prompt": "Write `safe_index(lst, i)` that returns `lst[i]`, but uses `assert 0 <= i < len(lst), \"index out of range\"` *as an internal invariant* — the assumption being that the caller has already validated `i` upstream and a bad index here means a bug, not bad user input. (For runtime input validation, you'd use `if`/`raise ValueError` instead — see the *When `assert` is right* section above.)\n\nFor example, `safe_index([10, 20, 30], 1)` returns `20`. Calling `safe_index([], 0)` raises `AssertionError(\"index out of range\")`.\n\n(The automated tests verify the success path. The assertion path is enforced by requiring `assert` in your code.)",
       "goal": "Use `assert` to express a precondition — an invariant the function relies on.",
       "starterCode": "def safe_index(lst, i):\n    # TODO: assert 0 <= i < len(lst), \"index out of range\"\n    # then return lst[i]\n    pass\n",
       "completionRules": [

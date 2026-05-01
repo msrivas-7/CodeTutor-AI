@@ -28,6 +28,7 @@
     "dict",
     "comprehension",
     "set-comprehension",
+    "generator-expression",
     "with",
     "open",
     "lambda",

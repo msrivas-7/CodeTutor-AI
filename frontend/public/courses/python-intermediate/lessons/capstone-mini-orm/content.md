@@ -96,7 +96,7 @@ The fluent pattern itself scales: every method you'd add follows the same shape 
 
 ### And that's the course
 
-You started with comprehensions and walked through error handling, file I/O, modules, classes, inheritance, dunders, generators, decorators, testing, and regex. This lesson is what those add up to: a small library that uses most of them, in about twenty lines, written in a style that wouldn't look out of place in a senior Python codebase. The mechanics are now yours.
+You started with comprehensions and walked through error handling, file I/O, modules, classes, inheritance, dunders, generators, decorators, testing, and regex. This lesson pulls together the load-bearing pieces of that arc — classes, dunders, lambdas, higher-order functions — into a small library in about twenty lines, written in a style that wouldn't look out of place in a senior Python codebase. The rest (try/except, generators, decorators, regex, testing) are the next things you'd reach for as the library grows.
 
 The next thing worth doing is a tour of the standard library — `csv`, `json`, `pathlib`, `dataclasses`, `argparse`, `subprocess`. Almost every script you'll ever write is some combination of those plus the patterns from this course. None of them will surprise you anymore.
 

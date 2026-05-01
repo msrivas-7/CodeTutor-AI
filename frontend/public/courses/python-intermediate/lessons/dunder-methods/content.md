@@ -94,6 +94,21 @@ class Bag:
 
 Bonus: defining `__len__` also makes your object *truthy* exactly when it's non-empty. `if my_bag:` becomes equivalent to `if len(my_bag) > 0:` — Python uses `__len__` to decide.
 
+### `__iter__`
+
+Define `__iter__` and your object becomes iterable — `for x in obj:` and `list(obj)` start working. The cleanest implementation just delegates to whatever underlying collection holds the data:
+
+```python
+class Bag:
+    def __init__(self, items):
+        self.items = items
+
+    def __iter__(self):
+        return iter(self.items)
+```
+
+`iter(self.items)` returns the list's own iterator. You don't have to write the iteration logic yourself — you're handing it off to the list. Pair `__iter__` with `__len__` and your class slots into Python's built-ins exactly the way a list or a dict does.
+
 ### Don't define what you don't need
 
 There are dozens of dunders — `__add__` for `+`, `__getitem__` for `[]`, `__iter__` for `for x in obj`, and so on. The temptation when you first learn this is to add them all. Resist. A `__add__` on a class where addition isn't obvious will confuse readers more than it helps. The four in this lesson — `__repr__`, `__str__`, `__eq__`, `__len__` — cover most real cases. Reach for the others when there's a clear "this is what `+` should mean here" answer.
