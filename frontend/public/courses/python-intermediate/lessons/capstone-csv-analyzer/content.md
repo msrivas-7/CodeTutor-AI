@@ -51,17 +51,12 @@ This capstone composes things you already know — here's a one-line refresher o
 
 ### Putting it together
 
-The "aggregate then pick a winner" shape is the most useful one in this lesson. You'll see it constantly:
+The "aggregate-then-pick-a-winner" shape is the most useful pattern in this lesson. Two pieces, each from earlier lessons:
 
-```python
-totals = {}
-for date, product, amount in rows:
-    totals[product] = totals.get(product, 0) + amount
+- `dict.get(key, default)` — "give me the current value, or `default` if missing" — lets a totalling loop work whether or not we've seen the key before. (Without this, the *first* time you see a product you'd hit a `KeyError`.)
+- `max(iterable, key=func)` — iterates and returns the element where `func(element)` is largest. Pair it with a lambda that looks up the dict's value to pick the winning *key*.
 
-top = max(totals, key=lambda p: totals[p])
-```
-
-`totals.get(product, 0)` is the canonical "give me the current value, or 0 if missing" pattern — it lets the loop work whether or not we've seen the key before. `max(totals, key=lambda p: totals[p])` iterates the keys and asks for the one with the largest value.
+The capstone is wiring those two together. The starter's TODOs name what each phase produces — the joining is yours.
 
 ### A note on the `csv` module
 
@@ -82,12 +77,12 @@ top = max(totals, key=lambda p: totals[p])
 print(f"top product: {top} ({totals[top]})")
 ```
 The total over everything is `sum(r[2] for r in rows)` — a generator expression you've seen before. The product set is `sorted({r[1] for r in rows})` — a set comprehension.
-3. The full pipeline at the smallest possible scale, two records of two products:
+3. The same aggregate-then-pick shape applied to a vote tally — different domain, identical mechanic:
 ```python
-rows = [("d1", "a", 10), ("d2", "b", 20), ("d3", "a", 5)]
-totals = {}
-for d, p, n in rows:
-    totals[p] = totals.get(p, 0) + n
-# totals == {"a": 15, "b": 20}
-max(totals, key=lambda p: totals[p])  # "b"
+votes = ["red", "blue", "red", "red", "blue"]
+counts = {}
+for v in votes:
+    counts[v] = counts.get(v, 0) + 1
+# counts == {"red": 3, "blue": 2}
+winner = max(counts, key=lambda k: counts[k])  # "red"
 ```

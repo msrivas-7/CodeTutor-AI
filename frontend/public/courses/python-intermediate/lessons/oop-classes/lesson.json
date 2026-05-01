@@ -143,7 +143,7 @@
       ],
       "hints": [
         "A stack is just a list with a fixed access pattern: you only ever look at, add to, or remove from the end. Lists already have `.append` and `.pop` for those.",
-        "Shape:\n```python\nclass Stack:\n    def __init__(self):\n        self.items = []\n\n    def push(self, item):\n        self.items.append(item)\n\n    def pop(self):\n        return self.items.pop()\n\n    def peek(self):\n        return self.items[-1]\n```",
+        "Initialize `self.items = []` in `__init__`. Then map each method to one list operation: `push` → `list.append`, `pop` → `list.pop()` (no argument removes from the end), `peek` → indexing the last element with `[-1]`.",
         "The same wrapper-around-a-list idea for a queue (FIFO):\n```python\nclass Queue:\n    def __init__(self):\n        self.items = []\n\n    def enqueue(self, item):\n        self.items.append(item)\n\n    def dequeue(self):\n        return self.items.pop(0)\n```"
       ]
     }

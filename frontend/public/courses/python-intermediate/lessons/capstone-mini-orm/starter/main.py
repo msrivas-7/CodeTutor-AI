@@ -16,15 +16,15 @@ class Query:
         pass
 
     def __iter__(self):
-        # TODO: return iter(self.rows)
+        # TODO: hand off to the underlying list's iterator
         pass
 
     def __len__(self):
-        # TODO: return len(self.rows)
+        # TODO: report how many rows the Query holds
         pass
 
     def __repr__(self):
-        # TODO: return f"Query({len(self.rows)} rows)"
+        # TODO: return a short string like "Query(N rows)" — N is the row count
         pass
 
 

@@ -67,7 +67,7 @@ def log_calls(func):
     return wrapper
 ```
 
-`log_calls` takes a function `func` and gives you back `wrapper`, a *different* function that wraps a call to `func` with two prints. The inner `wrapper` references `func` — that's a *closure*, the same trick `memoize` and `count_calls` will use later in this lesson. The closure is what lets the wrapper "remember" which function it's wrapping.
+`log_calls` takes a function `func` and gives you back `wrapper`, a *different* function that wraps a call to `func` with two prints. The inner `wrapper` references `func` — that's a *closure*. It's the same trick the practice exercises lean on for state and caching. The closure is what lets the wrapper "remember" which function it's wrapping.
 
 ### The `@` syntax
 
@@ -122,12 +122,16 @@ def log_calls(func):
     return wrapper
 ```
 Then put `@log_calls` on the line above each `def add(...)` and `def greet(...)`. After that, `add(2, 3)` triggers all three lines automatically.
-3. The same pattern with one print instead of two:
+3. The same shape applied to *timing* a function instead of logging — different problem, identical mechanic:
 ```python
-def trace(func):
+import time
+
+def timed(func):
     def wrapper(*args, **kwargs):
+        start = time.perf_counter()
         result = func(*args, **kwargs)
-        print(f"{func.__name__} -> {result}")
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        print(f"{func.__name__} took {elapsed_ms:.2f} ms")
         return result
     return wrapper
 ```

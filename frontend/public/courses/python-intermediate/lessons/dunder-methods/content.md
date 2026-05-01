@@ -8,7 +8,7 @@ Those built-ins delegate to special methods on your class — methods whose name
 
 - Define `__repr__` and `__str__` so `repr()`, `str()`, and `print()` produce useful output
 - Define `__eq__` so `==` compares by value
-- Define `__len__` so `len()` works on your own objects
+- Recognize how `__len__` and `__iter__` plug into `len()` and `for` loops (you'll write `__len__` in this lesson's practice and `__iter__` in the final capstone)
 
 ## Instructions
 

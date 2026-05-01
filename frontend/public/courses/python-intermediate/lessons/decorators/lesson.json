@@ -50,7 +50,7 @@
     {
       "type": "required_file_contains",
       "file": "main.py",
-      "pattern": "*args, **kwargs"
+      "pattern": "**kwargs"
     }
   ],
   "prerequisiteLessonIds": ["iterators-and-generators"],

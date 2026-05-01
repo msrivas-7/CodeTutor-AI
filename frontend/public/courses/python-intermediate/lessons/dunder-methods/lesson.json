@@ -9,7 +9,7 @@
   "objectives": [
     "Define `__repr__` and `__str__` so `repr()` and `print()` produce useful output",
     "Define `__eq__` so `==` compares by value, not identity",
-    "Define `__len__` and `__iter__` so `len()` and `for` loops work on your own objects"
+    "Recognize how `__len__` and `__iter__` plug into `len()` and `for` loops (you'll write `__len__` in this lesson's practice and `__iter__` in the final capstone)"
   ],
   "teachesConceptTags": [
     "dunder-methods",
@@ -65,7 +65,7 @@
     }
   ],
   "prerequisiteLessonIds": ["oop-inheritance"],
-  "recap": "Dunder methods are how your class plugs into Python's built-in operators. `__repr__` controls what `repr(obj)` returns (the debug view); `__str__` controls `print(obj)` and `str(obj)` (the human view); `__eq__` controls `==`; `__len__` controls `len()`. The rule of thumb: always define `__repr__` (it makes debugging painless); define `__str__` only when the user-facing form is genuinely different; define `__eq__` and `__len__` when those operations are obviously meaningful for your type.",
+  "recap": "Dunder methods are how your class plugs into Python's built-in operators. `__repr__` controls what `repr(obj)` returns (the debug view); `__str__` controls `print(obj)` and `str(obj)` (the human view); `__eq__` controls `==`; `__len__` controls `len()`; `__iter__` controls `for x in obj` and `list(obj)`. The rule of thumb: always define `__repr__` (it makes debugging painless); define `__str__` only when the user-facing form is genuinely different; define `__eq__`, `__len__`, and `__iter__` when those operations are obviously meaningful for your type.",
   "practicePrompts": [
     "Look at a class you've written. What's printed when you put it in a list and print the list? Would `__repr__` make that less ugly?",
     "When does defining `__eq__` change behavior in subtle ways — for example, when an instance is used as a dict key or put in a set?"
