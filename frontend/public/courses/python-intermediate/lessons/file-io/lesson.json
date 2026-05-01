@@ -1,0 +1,153 @@
+{
+  "id": "file-io",
+  "courseId": "python-intermediate",
+  "title": "File I/O",
+  "description": "Read and write text files with the with statement — Python's idiomatic way to make sure files always close, even when something goes wrong.",
+  "order": 4,
+  "language": "python",
+  "estimatedMinutes": 25,
+  "objectives": [
+    "Read and write text files with `with open(...) as f`",
+    "Choose between read, write, and append modes",
+    "Understand why `with` is preferred over a manual `open` / `close` pair"
+  ],
+  "teachesConceptTags": [
+    "with",
+    "open",
+    "read",
+    "write",
+    "context-manager"
+  ],
+  "usesConceptTags": [
+    "def",
+    "for",
+    "iteration",
+    "list",
+    "print",
+    "f-strings",
+    "int",
+    "if",
+    "comparison",
+    "return",
+    "strings",
+    "comprehension",
+    "len",
+    "try",
+    "except",
+    "exception"
+  ],
+  "completionRules": [
+    {
+      "type": "expected_stdout",
+      "expected": "wrote 3 notes:\n1. pick up groceries\n2. call mom\n3. finish lesson"
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "with open"
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "\"w\""
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "splitlines"
+    }
+  ],
+  "prerequisiteLessonIds": ["error-handling"],
+  "recap": "Always use `with open(path, mode) as f:` to read or write a file — the `with` block guarantees the file gets closed, even if an exception fires inside. The mode is `\"r\"` for read (default), `\"w\"` for write (truncates first), and `\"a\"` for append. Reach for files when you need to persist data between runs; for everything else, in-memory data is faster and simpler.",
+  "practicePrompts": [
+    "What happens if you `open()` a file but forget to close it? Why does that matter on long-running programs?",
+    "When would you choose `\"a\"` (append) over reading the file, modifying it in memory, and writing the whole thing back?"
+  ],
+  "practiceExercises": [
+    {
+      "id": "save-lines",
+      "title": "Save and read back lines",
+      "prompt": "Write `save_lines(path, lines)` that writes every string in `lines` to the file at `path` (one string per line), then reads the file back and returns the lines as a list of strings without trailing newlines. For example, `save_lines(\"sl1.txt\", [\"hi\", \"there\"])` writes `\"hi\\nthere\\n\"` to `sl1.txt` and returns `[\"hi\", \"there\"]`. Use `with open(...) as f:` for both the write and the read.",
+      "goal": "Round-trip a list of strings through a file using two `with` blocks.",
+      "starterCode": "def save_lines(path, lines):\n    # TODO: write each line + \"\\n\" to path, then read it back and\n    # return the lines (without trailing newlines).\n    pass\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "two lines", "call": "save_lines('sl1.txt', ['hi', 'there'])", "expected": "['hi', 'there']" },
+            { "name": "single line", "call": "save_lines('sl2.txt', ['only'])", "expected": "['only']" },
+            { "name": "empty list", "call": "save_lines('sl3.txt', [])", "expected": "[]" },
+            { "name": "spaces preserved", "call": "save_lines('sl4.txt', ['a b', 'c d'])", "expected": "['a b', 'c d']", "hidden": true }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "with open"
+        }
+      ],
+      "hints": [
+        "You need to do two things in sequence: put the lines on disk, then bring them back. Each step is its own `with` block — the file should be closed between the write and the read.",
+        "Write shape:\n```python\nwith open(path, \"w\") as f:\n    for line in lines:\n        f.write(line + \"\\n\")\n```\nThen open again with mode `\"r\"` and use `f.read().splitlines()` to get the list back without trailing newlines.",
+        "The same pattern in a different domain (a config dump):\n```python\nwith open(\"config.txt\", \"w\") as f:\n    f.write(\"theme=dark\\n\")\nwith open(\"config.txt\", \"r\") as f:\n    print(f.read())\n```"
+      ]
+    },
+    {
+      "id": "count-lines",
+      "title": "Count the lines in a file",
+      "prompt": "Write `count_lines(path, content)` that writes `content` (a string that may contain newlines) to the file at `path`, then re-opens the file and returns the number of non-empty lines. For example, `count_lines(\"cl1.txt\", \"a\\nb\\nc\")` should return `3`, and `count_lines(\"cl2.txt\", \"a\\n\\nb\")` should return `2` (the empty middle line is skipped).",
+      "goal": "Open a file in read mode and count lines that have content.",
+      "starterCode": "def count_lines(path, content):\n    # TODO: write content to path, then open it for reading and\n    # return the count of non-empty lines.\n    pass\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "three lines", "call": "count_lines('cl1.txt', 'a\\nb\\nc')", "expected": "3" },
+            { "name": "skip empty middle", "call": "count_lines('cl2.txt', 'a\\n\\nb')", "expected": "2" },
+            { "name": "single line no newline", "call": "count_lines('cl3.txt', 'only')", "expected": "1" },
+            { "name": "empty content", "call": "count_lines('cl4.txt', '')", "expected": "0" },
+            { "name": "trailing newline", "call": "count_lines('cl5.txt', 'a\\nb\\n')", "expected": "2", "hidden": true }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "with open"
+        }
+      ],
+      "hints": [
+        "Two `with` blocks: one to write `content` as-is, one to read it back. For the count, you want lines that have at least one character after stripping whitespace.",
+        "Read shape:\n```python\nwith open(path, \"r\") as f:\n    lines = f.read().splitlines()\nreturn sum(1 for line in lines if line.strip())\n```\nA comprehension or a `for` loop with a counter works equally well.",
+        "The same counting idea on an in-memory list:\n```python\nrows = [\"name\", \"\", \"age\", \"  \"]\nfilled = [r for r in rows if r.strip()]\nlen(filled)  # 2\n```"
+      ]
+    },
+    {
+      "id": "append-line",
+      "title": "Append a line to a file",
+      "prompt": "Write `append_line(path, initial_lines, new_line)` that writes `initial_lines` (a list of strings) to `path` with mode `\"w\"`, then opens the same file with mode `\"a\"` and writes `new_line + \"\\n\"`, then re-reads the file and returns the full list of lines (without trailing newlines). For example, `append_line(\"al1.txt\", [\"first\", \"second\"], \"third\")` should return `[\"first\", \"second\", \"third\"]`.",
+      "goal": "Use `\"a\"` (append) mode to add to a file without losing what's already there.",
+      "starterCode": "def append_line(path, initial_lines, new_line):\n    # TODO: write initial_lines to path with mode \"w\";\n    # then open with mode \"a\" and write new_line + \"\\n\";\n    # then read everything back and return it as a list.\n    pass\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "append to two", "call": "append_line('al1.txt', ['first', 'second'], 'third')", "expected": "['first', 'second', 'third']" },
+            { "name": "append to empty", "call": "append_line('al2.txt', [], 'only')", "expected": "['only']" },
+            { "name": "append to one", "call": "append_line('al3.txt', ['solo'], 'plus')", "expected": "['solo', 'plus']" },
+            { "name": "preserves order", "call": "append_line('al4.txt', ['a', 'b', 'c'], 'd')", "expected": "['a', 'b', 'c', 'd']", "hidden": true }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": ", \"a\""
+        }
+      ],
+      "hints": [
+        "Three `with` blocks in sequence: write the initial list, append the new line, read everything. The trick is the middle one's mode — it must not erase what's already there.",
+        "Append mode is `\"a\"`. Shape:\n```python\nwith open(path, \"a\") as f:\n    f.write(new_line + \"\\n\")\n```\n`\"w\"` truncates before writing; `\"a\"` seeks to the end and writes from there.",
+        "The same pattern in a logging context:\n```python\nwith open(\"events.log\", \"a\") as f:\n    f.write(\"server started\\n\")\n```\nEach run extends the file instead of overwriting it."
+      ]
+    }
+  ]
+}
