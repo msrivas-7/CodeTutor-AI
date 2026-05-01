@@ -1,0 +1,145 @@
+{
+  "id": "error-handling",
+  "courseId": "python-intermediate",
+  "title": "Error Handling",
+  "description": "Catch exceptions with try/except, raise your own, and clean up with finally — turn cryptic crashes into clear messages.",
+  "order": 3,
+  "language": "python",
+  "estimatedMinutes": 25,
+  "objectives": [
+    "Catch specific exceptions with try/except and recover gracefully",
+    "Raise your own exceptions with descriptive messages",
+    "Know what NOT to catch — and why bare except: is almost always a bug"
+  ],
+  "teachesConceptTags": [
+    "try",
+    "except",
+    "raise",
+    "exception",
+    "finally"
+  ],
+  "usesConceptTags": [
+    "def",
+    "for",
+    "iteration",
+    "list",
+    "print",
+    "f-strings",
+    "int",
+    "if",
+    "comparison",
+    "return",
+    "strings",
+    "comprehension"
+  ],
+  "completionRules": [
+    {
+      "type": "expected_stdout",
+      "expected": "parsed: [42, 7, -3]\nskipped: ['hello', '']"
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "except"
+    }
+  ],
+  "prerequisiteLessonIds": ["lambdas-and-higher-order"],
+  "recap": "Catch the narrowest exception you can name. Keep `try` blocks tight. A bare `except:` hides bugs — almost never what you want. Use `raise` to signal failures loudly instead of returning sentinel values every caller has to remember to check.",
+  "practicePrompts": [
+    "Find a function from python-fundamentals that crashes on bad input. What's the narrowest exception you'd catch, and what should it return on failure?",
+    "When is raising a `ValueError` better than returning `None`? Think about who reads the calling code."
+  ],
+  "practiceExercises": [
+    {
+      "id": "safe-int",
+      "title": "Safe integer parser",
+      "prompt": "Write `safe_int(s)` that returns `int(s)` if `s` parses as an integer, or `None` if it doesn't. For example, `safe_int(\"42\")` returns `42`, and `safe_int(\"hello\")` returns `None`. Use a `try`/`except` around `int(s)` and catch `ValueError`.",
+      "goal": "Catch a specific exception and return a sentinel value instead of letting it crash.",
+      "starterCode": "def safe_int(s):\n    # TODO: try int(s); on ValueError return None\n    pass\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "valid integer", "call": "safe_int('42')", "expected": "42" },
+            { "name": "negative integer", "call": "safe_int('-7')", "expected": "-7" },
+            { "name": "non-numeric", "call": "safe_int('hello')", "expected": "None" },
+            { "name": "empty string", "call": "safe_int('')", "expected": "None" },
+            { "name": "decimal is invalid for int()", "call": "safe_int('3.14')", "expected": "None", "hidden": true }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "except"
+        }
+      ],
+      "hints": [
+        "You can't tell ahead of time whether `s` is a valid integer. Let the conversion *try* and recover if it fails.",
+        "Shape:\n```python\ntry:\n    return int(s)\nexcept ValueError:\n    return None\n```\nCatching `ValueError` specifically is better than catching everything.",
+        "The same pattern in a different context:\n```python\ntry:\n    age = int(input(\"age? \"))\nexcept ValueError:\n    age = 0  # default if user typed garbage\n```"
+      ]
+    },
+    {
+      "id": "validate-age",
+      "title": "Raise on invalid age",
+      "prompt": "Write `validate_age(age)` that returns `age` if it's a non-negative integer, or raises `ValueError` with the message `\"age must be non-negative\"` if `age < 0`. For example, `validate_age(25)` returns `25`, but `validate_age(-3)` should raise `ValueError(\"age must be non-negative\")`. Use the `raise` statement.\n\n(The automated tests check the success path. The raise-on-negative path is enforced by requiring a `raise` statement in your code — the lesson is about *writing* the raise, not catching it. Practice exercise 3 will exercise catching.)",
+      "goal": "Raise a built-in exception with a descriptive message.",
+      "starterCode": "def validate_age(age):\n    # TODO: if age < 0, raise ValueError(\"age must be non-negative\")\n    # otherwise return age\n    pass\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "valid adult age", "call": "validate_age(25)", "expected": "25" },
+            { "name": "zero is valid", "call": "validate_age(0)", "expected": "0" },
+            { "name": "boundary one", "call": "validate_age(1)", "expected": "1" },
+            { "name": "very large age", "call": "validate_age(150)", "expected": "150", "hidden": true }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "raise ValueError"
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "age must be non-negative"
+        }
+      ],
+      "hints": [
+        "Use an `if` to detect the bad case. When you find it, raise an exception instead of returning a value.",
+        "Shape: `raise ValueError(\"age must be non-negative\")`. The string is the message. The function exits immediately when `raise` runs — so you only `return age` if the check passed.",
+        "Three lines that show the pattern:\n```python\ndef must_be_positive(n):\n    if n <= 0:\n        raise ValueError(\"n must be positive\")\n    return n\n```"
+      ]
+    },
+    {
+      "id": "parse-or-default",
+      "title": "Parse with a fallback default",
+      "prompt": "Write `parse_or_default(strings, default=0)` that returns a list of integers — for each string, the parsed `int(s)` if it works, otherwise `default`. For example, `parse_or_default([\"1\", \"x\", \"3\"])` should return `[1, 0, 3]`, and `parse_or_default([\"1\", \"x\"], default=-1)` should return `[1, -1]`. Use a `try`/`except` inside an iteration over `strings`.",
+      "goal": "Combine try/except with iteration to build a list with per-item fallbacks.",
+      "starterCode": "def parse_or_default(strings, default=0):\n    # TODO: for each s, try int(s) — on ValueError use default\n    pass\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "default zero", "call": "parse_or_default(['1', 'x', '3'])", "expected": "[1, 0, 3]" },
+            { "name": "custom default", "call": "parse_or_default(['1', 'x'], default=-1)", "expected": "[1, -1]" },
+            { "name": "all valid", "call": "parse_or_default(['1', '2', '3'])", "expected": "[1, 2, 3]" },
+            { "name": "all invalid", "call": "parse_or_default(['a', 'b'], default=99)", "expected": "[99, 99]" },
+            { "name": "empty input", "call": "parse_or_default([])", "expected": "[]", "hidden": true }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "except"
+        }
+      ],
+      "hints": [
+        "You're doing the same `try ... → fall back to default` move for every item. A regular `for` loop with `append` is the most direct path.",
+        "Inside the loop, wrap the conversion in `try`. The `except ValueError:` block runs when conversion fails — that's where `default` goes.",
+        "The same pattern in a different context — color codes, with a fallback to `\"unknown\"`:\n```python\nresult = []\nfor name in [\"red\", \"???\", \"blue\"]:\n    try:\n        result.append(LOOKUP[name])\n    except KeyError:\n        result.append(\"unknown\")\n```"
+      ]
+    }
+  ]
+}

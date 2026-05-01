@@ -13,6 +13,7 @@
   ],
   "lessonOrder": [
     "comprehensions",
-    "lambdas-and-higher-order"
+    "lambdas-and-higher-order",
+    "error-handling"
   ]
 }
