@@ -20,6 +20,7 @@
     "oop-classes",
     "oop-inheritance",
     "dunder-methods",
-    "iterators-and-generators"
+    "iterators-and-generators",
+    "decorators"
   ]
 }

@@ -1,0 +1,150 @@
+{
+  "id": "decorators",
+  "courseId": "python-intermediate",
+  "title": "Decorators",
+  "description": "Wrap a function with another function — log, time, cache, or check inputs without changing the function itself.",
+  "order": 10,
+  "language": "python",
+  "estimatedMinutes": 25,
+  "objectives": [
+    "Read and write the `@decorator` syntax",
+    "Define a decorator as a function that returns a wrapped function",
+    "Use `*args, **kwargs` so a decorator works on any function shape"
+  ],
+  "teachesConceptTags": [
+    "decorator",
+    "function-as-value",
+    "closure",
+    "args-kwargs"
+  ],
+  "usesConceptTags": [
+    "def",
+    "for",
+    "iteration",
+    "list",
+    "print",
+    "f-strings",
+    "int",
+    "if",
+    "comparison",
+    "return",
+    "strings",
+    "len",
+    "lambda"
+  ],
+  "completionRules": [
+    {
+      "type": "expected_stdout",
+      "expected": "calling add\nreturned 5\ncalling greet\nreturned hello, world"
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "def log_calls"
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "@log_calls"
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "*args, **kwargs"
+    }
+  ],
+  "prerequisiteLessonIds": ["iterators-and-generators"],
+  "recap": "A decorator is a function that takes a function and returns a new function — usually one that wraps a call to the original with extra behavior before or after. The `@my_decorator` line above a `def` is sugar for `func = my_decorator(func)`. `*args` and `**kwargs` in the wrapper make the decorator work for any function shape. Reach for a decorator when the same wrapping logic (logging, timing, retries, caching, auth checks) needs to apply to many functions; reach for a regular call when it's just one place.",
+  "practicePrompts": [
+    "Find a function in your code that does something extra at the start and end of every call (a log line, a timer, a cleanup). Could a decorator carry that pattern?",
+    "When *would* a decorator make code harder to read? Think about debuggability — what does the stack trace look like for a wrapped function?"
+  ],
+  "practiceExercises": [
+    {
+      "id": "shout",
+      "title": "Uppercase the return value",
+      "prompt": "Write a decorator `shout` that wraps any function returning a string and uppercases the result. The starter has a `whisper()` function decorated with `@shout`. After applying the decorator, `whisper()` should return `\"HELLO\"` instead of `\"hello\"`.\n\nFor example:\n```python\n@shout\ndef whisper():\n    return \"hello\"\n\nwhisper()  # \"HELLO\"\n```",
+      "goal": "Write the smallest decorator: take a function, return a wrapped one.",
+      "starterCode": "def shout(func):\n    # TODO: return a wrapper that calls func() and uppercases the result\n    pass\n\n\n@shout\ndef whisper():\n    return \"hello\"\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "hello shouted", "call": "whisper()", "expected": "'HELLO'" },
+            { "name": "shout works on any string func", "setup": "@shout\ndef name(): return 'world'", "call": "name()", "expected": "'WORLD'" },
+            { "name": "empty string", "setup": "@shout\ndef nothing(): return ''", "call": "nothing()", "expected": "''" },
+            { "name": "already upper", "setup": "@shout\ndef yell(): return 'HEY'", "call": "yell()", "expected": "'HEY'", "hidden": true }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "def shout"
+        }
+      ],
+      "hints": [
+        "A decorator is just a function that takes a function and returns a (different) function. The new function calls the old one — and does something extra with the result.",
+        "Shape:\n```python\ndef shout(func):\n    def wrapper():\n        return func().upper()\n    return wrapper\n```\nThe inner `wrapper` is a closure: it remembers `func` even after `shout` returns.",
+        "The same shape with extra-on-return logic:\n```python\ndef exclaim(func):\n    def wrapper():\n        return func() + \"!\"\n    return wrapper\n```"
+      ]
+    },
+    {
+      "id": "count-calls",
+      "title": "Count how many times a function is called",
+      "prompt": "Write a decorator `count_calls` that tracks how many times the wrapped function has been called. Expose the count as an attribute on the wrapper named `calls`. The wrapper must accept any positional and keyword arguments — use `*args, **kwargs` — and return whatever the wrapped function returns.\n\nFor example:\n```python\n@count_calls\ndef ping():\n    return \"pong\"\n\nping()\nping()\nping.calls  # 2\nping()       # \"pong\"\n```",
+      "goal": "Add state to a decorator by attaching an attribute to the wrapper.",
+      "starterCode": "def count_calls(func):\n    # TODO: return a wrapper that increments wrapper.calls each call\n    pass\n\n\n@count_calls\ndef ping():\n    return \"pong\"\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "starts at zero on a fresh function", "setup": "@count_calls\ndef fresh(): return None", "call": "fresh.calls", "expected": "0" },
+            { "name": "increments on call", "setup": "ping()\nping()", "call": "ping.calls", "expected": "2" },
+            { "name": "still returns the value", "setup": "_r = ping()", "call": "_r", "expected": "'pong'" },
+            { "name": "works on a function with args", "setup": "@count_calls\ndef add(a, b): return a + b\nadd(1, 2)\nadd(3, 4)\nadd(5, 6)", "call": "add.calls", "expected": "3" },
+            { "name": "kwargs accepted", "setup": "@count_calls\ndef greet(name=\"there\"): return f\"hi {name}\"\ngreet(name='alice')", "call": "greet.calls", "expected": "1", "hidden": true }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "def count_calls"
+        }
+      ],
+      "hints": [
+        "Two pieces. First the count — somewhere it has to live. The wrapper function itself is an object, so you can hang an attribute on it: `wrapper.calls = 0`. Second, the wrapper has to forward all arguments — that's what `*args, **kwargs` is for.",
+        "Shape:\n```python\ndef count_calls(func):\n    def wrapper(*args, **kwargs):\n        wrapper.calls += 1\n        return func(*args, **kwargs)\n    wrapper.calls = 0\n    return wrapper\n```\nInitialize `wrapper.calls = 0` *after* `def wrapper` (so the attribute exists by the time you call it) and *before* returning.",
+        "The same idea exposing a different stat — last argument seen:\n```python\ndef remember_last(func):\n    def wrapper(*args, **kwargs):\n        wrapper.last = (args, kwargs)\n        return func(*args, **kwargs)\n    wrapper.last = None\n    return wrapper\n```"
+      ]
+    },
+    {
+      "id": "memoize",
+      "title": "Cache results by argument",
+      "prompt": "Write a decorator `memoize` that caches a function's return value for each unique set of positional arguments. If the function is called again with the same positional args, the cached result is returned without running the function body. Expose the cache dict as `wrapper.cache`. (For simplicity, ignore keyword arguments — assume the function is called with positional args only.)\n\nFor example:\n```python\n@memoize\ndef double(n):\n    return n * 2\n\ndouble(3)         # 6, runs the body\ndouble(3)         # 6, returned from cache\nlen(double.cache) # 1 — only one unique input seen\n```",
+      "goal": "Build a tiny cache inside a decorator and key it by the argument tuple.",
+      "starterCode": "def memoize(func):\n    # TODO: keep a dict keyed by args; return cached result if seen,\n    # otherwise run func and store the result. Expose the dict as wrapper.cache.\n    pass\n\n\n@memoize\ndef double(n):\n    return n * 2\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "computes once", "setup": "double(3)", "call": "double(3)", "expected": "6" },
+            { "name": "different args populate cache", "setup": "double(3)\ndouble(5)\ndouble(7)", "call": "len(double.cache)", "expected": "3" },
+            { "name": "repeat does not grow cache", "setup": "double(4)\ndouble(4)\ndouble(4)", "call": "len(double.cache)", "expected": "1" },
+            { "name": "cache empty before any call", "setup": "@memoize\ndef triple(n): return n * 3", "call": "len(triple.cache)", "expected": "0" },
+            { "name": "two-arg function works", "setup": "@memoize\ndef add(a, b): return a + b\nadd(1, 2)\nadd(3, 4)\nadd(1, 2)", "call": "len(add.cache)", "expected": "2", "hidden": true }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "def memoize"
+        }
+      ],
+      "hints": [
+        "You need a per-decorated-function place to store results. A dict declared inside `memoize` (above `def wrapper`) is captured by the wrapper as a closure — fresh dict per call to `memoize`.",
+        "Shape:\n```python\ndef memoize(func):\n    cache = {}\n    def wrapper(*args):\n        if args not in cache:\n            cache[args] = func(*args)\n        return cache[args]\n    wrapper.cache = cache\n    return wrapper\n```\n`args` is already a tuple, which is hashable — so you can use it directly as a dict key.",
+        "The same pattern recording every input ever seen (without de-duplicating):\n```python\ndef record(func):\n    log = []\n    def wrapper(*args):\n        log.append(args)\n        return func(*args)\n    wrapper.log = log\n    return wrapper\n```"
+      ]
+    }
+  ]
+}
