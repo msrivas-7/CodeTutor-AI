@@ -17,6 +17,7 @@
     "error-handling",
     "file-io",
     "modules-and-imports",
-    "oop-classes"
+    "oop-classes",
+    "oop-inheritance"
   ]
 }

@@ -1,0 +1,148 @@
+{
+  "id": "oop-inheritance",
+  "courseId": "python-intermediate",
+  "title": "Inheritance & super()",
+  "description": "Build a class on top of another class — extend behavior, override methods, and call back to the parent with super().",
+  "order": 7,
+  "language": "python",
+  "estimatedMinutes": 25,
+  "objectives": [
+    "Define a subclass with `class Child(Parent):`",
+    "Override a parent method, and call back to it with `super()`",
+    "Recognize when composition is a better fit than inheritance"
+  ],
+  "teachesConceptTags": [
+    "inheritance",
+    "subclass",
+    "super",
+    "method-override"
+  ],
+  "usesConceptTags": [
+    "class",
+    "__init__",
+    "self",
+    "instance-attribute",
+    "instance-method",
+    "def",
+    "print",
+    "f-strings",
+    "int",
+    "return",
+    "strings"
+  ],
+  "completionRules": [
+    {
+      "type": "expected_stdout",
+      "expected": "Alice: 150\nBob: 275 (10% interest)"
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "class Account"
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "class SavingsAccount(Account)"
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "super()"
+    }
+  ],
+  "prerequisiteLessonIds": ["oop-classes"],
+  "recap": "A subclass inherits everything from its parent and can extend it. `class Child(Parent):` makes the link; `super().method(...)` calls the parent version of a method by name resolution, not by spelling out the parent class. Override only what's actually different — and reach for *composition* (one object holding another) before inheritance when the relationship isn't really \"is-a\".",
+  "practicePrompts": [
+    "Find a place where two classes you've seen share most of their behavior. Would inheritance simplify them, or just hide the differences?",
+    "When a subclass overrides a method, when should it call `super().method(...)` versus replacing the parent's logic entirely?"
+  ],
+  "practiceExercises": [
+    {
+      "id": "dog-speaks",
+      "title": "Override speak()",
+      "prompt": "Define two classes:\n- `Animal` with `__init__(self, name)` that stores `name`, and `speak(self)` that returns the string `\"...\"`.\n- `Dog(Animal)` — a subclass that overrides `speak(self)` to return `\"Woof!\"`. It does *not* need its own `__init__`.\n\nFor example, `Animal(\"Rex\").speak()` returns `\"...\"`, `Dog(\"Rex\").speak()` returns `\"Woof!\"`, and `Dog(\"Rex\").name` is `\"Rex\"` (inherited from `Animal`).",
+      "goal": "Subclass without overriding `__init__`. Override exactly the method that needs to change.",
+      "starterCode": "class Animal:\n    def __init__(self, name):\n        self.name = name\n\n    def speak(self):\n        # TODO: return \"...\"\n        pass\n\n\nclass Dog(Animal):\n    # TODO: override speak() to return \"Woof!\"\n    pass\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "animal speaks generic", "call": "Animal('Rex').speak()", "expected": "'...'" },
+            { "name": "dog overrides speak", "call": "Dog('Rex').speak()", "expected": "'Woof!'" },
+            { "name": "dog inherits name", "call": "Dog('Rex').name", "expected": "'Rex'" },
+            { "name": "different dog same sound", "call": "Dog('Buddy').speak()", "expected": "'Woof!'", "hidden": true }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "class Dog(Animal)"
+        }
+      ],
+      "hints": [
+        "If the only thing changing between `Animal` and `Dog` is what `speak()` returns, you only need to redefine `speak`. Everything else — including `__init__` — is inherited automatically.",
+        "Shape:\n```python\nclass Dog(Animal):\n    def speak(self):\n        return \"Woof!\"\n```\nThe `(Animal)` part is what makes `Dog` a subclass. No `__init__` needed — `Dog` reuses `Animal.__init__`.",
+        "The same idea with a different domain:\n```python\nclass Vehicle:\n    def kind(self):\n        return \"vehicle\"\n\nclass Car(Vehicle):\n    def kind(self):\n        return \"car\"\n```"
+      ]
+    },
+    {
+      "id": "employee-extends-person",
+      "title": "Extend the constructor",
+      "prompt": "Define `Person` and `Employee(Person)`:\n- `Person.__init__(self, name)` stores `self.name`.\n- `Person.describe(self)` returns the string `name`.\n- `Employee(Person)` extends the constructor: `__init__(self, name, salary)` should store `salary`, then call `super().__init__(name)` to let the parent set up `name`. `Employee.describe(self)` returns `\"<name> ($<salary>)\"`.\n\nFor example, `Employee(\"Alice\", 100).describe()` returns `\"Alice ($100)\"` and `Employee(\"Alice\", 100).name` is `\"Alice\"`.",
+      "goal": "Use super().__init__ to delegate the parent's setup work, then add subclass-only state.",
+      "starterCode": "class Person:\n    def __init__(self, name):\n        self.name = name\n\n    def describe(self):\n        return self.name\n\n\nclass Employee(Person):\n    def __init__(self, name, salary):\n        # TODO: store salary, and call super().__init__(name)\n        pass\n\n    def describe(self):\n        # TODO: return f\"{self.name} (${self.salary})\"\n        pass\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "name set via super", "call": "Employee('Alice', 100).name", "expected": "'Alice'" },
+            { "name": "salary set in subclass", "call": "Employee('Alice', 100).salary", "expected": "100" },
+            { "name": "describe uses both", "call": "Employee('Alice', 100).describe()", "expected": "'Alice ($100)'" },
+            { "name": "person still works", "call": "Person('Bob').describe()", "expected": "'Bob'" },
+            { "name": "different employee", "call": "Employee('Cara', 250).describe()", "expected": "'Cara ($250)'", "hidden": true }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "super().__init__"
+        }
+      ],
+      "hints": [
+        "`Employee` adds `salary` but otherwise is a `Person`. Don't redo the work `Person.__init__` already does — let the parent set `self.name`, and you just add `self.salary`.",
+        "Shape:\n```python\nclass Employee(Person):\n    def __init__(self, name, salary):\n        super().__init__(name)\n        self.salary = salary\n```\nCall `super().__init__(name)` to invoke the parent constructor — it sets `self.name` for you.",
+        "The same pattern in a different domain:\n```python\nclass ColoredSquare(Square):\n    def __init__(self, side, color):\n        super().__init__(side)\n        self.color = color\n```"
+      ]
+    },
+    {
+      "id": "stepped-tally",
+      "title": "Override but reuse",
+      "prompt": "Define a `Tally` and a `SteppedTally(Tally)`:\n- `Tally.__init__(self, start=0)` stores `self.value`.\n- `Tally.increment(self)` bumps `self.value` by 1.\n- `SteppedTally(Tally).__init__(self, start=0, step=1)` stores `step` and calls `super().__init__(start)`.\n- `SteppedTally.increment(self)` bumps `self.value` by `self.step` instead of 1.\n\nFor example, `SteppedTally(0, 5)` after one `increment()` has `value == 5`. `SteppedTally(10, 2)` after one `increment()` has `value == 12`.",
+      "goal": "Override a method in a way that genuinely changes its behavior — and decide whether `super().method()` helps or hurts.",
+      "starterCode": "class Tally:\n    def __init__(self, start=0):\n        self.value = start\n\n    def increment(self):\n        self.value += 1\n\n\nclass SteppedTally(Tally):\n    def __init__(self, start=0, step=1):\n        # TODO: store step, then super().__init__(start)\n        pass\n\n    def increment(self):\n        # TODO: bump self.value by self.step\n        pass\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "step of 5 from zero", "setup": "c = SteppedTally(0, 5)\nc.increment()", "call": "c.value", "expected": "5" },
+            { "name": "step of 2 from ten", "setup": "c = SteppedTally(10, 2)\nc.increment()", "call": "c.value", "expected": "12" },
+            { "name": "default step", "setup": "c = SteppedTally()\nc.increment()", "call": "c.value", "expected": "1" },
+            { "name": "two increments", "setup": "c = SteppedTally(0, 3)\nc.increment()\nc.increment()", "call": "c.value", "expected": "6" },
+            { "name": "parent tally still works", "setup": "c = Tally(5)\nc.increment()", "call": "c.value", "expected": "6", "hidden": true }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "class SteppedTally(Tally)"
+        }
+      ],
+      "hints": [
+        "`SteppedTally` shares everything with `Tally` *except* the size of each step. The constructor needs to remember `step`; `increment` needs to add `self.step` instead of `1`.",
+        "Shape:\n```python\nclass SteppedTally(Tally):\n    def __init__(self, start=0, step=1):\n        super().__init__(start)\n        self.step = step\n\n    def increment(self):\n        self.value += self.step\n```\nThe constructor calls `super()` because there's nothing to gain from rewriting `self.value = start`. The `increment` override doesn't call `super()` because the parent's logic isn't useful here — it would add 1, then we'd add `step - 1` more. Cleaner to just write the new behavior.",
+        "Calling `super()` in some methods but not others is normal — use it when the parent does work you'd otherwise have to copy."
+      ]
+    }
+  ]
+}
