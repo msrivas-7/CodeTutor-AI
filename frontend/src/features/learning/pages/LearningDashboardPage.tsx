@@ -228,6 +228,59 @@ export default function LearningDashboardPage() {
             </div>
           ) : (
             <StaggerReveal>
+              {/* Phase 27: Resume-where-you-left-off banner. Renders at the
+                  TOP of the dashboard for in-progress users so a returning
+                  learner has a single-click path back to their lesson
+                  without scanning the progress card or the course list.
+                  Hidden when:
+                   - course is not_started (welcome card takes this slot)
+                   - course is completed (no nextLesson to jump to)
+                  When visible, it sits ABOVE the progress card — banner is
+                  the fast action, card stays as the context view. */}
+              {nextLesson && activeCourse && activeProgress &&
+               activeProgress.status === "in_progress" && (
+                <StaggerItem className="mb-6">
+                  <button
+                    onClick={() =>
+                      nav(
+                        `/learn/course/${activeCourse.course.id}/lesson/${nextLesson.id}`,
+                      )
+                    }
+                    className="group w-full rounded-xl border border-accent/40 bg-gradient-to-r from-accent/10 via-violet/10 to-accent/5 px-5 py-4 text-left transition hover:from-accent/15 hover:via-violet/15 hover:to-accent/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+                    aria-label={`Pick up where you left off — Lesson ${nextLesson.order}: ${nextLesson.title}`}
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent/20 text-accent">
+                        <svg
+                          width="18"
+                          height="18"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                        >
+                          <polygon points="5 3 19 12 5 21 5 3" />
+                        </svg>
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[11px] font-medium uppercase tracking-wider text-accent">
+                          Pick up where you left off
+                        </p>
+                        <p className="mt-0.5 truncate text-sm font-semibold text-ink">
+                          Lesson {nextLesson.order}: {nextLesson.title}
+                        </p>
+                      </div>
+                      <span className="shrink-0 text-sm font-medium text-accent transition group-hover:translate-x-0.5">
+                        Continue →
+                      </span>
+                    </div>
+                  </button>
+                </StaggerItem>
+              )}
+
               {/* First-visit welcome — shown when no course has been started */}
               {activeCourse && (!activeProgress || activeProgress.status === "not_started") && (
                 <StaggerItem className="mb-8 rounded-xl border border-border bg-panel p-6">
