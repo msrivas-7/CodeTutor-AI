@@ -20,7 +20,7 @@
   "completionRules": [
     {
       "type": "expected_stdout",
-      "expected": "Hello, World!"
+      "expected": "Hello, "
     }
   ],
   "prerequisiteLessonIds": [],

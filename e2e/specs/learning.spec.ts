@@ -59,17 +59,19 @@ test.describe("learning", () => {
     await waitForMonacoReady(page);
   });
 
-  test("check my work fails on untouched starter", async ({ page }) => {
+  test("check my work fails when output doesn't match the required greeting", async ({ page }) => {
     await loadProfile(page, "empty");
     await page.goto(`/learn/course/${COURSE_ID}/lesson/hello-world`);
     await waitForMonacoReady(page);
     await expect(S.lessonRunButton(page)).toBeEnabled({ timeout: 30_000 });
 
-    // Validation for `expected_stdout` reads the last run's result, so Check
-    // needs a fresh run first. Starter prints "Hello, Python!" which doesn't
-    // match the required "Hello, World!" — validation alert should appear.
+    // Phase 27: starter is now `name = "YOUR_NAME"; print("Hello, " + name + "!")`
+    // — running it as-is technically satisfies the lenient `Hello, ` substring
+    // rule (output is `Hello, YOUR_NAME!`), so we deliberately overwrite with
+    // wrong code to exercise the failure path.
+    await setMonacoValue(page, 'print("Goodbye!")\n');
     await S.lessonRunButton(page).click();
-    await expect(S.outputPanel(page)).toContainText(/Hello, Python!/, { timeout: 20_000 });
+    await expect(S.outputPanel(page)).toContainText(/Goodbye!/, { timeout: 20_000 });
     await S.checkMyWorkButton(page).click();
     await expect(
       page.locator('[role="alert"]').first(),

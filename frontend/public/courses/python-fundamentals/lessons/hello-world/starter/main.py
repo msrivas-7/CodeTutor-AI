@@ -1,4 +1,4 @@
-# Your first Python program!
-# Change the message below to print: Hello, World!
-
-print("Hello, Python!")
+# Replace YOUR_NAME with your actual name (in quotes!).
+# Then click Run.
+name = "YOUR_NAME"
+print("Hello, " + name + "!")

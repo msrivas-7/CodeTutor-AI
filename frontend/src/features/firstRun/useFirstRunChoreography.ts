@@ -9,7 +9,7 @@ import {
   GREET_USER_DRIVEN,
   CELEBRATE_RUN,
   PRAISE_EDIT_RUN_AND_SEED,
-  WRONG_EDIT_CASE,
+  WRONG_EDIT_PLACEHOLDER,
   WRONG_EDIT_EMPTY,
   WRONG_EDIT_ERROR,
   WRONG_EDIT_GENERIC,
@@ -68,8 +68,8 @@ const PRE_GREET_BEAT_MS = 1_000;
 // with the learner's eye before the output panel starts animating.
 const POST_GREET_BEAT_MS = 1_000;
 // Pause after the Run output lands before the celebrateRun message
-// starts typing. Gives the learner a beat to read `Hello, Python!` in
-// the output panel before the tutor speaks again.
+// starts typing. Gives the learner a beat to read `Hello, YOUR_NAME!`
+// in the output panel before the tutor speaks again.
 const POST_RUN_BEAT_MS = 2_000;
 const WALL_CLOCK_MAX_MS = 5 * 60 * 1000;
 
@@ -233,7 +233,7 @@ export function useFirstRunChoreography({
         }
 
         if (step === "celebrateRun") {
-          // Breathing room so the output panel's `Hello, Python!`
+          // Breathing room so the output panel's `Hello, YOUR_NAME!`
           // lands and reads before the next scripted turn overwrites
           // the attention with new typing.
           await new Promise((r) => setTimeout(r, POST_RUN_BEAT_MS));
@@ -250,11 +250,11 @@ export function useFirstRunChoreography({
           // Pick correction copy keyed to what actually went wrong.
           // Detection precedence matches severity: a run that errored
           // needs an error message first, an empty stdout means the
-          // print call got lost, and stdout that contains the right
-          // letters in the wrong case is the "capital W" nudge. The
-          // generic fallback covers the "typed something random"
-          // case. attempts >= 2 short-circuits the specific copy and
-          // drops the answer — we never leave the learner stranded.
+          // print call got lost, an output that still contains
+          // `YOUR_NAME` means they ran without replacing the
+          // placeholder. The generic fallback covers "typed something
+          // random." attempts >= 2 short-circuits the specific copy
+          // and drops the answer — we never leave the learner stranded.
           const attempts = useFirstRunStore.getState().wrongEditAttempts;
           const lastResult = useRunStore.getState().result;
           let copy: string;
@@ -264,12 +264,10 @@ export function useFirstRunChoreography({
             copy = WRONG_EDIT_ERROR();
           } else if (!lastResult?.stdout || lastResult.stdout.trim().length === 0) {
             copy = WRONG_EDIT_EMPTY();
+          } else if (lastResult.stdout.includes("YOUR_NAME")) {
+            copy = WRONG_EDIT_PLACEHOLDER();
           } else {
-            const lower = lastResult.stdout.toLowerCase();
-            copy =
-              lower.includes("hello") && lower.includes("world")
-                ? WRONG_EDIT_CASE()
-                : WRONG_EDIT_GENERIC();
+            copy = WRONG_EDIT_GENERIC();
           }
           const stream = pushScriptedAssistant(copy);
           currentStreamRef.current = stream;
@@ -350,7 +348,7 @@ export function useFirstRunChoreography({
   // Without this, the auto-run's result (from the awaitRun step) is
   // still sitting in runStore when awaitEdit begins — and since
   // `runner.hasRun` is true from that auto-run, the observer below
-  // would evaluate the STALE "Hello, Python!" stdout the instant the
+  // would evaluate the STALE "Hello, YOUR_NAME!" stdout the instant the
   // learner types a single character (hasEdited flips true). That
   // fired `correctEdit` immediately, with a "capital W" nudge
   // referring to text the user hadn't actually produced yet. Seeding
@@ -374,9 +372,14 @@ export function useFirstRunChoreography({
     if (!lastResult) return;
     if (lastEvaluatedResultRef.current === lastResult) return;
     lastEvaluatedResultRef.current = lastResult;
+    // Phase 27 personalized lesson 1: success = exit clean, output
+    // contains "Hello, " (the greeting structure), AND no `YOUR_NAME`
+    // placeholder still in stdout (i.e., they actually replaced it).
+    const stdout = lastResult.stdout ?? "";
     const stdoutOk =
       lastResult.exitCode === 0 &&
-      (lastResult.stdout ?? "").includes("Hello, World!");
+      stdout.includes("Hello, ") &&
+      !stdout.includes("YOUR_NAME");
     if (stdoutOk) {
       setStep("praiseEditRun");
       return;

@@ -127,9 +127,9 @@ export default function LessonPage() {
       .resetLessonProgress(learnerId, courseId, lessonId);
     // Also clear the output panel so the scripted narration doesn't
     // start on top of a prior run's stdout/stderr. On a replay path
-    // the runStore could still hold the "Hello, Python!" from the
-    // learner's last time through — the cinematic promises a fresh
-    // moment, so the panel should mirror that.
+    // the runStore could still hold the previous run's output from
+    // the learner's last time through — the cinematic promises a
+    // fresh moment, so the panel should mirror that.
     useRunStore.setState({ result: null, error: null });
   }, [isFirstRun, courseId, lessonId, learnerId]);
 
@@ -140,9 +140,9 @@ export default function LessonPage() {
     practiceMode,
     practiceIndex,
     // First-run cinematic relies on the authored starter code being
-    // present verbatim (the scripted "change 'Hello, Python!' to
-    // 'Hello, world!'" beat). Skip the resume-from-savedCode branch
-    // when landing here via the cinematic hand-off.
+    // present verbatim (the scripted "replace YOUR_NAME with your
+    // name" beat). Skip the resume-from-savedCode branch when
+    // landing here via the cinematic hand-off.
     forceStarter: isFirstRun,
   });
 
