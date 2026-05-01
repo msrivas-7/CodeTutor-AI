@@ -1,0 +1,138 @@
+{
+  "id": "lambdas-and-higher-order",
+  "courseId": "python-intermediate",
+  "title": "Lambdas & Higher-Order Functions",
+  "description": "Pass functions as arguments. Use lambda, map, filter, and sorted's key= to transform collections without writing a named function for every step.",
+  "order": 2,
+  "language": "python",
+  "estimatedMinutes": 20,
+  "objectives": [
+    "Write a lambda — a one-expression function that doesn't need a name",
+    "Pass functions as arguments to map, filter, and sorted",
+    "Recognize when a comprehension reads better than map/filter"
+  ],
+  "teachesConceptTags": [
+    "lambda",
+    "map",
+    "filter",
+    "higher-order-functions",
+    "key-function"
+  ],
+  "usesConceptTags": [
+    "comprehension",
+    "def",
+    "for",
+    "iteration",
+    "list",
+    "print",
+    "f-strings",
+    "len",
+    "sorting",
+    "strings",
+    "return"
+  ],
+  "completionRules": [
+    {
+      "type": "expected_stdout",
+      "expected": "sorted by pages: ['Frog', 'Anne', 'Moby Dick']\nlong books: ['Moby Dick', 'Anne']\ntitles upper: ['MOBY DICK', 'FROG', 'ANNE']"
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "lambda"
+    }
+  ],
+  "prerequisiteLessonIds": ["comprehensions"],
+  "recap": "A lambda is a nameless one-expression function — `lambda x: x * 2`. Higher-order functions like `sorted(..., key=)`, `filter`, and `map` take a function as input. Reach for a comprehension when transforming one list into another; reach for a lambda when handing a function to someone else's API.",
+  "practicePrompts": [
+    "Rewrite a `map(lambda x: ..., xs)` call as a list comprehension. Which feels more Pythonic to you?",
+    "Try writing a lambda that takes two arguments. When would you use that instead of a `def`?"
+  ],
+  "practiceExercises": [
+    {
+      "id": "apply-double",
+      "title": "Double every number",
+      "prompt": "Write `apply_double(nums)` that returns a list where every number in `nums` is doubled. For example, `apply_double([1, 2, 3])` should return `[2, 4, 6]`. Use `map` with a `lambda` and wrap the result with `list(...)`.",
+      "goal": "Pass a lambda to map and turn the result back into a list.",
+      "starterCode": "def apply_double(nums):\n    # TODO: use map + lambda, then list(...)\n    pass\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "three numbers", "call": "apply_double([1, 2, 3])", "expected": "[2, 4, 6]" },
+            { "name": "empty list", "call": "apply_double([])", "expected": "[]" },
+            { "name": "negatives and zero", "call": "apply_double([-1, 0, 5])", "expected": "[-2, 0, 10]" },
+            { "name": "single number", "call": "apply_double([7])", "expected": "[14]", "hidden": true }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "lambda"
+        }
+      ],
+      "hints": [
+        "You want to transform every number with the same operation. That's the `map` pattern.",
+        "`map(func, iterable)` returns a map object — wrap it with `list(...)` to get a list back. Shape: `list(map(lambda n: ..., nums))`.",
+        "Three lines that show the pattern:\n```python\nnums = [1, 2, 3]\nplus_one = list(map(lambda n: n + 1, nums))\n# plus_one is [2, 3, 4]\n```"
+      ]
+    },
+    {
+      "id": "keep-long",
+      "title": "Keep only the long words",
+      "prompt": "Write `keep_long(words)` that returns a list of every word in `words` whose length is greater than 3. Preserve the original order. For example, `keep_long([\"a\", \"hello\", \"hi\", \"world\"])` should return `[\"hello\", \"world\"]`. Use `filter` with a `lambda`.",
+      "goal": "Pass a predicate lambda to filter.",
+      "starterCode": "def keep_long(words):\n    # TODO: use filter + lambda, then list(...)\n    pass\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "mixed lengths", "call": "keep_long(['a', 'hello', 'hi', 'world'])", "expected": "['hello', 'world']" },
+            { "name": "all short", "call": "keep_long(['a', 'b', 'cc'])", "expected": "[]" },
+            { "name": "all long", "call": "keep_long(['four', 'fives', 'sixers'])", "expected": "['four', 'fives', 'sixers']" },
+            { "name": "empty list", "call": "keep_long([])", "expected": "[]" },
+            { "name": "boundary length 3", "call": "keep_long(['cat', 'lion'])", "expected": "['lion']", "hidden": true }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "lambda"
+        }
+      ],
+      "hints": [
+        "`filter` keeps the items for which a predicate (a function returning True/False) is true. The predicate here is \"length > 3\".",
+        "Shape: `list(filter(lambda w: ..., words))`. The lambda returns True if the word should be kept.",
+        "Three lines that show the pattern:\n```python\nnums = [1, 2, 3, 4, 5]\nevens = list(filter(lambda n: n % 2 == 0, nums))\n# evens is [2, 4]\n```"
+      ]
+    },
+    {
+      "id": "sort-by-grade-desc",
+      "title": "Sort students by grade, highest first",
+      "prompt": "Write `sort_by_grade_desc(students)` that takes a list of `(name, grade)` tuples and returns the same list sorted from highest grade to lowest. For example, `sort_by_grade_desc([(\"Alice\", 87), (\"Bob\", 54), (\"Cara\", 91)])` should return `[(\"Cara\", 91), (\"Alice\", 87), (\"Bob\", 54)]`. Use `sorted` with a `key=lambda` and `reverse=True`.",
+      "goal": "Use sorted with a custom key function and reverse the order.",
+      "starterCode": "def sort_by_grade_desc(students):\n    # TODO: sorted(students, key=lambda s: ..., reverse=True)\n    pass\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "three students", "call": "sort_by_grade_desc([('Alice', 87), ('Bob', 54), ('Cara', 91)])", "expected": "[('Cara', 91), ('Alice', 87), ('Bob', 54)]" },
+            { "name": "empty list", "call": "sort_by_grade_desc([])", "expected": "[]" },
+            { "name": "already sorted", "call": "sort_by_grade_desc([('Z', 100), ('A', 50)])", "expected": "[('Z', 100), ('A', 50)]" },
+            { "name": "ties keep input order", "call": "sort_by_grade_desc([('A', 70), ('B', 70), ('C', 80)])", "expected": "[('C', 80), ('A', 70), ('B', 70)]", "hidden": true }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "lambda"
+        }
+      ],
+      "hints": [
+        "`sorted` returns a new list, sorted ascending by default. To reverse, pass `reverse=True`. To compare on something other than the whole tuple, pass `key=`.",
+        "Each item is a tuple `(name, grade)`. The key extracts the grade — index `[1]`. Shape: `sorted(students, key=lambda s: s[1], reverse=True)`.",
+        "Three lines that show the pattern:\n```python\nwords = ['fig', 'apple', 'kiwi']\n# sort by length, longest first\nresult = sorted(words, key=lambda w: len(w), reverse=True)\n# result is ['apple', 'kiwi', 'fig']\n```"
+      ]
+    }
+  ]
+}

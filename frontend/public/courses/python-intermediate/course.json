@@ -12,6 +12,7 @@
     "python-fundamentals"
   ],
   "lessonOrder": [
-    "comprehensions"
+    "comprehensions",
+    "lambdas-and-higher-order"
   ]
 }
