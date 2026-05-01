@@ -394,23 +394,38 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
                             setPendingAsk(prompts[idx]);
                           }}
                           disabled={asking || inputLocked}
-                          aria-label={`${hintLevel === 0 ? "Hint" : hintLevel === 1 ? "Stronger hint" : "Show approach"} — level ${hintLevel + 1} of 3`}
-                          title={`Hint ${hintLevel + 1} of 3 — gentler first, stronger on each tap`}
+                          aria-label={
+                            hintLevel === 0
+                              ? "Nudge me — a gentle hint without the answer"
+                              : hintLevel === 1
+                                ? "I need more — a stronger pointer"
+                                : "Walk me through it — a step-by-step approach"
+                          }
+                          title={
+                            hintLevel === 0
+                              ? "A gentle nudge — no spoilers"
+                              : hintLevel === 1
+                                ? "A stronger pointer toward the solution"
+                                : "A walk-through of the approach"
+                          }
                           className="flex items-center gap-1 rounded-full border border-warn/40 bg-warn/10 px-2 py-[2px] text-[10px] font-medium text-warnInk transition hover:bg-warn/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-warn disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           <span aria-hidden="true">💡</span>
-                          <span>{hintLevel === 0 ? "Hint" : hintLevel === 1 ? "Stronger hint" : "Show approach"}</span>
-                          <span className="rounded-full bg-warn/25 px-1 text-[9px] font-bold tabular-nums">
-                            {hintLevel + 1}/3
+                          <span>
+                            {hintLevel === 0
+                              ? "Nudge me"
+                              : hintLevel === 1
+                                ? "I need more"
+                                : "Walk me through it"}
                           </span>
                         </button>
                       ) : (
                         <span
                           className="flex items-center gap-1 rounded-full border border-border bg-elevated/60 px-2 py-[2px] text-[10px] font-medium text-faint"
-                          title="You've used all three hint levels. Keep exploring — or ask a specific follow-up question."
+                          title="That's all the nudges. Try asking a specific follow-up question instead."
                         >
                           <span aria-hidden="true">💡</span>
-                          <span>All hints used</span>
+                          <span>Out of nudges</span>
                         </span>
                       )}
                       <ActionChips onAsk={setPendingAsk} disabled={asking || inputLocked} />

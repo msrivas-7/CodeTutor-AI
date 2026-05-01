@@ -105,7 +105,7 @@ test.describe("AI tutor", () => {
     ).toBeVisible({ timeout: 10_000 });
   });
 
-  test("hint ladder: aria-label cycles level 1 → 2 → 3", async ({ page }) => {
+  test("hint ladder: aria-label cycles Nudge me → I need more → Walk me through it", async ({ page }) => {
     await loadProfile(page, "first-lesson-editing");
     await seedApiKey(page, { key: "sk-test-e2e-padding-12345", model: "gpt-4o-mini" });
     await mockTutorQueue(page, ["hint-level-1", "hint-level-2", "hint-level-3"]);
@@ -120,22 +120,22 @@ test.describe("AI tutor", () => {
     await S.tutorInput(page).fill("I'm stuck.");
     await page.getByRole("button", { name: /^ask$/i }).click();
 
-    // Level 1 button.
-    const hintL1 = page.getByRole("button", { name: /hint — level 1 of 3/i });
+    // Phase 27 hint button copy: "Nudge me" / "I need more" / "Walk me
+    // through it". The X/3 counter is gone — escalation is implicit per
+    // tap. We assert against the new aria-labels.
+    const hintL1 = page.getByRole("button", { name: /nudge me/i });
     await expect(hintL1).toBeVisible({ timeout: 10_000 });
     await hintL1.click();
-    // After the click the ladder advances and a new assistant turn lands with
-    // the level-2 hint attached. The button's aria-label now reads level 2.
     await expect(
-      page.getByRole("button", { name: /stronger hint — level 2 of 3/i }),
+      page.getByRole("button", { name: /i need more/i }),
     ).toBeVisible({ timeout: 10_000 });
-    await page.getByRole("button", { name: /stronger hint — level 2 of 3/i }).click();
+    await page.getByRole("button", { name: /i need more/i }).click();
     await expect(
-      page.getByRole("button", { name: /show approach — level 3 of 3/i }),
+      page.getByRole("button", { name: /walk me through it/i }),
     ).toBeVisible({ timeout: 10_000 });
-    await page.getByRole("button", { name: /show approach — level 3 of 3/i }).click();
-    // Once all 3 are used the button swaps for a static "All hints used" pill.
-    await expect(page.getByText(/all hints used/i)).toBeVisible({ timeout: 10_000 });
+    await page.getByRole("button", { name: /walk me through it/i }).click();
+    // Once all 3 are used the button swaps for a static "Out of nudges" pill.
+    await expect(page.getByText(/out of nudges/i)).toBeVisible({ timeout: 10_000 });
   });
 
   test("hint counter does NOT advance when the hint stream fails (pendingHintRef rollback)", async ({
@@ -180,7 +180,7 @@ test.describe("AI tutor", () => {
 
     await S.tutorInput(page).fill("I'm stuck on this.");
     await page.getByRole("button", { name: /^ask$/i }).click();
-    const hintL1 = page.getByRole("button", { name: /hint — level 1 of 3/i });
+    const hintL1 = page.getByRole("button", { name: /nudge me/i });
     await expect(hintL1).toBeVisible({ timeout: 10_000 });
     await hintL1.click();
 
@@ -227,11 +227,11 @@ test.describe("AI tutor", () => {
 
     await S.tutorInput(page).fill("I'm stuck.");
     await page.getByRole("button", { name: /^ask$/i }).click();
-    const hintL1 = page.getByRole("button", { name: /hint — level 1 of 3/i });
+    const hintL1 = page.getByRole("button", { name: /nudge me/i });
     await expect(hintL1).toBeVisible({ timeout: 10_000 });
     await hintL1.click();
     await expect(
-      page.getByRole("button", { name: /stronger hint — level 2 of 3/i }),
+      page.getByRole("button", { name: /i need more/i }),
     ).toBeVisible({ timeout: 10_000 });
 
     await expect
