@@ -1,0 +1,152 @@
+{
+  "id": "modules-and-imports",
+  "courseId": "python-intermediate",
+  "title": "Modules & Imports",
+  "description": "Split your code across multiple files. Import functions from a helper module and learn what __name__ == '__main__' actually does.",
+  "order": 5,
+  "language": "python",
+  "estimatedMinutes": 20,
+  "objectives": [
+    "Split a script into a main file and a helper module",
+    "Choose between `import x` and `from x import y`",
+    "Understand why `if __name__ == \"__main__\":` exists"
+  ],
+  "teachesConceptTags": [
+    "import",
+    "from-import",
+    "module",
+    "name-main"
+  ],
+  "usesConceptTags": [
+    "def",
+    "for",
+    "iteration",
+    "list",
+    "print",
+    "f-strings",
+    "if",
+    "comparison",
+    "return",
+    "strings",
+    "len"
+  ],
+  "completionRules": [
+    {
+      "type": "expected_stdout",
+      "expected": "total words: 9\nunique words: 8"
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "wordstats"
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "__main__"
+    },
+    {
+      "type": "required_file_contains",
+      "file": "wordstats.py",
+      "pattern": "def count_words"
+    },
+    {
+      "type": "required_file_contains",
+      "file": "wordstats.py",
+      "pattern": "def unique_words"
+    }
+  ],
+  "prerequisiteLessonIds": ["file-io"],
+  "recap": "A *module* is a `.py` file you can import. `import x` brings the whole module in (use it as `x.thing`); `from x import thing` pulls a specific name into your namespace. The `if __name__ == \"__main__\":` guard is what lets a file act as both a script and an importable library — code under it runs when you execute the file directly, but not when another module imports it.",
+  "practicePrompts": [
+    "What's the tradeoff between `import math` and `from math import pi, sqrt`? When would you pick each?",
+    "Open a file you wrote earlier in this course. What would you move to a helper module if you came back to it tomorrow?"
+  ],
+  "practiceExercises": [
+    {
+      "id": "mean",
+      "title": "Import from statistics",
+      "prompt": "Write `mean(nums)` that returns the arithmetic mean of `nums` (a list of numbers). Use the `statistics` module from the standard library — don't compute it by hand. For example, `mean([1, 2, 3])` should return `2`, and `mean([1, 2])` should return `1.5`.",
+      "goal": "Import a function from a standard-library module.",
+      "starterCode": "# TODO: import what you need from `statistics`\n\ndef mean(nums):\n    # TODO: return the arithmetic mean\n    pass\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "three integers", "call": "mean([1, 2, 3])", "expected": "2" },
+            { "name": "two integers", "call": "mean([1, 2])", "expected": "1.5" },
+            { "name": "single number", "call": "mean([42])", "expected": "42" },
+            { "name": "negatives included", "call": "mean([-2, 0, 2])", "expected": "0" },
+            { "name": "ten numbers", "call": "mean([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])", "expected": "5.5", "hidden": true }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "statistics"
+        }
+      ],
+      "hints": [
+        "Python's standard library already has the function you need — you just have to bring it in.",
+        "Two equivalent shapes:\n```python\nimport statistics\nstatistics.mean(nums)\n```\nor\n```python\nfrom statistics import mean as _mean\n_mean(nums)\n```\n(If you `from statistics import mean` directly, it'll shadow your own `mean` function — so alias it or use `import statistics`.)",
+        "The same shape with a different stdlib module:\n```python\nimport math\nmath.sqrt(16)  # 4.0\n```"
+      ]
+    },
+    {
+      "id": "circle-area",
+      "title": "Import math.pi",
+      "prompt": "Write `circle_area(r)` that returns the area of a circle of radius `r`, computed as `pi * r * r`. Use `math.pi` from the standard library — don't hardcode `3.14`. For example, `circle_area(1)` should return `math.pi` (≈ 3.14159...), and `circle_area(2)` should return `4 * math.pi`.",
+      "goal": "Use a constant from an imported module via dotted access.",
+      "starterCode": "# TODO: import math\n\ndef circle_area(r):\n    # TODO: return math.pi * r * r\n    pass\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "unit circle", "call": "round(circle_area(1), 5)", "expected": "3.14159" },
+            { "name": "radius 2", "call": "round(circle_area(2), 5)", "expected": "12.56637" },
+            { "name": "radius zero", "call": "circle_area(0)", "expected": "0.0" },
+            { "name": "radius 10", "call": "round(circle_area(10), 5)", "expected": "314.15927", "hidden": true }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "math"
+        }
+      ],
+      "hints": [
+        "You need a precise value of pi, and Python's standard library has one — you don't have to type 3.14159...",
+        "Shape:\n```python\nimport math\n\ndef circle_area(r):\n    return math.pi * r * r\n```\n`math.pi` is a constant the `math` module exposes after you import it.",
+        "The same pattern in a different domain:\n```python\nimport math\nhypotenuse = math.sqrt(3 * 3 + 4 * 4)  # 5.0\n```"
+      ]
+    },
+    {
+      "id": "most-common",
+      "title": "Most common item",
+      "prompt": "Write `most_common(items)` that returns the single most common item in `items` (a list). If multiple items tie, return any one of them — but in practice, return the first one by insertion order, which is what `Counter.most_common(1)` gives you. For example, `most_common([\"a\", \"b\", \"a\", \"c\"])` should return `\"a\"`, and `most_common([1, 1, 2, 2, 2])` should return `2`. Use `from collections import Counter`.",
+      "goal": "Use `from x import y` to pull a class out of a module.",
+      "starterCode": "# TODO: from collections import Counter\n\ndef most_common(items):\n    # TODO: return the most common item using Counter\n    pass\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "letter wins", "call": "most_common(['a', 'b', 'a', 'c'])", "expected": "'a'" },
+            { "name": "number wins", "call": "most_common([1, 1, 2, 2, 2])", "expected": "2" },
+            { "name": "single item", "call": "most_common(['only'])", "expected": "'only'" },
+            { "name": "all tied — first wins", "call": "most_common(['x', 'y', 'z'])", "expected": "'x'", "hidden": true }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "from collections"
+        }
+      ],
+      "hints": [
+        "The standard library ships a class designed exactly for counting — you don't need to build a dict-of-counts yourself.",
+        "Shape:\n```python\nfrom collections import Counter\n\ndef most_common(items):\n    return Counter(items).most_common(1)[0][0]\n```\n`Counter(items).most_common(1)` returns a list like `[(\"a\", 2)]` — the inner `[0][0]` peels off the item itself.",
+        "The same pattern returning the count instead of the item:\n```python\nfrom collections import Counter\nc = Counter([\"a\", \"a\", \"b\"])\nc[\"a\"]  # 2\n```"
+      ]
+    }
+  ]
+}

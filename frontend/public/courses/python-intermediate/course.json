@@ -15,6 +15,7 @@
     "comprehensions",
     "lambdas-and-higher-order",
     "error-handling",
-    "file-io"
+    "file-io",
+    "modules-and-imports"
   ]
 }

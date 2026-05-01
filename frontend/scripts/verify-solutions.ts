@@ -277,10 +277,20 @@ function runRulesAgainstSolution(args: RunArgs) {
           });
         }
       } else if (rule.type === "required_file_contains") {
-        if (!containsPattern(solutionSource, rule.pattern)) {
+        // Multi-file: rule.file may name a helper module (e.g. "wordstats.py").
+        // Read from the tmp dir where all files were staged. Default to entry.
+        const targetFile = rule.file ?? entry;
+        const targetPath = join(tmp, targetFile);
+        const source = existsSync(targetPath) ? readFileSync(targetPath, "utf8") : "";
+        if (!source) {
           failures.push({
             where,
-            message: `solution source does not contain required pattern ${JSON.stringify(rule.pattern)}`,
+            message: `required_file_contains references "${targetFile}" but no such file is staged in the solution run dir`,
+          });
+        } else if (!containsPattern(source, rule.pattern)) {
+          failures.push({
+            where,
+            message: `${targetFile} does not contain required pattern ${JSON.stringify(rule.pattern)}`,
           });
         }
       } else if (rule.type === "function_tests") {
