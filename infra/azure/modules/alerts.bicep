@@ -733,8 +733,11 @@ ContainerLog_CL
 // direct bucket-size metric without scraping the Supabase admin API
 // (out of scope for tonight). Use the GC's own non-zero-attempts
 // signal as the canary: more than 50 GC attempts in a single run for
-// 3 consecutive runs means we're persistently catching up to a fast
-// fill rate. PT24H eval × P3D matches "3 consecutive daily fires".
+// 2 consecutive runs (over a 48-hour window) means we're persistently
+// catching up to a fast fill rate. PT12H eval × P2D matches "2
+// consecutive daily fires." Note: Azure scheduledQueryRules cap window
+// size at 2880 minutes (48 hours) — earlier P3D (4320 min) was
+// rejected by ARM as unsupported.
 resource storageGcPressureAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
   name: 'codetutor-storage-gc-pressure'
   location: location
@@ -744,7 +747,7 @@ resource storageGcPressureAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-
     severity: 3
     scopes: [ workspaceId ]
     evaluationFrequency: 'PT12H'
-    windowSize: 'P3D'
+    windowSize: 'P2D'
     criteria: {
       allOf: [
         {
