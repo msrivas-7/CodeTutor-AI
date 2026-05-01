@@ -24,6 +24,7 @@
     "decorators",
     "testing-basics",
     "regex-basics",
-    "capstone-csv-analyzer"
+    "capstone-csv-analyzer",
+    "capstone-mini-orm"
   ]
 }

@@ -1,0 +1,167 @@
+{
+  "id": "capstone-mini-orm",
+  "courseId": "python-intermediate",
+  "title": "Capstone: Mini In-Memory ORM",
+  "description": "Build a tiny query layer over a list of records. Combines classes, dunders, lambdas, and chainable methods into one little library that feels like a real ORM.",
+  "order": 14,
+  "language": "python",
+  "estimatedMinutes": 35,
+  "objectives": [
+    "Build a class whose methods return new instances of the same class (chainable API)",
+    "Define `__iter__`, `__len__`, and `__repr__` so the class plays nicely with built-ins",
+    "Use lambda predicates and key functions to make a query feel declarative"
+  ],
+  "teachesConceptTags": [],
+  "usesConceptTags": [
+    "class",
+    "__init__",
+    "self",
+    "instance-attribute",
+    "instance-method",
+    "__repr__",
+    "__len__",
+    "def",
+    "for",
+    "iteration",
+    "list",
+    "print",
+    "f-strings",
+    "if",
+    "comparison",
+    "return",
+    "strings",
+    "len",
+    "dict",
+    "comprehension",
+    "lambda",
+    "higher-order-functions",
+    "key-function",
+    "sorting"
+  ],
+  "completionRules": [
+    {
+      "type": "expected_stdout",
+      "expected": "all users: 3\nadmins: 2\noldest admin: Cara"
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "class Query"
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "lambda"
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "__len__"
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "__iter__"
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "__repr__"
+    }
+  ],
+  "prerequisiteLessonIds": ["capstone-csv-analyzer"],
+  "recap": "A *fluent* API — one where every operation returns a new instance — falls out naturally from giving a class a few methods that all take the data, transform it, and wrap the result back up. Pair that with `__len__` and `__iter__` and your class slots into `len()`, `for x in q:`, and `list(q)` like it was always there. Real ORMs (Django, SQLAlchemy) are this pattern with database round-trips behind every method; the mechanic is the same.\n\nAnd that's the course. You started this curriculum with comprehensions and walked through error handling, file I/O, modules, classes, inheritance, dunders, generators, decorators, testing, and regex. This lesson is what those eleven lessons add up to: a small but real library that uses every one of them, in about twenty lines, written in a style that wouldn't look out of place in a senior Python codebase. From here, the standard-library tour — `csv`, `json`, `pathlib`, `dataclasses`, `argparse`, `subprocess` — is the next surface to explore. The mechanics are now yours.",
+  "practicePrompts": [
+    "Take the `Query` class and add a `.count(predicate)` method that returns just the number of matches. Where would you put it and which existing method does it shorten?",
+    "What changes if `where`, `select`, and `sort_by` returned generators instead of materializing lists? When does that help, when does it hurt?"
+  ],
+  "practiceExercises": [
+    {
+      "id": "where",
+      "title": "Filter records",
+      "prompt": "Write `where(records, predicate)` that returns a list of every record (a dict) for which `predicate(record)` is truthy. For example, `where([{\"n\": 1}, {\"n\": 2}, {\"n\": 3}], lambda r: r[\"n\"] >= 2)` returns `[{\"n\": 2}, {\"n\": 3}]`.",
+      "goal": "Filter a list of dicts using a lambda predicate.",
+      "starterCode": "def where(records, predicate):\n    # TODO: return list of records where predicate(r) is truthy\n    pass\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "filter by value", "call": "where([{'n': 1}, {'n': 2}, {'n': 3}], lambda r: r['n'] >= 2)", "expected": "[{'n': 2}, {'n': 3}]" },
+            { "name": "all match", "call": "where([{'n': 1}, {'n': 2}], lambda r: True)", "expected": "[{'n': 1}, {'n': 2}]" },
+            { "name": "none match", "call": "where([{'n': 1}, {'n': 2}], lambda r: False)", "expected": "[]" },
+            { "name": "filter by string field", "call": "where([{'role': 'admin'}, {'role': 'user'}], lambda r: r['role'] == 'admin')", "expected": "[{'role': 'admin'}]" },
+            { "name": "empty input", "call": "where([], lambda r: True)", "expected": "[]", "hidden": true }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "def where"
+        }
+      ],
+      "hints": [
+        "Same shape as `filter` from the lambdas lesson, but returning a list directly instead of an iterator.",
+        "Shape:\n```python\ndef where(records, predicate):\n    return [r for r in records if predicate(r)]\n```\nOr equivalently `list(filter(predicate, records))` — the comprehension is usually clearer when you also want to project the values.",
+        "The same idea returning the *count* instead of the list:\n```python\ndef count_where(records, predicate):\n    return sum(1 for r in records if predicate(r))\n```"
+      ]
+    },
+    {
+      "id": "pluck",
+      "title": "Extract one field from each record",
+      "prompt": "Write `pluck(records, field)` that returns a list of just the value of `field` from each record. For example, `pluck([{\"name\": \"Alice\", \"age\": 30}, {\"name\": \"Bob\", \"age\": 25}], \"name\")` returns `[\"Alice\", \"Bob\"]`. If `field` is missing from a record, raise `KeyError` (the default dict behavior — don't catch it).",
+      "goal": "Project a list of records to a list of one column's values — a `SELECT field FROM ...` in miniature.",
+      "starterCode": "def pluck(records, field):\n    # TODO: return [r[field] for r in records]\n    pass\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "names", "call": "pluck([{'name': 'Alice', 'age': 30}, {'name': 'Bob', 'age': 25}], 'name')", "expected": "['Alice', 'Bob']" },
+            { "name": "ages", "call": "pluck([{'name': 'Alice', 'age': 30}, {'name': 'Bob', 'age': 25}], 'age')", "expected": "[30, 25]" },
+            { "name": "single record", "call": "pluck([{'x': 'only'}], 'x')", "expected": "['only']" },
+            { "name": "empty input", "call": "pluck([], 'name')", "expected": "[]" },
+            { "name": "preserves duplicates", "call": "pluck([{'x': 1}, {'x': 1}, {'x': 2}], 'x')", "expected": "[1, 1, 2]", "hidden": true }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "def pluck"
+        }
+      ],
+      "hints": [
+        "You're indexing into each dict by the same key. A list comprehension does it in one line.",
+        "Shape:\n```python\ndef pluck(records, field):\n    return [r[field] for r in records]\n```\nWe deliberately use `r[field]` (not `r.get(field)`) — a missing field is a programmer error, and KeyError is a louder failure than a silent `None`.",
+        "The same idea projecting *multiple* fields into a smaller dict per record:\n```python\ndef select(records, *fields):\n    return [{f: r[f] for f in fields} for r in records]\n```"
+      ]
+    },
+    {
+      "id": "count-by",
+      "title": "Group records by a field",
+      "prompt": "Write `count_by(records, field)` that returns a dict mapping each distinct value of `field` to the number of records with that value. For example, `count_by([{\"role\": \"admin\"}, {\"role\": \"user\"}, {\"role\": \"admin\"}], \"role\")` returns `{\"admin\": 2, \"user\": 1}`. Empty input returns `{}`.",
+      "goal": "Aggregate a list of dicts into a count-per-key — the `GROUP BY` of a query language, in three lines.",
+      "starterCode": "def count_by(records, field):\n    # TODO: build a dict counting each distinct value of `field`\n    pass\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "two roles", "call": "count_by([{'role': 'admin'}, {'role': 'user'}, {'role': 'admin'}], 'role')", "expected": "{'admin': 2, 'user': 1}" },
+            { "name": "all same", "call": "count_by([{'x': 'a'}, {'x': 'a'}, {'x': 'a'}], 'x')", "expected": "{'a': 3}" },
+            { "name": "all distinct", "call": "count_by([{'x': 'a'}, {'x': 'b'}, {'x': 'c'}], 'x')", "expected": "{'a': 1, 'b': 1, 'c': 1}" },
+            { "name": "empty input", "call": "count_by([], 'role')", "expected": "{}" },
+            { "name": "integer values", "call": "count_by([{'n': 1}, {'n': 2}, {'n': 1}, {'n': 1}], 'n')", "expected": "{1: 3, 2: 1}", "hidden": true }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "def count_by"
+        }
+      ],
+      "hints": [
+        "For each record, look up the value at `field`, and bump that key's count in the dict — using `.get(key, 0) + 1` so a first-seen key starts at 1.",
+        "Shape:\n```python\ndef count_by(records, field):\n    counts = {}\n    for r in records:\n        v = r[field]\n        counts[v] = counts.get(v, 0) + 1\n    return counts\n```",
+        "The same pattern using `collections.Counter` if you'd rather lean on the standard library:\n```python\nfrom collections import Counter\nCounter(r[field] for r in records)\n```\n(Returns a `Counter`, which is a dict subclass — use `dict(...)` to convert if a plain dict is required.)"
+      ]
+    }
+  ]
+}
