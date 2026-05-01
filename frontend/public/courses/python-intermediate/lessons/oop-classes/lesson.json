@@ -1,0 +1,162 @@
+{
+  "id": "oop-classes",
+  "courseId": "python-intermediate",
+  "title": "Classes & Objects",
+  "description": "Bundle data and behavior together with classes — define your own types and give them methods that act on their own state.",
+  "order": 6,
+  "language": "python",
+  "estimatedMinutes": 25,
+  "objectives": [
+    "Define a class with `__init__` and instance methods",
+    "Set and read instance attributes via `self`",
+    "Recognize when a class is the right shape — and when a function or dict is enough"
+  ],
+  "teachesConceptTags": [
+    "class",
+    "__init__",
+    "self",
+    "instance-attribute",
+    "instance-method"
+  ],
+  "usesConceptTags": [
+    "def",
+    "for",
+    "iteration",
+    "list",
+    "print",
+    "f-strings",
+    "int",
+    "if",
+    "comparison",
+    "return",
+    "strings",
+    "try",
+    "except",
+    "raise"
+  ],
+  "completionRules": [
+    {
+      "type": "expected_stdout",
+      "expected": "error: insufficient funds\nAlice's balance: 120"
+    },
+    {
+      "type": "function_tests",
+      "tests": [
+        { "name": "owner stored", "call": "BankAccount('Alice', 100).owner", "expected": "'Alice'" },
+        { "name": "balance stored", "call": "BankAccount('Alice', 100).balance", "expected": "100" },
+        { "name": "default balance is zero", "call": "BankAccount('Alice').balance", "expected": "0" },
+        { "name": "deposit adds to balance", "setup": "a = BankAccount('X', 100)\na.deposit(50)", "call": "a.balance", "expected": "150" },
+        { "name": "withdraw subtracts from balance", "setup": "a = BankAccount('X', 100)\na.withdraw(30)", "call": "a.balance", "expected": "70" },
+        { "name": "different accounts independent", "setup": "a = BankAccount('A', 100)\nb = BankAccount('B', 200)\na.deposit(10)", "call": "[a.balance, b.balance]", "expected": "[110, 200]", "hidden": true }
+      ]
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "class BankAccount"
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "__init__"
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "self"
+    }
+  ],
+  "prerequisiteLessonIds": ["modules-and-imports"],
+  "recap": "A class is a blueprint for objects: `__init__` runs at construction time and stashes data on `self` (the instance); methods are functions that take `self` as their first argument so they can read and modify that data. Reach for a class when you have data + behavior that travel together. If you only have data, a dict or a tuple is often simpler.",
+  "practicePrompts": [
+    "Look at a function from earlier in the course that takes the same first argument over and over. Could that argument be `self` on a class? Would the call sites read better?",
+    "When is a `dict` clearer than a class? Think about what each makes easy and what each makes hard."
+  ],
+  "practiceExercises": [
+    {
+      "id": "counter",
+      "title": "A counter class",
+      "prompt": "Define a class `Counter` with these features:\n- `__init__(self, start=0)` stores `start` as `self.value`.\n- `increment(self)` increases `self.value` by 1.\n- `reset(self)` sets `self.value` back to 0.\n\nFor example, `Counter().value` is `0`, `Counter(5).value` is `5`. After calling `c.increment()` twice on a fresh `Counter()`, `c.value` should be `2`.",
+      "goal": "Write a class with a constructor and two state-mutating methods.",
+      "starterCode": "class Counter:\n    def __init__(self, start=0):\n        # TODO: stash `start` on self.value\n        pass\n\n    def increment(self):\n        # TODO: bump self.value by 1\n        pass\n\n    def reset(self):\n        # TODO: set self.value back to 0\n        pass\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "default starts at 0", "call": "Counter().value", "expected": "0" },
+            { "name": "custom start", "call": "Counter(5).value", "expected": "5" },
+            { "name": "increment once", "setup": "c = Counter()\nc.increment()", "call": "c.value", "expected": "1" },
+            { "name": "increment three times", "setup": "c = Counter(10)\nc.increment()\nc.increment()\nc.increment()", "call": "c.value", "expected": "13" },
+            { "name": "reset zeros it", "setup": "c = Counter(7)\nc.reset()", "call": "c.value", "expected": "0", "hidden": true }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "class Counter"
+        }
+      ],
+      "hints": [
+        "Each instance needs its own `value`, set when the object is created. That's what `__init__` is for.",
+        "Inside a method, use `self.value` to read or write the attribute. `__init__` sets it once; `increment` and `reset` change it.",
+        "The same shape on a different example:\n```python\nclass Box:\n    def __init__(self, label):\n        self.label = label\n\n    def relabel(self, new_label):\n        self.label = new_label\n```"
+      ]
+    },
+    {
+      "id": "greeter",
+      "title": "A greeter class",
+      "prompt": "Define a class `Greeter` with:\n- `__init__(self, name)` stores `name` on `self.name`.\n- `greet(self)` returns the string `\"Hello, <name>!\"`.\n\nFor example, `Greeter(\"Alice\").greet()` should return `\"Hello, Alice!\"`.",
+      "goal": "Use an instance attribute to compose a return value from a method.",
+      "starterCode": "class Greeter:\n    def __init__(self, name):\n        # TODO: store name on self\n        pass\n\n    def greet(self):\n        # TODO: return \"Hello, <name>!\"\n        pass\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "alice", "call": "Greeter('Alice').greet()", "expected": "'Hello, Alice!'" },
+            { "name": "bob", "call": "Greeter('Bob').greet()", "expected": "'Hello, Bob!'" },
+            { "name": "empty name still greets", "call": "Greeter('').greet()", "expected": "'Hello, !'" }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "class Greeter"
+        }
+      ],
+      "hints": [
+        "Two parts: stash the name in `__init__`, then build the greeting in `greet` using that stored name.",
+        "In `__init__`, write `self.name = name`. In `greet`, return an f-string that interpolates `self.name` between `\"Hello, \"` and `\"!\"`.",
+        "The same idea with a different stored value:\n```python\nclass Echo:\n    def __init__(self, word):\n        self.word = word\n\n    def shout(self):\n        return self.word.upper() + \"!\"\n```"
+      ]
+    },
+    {
+      "id": "stack",
+      "title": "A LIFO stack",
+      "prompt": "Define a class `Stack` (last-in-first-out) with:\n- `__init__(self)` creates an empty list `self.items`.\n- `push(self, item)` appends `item` to `self.items`.\n- `pop(self)` removes and returns the last item.\n- `peek(self)` returns the last item without removing it.\n\nFor example, after `s = Stack(); s.push(1); s.push(2)`, `s.peek()` returns `2` and `s.pop()` returns `2`. After the pop, `s.peek()` returns `1`.",
+      "goal": "Combine a list-typed attribute with multiple methods that work over it.",
+      "starterCode": "class Stack:\n    def __init__(self):\n        # TODO: create an empty list on self.items\n        pass\n\n    def push(self, item):\n        # TODO: append item to self.items\n        pass\n\n    def pop(self):\n        # TODO: remove and return the last item\n        pass\n\n    def peek(self):\n        # TODO: return the last item without removing it\n        pass\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "peek after pushes", "setup": "s = Stack()\ns.push(1)\ns.push(2)", "call": "s.peek()", "expected": "2" },
+            { "name": "pop is LIFO", "setup": "s = Stack()\ns.push(1)\ns.push(2)", "call": "s.pop()", "expected": "2" },
+            { "name": "peek after pop", "setup": "s = Stack()\ns.push(1)\ns.push(2)\ns.pop()", "call": "s.peek()", "expected": "1" },
+            { "name": "single element", "setup": "s = Stack()\ns.push('only')", "call": "s.pop()", "expected": "'only'" },
+            { "name": "items list state", "setup": "s = Stack()\ns.push('a')\ns.push('b')\ns.push('c')\ns.pop()", "call": "s.items", "expected": "['a', 'b']", "hidden": true }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "class Stack"
+        }
+      ],
+      "hints": [
+        "A stack is just a list with a fixed access pattern: you only ever look at, add to, or remove from the end. Lists already have `.append` and `.pop` for those.",
+        "Initialize `self.items = []` in `__init__`. Then map each method to one list operation: `push` → `list.append`, `pop` → `list.pop()` (no argument removes from the end), `peek` → indexing the last element with `[-1]`.",
+        "The same wrapper-around-a-list idea for a queue (FIFO):\n```python\nclass Queue:\n    def __init__(self):\n        self.items = []\n\n    def enqueue(self, item):\n        self.items.append(item)\n\n    def dequeue(self):\n        return self.items.pop(0)\n```"
+      ]
+    }
+  ]
+}

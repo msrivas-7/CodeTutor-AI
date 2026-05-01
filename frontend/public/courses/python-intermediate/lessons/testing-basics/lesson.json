@@ -1,0 +1,159 @@
+{
+  "id": "testing-basics",
+  "courseId": "python-intermediate",
+  "title": "Testing Basics",
+  "description": "Write tests with assert. Catch regressions before they reach production. Learn the three-line test that pays for itself a hundred times over.",
+  "order": 11,
+  "language": "python",
+  "estimatedMinutes": 25,
+  "objectives": [
+    "Write tests using `assert` and a `test_<thing>` naming convention",
+    "Run a list of tests and report pass/fail counts",
+    "Recognize when an assertion is the right tool for an internal invariant"
+  ],
+  "teachesConceptTags": [
+    "assert",
+    "unit-test",
+    "test-function",
+    "arrange-act-assert"
+  ],
+  "usesConceptTags": [
+    "def",
+    "for",
+    "iteration",
+    "list",
+    "print",
+    "f-strings",
+    "int",
+    "if",
+    "comparison",
+    "return",
+    "strings",
+    "len",
+    "try",
+    "except",
+    "raise",
+    "module",
+    "import",
+    "from-import"
+  ],
+  "completionRules": [
+    {
+      "type": "expected_stdout",
+      "expected": "PASS test_add_basic\nPASS test_add_negatives\nPASS test_is_even_true\nPASS test_is_even_false\n4/4 passed"
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "assert"
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "from mathops"
+    },
+    {
+      "type": "required_file_contains",
+      "file": "mathops.py",
+      "pattern": "def add"
+    },
+    {
+      "type": "required_file_contains",
+      "file": "mathops.py",
+      "pattern": "def is_even"
+    }
+  ],
+  "prerequisiteLessonIds": ["decorators"],
+  "recap": "A test is a function that exercises some code and uses `assert` to declare what should be true afterward. The convention is to name it `test_<what>`. A passing test is silent; a failing one raises `AssertionError`. The simplest test runner is a `for` loop that calls each test in `try`/`except AssertionError` and tallies the results. Real codebases use `pytest`, but the underlying idea is exactly this — `pytest` just discovers tests for you and prints prettier output.",
+  "practicePrompts": [
+    "Take a function from earlier in the course and write three tests for it: a happy-path test, an edge-case test (empty input, zero, etc.), and a 'this should fail' test that you watch fail before fixing.",
+    "When does `assert` belong in production code, and when is it a bad idea? Hint: what does Python's `-O` flag do?"
+  ],
+  "practiceExercises": [
+    {
+      "id": "safe-index",
+      "title": "Assert as a precondition",
+      "prompt": "Write `safe_index(lst, i)` that returns `lst[i]`, but uses `assert 0 <= i < len(lst), \"index out of range\"` *as an internal invariant* — the assumption being that the caller has already validated `i` upstream and a bad index here means a bug, not bad user input. (For runtime input validation, you'd use `if`/`raise ValueError` instead — see the *When `assert` is right* section above.)\n\nFor example, `safe_index([10, 20, 30], 1)` returns `20`. Calling `safe_index([], 0)` raises `AssertionError(\"index out of range\")`.\n\n(The automated tests verify the success path. The assertion path is enforced by requiring `assert` in your code.)",
+      "goal": "Use `assert` to express a precondition — an invariant the function relies on.",
+      "starterCode": "def safe_index(lst, i):\n    # TODO: assert 0 <= i < len(lst), \"index out of range\"\n    # then return lst[i]\n    pass\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "first item", "call": "safe_index([10, 20, 30], 0)", "expected": "10" },
+            { "name": "middle item", "call": "safe_index([10, 20, 30], 1)", "expected": "20" },
+            { "name": "last item", "call": "safe_index([10, 20, 30], 2)", "expected": "30" },
+            { "name": "single element", "call": "safe_index(['only'], 0)", "expected": "'only'", "hidden": true }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "assert"
+        }
+      ],
+      "hints": [
+        "`assert` checks a condition and raises `AssertionError` if it's false. It's how you say \"this had better be true, or stop now.\"",
+        "Shape:\n```python\ndef safe_index(lst, i):\n    assert 0 <= i < len(lst), \"index out of range\"\n    return lst[i]\n```\nThe second argument to `assert` becomes the error message — useful when the assertion fires.",
+        "The same pattern guarding a different invariant:\n```python\ndef sqrt(n):\n    assert n >= 0, \"can't take sqrt of negative\"\n    return n ** 0.5\n```"
+      ]
+    },
+    {
+      "id": "run-tests",
+      "title": "A tiny test runner",
+      "prompt": "Write `run_tests(tests)` where `tests` is a list of zero-argument functions. Each test either returns normally (pass) or raises `AssertionError` (fail). Return a tuple `(passed, failed)` — the count of each.\n\nFor example, given a list with two passing and one failing test, `run_tests(...)` should return `(2, 1)`.",
+      "goal": "Run a list of test functions and tally pass/fail counts.",
+      "starterCode": "def run_tests(tests):\n    # TODO: for each t in tests, try t() — count passes and fails.\n    # Return (passed, failed).\n    pass\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "all pass", "setup": "def t1(): assert True\ndef t2(): assert 1 + 1 == 2", "call": "run_tests([t1, t2])", "expected": "(2, 0)" },
+            { "name": "all fail", "setup": "def t1(): assert False\ndef t2(): assert 1 == 2", "call": "run_tests([t1, t2])", "expected": "(0, 2)" },
+            { "name": "mixed", "setup": "def p1(): assert True\ndef p2(): assert 1 == 1\ndef f1(): assert False", "call": "run_tests([p1, f1, p2])", "expected": "(2, 1)" },
+            { "name": "empty list", "call": "run_tests([])", "expected": "(0, 0)" },
+            { "name": "single pass", "setup": "def lonely(): assert True", "call": "run_tests([lonely])", "expected": "(1, 0)", "hidden": true }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "except"
+        }
+      ],
+      "hints": [
+        "Each test is just a function you call. The only thing that distinguishes \"pass\" from \"fail\" is whether calling it raises `AssertionError`. So you need a `try`/`except`.",
+        "Shape:\n```python\ndef run_tests(tests):\n    passed = 0\n    failed = 0\n    for t in tests:\n        try:\n            t()\n            passed += 1\n        except AssertionError:\n            failed += 1\n    return (passed, failed)\n```\nCatch `AssertionError` specifically — not bare `except` — so a test with a real bug (like a `TypeError`) still propagates and you see it.",
+        "The same pattern returning a dict instead of a tuple:\n```python\ndef tally(tests):\n    out = {\"passed\": 0, \"failed\": 0}\n    for t in tests:\n        try:\n            t()\n            out[\"passed\"] += 1\n        except AssertionError:\n            out[\"failed\"] += 1\n    return out\n```"
+      ]
+    },
+    {
+      "id": "assert-eq",
+      "title": "A descriptive assert helper",
+      "prompt": "Write `assert_eq(actual, expected)` — a helper that does nothing if `actual == expected`, but raises `AssertionError(f\"expected {expected!r}, got {actual!r}\")` if they differ. The point is that the error message tells you *what* the values were, not just that some `assert` failed somewhere.\n\nFor example, `assert_eq(2, 2)` returns `None` (no error). `assert_eq(\"hi\", \"bye\")` raises `AssertionError(\"expected 'bye', got 'hi'\")`.",
+      "goal": "Wrap `assert` (or `raise`) in a helper that produces a useful error message.",
+      "starterCode": "def assert_eq(actual, expected):\n    # TODO: if actual != expected, raise AssertionError with a useful message.\n    pass\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "equal ints", "call": "assert_eq(2, 2)", "expected": "None" },
+            { "name": "equal strings", "call": "assert_eq('hi', 'hi')", "expected": "None" },
+            { "name": "equal lists", "call": "assert_eq([1, 2], [1, 2])", "expected": "None" },
+            { "name": "equal None", "call": "assert_eq(None, None)", "expected": "None", "hidden": true }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "AssertionError"
+        }
+      ],
+      "hints": [
+        "Two paths: when the values match, do nothing (return `None`). When they don't, raise an error whose message includes both values.",
+        "Shape:\n```python\ndef assert_eq(actual, expected):\n    if actual != expected:\n        raise AssertionError(f\"expected {expected!r}, got {actual!r}\")\n```\nThe `!r` formatting calls `repr()` — so strings come out quoted, which makes the difference between `''` and `'None'` (or `None` itself) visible in the message.",
+        "The same idea written with `assert`:\n```python\ndef assert_eq(actual, expected):\n    assert actual == expected, f\"expected {expected!r}, got {actual!r}\"\n```\nFunctionally identical — `assert` is sugar for the `if`/`raise` pair when the message style fits."
+      ]
+    }
+  ]
+}

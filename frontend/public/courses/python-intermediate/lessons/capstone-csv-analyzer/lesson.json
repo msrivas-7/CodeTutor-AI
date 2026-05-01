@@ -1,0 +1,149 @@
+{
+  "id": "capstone-csv-analyzer",
+  "courseId": "python-intermediate",
+  "title": "Capstone: CSV Sales Analyzer",
+  "description": "Read a CSV file, parse it into typed records, and report aggregates — combining file I/O, comprehensions, dicts, sets, lambdas, and string parsing into one small program.",
+  "order": 13,
+  "language": "python",
+  "estimatedMinutes": 30,
+  "objectives": [
+    "Round-trip data through a CSV file with `with open` for both write and read",
+    "Parse and type-convert string columns into structured rows",
+    "Aggregate rows by group with a dict, then pick a top entry with `max(..., key=)`"
+  ],
+  "teachesConceptTags": [],
+  "usesConceptTags": [
+    "def",
+    "for",
+    "iteration",
+    "list",
+    "print",
+    "f-strings",
+    "int",
+    "if",
+    "comparison",
+    "return",
+    "strings",
+    "len",
+    "dict",
+    "comprehension",
+    "set-comprehension",
+    "generator-expression",
+    "with",
+    "open",
+    "lambda",
+    "sorting",
+    "string-parsing"
+  ],
+  "completionRules": [
+    {
+      "type": "expected_stdout",
+      "expected": "total sales: 500\nproducts: ['gadget', 'widget']\ntop product: widget (300)"
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "with open"
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "lambda"
+    }
+  ],
+  "prerequisiteLessonIds": ["regex-basics"],
+  "recap": "A small data pipeline in one file: write a CSV, read it back, parse rows into typed tuples, then aggregate with a dict + a comprehension and pick a top entry with `max(..., key=lambda ...)`. This is the shape of most one-off scripts in real life — and *every* piece of it came from earlier lessons in this course. From here, the standard library's `csv` module replaces the manual `split(\",\")`, but the underlying pattern is the same.",
+  "practicePrompts": [
+    "Replace the manual `line.split(\",\")` parsing with `csv.DictReader` — does the program get clearer or muddier?",
+    "Add a fourth column (e.g., region). What's the smallest change to the code? What's the smallest change to the tests?"
+  ],
+  "practiceExercises": [
+    {
+      "id": "sum-column",
+      "title": "Sum an integer column",
+      "prompt": "Write `sum_column(lines, col_index)` where `lines` is a list of CSV-style strings (no header, comma-separated) and `col_index` is the integer column to sum. Convert each value at that column to an `int` and return the total.\n\nFor example, `sum_column([\"a,1\", \"b,2\", \"c,3\"], 1)` returns `6`. `sum_column([], 0)` returns `0`.",
+      "goal": "Combine string splitting, integer conversion, and a generator expression in one function.",
+      "starterCode": "def sum_column(lines, col_index):\n    # TODO: split each line on \",\", convert column to int, return total\n    pass\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "second column sum", "call": "sum_column(['a,1', 'b,2', 'c,3'], 1)", "expected": "6" },
+            { "name": "first column sum", "call": "sum_column(['10,x', '20,y', '5,z'], 0)", "expected": "35" },
+            { "name": "single row", "call": "sum_column(['only,42'], 1)", "expected": "42" },
+            { "name": "empty input", "call": "sum_column([], 0)", "expected": "0" },
+            { "name": "negatives included", "call": "sum_column(['a,-1', 'b,-2', 'c,3'], 1)", "expected": "0", "hidden": true }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "def sum_column"
+        }
+      ],
+      "hints": [
+        "Each line is a string. Splitting it on `\",\"` gives a list of cell strings. Pick the one at `col_index`, convert to int, and add to a running total — or do all of that inside a generator expression to `sum`.",
+        "Shape:\n```python\ndef sum_column(lines, col_index):\n    return sum(int(line.split(\",\")[col_index]) for line in lines)\n```\n`sum` of an empty generator is `0`, so the empty-input case is already handled.",
+        "The same idea split into a loop, if a comprehension feels too dense:\n```python\ntotal = 0\nfor line in lines:\n    cells = line.split(\",\")\n    total += int(cells[col_index])\nreturn total\n```"
+      ]
+    },
+    {
+      "id": "unique-in-column",
+      "title": "Unique values in a column",
+      "prompt": "Write `unique_in_column(lines, col_index)` that returns a *sorted list* of unique values at the given column index. The values stay strings — no conversion.\n\nFor example, `unique_in_column([\"alice,1\", \"bob,2\", \"alice,3\"], 0)` returns `[\"alice\", \"bob\"]`. `unique_in_column([], 0)` returns `[]`.",
+      "goal": "Use a set comprehension to dedupe + sort the result.",
+      "starterCode": "def unique_in_column(lines, col_index):\n    # TODO: build a set of the column's values, then return them sorted\n    pass\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "names deduped", "call": "unique_in_column(['alice,1', 'bob,2', 'alice,3'], 0)", "expected": "['alice', 'bob']" },
+            { "name": "sorted alphabetically", "call": "unique_in_column(['c,1', 'a,2', 'b,3'], 0)", "expected": "['a', 'b', 'c']" },
+            { "name": "all same value", "call": "unique_in_column(['x,1', 'x,2', 'x,3'], 0)", "expected": "['x']" },
+            { "name": "second column", "call": "unique_in_column(['a,red', 'b,blue', 'c,red'], 1)", "expected": "['blue', 'red']" },
+            { "name": "empty input", "call": "unique_in_column([], 0)", "expected": "[]", "hidden": true }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "def unique_in_column"
+        }
+      ],
+      "hints": [
+        "A set drops duplicates automatically. Build one from the column's values, then sort it into a list.",
+        "Shape:\n```python\ndef unique_in_column(lines, col_index):\n    values = {line.split(\",\")[col_index] for line in lines}\n    return sorted(values)\n```\n`sorted` always returns a list — no need to wrap a separate `list(...)`.",
+        "The same pattern returning a count instead:\n```python\ndef count_unique(lines, col_index):\n    return len({line.split(\",\")[col_index] for line in lines})\n```"
+      ]
+    },
+    {
+      "id": "top-value",
+      "title": "Top-valued key",
+      "prompt": "Write `top_value(d)` where `d` is a dict mapping strings to numbers. Return the key whose value is the largest. If `d` is empty, return `None`. If multiple keys tie for the top, you can return any of them — but in practice, return the first one (which is what `max(..., key=...)` does).\n\nFor example, `top_value({\"widget\": 300, \"gadget\": 200})` returns `\"widget\"`. `top_value({})` returns `None`.",
+      "goal": "Use `max(..., key=lambda)` to pick a winner, with a guard for the empty case.",
+      "starterCode": "def top_value(d):\n    # TODO: if d is empty, return None\n    # otherwise return max(d, key=lambda k: d[k])\n    pass\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "two products", "call": "top_value({'widget': 300, 'gadget': 200})", "expected": "'widget'" },
+            { "name": "single key", "call": "top_value({'only': 42})", "expected": "'only'" },
+            { "name": "empty dict", "call": "top_value({})", "expected": "None" },
+            { "name": "negatives", "call": "top_value({'a': -1, 'b': -5, 'c': -3})", "expected": "'a'" },
+            { "name": "first wins on tie", "call": "top_value({'a': 10, 'b': 10})", "expected": "'a'", "hidden": true }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "lambda"
+        }
+      ],
+      "hints": [
+        "Two cases: empty dict (return `None`) and non-empty (find the key whose value is largest). `max` with a `key=` argument does the second one in one line.",
+        "Shape:\n```python\ndef top_value(d):\n    if not d:\n        return None\n    return max(d, key=lambda k: d[k])\n```\nIterating a dict gives you keys; `key=lambda k: d[k]` tells `max` to compare on the value, not the key itself.",
+        "The same shape sorting *all* keys by value descending:\n```python\nsorted(d, key=lambda k: d[k], reverse=True)  # list of keys, highest-first\n```"
+      ]
+    }
+  ]
+}

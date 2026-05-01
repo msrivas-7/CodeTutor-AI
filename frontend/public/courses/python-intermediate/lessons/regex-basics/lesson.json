@@ -1,0 +1,159 @@
+{
+  "id": "regex-basics",
+  "courseId": "python-intermediate",
+  "title": "Regex Basics",
+  "description": "Match patterns in text with re — find, extract, and replace using a small set of metacharacters that cover most real-world cases.",
+  "order": 12,
+  "language": "python",
+  "estimatedMinutes": 25,
+  "objectives": [
+    "Use `re.search`, `re.findall`, and `re.sub` to find and rewrite text",
+    "Read and write the small set of metacharacters that cover 90% of real cases",
+    "Recognize when a regex is the wrong tool — and reach for `str` methods or a parser instead"
+  ],
+  "teachesConceptTags": [
+    "regex",
+    "re-module",
+    "re-search",
+    "re-findall",
+    "re-sub",
+    "regex-groups",
+    "raw-string"
+  ],
+  "usesConceptTags": [
+    "def",
+    "for",
+    "iteration",
+    "list",
+    "print",
+    "f-strings",
+    "if",
+    "comparison",
+    "return",
+    "strings",
+    "len",
+    "import",
+    "module"
+  ],
+  "completionRules": [
+    {
+      "type": "expected_stdout",
+      "expected": "all numbers: ['404', '500', '200']\nfirst error code: 404\nredacted: Error ###: not found. Then later, error ### happened. Final code ###."
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "import re"
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "re.findall"
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "re.search"
+    },
+    {
+      "type": "required_file_contains",
+      "file": "main.py",
+      "pattern": "re.sub"
+    }
+  ],
+  "prerequisiteLessonIds": ["testing-basics"],
+  "recap": "A regex is a pattern that describes a *shape* of text. `re.search` finds the first match (or `None`); `re.findall` returns every match as a list; `re.sub(pattern, replacement, text)` rewrites every match. The most useful metacharacters are `\\d` (digit), `\\w` (word char), `\\s` (whitespace), `+` (one or more), `*` (zero or more), `?` (optional), `[abc]` (one of), and `()` (capture group). Reach for a regex when you're matching a *shape*; reach for `str.split` / `str.startswith` / a real parser when you're not.",
+  "practicePrompts": [
+    "Take a regex you wrote here and feed it tricky input — empty string, very long string, edge cases at the start/end. Does it still do what you expected?",
+    "When is a regex the *wrong* answer? (Hint: parsing HTML, parsing a programming language, anything with nested structure.)"
+  ],
+  "practiceExercises": [
+    {
+      "id": "find-emails",
+      "title": "Find every email",
+      "prompt": "Write `find_emails(text)` that returns a list of every simple email address in `text`, in the order they appear. For this exercise, an email is `<word>@<word>.<word>` — letters, digits, and underscores only. Use `re.findall`.\n\nFor example, `find_emails(\"contact alice@example.com or bob@test.org\")` returns `[\"alice@example.com\", \"bob@test.org\"]`.\n\n(In real code you'd use a more permissive pattern — RFC-compliant email regexes are notoriously gnarly. This is fine for the lesson.)",
+      "goal": "Use re.findall with a multi-part pattern to extract every match.",
+      "starterCode": "import re\n\n\ndef find_emails(text):\n    # TODO: use re.findall with a pattern like word@word.word\n    pass\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "two emails", "call": "find_emails('contact alice@example.com or bob@test.org')", "expected": "['alice@example.com', 'bob@test.org']" },
+            { "name": "no emails", "call": "find_emails('no emails here at all')", "expected": "[]" },
+            { "name": "single email", "call": "find_emails('reach me at me@my.site')", "expected": "['me@my.site']" },
+            { "name": "preserves order", "call": "find_emails('z@a.b then a@b.c then m@n.o')", "expected": "['z@a.b', 'a@b.c', 'm@n.o']" },
+            { "name": "punctuation around", "call": "find_emails('Email: hi@world.com.')", "expected": "['hi@world.com']", "hidden": true }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "re.findall"
+        }
+      ],
+      "hints": [
+        "`re.findall(pattern, text)` returns a list of every non-overlapping match. The pattern just needs to describe the *shape* of an email.",
+        "Shape:\n```python\nimport re\nre.findall(r\"\\w+@\\w+\\.\\w+\", text)\n```\n`\\w+` is one or more word chars; `\\.` is a literal dot (the backslash is needed because `.` alone matches any character). Wrap the whole pattern in `r\"...\"` (raw string) so backslashes don't need to be doubled.",
+        "The same shape for a different target — phone numbers like 555-1234:\n```python\nre.findall(r\"\\d{3}-\\d{4}\", text)\n```\n`\\d{3}` is exactly three digits."
+      ]
+    },
+    {
+      "id": "first-phone",
+      "title": "First phone number",
+      "prompt": "Write `first_phone(text)` that returns the first phone number in `text` formatted like `555-1234` (three digits, hyphen, four digits). If there's no match, return `None`. Use `re.search`.\n\nFor example, `first_phone(\"call 555-1234 or 999-7777\")` returns `\"555-1234\"`. `first_phone(\"no number here\")` returns `None`.",
+      "goal": "Use re.search to find the first match — and handle the no-match case via the truthiness of the return value.",
+      "starterCode": "import re\n\n\ndef first_phone(text):\n    # TODO: re.search for the phone shape; return its .group() if matched, else None\n    pass\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "first of two", "call": "first_phone('call 555-1234 or 999-7777')", "expected": "'555-1234'" },
+            { "name": "single match", "call": "first_phone('the number is 800-2020')", "expected": "'800-2020'" },
+            { "name": "no match returns None", "call": "first_phone('no number here')", "expected": "None" },
+            { "name": "embedded in text", "call": "first_phone('Call555-9999today')", "expected": "'555-9999'" },
+            { "name": "empty string", "call": "first_phone('')", "expected": "None", "hidden": true }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "re.search"
+        }
+      ],
+      "hints": [
+        "`re.search` returns either a *match object* (truthy) or `None` (falsy). The match object has a `.group()` method that gives you the matched string back.",
+        "Shape:\n```python\nimport re\n\ndef first_phone(text):\n    m = re.search(r\"\\d{3}-\\d{4}\", text)\n    if m:\n        return m.group()\n    return None\n```\nA shorter form: `return m.group() if m else None`.",
+        "The same pattern with a *capture group*, returning just the digits without the prefix:\n```python\nm = re.search(r\"HTTP (\\d{3})\", text)\nif m:\n    return m.group(1)\n```\nWith parentheses around `\\d{3}`, `m.group(1)` returns *just the digits*, not the surrounding `HTTP `."
+      ]
+    },
+    {
+      "id": "redact-emails",
+      "title": "Redact every email",
+      "prompt": "Write `redact_emails(text)` that returns `text` with every email address replaced by the literal string `\"[email]\"`. Use the same simple email pattern as the first exercise: `\\w+@\\w+\\.\\w+`. Use `re.sub`.\n\nFor example, `redact_emails(\"alice@x.com and bob@y.org\")` returns `\"[email] and [email]\"`. If there are no emails, return `text` unchanged.",
+      "goal": "Use re.sub to rewrite every match in a string.",
+      "starterCode": "import re\n\n\ndef redact_emails(text):\n    # TODO: use re.sub to replace every email match with the literal \"[email]\"\n    pass\n",
+      "completionRules": [
+        {
+          "type": "function_tests",
+          "tests": [
+            { "name": "two emails", "call": "redact_emails('alice@x.com and bob@y.org')", "expected": "'[email] and [email]'" },
+            { "name": "no emails", "call": "redact_emails('nothing to redact')", "expected": "'nothing to redact'" },
+            { "name": "single email", "call": "redact_emails('me@me.com')", "expected": "'[email]'" },
+            { "name": "preserves surrounding text", "call": "redact_emails('email: a@b.c, ok?')", "expected": "'email: [email], ok?'" },
+            { "name": "empty string", "call": "redact_emails('')", "expected": "''", "hidden": true }
+          ]
+        },
+        {
+          "type": "required_file_contains",
+          "file": "main.py",
+          "pattern": "re.sub"
+        }
+      ],
+      "hints": [
+        "`re.sub(pattern, replacement, text)` walks every match in `text` and replaces it with `replacement`, returning the new string. The original is untouched.",
+        "Shape:\n```python\nimport re\nre.sub(r\"\\w+@\\w+\\.\\w+\", \"[email]\", text)\n```\nThe replacement string is plain text — no escaping needed for the brackets.",
+        "The same pattern collapsing all whitespace to a single space:\n```python\nre.sub(r\"\\s+\", \" \", text)\n```\n`\\s+` matches one or more whitespace characters."
+      ]
+    }
+  ]
+}

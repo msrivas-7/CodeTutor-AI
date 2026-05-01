@@ -1,0 +1,30 @@
+{
+  "id": "python-intermediate",
+  "title": "Python Intermediate",
+  "description": "Step up from the fundamentals — comprehensions, error handling, file I/O, classes, decorators, generators, testing, and two real-world capstones. Assumes you've finished Python Fundamentals.",
+  "language": "python",
+  "displayOrder": 3,
+  "internal": false,
+  "inheritsBaseVocabularyFrom": [
+    "python-fundamentals"
+  ],
+  "prerequisiteCourseIds": [
+    "python-fundamentals"
+  ],
+  "lessonOrder": [
+    "comprehensions",
+    "lambdas-and-higher-order",
+    "error-handling",
+    "file-io",
+    "modules-and-imports",
+    "oop-classes",
+    "oop-inheritance",
+    "dunder-methods",
+    "iterators-and-generators",
+    "decorators",
+    "testing-basics",
+    "regex-basics",
+    "capstone-csv-analyzer",
+    "capstone-mini-orm"
+  ]
+}

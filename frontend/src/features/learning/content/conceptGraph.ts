@@ -152,6 +152,16 @@ export function resolveInheritedVocabulary(
       inheritsBaseVocabularyFrom?: string[];
     }
   >,
+  // Phase 22F2: optional map of courseId → tags taught by that course's
+  // lessons. When supplied, the inherited vocabulary expands to include
+  // every parent course's lesson-taught tags (in addition to the parent's
+  // own baseVocabulary). This is what `inheritsBaseVocabularyFrom` is
+  // meant to do for cross-course curricula — e.g. python-intermediate
+  // inheriting from python-fundamentals should treat fundamentals'
+  // ~50 taught concepts as primitives. Without this arg, behavior is
+  // unchanged (only parent baseVocabulary inherited) — call sites that
+  // don't have a lesson map (e.g. unit tests) get the legacy semantic.
+  taughtByCourseId?: ReadonlyMap<string, readonly string[]>,
 ): ResolvedInheritance {
   const vocabulary = new Set<string>();
   const errors: InheritanceError[] = [];
@@ -182,6 +192,11 @@ export function resolveInheritedVocabulary(
       visit(parentId);
     }
     for (const tag of c.baseVocabulary ?? []) {
+      vocabulary.add(tag);
+    }
+    // Phase 22F2: also include this course's lesson-taught tags so a
+    // child course's `usesConceptTags` can reference them as primitives.
+    for (const tag of taughtByCourseId?.get(courseId) ?? []) {
       vocabulary.add(tag);
     }
     inFlight.delete(courseId);
