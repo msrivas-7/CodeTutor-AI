@@ -109,10 +109,19 @@ interface LessonPageProps {
    * onAnonExhausted: invoked when GuidedTutorPanel's anon stream
    *   hits the L_anon per-IP cap (server 429 ANON_EXHAUSTED). The
    *   wrapper opens SignupWallDialog reason="exhausted".
+   *
+   * onAnonShare: invoked when the user clicks the share affordance on
+   *   the LessonCompletePanel celebration (the "Your first one — Share
+   *   it" card). On anon, opening the auth-required ShareDialog would
+   *   401-cascade and never produce a working share artifact, so we
+   *   pivot to SignupWallDialog reason="share" — same conversion lever
+   *   as save/next-lesson, different framing because Maya's intent is
+   *   "text my friend." Phase 27-v2.2 Fix 1.
    */
   onAnonSave?: () => void;
   onAnonNext?: () => void;
   onAnonExhausted?: () => void;
+  onAnonShare?: () => void;
 }
 
 export default function LessonPage({
@@ -122,6 +131,7 @@ export default function LessonPage({
   onAnonSave,
   onAnonNext,
   onAnonExhausted,
+  onAnonShare,
 }: LessonPageProps = {}) {
   const params = useParams<{
     courseId: string;
@@ -1434,25 +1444,33 @@ export default function LessonPage({
               : undefined
           }
           onShare={
-            // Only offer Share when we have a code snippet to attach.
-            // Without an entry-point file in lp.lastCode there is no
-            // artifact worth showing, so the button stays hidden.
             // Practice mode has its own scope/key — sharing a practice
             // exercise's code through this lesson dialog would mislabel
             // the artifact, so we hide the button there too.
             //
-            // Phase 27-v2.1 audit pass 1 fix #7: hide the Share button
-            // on anon entirely. Public anon-share is not yet supported
-            // (would need anon /api/shares endpoints + ShareDialog
-            // mode-awareness; deferred to Phase 28). The audit noted
-            // the welcome-scene parity table calls for anon share, but
-            // the backend infra isn't there — better to ship hidden
-            // than to ship a button that 401-signOut-cascades on click.
-            mode === "authed" &&
-            !practiceMode &&
-            !!lp?.lastCode?.[LANGUAGE_ENTRYPOINT[lesson.language]]?.trim()
-              ? () => setShareOpen(true)
-              : undefined
+            // Phase 27-v2.2 Fix 1 (replaces v2.1 audit fix #7's hide-on-anon):
+            // anon share now stays VISIBLE on the celebration so Maya gets
+            // the "text my friend" beat the cinematic + walkthrough earned
+            // her. Click pivots to SignupWallDialog reason="share" via the
+            // wrapper-provided onAnonShare callback, instead of opening the
+            // auth-required ShareDialog (which would 401-cascade and never
+            // produce a working artifact).
+            //
+            // For anon: no buffer gate — the celebration only mounts after
+            // Check passes (`validator.showComplete` flips true on success),
+            // which already implies runnable code is in the editor. Gating
+            // here would be redundant.
+            //
+            // For authed: same gate as before — only offer Share when
+            // lp.lastCode has a non-empty entry-point file, otherwise
+            // there's no artifact to share.
+            practiceMode
+              ? undefined
+              : mode === "anon"
+                ? onAnonShare
+                : !!lp?.lastCode?.[LANGUAGE_ENTRYPOINT[lesson.language]]?.trim()
+                  ? () => setShareOpen(true)
+                  : undefined
           }
         />
       )}

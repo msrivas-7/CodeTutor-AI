@@ -20,7 +20,14 @@ import { motion, AnimatePresence } from "framer-motion";
 // No Tailwind animation tokens here; the modal owns its own framer
 // timeline so the dismiss-then-reopen path doesn't double-animate.
 
-export type SignupWallReason = "save" | "exhausted" | "next-lesson";
+// Phase 27-v2.2 Fix 1 — `share` reason added. Anon Maya hits the share
+// card on the celebration; instead of opening the auth-required
+// ShareDialog (which would 401-cascade and never produce a working
+// share artifact), we pivot to a wall whose CTA promises the share
+// happens AFTER signup. Same conversion lever as save / next-lesson,
+// different framing because Maya's emotional intent here is "text
+// this to my group chat," not "save my work."
+export type SignupWallReason = "save" | "exhausted" | "next-lesson" | "share";
 
 interface SignupWallDialogProps {
   open: boolean;
@@ -69,6 +76,18 @@ const COPY_BY_REASON: Record<SignupWallReason, { title: string; body: string; ct
     body:
       "You've used your free tutor questions for today. Make a free account for a higher daily quota — and your work saves from then on.",
     cta: "Sign up for free",
+  },
+  // Phase 27-v2.2 Fix 1 — anon share lever. Maya's emotional intent at
+  // this moment is "text this to my group chat" — the wall promises
+  // the share happens AFTER signup, with her code+name carried over
+  // to the post-signup share dialog. Body is shorter than next-lesson
+  // because the celebration already showed her what she made; the
+  // wall is the conversion ask, not the pitch.
+  share: {
+    title: "Sign up to share your first program",
+    body:
+      "Takes 10 seconds. Your code, your name, and the share image come with you.",
+    cta: "Sign up & share",
   },
 };
 
@@ -132,8 +151,14 @@ export function SignupWallDialog({ open, reason, onDismiss }: SignupWallDialogPr
                     completion-deferred, not refusal. "Not yet" suggests
                     she hasn't met some requirement; "Maybe later" honors
                     her agency. Reason-specific so the save/exhausted
-                    paths keep their punchier "Not yet" framing. */}
-                {reason === "next-lesson" ? "Maybe later" : "Not yet"}
+                    paths keep their punchier "Not yet" framing.
+                    Phase 27-v2.2 Fix 1: "share" also gets "Maybe later"
+                    — same continuation framing as next-lesson (Maya
+                    just earned the artifact; deferring is completion-
+                    deferred, not refusal). */}
+                {reason === "next-lesson" || reason === "share"
+                  ? "Maybe later"
+                  : "Not yet"}
               </button>
               <Link
                 to="/signup"

@@ -136,6 +136,15 @@ export default function AnonLessonPage() {
   // per-IP daily cap). Same wall surface as save/next-lesson, different
   // framing — SignupWallDialog has copy for reason="exhausted".
   const onAnonExhausted = () => setWall({ open: true, reason: "exhausted" });
+  // Phase 27-v2.2 Fix 1 — anon share lever. The LessonCompletePanel
+  // "Your first one — Share it" card on /try/ no longer hides; click
+  // pivots to the wall (reason="share") instead of opening the
+  // auth-required ShareDialog (which would 401-cascade). Same medium-
+  // lock pattern as save/next-lesson — wall is dismissable, lesson
+  // chrome stays interactive, no re-trap loop. Note: the share gate
+  // in LessonPage still hides on practice-mode for both authed and
+  // anon — this callback only fires for non-practice celebrations.
+  const onAnonShare = () => setWall({ open: true, reason: "share" });
 
   const onAnonNext = () => {
     // Read the live code out of the project store at the moment of
@@ -187,6 +196,7 @@ export default function AnonLessonPage() {
         onAnonSave={onAnonSave}
         onAnonNext={onAnonNext}
         onAnonExhausted={onAnonExhausted}
+        onAnonShare={onAnonShare}
       />
       <SignupWallDialog
         open={wall.open}

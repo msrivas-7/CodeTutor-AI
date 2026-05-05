@@ -121,4 +121,72 @@ test.describe("Phase 27-v2.1 — SignupWallDialog reasons coverage", () => {
     await expect(page.getByText(/Sign up to save\?/i)).toHaveCount(0);
     await expect(page.getByText(/Lesson 2 is queued up/i)).toHaveCount(0);
   });
+
+  test("reason='share' from celebration share card — 'Sign up to share your first program' headline + 'Maybe later' dismiss", async ({
+    page,
+  }) => {
+    // Phase 27-v2.2 Fix 1 — anon share lever. The pre-fix behavior
+    // hid the share card on anon entirely (mode === "authed" gate);
+    // the fix keeps it visible and pivots clicks to the wall with
+    // reason="share". Tests:
+    //   1. Share card is reachable on anon celebration
+    //   2. Click opens wall with the share copy
+    //   3. Dismiss link reads "Maybe later" (continuation framing,
+    //      same as next-lesson, not "Not yet" punchier framing)
+    //   4. Wall copy is distinct from save / next-lesson / exhausted
+    await page.addInitScript(SEED_FLAGS);
+    await page.route("**/api/anon/run", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          stdout: "Hello, Maya!\n",
+          stderr: "",
+          exitCode: 0,
+          timedOut: false,
+          durationMs: 42,
+        }),
+      }),
+    );
+    await page.goto(PATH);
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible({
+      timeout: 10_000,
+    });
+    await page
+      .getByRole("button", { name: /run/i })
+      .first()
+      .click();
+    await expect(page.getByText(/Hello, Maya!/).last()).toBeVisible({
+      timeout: 5_000,
+    });
+    await page
+      .getByRole("button", { name: /check/i })
+      .first()
+      .click();
+    await expect(page.getByRole("alertdialog").first()).toBeVisible({
+      timeout: 10_000,
+    });
+    // Click the share affordance inside the celebration. The
+    // LessonCompletePanel renders Share as a button (the "Your first
+    // one — Share it" card on lesson 1) — match its accessible name.
+    // Scope to the celebration alertdialog so we don't catch a
+    // persistent header chip.
+    await page
+      .getByRole("alertdialog")
+      .getByRole("button", { name: /share/i })
+      .first()
+      .click();
+    // Wall opens with the share-specific copy.
+    await expect(
+      page.getByText(/Sign up to share your first program/i),
+    ).toBeVisible({ timeout: 5_000 });
+    // "Maybe later" dismiss copy (continuation framing).
+    await expect(
+      page.getByRole("button", { name: /maybe later/i }),
+    ).toBeVisible();
+    // Different from the other three reasons.
+    await expect(page.getByText(/Sign up to save\?/i)).toHaveCount(0);
+    await expect(page.getByText(/Lesson 2 is queued up/i)).toHaveCount(0);
+    await expect(page.getByText(/You're getting it\./i)).toHaveCount(0);
+  });
 });
