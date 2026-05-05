@@ -287,6 +287,64 @@ test.describe("first-run cinematic on /try/ (Phase 27-v2 Day 2)", () => {
     await ctx.close();
   });
 
+  test("NarrowViewportGate banner suppressed during cinematic + walkthrough (Fix 4)", async ({
+    browser,
+  }) => {
+    // Phase 27-v2.2 Fix 4 — the "you'll have a better time on a laptop"
+    // banner is hidden while cinematic OR scripted choreography is in
+    // flight. It re-appears on the post-flow state (cinematic dismissed,
+    // walkthrough done). This test exercises both halves on a phone
+    // viewport where the banner would otherwise show.
+    const phoneCtx = await browser.newContext({
+      viewport: { width: 390, height: 844 },
+      isMobile: true,
+      hasTouch: true,
+    });
+
+    // Half A — cold tab on phone, cinematic phase → banner hidden.
+    {
+      const page = await phoneCtx.newPage();
+      await page.goto(ALLOWED_PATH);
+      // Wait briefly for the cinematic to mount its full chrome
+      // (cinematicShowing flag flips on mount of CinematicGreeting).
+      await page.waitForTimeout(500);
+      // Banner is REMOVED from the DOM by the new early-return when
+      // cinematicShowing OR firstRunStep is mid-flight. Use
+      // toHaveCount(0) because Playwright's toBeVisible checks CSS
+      // display/opacity, not occlusion — z-stacking alone wouldn't
+      // satisfy the suppression contract.
+      await expect(page.getByText(/better time on a laptop/i)).toHaveCount(0);
+      await expect(
+        page.getByText(/Looking a little cramped/i),
+      ).toHaveCount(0);
+      await page.close();
+    }
+
+    // Half B — post-flow state (all seen, choreography never fires
+    // because anonChoreographyDone is set) → banner SHOWS.
+    {
+      const page = await phoneCtx.newPage();
+      await page.addInitScript(() => {
+        window.sessionStorage.setItem("codetutor.anonCinematicSeen", "1");
+        window.sessionStorage.setItem("codetutor.anonCoachSeen", "1");
+        window.sessionStorage.setItem("codetutor.anonChoreographyDone", "1");
+      });
+      await page.goto(ALLOWED_PATH);
+      // Wait for lesson chrome to finish mounting.
+      await expect(page.getByRole("heading", { level: 1 })).toBeVisible({
+        timeout: 10_000,
+      });
+      // Banner now SHOWS (firstRunStep === "idle", cinematicShowing=false).
+      // The banner's z-40 sits above the lesson chrome; toBeVisible passes.
+      await expect(
+        page.getByText(/better time on a laptop/i),
+      ).toBeVisible({ timeout: 5_000 });
+      await page.close();
+    }
+
+    await phoneCtx.close();
+  });
+
   test("cinematic auto-completes within budget, revealing the lesson workspace", async ({
     page,
   }) => {

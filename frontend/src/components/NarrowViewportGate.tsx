@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useFirstRunStore } from "../features/firstRun/useFirstRunStore";
 
 // Phase 20-P3 Bucket 3 (#5): soft "your screen is narrow" nudge.
 //
@@ -49,6 +50,22 @@ export function NarrowViewportGate() {
     return () => window.removeEventListener("resize", update);
   }, []);
 
+  // Phase 27-v2.2 Fix 4 — suppress during the first-run choreography
+  // flow on /try/ and /welcome → /learn/.../?firstRun=1. The banner
+  // takes a strip of screen real estate at top-2 z-40 — visually
+  // obscured behind the cinematic (z-60) and coach (z-50/51) but
+  // still consuming layout space when those overlays clear and
+  // the lesson chrome briefly transitions. While the cinematic is
+  // showing OR the scripted walkthrough is mid-flight (firstRunStep
+  // !== "idle" && !== "done"), the banner stays hidden. Re-shows
+  // on dashboard / non-first-run pages and after the walkthrough
+  // reaches "done". `cinematicShowing` is the flag CinematicGreeting
+  // toggles on mount/unmount (Phase 27-v2.1 audit fix #4).
+  const cinematicShowing = useFirstRunStore((s) => s.cinematicShowing);
+  const firstRunStep = useFirstRunStore((s) => s.step);
+  const choreographyActive =
+    firstRunStep !== "idle" && firstRunStep !== "done";
+  if (cinematicShowing || choreographyActive) return null;
   if (size === "wide" || dismissedSizes.has(size)) return null;
 
   const onDismiss = () => {
