@@ -19,6 +19,7 @@ const EditorPage = lazy(() => import("./pages/EditorPage"));
 const LearningDashboardPage = lazy(() => import("./features/learning/pages/LearningDashboardPage"));
 const CourseOverviewPage = lazy(() => import("./features/learning/pages/CourseOverviewPage"));
 const LessonPage = lazy(() => import("./features/learning/pages/LessonPage"));
+const AnonLessonPage = lazy(() => import("./features/learning/pages/AnonLessonPage"));
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const SignupPage = lazy(() => import("./pages/SignupPage"));
 const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
@@ -107,6 +108,17 @@ export default function App() {
             is server-generated; the SharePage component handles
             invalid-token / revoked / load-failed states. */}
         <Route path="/s/:token" element={<SharePage />} />
+
+        {/* Phase 27 §3a: anonymous lesson 1 route. No auth, no layout
+            chrome — the page handles its own header. Hard-locked to
+            python-fundamentals/hello-world via an internal allowlist;
+            any other (courseId, lessonId) redirects to /. Sits OUTSIDE
+            the AuthedLayout block so RequireAuth never gates this
+            path. */}
+        <Route
+          path="/try/lesson/:courseId/:lessonId"
+          element={<AnonLessonPage />}
+        />
 
         {/* Protected routes nested under AuthedLayout. RequireAuth +
             HydrationGate persist across navigations via this layout
