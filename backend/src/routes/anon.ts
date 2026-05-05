@@ -32,6 +32,7 @@ import { Router, type Request, type Response } from "express";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { config } from "../config.js";
+import { isAnonLessonEnabled } from "../services/share/killSwitches.js";
 import { runProject } from "../services/execution/router.js";
 import { languageSchema } from "../services/execution/commands.js";
 import type { ExecutionBackend, RuntimeSpec } from "../services/execution/backends/index.js";
@@ -226,13 +227,35 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
   // restarts; no redeploy. Returns a stable error code the
   // frontend's anon page can branch on to show a "trial paused,
   // please sign up" fallback rather than a generic 503.
+  // Phase 27-v2.2 Fix 7c: read the kill switch from system_config first
+  // (admin-toggleable via /api/admin/system-config without redeploy);
+  // env (ENABLE_ANON_LESSON, surfaced as config.anonLessonEnabled)
+  // is the boot-time default + DB-unreachable fallback.
+  // isAnonLessonEnabled() is async but served from a 60s in-process
+  // cache — hot-path cost on every anon request is a Map lookup, not
+  // a query. Same pattern as the share kill switches.
   router.use((_req, res, next) => {
-    if (!config.anonLessonEnabled) {
-      return res
-        .status(503)
-        .json({ error: "ANON_LESSON_DISABLED" });
-    }
-    next();
+    void (async () => {
+      try {
+        const enabled = await isAnonLessonEnabled();
+        if (!enabled) {
+          res.status(503).json({ error: "ANON_LESSON_DISABLED" });
+          return;
+        }
+        next();
+      } catch {
+        // Belt-and-suspenders: readBool already returns the env fallback
+        // on any throw, so this catch is unreachable in practice. Kept
+        // so a future readBool refactor that lets a throw escape can't
+        // open the anon path by accident — same fail-closed-on-disable
+        // shape as the inner branch above.
+        if (!config.anonLessonEnabled) {
+          res.status(503).json({ error: "ANON_LESSON_DISABLED" });
+          return;
+        }
+        next();
+      }
+    })();
   });
 
   // -------- POST /api/anon/run -----------------------------------------

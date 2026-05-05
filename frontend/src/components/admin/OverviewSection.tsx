@@ -442,9 +442,22 @@ function SessionsTile({ snap }: { snap: AdminDashboardSnapshot }) {
 }
 
 function SpendTile({ snap }: { snap: AdminDashboardSnapshot }) {
+  // Combined % bar drives the headline tone — both authed and anon
+  // contribute to the same L4 daily cap, so the operator sees one
+  // canonical "fraction of envelope" number. The two sub-rows below
+  // show the breakdown so an anon spike is visible at a glance without
+  // hiding the combined view that matches the resolver's check.
   const ftPct =
     snap.freeTier.dailyUsdCap > 0
       ? (snap.freeTier.spentTodayUsd / snap.freeTier.dailyUsdCap) * 100
+      : 0;
+  const ftAuthedPct =
+    snap.freeTier.dailyUsdCap > 0
+      ? (snap.freeTier.spentTodayUsdAuthed / snap.freeTier.dailyUsdCap) * 100
+      : 0;
+  const ftAnonPct =
+    snap.freeTier.dailyUsdCap > 0
+      ? (snap.freeTier.spentTodayUsdAnon / snap.freeTier.dailyUsdCap) * 100
       : 0;
   const aciPct =
     snap.aci.dailyUsdCap > 0
@@ -466,6 +479,22 @@ function SpendTile({ snap }: { snap: AdminDashboardSnapshot }) {
           <div className="mt-1.5">
             <Bar pct={ftPct} tone={pctTone(ftPct)} />
           </div>
+          {/* Phase 27-v2.2 Fix 7a — authed-vs-anon split. The combined
+              bar above is what gates against the L4 cap; these two
+              sub-rows surface where the spend is coming from so an
+              operator can spot an anon spike without leaving Overview. */}
+          <div className="mt-2 flex flex-col gap-1.5 pl-1">
+            <SubRow
+              label="Authed"
+              spend={snap.freeTier.spentTodayUsdAuthed}
+              pct={ftAuthedPct}
+            />
+            <SubRow
+              label="Anon"
+              spend={snap.freeTier.spentTodayUsdAnon}
+              pct={ftAnonPct}
+            />
+          </div>
           {snap.freeTier.lastFiredKey && (
             <div className="mt-1 text-[10px] text-warn">
               Watcher fired: {snap.freeTier.lastFiredKey}
@@ -486,6 +515,28 @@ function SpendTile({ snap }: { snap: AdminDashboardSnapshot }) {
         </div>
       </div>
     </Tile>
+  );
+}
+
+function SubRow({
+  label,
+  spend,
+  pct,
+}: {
+  label: string;
+  spend: number;
+  pct: number;
+}) {
+  return (
+    <div>
+      <div className="flex items-baseline justify-between text-[10px]">
+        <span className="text-faint">{label}</span>
+        <span className="font-mono text-muted">{fmtUsdSpend(spend)}</span>
+      </div>
+      <div className="mt-0.5">
+        <Bar pct={pct} tone={pctTone(pct)} />
+      </div>
+    </div>
   );
 }
 

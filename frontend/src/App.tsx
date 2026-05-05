@@ -13,6 +13,7 @@ import { UsersSection } from "./components/admin/UsersSection";
 import { ProjectCapsSection } from "./components/admin/ProjectCapsSection";
 import { EmailLogSection } from "./components/admin/EmailLogSection";
 import { AuditLogSection } from "./components/admin/AuditLogSection";
+import { AnonSection } from "./components/admin/AnonSection";
 const MarketingPage = lazy(() => import("./pages/MarketingPage"));
 const StartPage = lazy(() => import("./pages/StartPage"));
 const EditorPage = lazy(() => import("./pages/EditorPage"));
@@ -153,6 +154,7 @@ export default function App() {
             <Route path="project" element={<ProjectCapsSection />} />
             <Route path="email" element={<EmailLogSection />} />
             <Route path="audit" element={<AuditLogSection />} />
+            <Route path="anon" element={<AnonSection />} />
           </Route>
           {/* Catch-all under the auth layout: send authed users to
               /start. Anonymous users get bounced to /login by RequireAuth

@@ -120,6 +120,34 @@ test.describe("Admin Controls — visibility gate", () => {
     expect(res.status()).toBe(403);
   });
 
+  // Phase 27-v2.2 Fix 7b: the new "Trial path" tab nests under /admin so
+  // RequireAdmin guards it identically. Regression-guards a future
+  // refactor that accidentally lifts the route outside the gate.
+  test("non-admin: typing /admin/anon is redirected to /start", async ({ page }) => {
+    await loadProfile(page, "empty");
+    await page.goto("/admin/anon");
+    await page.waitForURL("**/start", { timeout: 5_000 });
+    expect(new URL(page.url()).pathname).toBe("/start");
+  });
+
+  // Phase 27-v2.2 Fix 7b: server-side gate. /api/admin/anon-summary
+  // shares the same chain as /api/admin/users — a non-admin's bearer
+  // token must 403 here too.
+  test("non-admin: GET /api/admin/anon-summary returns 403", async ({ page }) => {
+    await loadProfile(page, "empty");
+    const user = await getWorkerUser(test.info().workerIndex);
+    const res = await page.request.get(
+      "http://localhost:4000/api/admin/anon-summary",
+      {
+        headers: {
+          Authorization: `Bearer ${user.session.access_token}`,
+          "X-Requested-With": "codetutor",
+        },
+      },
+    );
+    expect(res.status()).toBe(403);
+  });
+
   // Admin-enabled tests — re-enable once the dev Supabase project has the
   // Custom Access Token Hook wired:
   //   1. Authentication → Hooks → Customize Access Token →

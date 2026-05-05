@@ -51,6 +51,14 @@ export const KNOWN_KEYS = [
   "aci_warm_high_watermark",
   "aci_warm_low_watermark",
   "aci_warm_max_pool_size",
+  // Phase 27-v2.2 Fix 7c — anon trial path kill switch. Mirrors
+  // share_*_disabled in shape: boolean, admin-toggleable, env var
+  // (ENABLE_ANON_LESSON) is the boot-time default and the fallback
+  // when the DB is unreachable. Flipping FALSE here turns
+  // /api/anon/* into 503 ANON_LESSON_DISABLED on the next request
+  // — no redeploy. Pulled forward from Phase 28 so the operator
+  // doesn't need to ssh in to drain abuse.
+  "anon_lesson_enabled",
 ] as const;
 export type SystemConfigKey = (typeof KNOWN_KEYS)[number];
 

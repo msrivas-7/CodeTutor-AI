@@ -9,7 +9,10 @@
 import { Router } from "express";
 import { config } from "../config.js";
 import { db } from "../db/client.js";
-import { sumPlatformCostTodayAllSources } from "../db/usageLedger.js";
+import {
+  sumPlatformCostTodayGlobal,
+  sumPlatformCostTodayAnonGlobal,
+} from "../db/usageLedger.js";
 import { getEffectiveDailyUsdCap } from "../services/ai/effectiveCaps.js";
 import { getPlatformAuthStatus } from "../services/ai/credential.js";
 import {
@@ -51,7 +54,18 @@ interface DashboardSnapshot {
   };
   freeTier: {
     enabled: boolean;
+    /** Combined authed + anon spend today. Same value the resolver
+     *  compares against L4 dailyUsdCap — preserves the existing tile's
+     *  "% of cap" semantic. Kept for backward compat. */
     spentTodayUsd: number;
+    /** Phase 27-v2.2 Fix 7a: authed-only spend today. Lets the admin
+     *  SpendTile show a row split between paid-tier traffic and anon
+     *  trial traffic, so an operator can see at a glance whether anon
+     *  is eating the daily envelope. Sums to spentTodayUsd. */
+    spentTodayUsdAuthed: number;
+    /** Phase 27-v2.2 Fix 7a: anon-only spend today. Sums to
+     *  spentTodayUsd alongside spentTodayUsdAuthed. */
+    spentTodayUsdAnon: number;
     dailyUsdCap: number;
     lastFiredKey: string | null;
   };
@@ -105,19 +119,29 @@ async function buildSnapshot(): Promise<DashboardSnapshot> {
   // need the exact same fail-open behavior here (it's a dashboard read,
   // not a hot-path resolver), so let DB blips surface as a 0 with
   // health.db=fail rather than a 500.
-  let freeTierSpend = 0;
+  //
+  // Phase 27-v2.2 Fix 7a: split the sum so the admin can see authed-vs-
+  // anon contribution separately. We still keep `spentTodayUsd` as the
+  // combined total (preserves existing % bar semantic) and add two
+  // sibling fields. Computing them with three queries instead of one
+  // is the cost — admin dashboard is a polled-every-5s read, not a
+  // hot path; the index `idx_ai_anon_usage_ledger_today` covers the
+  // anon sum query and the authed equivalent already exists.
+  let freeTierSpendAuthed = 0;
+  let freeTierSpendAnon = 0;
   let freeTierCap = config.freeTier.dailyUsdCap;
   let dbOk: "ok" | "fail" = "ok";
   try {
-    [freeTierSpend, freeTierCap] = await Promise.all([
-      // Phase 27 §3d: include anon spend so the dashboard "today
-      // spend" tile mirrors the resolver's L4 hard-cap view.
-      sumPlatformCostTodayAllSources(utcStartOfToday()),
+    const since = utcStartOfToday();
+    [freeTierSpendAuthed, freeTierSpendAnon, freeTierCap] = await Promise.all([
+      sumPlatformCostTodayGlobal(since),
+      sumPlatformCostTodayAnonGlobal(since),
       getEffectiveDailyUsdCap().catch(() => config.freeTier.dailyUsdCap),
     ]);
   } catch {
     dbOk = "fail";
   }
+  const freeTierSpend = freeTierSpendAuthed + freeTierSpendAnon;
   // Independent DB ping — the spend query above might short-circuit on
   // an empty ledger before hitting the DB at all (postgres-js lazy).
   try {
@@ -153,6 +177,8 @@ async function buildSnapshot(): Promise<DashboardSnapshot> {
     freeTier: {
       enabled: config.freeTier.enabled,
       spentTodayUsd: Number(freeTierSpend.toFixed(4)),
+      spentTodayUsdAuthed: Number(freeTierSpendAuthed.toFixed(4)),
+      spentTodayUsdAnon: Number(freeTierSpendAnon.toFixed(4)),
       dailyUsdCap: freeTierCap,
       lastFiredKey: watcher.lastFiredKey,
     },

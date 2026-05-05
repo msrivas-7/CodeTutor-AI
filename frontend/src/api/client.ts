@@ -453,7 +453,10 @@ export type SystemConfigKey =
   // P2-2: warm-pool hysteresis knobs.
   | "aci_warm_high_watermark"
   | "aci_warm_low_watermark"
-  | "aci_warm_max_pool_size";
+  | "aci_warm_max_pool_size"
+  // Phase 27-v2.2 Fix 7c — master kill switch for /api/anon/*. False
+  // 503s the anon trial path on the next request (60s cache TTL).
+  | "anon_lesson_enabled";
 
 export interface SystemConfigEntry {
   value: boolean | number;
@@ -504,6 +507,39 @@ export interface AdminAuditLogResponse {
   nextCursor: string | null;
 }
 
+// Phase 27-v2.2 Fix 7b: anon-trial-path summary for the new admin tab.
+// Read-only; the kill switch toggle goes through adminSetSystemConfig.
+export interface AdminAnonSummary {
+  generatedAt: string;
+  /** Today's anon questions counted against quota (counts_toward_quota). */
+  questionsToday: number;
+  /** Distinct ip_hash values seen today. */
+  distinctIpsToday: number;
+  /** IPs that hit the per-IP daily cap today (count == anonDailyQuestionsPerIp). */
+  exhaustedIpsToday: number;
+  /** Per-IP cap and combined L4 daily cap (for context). */
+  perIpDailyCap: number;
+  /** Cumulative abuse signals since process boot (Counter snapshot). */
+  abuseSignals: { anon_lesson_not_allowed: number; model_rejection: number };
+  /** Cumulative funnel events since the table started recording. Useful
+   *  for "did the page get hit / wall open / signup happen" sanity. */
+  funnelEvents: {
+    anon_page_view: number;
+    anon_wall_opened: number;
+    anon_signup_completed: number;
+    anon_lesson2_reached: number;
+  };
+  killSwitch: {
+    /** True if /api/anon/* is currently enabled. */
+    enabled: boolean;
+    /** "override" if system_config has a row, "env" otherwise. */
+    source: "override" | "env";
+    setBy: string | null;
+    setAt: string | null;
+    reason: string | null;
+  };
+}
+
 // Phase 25: dashboard snapshot.
 export interface AdminDashboardSnapshot {
   generatedAt: string;
@@ -526,6 +562,11 @@ export interface AdminDashboardSnapshot {
   freeTier: {
     enabled: boolean;
     spentTodayUsd: number;
+    /** Phase 27-v2.2 Fix 7a — authed-only spend today; sums with
+     *  spentTodayUsdAnon to spentTodayUsd. */
+    spentTodayUsdAuthed: number;
+    /** Phase 27-v2.2 Fix 7a — anon-only spend today. */
+    spentTodayUsdAnon: number;
     dailyUsdCap: number;
     lastFiredKey: string | null;
   };
@@ -1260,6 +1301,10 @@ export const api = {
       reason: string;
       confirmDisable?: string;
       confirmReduction?: string;
+      // Phase 27-v2.2 Fix 7c — required when toggling
+      // anon_lesson_enabled to false. See PHRASE_DISABLE_ANON in
+      // ProjectCapsSection / PHRASE_DISABLE_ANON_LESSON in admin.ts.
+      confirmAnonDisable?: string;
     },
   ) =>
     putJson<SystemConfigEntry & { key: SystemConfigKey }>(
@@ -1288,6 +1333,10 @@ export const api = {
   // ----------------------------------------------------------------------
 
   adminGetDashboard: () => get<AdminDashboardSnapshot>("/api/admin/dashboard"),
+
+  // Phase 27-v2.2 Fix 7b: admin anon-trial-path summary.
+  adminGetAnonSummary: () =>
+    get<AdminAnonSummary>("/api/admin/anon-summary"),
 
   adminListSessions: () => get<AdminSessionsResponse>("/api/admin/sessions"),
 
