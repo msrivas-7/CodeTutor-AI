@@ -31,10 +31,13 @@ import {
 // stumble into a lesson the backend allowlist would 403 anyway.
 //
 // Surfaces:
-//   - First-run CinematicGreeting (mode="full", firstName="there")
-//     on first /try/ visit per browser tab — dissolves into the
-//     editor below. sessionStorage flag prevents replay after
-//     dismiss. Phase 27-v2 Day 2.
+//   - First-run CinematicGreeting (mode="full") on first /try/
+//     visit per browser tab — anon variant. Hero "Your turn.",
+//     output preview "Hello, YOUR_NAME!" with placeholder pulse,
+//     left-aligned "one shot" hero+output stack, cursor-into-slot
+//     transition, support line cut. Authed /welcome cinematic stays
+//     unchanged. sessionStorage flag prevents replay after dismiss.
+//     Phase 27-v2 Day 2 + v2.1 redesign.
 //   - lesson title + content.md (rendered with the same minimal
 //     markdown style as LessonInstructionsPanel)
 //   - Monaco editor seeded from the lesson's starter file
@@ -326,13 +329,37 @@ export default function AnonLessonPage() {
   // moment. The overlay is fixed inset-0 z-[60] so it covers
   // whichever inner content is rendered (loading placeholder, error
   // block, or full workspace).
+  // Phase 27-v2.1 — anon cinematic variant.
+  //   - Hero copy: "Your turn." (instead of "Hello, ${firstName}!")
+  //     since we don't know the user's name on the trial path.
+  //     Personalization moves to the praise turn after the user
+  //     types their name in the lesson code.
+  //   - outputPreview: renders the literal `Hello, YOUR_NAME!` line
+  //     during B6 with the YOUR_NAME placeholder pulsing + dashed-
+  //     underlined as a "fillable slot". Sets up the lesson task
+  //     visually before the cinematic exits.
+  //   - heroAlign: "left" so the hero "Your turn." sits flush under
+  //     the output preview as one shot (not centered like a keynote).
+  //   - cursorIntoSlot: 200ms cursor materialization in the slot
+  //     before exit blur — the handoff made visible.
+  //   - supportLine intentionally omitted; director cut B12 ("Starting
+  //     your first lesson…") as a "loading-screen apology that breaks
+  //     the spell" — the lesson should already be visible behind the
+  //     dissolving cinematic, no announcement needed.
+  //   - firstName="there" remains for prop-shape compat; FullCinematic
+  //     ignores it since heroLine is the rendered text.
   const cinematicNode = showCinematic ? (
     <CinematicGreeting
       mode="full"
       firstName="there"
-      heroLine="Hello, there!"
-      subtitle="Every lesson works like this. Write code, watch it answer."
-      supportLine="Starting your first lesson…"
+      heroLine="Your turn."
+      subtitle="Make it say your name."
+      outputPreview={{
+        template: "Hello, YOUR_NAME!",
+        placeholder: "YOUR_NAME",
+      }}
+      heroAlign="left"
+      cursorIntoSlot
       onComplete={dismissCinematic}
       onSkip={dismissCinematic}
     />

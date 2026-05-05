@@ -39,6 +39,30 @@ export interface CinematicGreetingProps {
    *  that lands in Beat 6. Ignored for minimal. */
   supportLine?: string;
   /**
+   * Phase 27-v2.1 — anon variant: render an output preview line in
+   * monospaced font as a reveal beat between the code and the hero.
+   * The literal `placeholder` substring inside `template` opacity-pulses
+   * (0.9s anxious-anticipatory tempo) with a 1px dashed underline at
+   * accent color — reads as a "fillable slot" for the lesson task.
+   * When omitted (authed path), the cinematic renders unchanged: hero
+   * materializes where the code was without an intermediate output beat.
+   */
+  outputPreview?: { template: string; placeholder: string };
+  /**
+   * Phase 27-v2.1 — hero alignment. Default "center" preserves authed
+   * cinematic layout. Anon passes "left" so "Your turn." sits under
+   * the output preview as one continuation, not centered like a
+   * keynote slide.
+   */
+  heroAlign?: "center" | "left";
+  /**
+   * Phase 27-v2.1 — anon variant: 200ms cursor materialization inside
+   * the placeholder slot before exit blur. Telegraphs "this slot
+   * accepts focus" — the handoff made visible. Authed path doesn't
+   * pass this since there's no placeholder to anchor to.
+   */
+  cursorIntoSlot?: boolean;
+  /**
    * Fires when the whole cinematic has finished dissolving. Caller owns
    * the subsequent navigation (first-run → lesson; welcome-back →
    * unmount overlay). Stays wired up even when `mode` is `minimal` so
@@ -256,6 +280,9 @@ function FullCinematic({
   heroLine,
   subtitle,
   supportLine,
+  outputPreview,
+  heroAlign = "center",
+  cursorIntoSlot = false,
   exiting,
 }: CinematicGreetingProps & { exiting: boolean }) {
   const t = FULL_TIMELINE;
@@ -380,8 +407,92 @@ function FullCinematic({
           The stack uses a larger gap (10) after the hero and a
           tighter inner gap (3) between subtitle and support line,
           so subtitle + support read as ONE coupled statement — not
-          three equal-weight lines. */}
+          three equal-weight lines.
+
+          Phase 27-v2.1 — when `outputPreview` is passed (anon
+          variant), an output preview line renders ABOVE the hero,
+          aligned with it. The output's placeholder substring pulses
+          + dashed-underlines as a "fillable slot" — telegraphs the
+          lesson task without spoiling personal payoff. heroAlign
+          controls whether the output+hero pair is left-aligned
+          (anon, "one shot") or center-aligned (authed, default,
+          unchanged). */}
       <div className="relative z-10 flex flex-col items-center gap-10">
+        <div
+          className={`flex flex-col gap-3 ${heroAlign === "left" ? "items-start" : "items-center"}`}
+        >
+          {/* Output preview beat (anon variant only) — renders the
+              template string with the placeholder substring pulsing
+              at ~0.9s opacity cycle + dashed-underlined at accent
+              color. Reads as a fillable slot (Figma ghost-text /
+              FCP empty-clip semiotic). Fades in around the same
+              time as the hero (heroType.enter) so the eye moves
+              naturally from output to hero. */}
+          {outputPreview && (
+            <motion.div
+              className="relative font-mono text-[28px] leading-tight tracking-tight text-ink/90"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{
+                duration: 0.6,
+                delay: t.heroType.enter / 1000,
+                ease: HOUSE_EASE,
+              }}
+            >
+              {(() => {
+                const tpl = outputPreview.template;
+                const ph = outputPreview.placeholder;
+                const idx = tpl.indexOf(ph);
+                if (idx === -1) {
+                  // Defensive: placeholder not in template — render as-is.
+                  return <span>{tpl}</span>;
+                }
+                const before = tpl.slice(0, idx);
+                const after = tpl.slice(idx + ph.length);
+                return (
+                  <>
+                    <span>{before}</span>
+                    <motion.span
+                      className="relative inline-block border-b border-dashed border-accent/70 px-0.5 text-accent"
+                      animate={{ opacity: [0.6, 1.0, 0.6] }}
+                      transition={{
+                        duration: 0.9,
+                        repeat: Infinity,
+                        ease: "easeInOut",
+                        // start the pulse only after the line itself has faded in
+                        delay: t.heroType.enter / 1000 + 0.6,
+                      }}
+                    >
+                      {ph}
+                      {/* cursorIntoSlot — 200ms cursor materialization
+                          inside the placeholder slot near the cinematic's
+                          tail, before exit blur. Telegraphs "this slot
+                          accepts focus" — the handoff made visible. */}
+                      {cursorIntoSlot && (
+                        <motion.span
+                          className="absolute -right-[2px] top-[10%] inline-block h-[80%] w-[2px] bg-accent"
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          transition={{
+                            // Enter ~1s before exit blur (~13.7s) so the
+                            // cursor materialization reads as "the cinema
+                            // is handing this slot to you" before the
+                            // chrome dissolves. 200ms fade-in, then holds
+                            // at opacity 1 until the parent's exit blur
+                            // dissolves the whole cinematic.
+                            duration: 0.2,
+                            delay: (t.exitBlur.enter - 1000) / 1000,
+                          }}
+                          aria-hidden="true"
+                        />
+                      )}
+                    </motion.span>
+                    <span>{after}</span>
+                  </>
+                );
+              })()}
+            </motion.div>
+          )}
         <motion.div
           className="relative"
           initial={{ opacity: 0 }}
@@ -447,6 +558,8 @@ function FullCinematic({
             delayMs={t.ringPulse.enter}
           />
         </motion.div>
+        </div>
+        {/* /Phase 27-v2.1 output-preview + hero alignment block */}
 
         {/* Subtitle + support line form a coupled pair (gap-3), inside
             the outer gap-10 stack so they sit together as one

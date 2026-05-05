@@ -186,7 +186,7 @@ test.describe("anonymous lesson 1 (Phase 27 §3a)", () => {
 test.describe("first-run cinematic on /try/ (Phase 27-v2 Day 2)", () => {
   // Phase 27-v2: Maya's hero moment moves OFF /welcome and ONTO /try/.
   // The full 14.2s CinematicGreeting (mode="full", firstName="there",
-  // heroLine="Hello, there!") plays inline, then dissolves to reveal the
+  // heroLine="Your turn." Phase 27-v2.1 anon variant) plays inline, then dissolves to reveal the
   // lesson workspace below. Once dismissed (auto or skip), the
   // sessionStorage flag prevents replay on same-tab nav. A NEW tab
   // gets a fresh cinematic — that's the design.
@@ -199,7 +199,7 @@ test.describe("first-run cinematic on /try/ (Phase 27-v2 Day 2)", () => {
     await page.goto(ALLOWED_PATH);
 
     // The cinematic's wrapper has a "Skip" affordance bottom-right
-    // and the hero hits "Hello, there!" mid-arc. Skip is the fast,
+    // and the hero hits "Your turn." mid-arc. Skip is the fast,
     // deterministic dismiss path.
     const skipButton = page.getByRole("button", { name: /skip/i });
     await expect(skipButton).toBeVisible({ timeout: 6_000 });
@@ -210,9 +210,18 @@ test.describe("first-run cinematic on /try/ (Phase 27-v2 Day 2)", () => {
     // without populating the heroLine prop. Generous timeout because
     // typewriter beat lands ~9.3s in (heroType + heroGlow + heroHold
     // are spread across that window). On anon path heroLine is
-    // "Hello, there!" — matches lesson 1's stdout shape, not a name
-    // (option d in v2 plan: name lands at the praise turn instead).
-    await expect(page.getByText("Hello, there!", { exact: true })).toBeVisible({
+    // "Your turn." (Phase 27-v2.1 anon variant — direct call-to-
+    // action; the name materialization moves to the praise turn so
+    // we don't pretend to know a name we don't have).
+    await expect(page.getByText("Your turn.", { exact: true })).toBeVisible({
+      timeout: 12_000,
+    });
+    // Phase 27-v2.1 — anon cinematic also renders an output preview
+    // line `Hello, YOUR_NAME!` with the YOUR_NAME placeholder pulsing
+    // as a fillable slot. The substring "YOUR_NAME" is the visual
+    // setup for the lesson task. Two assertions: line is visible AND
+    // the placeholder substring renders inside the line.
+    await expect(page.getByText(/Hello, YOUR_NAME!/)).toBeVisible({
       timeout: 12_000,
     });
 
