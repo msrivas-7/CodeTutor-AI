@@ -6,6 +6,8 @@ import { FilmGrain } from "../../components/cinema/FilmGrain";
 import { CinematicLighting } from "../../components/cinema/CinematicLighting";
 import { RingPulse } from "../../components/cinema/RingPulse";
 import { useFirstRunStore } from "./useFirstRunStore";
+import { useNarrowViewport } from "../../util/layoutPrefs";
+import { PHONE_MAX_PX } from "../../components/NarrowViewportGate";
 
 // The product's opening credits. Two modes:
 //
@@ -150,6 +152,16 @@ const CODE_LINE = '>>> print("Hello, " + name + "!")';
 
 export function CinematicGreeting(props: CinematicGreetingProps) {
   const reduce = useReducedMotion();
+  // Phase 27-v2.2 Fix 5 — phone gets a faster Skip-button reveal. On
+  // a 390px phone Maya has ~90s of patience; 4s of "I cannot leave
+  // this" is a 15% upfront tax before the affordance even shows.
+  // Desktop keeps 4s (cinema-respect — the full beat sequence wants
+  // the audience eyes-forward through the typewriter setup before
+  // we admit you can leave). Phone reveals at 1.5s, which still
+  // hides Skip during the radial-glow rise (Beat 1, 0–1.4s) so the
+  // skip-affordance doesn't telegraph "skippable" at frame zero.
+  const isPhone = useNarrowViewport(PHONE_MAX_PX);
+  const skipDelayS = isPhone ? 1.5 : 4;
   const [exiting, setExiting] = useState(false);
   // Single terminal-handler guard: once either onComplete or onSkip
   // has fired, both are ignored. Prevents the "Esc at second 14.18"
@@ -297,14 +309,17 @@ export function CinematicGreeting(props: CinematicGreetingProps) {
           the production doesn't tell the audience IN ADVANCE that
           what they're about to watch is skippable. After 4s it
           fades up at low contrast. Copy reduced to plain "Skip"
-          (the arrow was doing two jobs and read as "advance"). */}
+          (the arrow was doing two jobs and read as "advance").
+          Phase 27-v2.2 Fix 5: phone reveals at 1.5s instead of 4s
+          (skipDelayS resolved at the top of CinematicGreeting via
+          useNarrowViewport). Same UX intent, persona-tuned. */}
       {props.onSkip && (
         <motion.button
           type="button"
           onClick={handleSkipOnce}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          transition={{ delay: 4, duration: 0.4 }}
+          transition={{ delay: skipDelayS, duration: 0.4 }}
           className="absolute bottom-6 right-6 rounded-md px-2 py-1 text-[11px] text-muted/60 transition hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           aria-label="Skip introduction"
         >
