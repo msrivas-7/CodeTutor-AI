@@ -90,6 +90,12 @@ export default function StartPage() {
           welcomeDone: stash.flags.welcomeDone,
           workspaceCoachDone: stash.flags.workspaceCoachDone,
         });
+        // Phase 27-v2.2 Fix 6 — funnel telemetry: anon_lesson2_reached
+        // fires on the success branch of the handoff. This is the
+        // load-bearing conversion event — Maya signed up AND landed on
+        // lesson 2 with state preserved. Before nav so even a slow
+        // route transition doesn't lose the event. Fire-and-forget.
+        api.postFunnelEvent("anon_lesson2_reached");
         // Lesson 2 of python-fundamentals is "variables".
         // replace:true so back-button doesn't re-summon /start
         // → handoff path again.

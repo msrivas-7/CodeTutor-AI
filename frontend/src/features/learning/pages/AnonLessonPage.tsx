@@ -5,6 +5,7 @@ import { CinematicGreeting } from "../../firstRun/CinematicGreeting";
 import { SignupWallDialog, type SignupWallReason } from "../components/SignupWallDialog";
 import { useProjectStore } from "../../../state/projectStore";
 import { usePreferencesStore } from "../../../state/preferencesStore";
+import { api } from "../../../api/client";
 import {
   extractNameFromCode,
   hasCinematicSeen,
@@ -127,15 +128,40 @@ export default function AnonLessonPage() {
     return unsub;
   }, []);
 
+  // Phase 27-v2.2 Fix 6 — funnel telemetry: anon_page_view fires once
+  // per /try/ mount. Backend hashes the IP and writes a row to
+  // phase27_funnel_events. Fire-and-forget — telemetry never breaks
+  // the UX. The matching wall_opened / signup_completed /
+  // lesson2_reached events fire from the wall callbacks below, the
+  // SignupPage's onSuccess (when stash present), and StartPage's
+  // handoff success branch respectively.
+  useEffect(() => {
+    if (!allowed) return;
+    api.postFunnelEvent("anon_page_view");
+    // Empty deps — fire once per mount. Same-tab navigation back to
+    // /try/ remounts the component which fires again, which is the
+    // intended counting semantic ("how many times did Maya land on
+    // the trial path").
+  }, [allowed]);
+
   // Allowlist guard — any other (courseId, lessonId) redirects home.
   if (!allowed) return <Navigate to="/" replace />;
 
-  const onAnonSave = () => setWall({ open: true, reason: "save" });
+  // Phase 27-v2.2 Fix 6 — every wall-open path also emits a funnel
+  // event tagged with the reason so the admin dashboard can split
+  // "save" vs "next-lesson" vs "exhausted" vs "share" conversion
+  // pressure. openWall is the single point that does both — keeps the
+  // setWall + telemetry pair atomic.
+  const openWall = (reason: SignupWallReason) => {
+    setWall({ open: true, reason });
+    api.postFunnelEvent("anon_wall_opened", reason);
+  };
+  const onAnonSave = () => openWall("save");
   // Phase 27-v2.1 audit pass 1 fix #5: GuidedTutorPanel calls this when
   // /api/anon/ai/ask/stream returns 429 ANON_EXHAUSTED (the L_anon
   // per-IP daily cap). Same wall surface as save/next-lesson, different
   // framing — SignupWallDialog has copy for reason="exhausted".
-  const onAnonExhausted = () => setWall({ open: true, reason: "exhausted" });
+  const onAnonExhausted = () => openWall("exhausted");
   // Phase 27-v2.2 Fix 1 — anon share lever. The LessonCompletePanel
   // "Your first one — Share it" card on /try/ no longer hides; click
   // pivots to the wall (reason="share") instead of opening the
@@ -144,7 +170,7 @@ export default function AnonLessonPage() {
   // chrome stays interactive, no re-trap loop. Note: the share gate
   // in LessonPage still hides on practice-mode for both authed and
   // anon — this callback only fires for non-practice celebrations.
-  const onAnonShare = () => setWall({ open: true, reason: "share" });
+  const onAnonShare = () => openWall("share");
 
   const onAnonNext = () => {
     // Read the live code out of the project store at the moment of
@@ -168,7 +194,7 @@ export default function AnonLessonPage() {
         workspaceCoachDone: hasCoachSeenAnon(),
       },
     });
-    setWall({ open: true, reason: "next-lesson" });
+    openWall("next-lesson");
   };
 
   return (

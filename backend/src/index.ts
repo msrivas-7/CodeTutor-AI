@@ -6,6 +6,7 @@ import { sessionRouter } from "./routes/session.js";
 import { createProjectRouter } from "./routes/project.js";
 import { createExecutionRouter } from "./routes/execution.js";
 import { createAnonRouter } from "./routes/anon.js";
+import { createTelemetryRouter } from "./routes/telemetry.js";
 import { createAnonHandoffRouter } from "./routes/anonHandoff.js";
 import { createExecuteTestsRouter } from "./routes/executeTests.js";
 import { aiRouter } from "./routes/ai.js";
@@ -419,6 +420,16 @@ async function main() {
     authMiddleware,
     mutationLimit,
     createAnonHandoffRouter(),
+  );
+
+  // Phase 27-v2.2 Fix 6: anon funnel telemetry. Unauthenticated by
+  // design — the first event (anon_page_view) fires on /try/ mount,
+  // before any signup. Per-IP rate limit lives inside the router.
+  // Body cap is small (event + reason are ≤32 chars each).
+  app.use(
+    "/api/telemetry",
+    bodyLimit(1024),
+    createTelemetryRouter(),
   );
 
   // Phase 18b: per-user state in Supabase Postgres (preferences, progress,

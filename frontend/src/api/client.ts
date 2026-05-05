@@ -1393,6 +1393,38 @@ export const api = {
   // already complete (refresh-during-handoff or replay scenarios).
   postAnonHandoff: (body: AnonHandoffBody) =>
     post<AnonHandoffResponse>("/api/anon-handoff", body),
+
+  // Phase 27-v2.2 Fix 6 — funnel telemetry. Fire-and-forget by design:
+  // a failed POST must not break the UX. The backend's table is
+  // 42P01-tolerant (telemetry drops if migration not applied), and the
+  // route returns 204 on success. Caller does not await the result;
+  // any thrown promise is swallowed so a network blip doesn't surface
+  // to the user as a banner. Reason is only meaningful for
+  // anon_wall_opened — the backend coerces it to null otherwise.
+  postFunnelEvent: (
+    event:
+      | "anon_page_view"
+      | "anon_wall_opened"
+      | "anon_signup_completed"
+      | "anon_lesson2_reached",
+    reason?: "save" | "next-lesson" | "exhausted" | "share",
+  ): void => {
+    // Fire-and-forget. We don't use the `post<T>` helper because:
+    //   - That expects a JSON response body; the route returns 204.
+    //   - That calls handle401 → supabase.auth.signOut on 401, which
+    //     would cascade-reset stores. Telemetry is fire-and-forget by
+    //     design — a server hiccup must NEVER drop the user's session.
+    // Backend route is unauthed + no csrfGuard, so we ship just the
+    // JSON content-type header. Direct fetch with .catch swallow keeps
+    // the UX bulletproof on any failure.
+    void fetch(`${API_BASE}/api/telemetry/event`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ event, reason }),
+    }).catch(() => {
+      /* swallow — telemetry must not break the UX */
+    });
+  },
 };
 
 export interface AnonHandoffBody {

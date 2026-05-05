@@ -7,6 +7,8 @@ import { ResendEmailButton } from "../auth/ResendEmailButton";
 import { isValidEmail } from "../auth/emailValidation";
 import { isPasswordAcceptable } from "../auth/passwordPolicy";
 import { useAuthStore } from "../auth/authStore";
+import { api } from "../api/client";
+import { readAnonStash } from "../features/anon/anonStash";
 
 export default function SignupPage() {
   const nav = useNavigate();
@@ -49,6 +51,17 @@ export default function SignupPage() {
   // Phase 22C: in-product home is /start, not / (marketing page is /).
   useEffect(() => {
     if (sent && user) {
+      // Phase 27-v2.2 Fix 6 — funnel telemetry: anon_signup_completed
+      // fires when a freshly-created user has the anon-trial stash
+      // present (Maya converted from /try/). Direct-signup users (no
+      // stash) don't emit this event — that's the event's whole
+      // discriminator. Fire BEFORE nav so even a slow route transition
+      // doesn't lose the event. Fire-and-forget. The matching
+      // anon_lesson2_reached fires after StartPage's handoff success
+      // branch — tells us whether the conversion stuck end-to-end.
+      if (readAnonStash() !== null) {
+        api.postFunnelEvent("anon_signup_completed");
+      }
       nav("/start", { replace: true });
     }
   }, [sent, user, nav]);
