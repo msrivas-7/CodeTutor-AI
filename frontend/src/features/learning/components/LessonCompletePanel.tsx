@@ -317,7 +317,7 @@ export function LessonCompletePanel({
             </h3>
             <p className="mb-3 text-[13px] leading-relaxed text-ink/85">
               First program shipped. Text it to someone who'd be proud — a
-              friend, a group chat, the person who said you'd never start.
+              friend, a group chat, anyone you want to show.
             </p>
             <button
               type="button"

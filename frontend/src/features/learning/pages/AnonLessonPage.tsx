@@ -175,7 +175,7 @@ export default function AnonLessonPage() {
   // via the ref={...} hooks — see the editor/run/check/etc. blocks.
   // Element types match useLessonLayout.ts so the ref shapes
   // continue to satisfy WorkspaceCoachRefs (HTMLElement | null).
-  const instrAnchorRef = useRef<HTMLDivElement>(null);
+  const instrAnchorRef = useRef<HTMLElement>(null);
   const editorAnchorRef = useRef<HTMLElement>(null);
   const runBtnAnchorRef = useRef<HTMLButtonElement>(null);
   const outputAnchorRef = useRef<HTMLDivElement>(null);
@@ -603,8 +603,20 @@ export default function AnonLessonPage() {
       {/* Main split: instructions on left, editor + output + tutor on right.
           Stacks on mobile (most TikTok arrivals). */}
       <div className="flex flex-1 flex-col md:flex-row">
-        {/* Instructions */}
-        <section className="border-b border-border bg-panel/60 p-5 md:w-[40%] md:max-w-md md:border-b-0 md:border-r">
+        {/* Instructions — ref={instrAnchorRef} on the SECTION (not
+            the inner markdown div) so the WorkspaceCoach's first
+            spotlight step has a non-zero rect on mobile too. The
+            inner div is `display: none` on mobile when collapsed,
+            which would have made the anchor's getBoundingClientRect
+            return {0, 0} → coach silently cascades past step 1
+            without painting. The section is always visible
+            (lesson title + description always render); spotlighting
+            it captures the right "this panel is your instructions"
+            framing whether the markdown is expanded or not. */}
+        <section
+          ref={instrAnchorRef}
+          className="border-b border-border bg-panel/60 p-5 md:w-[40%] md:max-w-md md:border-b-0 md:border-r"
+        >
           <h1 className="mb-1 font-display text-[24px] font-semibold leading-tight text-ink">
             {lesson.title}
           </h1>
@@ -625,11 +637,9 @@ export default function AnonLessonPage() {
             {instructionsOpen ? "Hide instructions ↑" : "Show instructions ↓"}
           </button>
           {/* Full markdown — always visible on desktop, gated by the
-              mobile toggle on phones. ref={instrAnchorRef} anchors
-              the WorkspaceCoach's first spotlight step. */}
+              mobile toggle on phones. */}
           <div
             id="anon-lesson-instructions"
-            ref={instrAnchorRef}
             className={`mt-3 ${instructionsOpen ? "block" : "hidden"} md:block`}
           >
             <AnonMarkdown text={lesson.content} />
