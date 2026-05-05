@@ -55,11 +55,52 @@ import { ShareDialog } from "../../share/components/ShareDialog";
 import { LANGUAGE_ENTRYPOINT } from "../../../types";
 import { api } from "../../../api/client";
 
-export default function LessonPage() {
-  const { courseId, lessonId } = useParams<{
+/**
+ * Phase 27-v2.1 — LessonPage now accepts an optional `mode` prop so the
+ * SAME component serves both the authed `/learn/...` route AND the
+ * anon `/try/lesson/...` flow (via AnonLessonPage as a thin wrapper).
+ *
+ * `mode` defaults to "authed" — every existing call site (the React
+ * Router lazy import) renders unchanged behavior. The wrapper passes
+ * "anon" to swap a tightly-enumerated set of behaviors:
+ *   - API endpoints (Run + AI tutor → /api/anon/* variants)
+ *   - Session lifecycle (anon skips /api/session entirely)
+ *   - Save click → SignupWallDialog instead of PATCH
+ *   - LessonCompletePanel "Next lesson" → write stash + open wall
+ *   - Header bar surface (anon badge instead of UserMenu/StreakChip)
+ *   - All /api/user/* PATCHes (preferences, progress) become no-ops
+ *
+ * Below the header bar, the anon and authed paths render PIXEL-
+ * IDENTICAL chrome — same instructions panel, editor, output panel,
+ * tutor pane, hint button, completion panel, share dialog. The
+ * "Pixel-equivalence Invariant" is the merge gate (see plan).
+ *
+ * `mode` is also the entry point that triggers the iris-reveal
+ * match-cut on /try/: cinematic exit → cinematicExitingAt set →
+ * LessonPage(mode="anon") reactive inHandoff fires → same 3.5s
+ * "circle opening up" the authed /welcome flow gets via ?firstRun=1.
+ */
+interface LessonPageProps {
+  /** Default "authed". Pass "anon" for the /try/ trial flow. */
+  mode?: "authed" | "anon";
+  /** Optional override for the courseId from URL params. Anon
+   *  wrapper passes it explicitly; authed flow reads from URL. */
+  courseId?: string;
+  /** Same shape as courseId. */
+  lessonId?: string;
+}
+
+export default function LessonPage({
+  mode = "authed",
+  courseId: courseIdProp,
+  lessonId: lessonIdProp,
+}: LessonPageProps = {}) {
+  const params = useParams<{
     courseId: string;
     lessonId: string;
   }>();
+  const courseId = courseIdProp ?? params.courseId;
+  const lessonId = lessonIdProp ?? params.lessonId;
   const [searchParams] = useSearchParams();
   const nav = useNavigate();
   const user = useAuthStore((s) => s.user);
@@ -84,31 +125,63 @@ export default function LessonPage() {
   const isFirstRun = searchParams.get("firstRun") === "1";
 
   // Cinema Kit Continuity Pass — match-cut handoff detection.
-  // Snapshot `cinematicExitingAt` on mount: if it was set within
-  // the last ~1.5 s, the cinematic just dissolved and this page is
-  // mounting AS that exit completes. We render a contracting
-  // RingPulse landing on the Run button so the eye follows one
-  // continuous motion across the route boundary instead of seeing
-  // a hard cut. After the handoff window closes we clear the
-  // signal so a normal lesson visit later doesn't re-trigger.
-  // Read once on mount via useState initializer; framer animations
-  // handle the rest, no re-renders needed.
-  const [inHandoff] = useState<boolean>(() => {
+  // Phase 27-v2.1 made this REACTIVE (was: one-shot useState init).
+  //
+  // Authed path (route nav from /welcome → /learn/...?firstRun=1):
+  //   CinematicGreeting.exit sets cinematicExitingAt BEFORE this
+  //   LessonPage mounts. The useEffect below fires on mount, sees a
+  //   value within the 1.5s freshness window, sets inHandoff=true,
+  //   and the iris reveal renders the 3.5s "circle opening up" at
+  //   the Run button. Identical to the v2 one-shot init behavior.
+  //
+  // Anon path (Phase 27-v2.1 — /try/lesson/python-fundamentals/...):
+  //   AnonLessonPage mounts THIS LessonPage (mode="anon") UNDERNEATH
+  //   the cinematic from the start. cinematicExitingAt is null when
+  //   LessonPage first mounts — the one-shot init would never see
+  //   the value and the iris reveal would never fire on /try/. The
+  //   useEffect-based subscriber below catches the flag flip when
+  //   the anon cinematic exits, sets inHandoff=true on the already-
+  //   mounted LessonPage, and the iris reveal fires with the same
+  //   3.5s "circle opening up" geometry the authed path gets.
+  //
+  // After the reveal completes (~3.65s), we clear the flag so a
+  // normal lesson visit later doesn't re-trigger.
+  // Initial inHandoff is captured at mount-time (matches v2 behavior
+  // — the page-mount fade-up suppression at `initial={ inHandoff &&
+  // (...) ? false : { opacity: 0, y: 8 } }` runs ONCE on first
+  // render, so it must see the right value on render 1, before any
+  // useEffect fires). For the authed path, cinematicExitingAt is
+  // set BEFORE LessonPage mounts (route nav from /welcome), so the
+  // initializer sees the value and inHandoff=true on render 1 —
+  // identical to v2 behavior.
+  const cinematicExitingAt = useFirstRunStore((s) => s.cinematicExitingAt);
+  const [inHandoff, setInHandoff] = useState<boolean>(() => {
     const exitingAt = useFirstRunStore.getState().cinematicExitingAt;
     if (exitingAt === null) return false;
     return Date.now() - exitingAt < 1500;
   });
-  // Clear the signal on mount UNCONDITIONALLY so a stale value from
-  // a backgrounded cinematic exit (where the user tabbed away and
-  // missed the 1.5 s window) doesn't linger and confuse later lesson
-  // visits. The snapshot above already captured what we needed.
-  // Single-shot — ref guards against React 18 strict-mode double-fire.
-  const handoffClearedRef = useRef(false);
+  // Reactive subscriber catches the case where cinematicExitingAt
+  // flips AFTER LessonPage has mounted (Phase 27-v2.1 anon path: the
+  // wrapper mounts LessonPage UNDERNEATH the cinematic; cinematic
+  // exit fires the flag while LessonPage is already alive). Auto-
+  // clears the flag and inHandoff state after the iris reveal's
+  // full duration (3.5s reveal + 0.15s fade + safety margin).
   useEffect(() => {
-    if (handoffClearedRef.current) return;
-    handoffClearedRef.current = true;
-    useFirstRunStore.getState().clearCinematicExiting();
-  }, []);
+    if (cinematicExitingAt === null) return;
+    const ageMs = Date.now() - cinematicExitingAt;
+    if (ageMs >= 1500) {
+      // Stale flag (backgrounded tab, missed window). Clear and
+      // skip — a normal lesson visit later mustn't re-trigger.
+      useFirstRunStore.getState().clearCinematicExiting();
+      return;
+    }
+    setInHandoff(true);
+    const t = window.setTimeout(() => {
+      setInHandoff(false);
+      useFirstRunStore.getState().clearCinematicExiting();
+    }, 4000);
+    return () => window.clearTimeout(t);
+  }, [cinematicExitingAt]);
 
   // Lesson-progress reset on the first-run handoff. Parallel to
   // `forceStarter` for code: a replay user (already completed
@@ -381,7 +454,7 @@ export default function LessonPage() {
       // initial/animate only run on MOUNT — re-renders within a
       // mounted lesson don't re-fire.
       initial={
-        inHandoff && isFirstRun
+        inHandoff && (isFirstRun || mode === "anon")
           ? false
           : { opacity: 0, y: 8 }
       }
@@ -402,7 +475,13 @@ export default function LessonPage() {
           message arriving DURING the typewriter completion (timed
           via POST_RUN_BEAT_MS in useFirstRunChoreography). */}
       <FirstSuccessReveal />
-      {inHandoff && isFirstRun && (
+      {/* Iris reveal — Phase 27-v2.1: gate accepts mode === "anon"
+          as implicit first-run, so /try/ users get the same 3.5s
+          "circle opening up" the authed /welcome flow gets via
+          ?firstRun=1. Without this, anon would dissolve the
+          cinematic with a hard cut into the lesson chrome — the
+          welcome-scene parity invariant would be broken. */}
+      {inHandoff && (isFirstRun || mode === "anon") && (
         <FirstRunHandoffReveal runBtnRef={layout.runBtnRef} />
       )}
       <SkipToContent />
