@@ -17,10 +17,14 @@ import * as S from "../utils/selectors";
 
 const COURSE_ID = "python-fundamentals";
 
-// Coaches auto-open after 3000ms — this lines up with COACH_AUTO_OPEN_MS in
-// frontend/src/util/timings.ts. Tests must wait at least this long before
-// asserting the spotlight appears.
-const AUTO_OPEN_MS = 3_000;
+// Coaches auto-open after COACH_AUTO_OPEN_MS in frontend/src/util/timings.ts.
+// Tests must wait at least this long before asserting the spotlight appears.
+// Phase 27: reconciled to 600ms (was 3000ms here, but the source value has
+// been 600 for some time — the stale constant inflated test wait budgets
+// without changing correctness). We don't import the source value to avoid
+// pulling the frontend tsconfig into the e2e build; this fails loud if the
+// source value drifts again.
+const AUTO_OPEN_MS = 600;
 
 test.describe("onboarding", () => {
   test.beforeEach(async ({ page }) => {
