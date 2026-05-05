@@ -245,6 +245,48 @@ test.describe("first-run cinematic on /try/ (Phase 27-v2 Day 2)", () => {
     await expect(page.getByText(/Lesson Instructions/i)).toHaveCount(0);
   });
 
+  test("WorkspaceCoach phone short-circuits — no coach on 390x844 (Fix 3)", async ({
+    browser,
+  }) => {
+    // Phase 27-v2.2 Fix 3 — coach mounts on desktop but auto-skips on
+    // phone because (a) CoachBubble can't anchor cleanly at 390px,
+    // (b) 28px Skip button is below 44pt HIG, (c) 6 spotlights ≈ 30s
+    // of museum tour Maya doesn't have time for. The scripted
+    // walkthrough orients her instead. This test pins the contract
+    // at the iPhone 13 viewport.
+    const ctx = await browser.newContext({
+      viewport: { width: 390, height: 844 },
+      isMobile: true,
+      hasTouch: true,
+    });
+    const page = await ctx.newPage();
+    // Cinematic must still play once on a fresh phone tab — but THEN
+    // the coach should not mount. Seed cinematicSeen so we land
+    // straight in the lesson chrome.
+    await page.addInitScript(() => {
+      window.sessionStorage.setItem("codetutor.anonCinematicSeen", "1");
+    });
+    await page.goto(ALLOWED_PATH);
+    // Wait for the lesson to load.
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible({
+      timeout: 10_000,
+    });
+    // Coach would normally mount within ~600ms (COACH_AUTO_OPEN_MS).
+    // Wait long enough for that window AND for the targetRect-resolve
+    // useEffect to fire if it were going to.
+    await page.waitForTimeout(1500);
+    // No coach bubble on phone. CoachBubble has role="dialog"; the
+    // SignupWallDialog has role="alertdialog" so they don't collide.
+    await expect(page.locator('[role="dialog"]')).toHaveCount(0);
+    // The "Lesson Instructions" coach-step title text is also a strong
+    // canary — if it appears anywhere, the coach mounted.
+    await expect(page.getByText(/Lesson Instructions/i)).toHaveCount(0);
+    // And the lesson chrome is fully usable (the trial badge is the
+    // "we got past the cinematic + coach" canary).
+    await expect(page.getByText(/Try it — no signup/i)).toBeVisible();
+    await ctx.close();
+  });
+
   test("cinematic auto-completes within budget, revealing the lesson workspace", async ({
     page,
   }) => {

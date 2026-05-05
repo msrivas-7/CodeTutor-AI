@@ -7,6 +7,8 @@ import {
   usePreferencesStore,
 } from "../../../state/preferencesStore";
 import { useFirstRunStore } from "../../firstRun/useFirstRunStore";
+import { useNarrowViewport } from "../../../util/layoutPrefs";
+import { PHONE_MAX_PX } from "../../../components/NarrowViewportGate";
 import { HOUSE_EASE } from "../../../components/cinema/easing";
 
 interface CoachStep {
@@ -123,6 +125,28 @@ export function WorkspaceCoach({
       previouslyFocused.current?.focus?.();
     };
   }, []);
+
+  // Phase 27-v2.2 Fix 3 — phone short-circuit. The 6-step coach assumes a
+  // ≥1024px desktop layout (instructions left, editor center, tutor right
+  // — all visible simultaneously). On a 390px phone CoachBubble can't
+  // anchor next to a spotlight without overflowing, the 28px Skip-tour
+  // button is below the 44pt HIG touch-target minimum, and the museum-
+  // tour pacing eats ~30s of Maya's 90s patience budget. The scripted
+  // walkthrough that fires after the coach already orients her ("Hey
+  // there — let me run it for you") so the coach is redundant on phone.
+  // Skip-via-mark-done: same flow as natural completion. choreography's
+  // enable-gate flips because workspaceCoachDone is the gate
+  // (preferencesStore.setState fires whether persistDone or not, per
+  // maybeMarkDone above). Authed and direct-signup desktop paths keep
+  // the coach (Alex on a laptop is the audience there).
+  const phone = useNarrowViewport(PHONE_MAX_PX);
+  const phoneSkippedRef = useRef(false);
+  useEffect(() => {
+    if (!phone || phoneSkippedRef.current) return;
+    phoneSkippedRef.current = true;
+    maybeMarkDone(persistDone);
+    onComplete();
+  }, [phone, persistDone, onComplete]);
 
   useEffect(() => {
     // Skip steps whose target is missing OR has zero size. The
