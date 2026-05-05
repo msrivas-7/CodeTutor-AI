@@ -3,15 +3,25 @@
 // When an anonymous learner finishes lesson 1 on /try/... and clicks
 // "Sign up to keep going", the AnonLessonPage writes their working
 // state to sessionStorage with `writeAnonStash()`. After auth, the
-// SignupPage reads it with `readAnonStash()` and POSTs the contents
-// to /api/anon-handoff so the now-authed user gets:
-//   - lesson 1 marked complete
-//   - their typed name persisted into user_metadata
-//   - their code persisted into the project store
-//   - first_run_done = true (cinematic + walkthrough already played)
-//   - workspace_coach_done = true (coach already ran on anon)
-//   - welcome_done = true (no /welcome replay)
-// SignupPage then routes directly to lesson 2.
+// freshly-signed-up user lands at /start; StartPage reads the stash
+// with `readAnonStash()` and POSTs the contents to /api/anon-handoff
+// so the now-authed user gets:
+//   - lesson 1 marked complete in lesson_progress with
+//     last_code = {"main.py": user's code}
+//   - course_progress upserted (in_progress, completedLessonIds
+//     includes hello-world)
+//   - welcome_done set per stash.flags.welcomeDone (true post-Day-2
+//     since the cinematic actually fired on anon)
+//   - workspace_coach_done set per stash.flags.workspaceCoachDone
+//     (false today; Day 6 will mount the coach on anon and start
+//     setting it true)
+// stash.name is INFORMATIONAL — not persisted server-side. Maya's
+// firstName for the lesson-2 tutor's "Hey Maya" comes from the
+// signup form's user_metadata, not from this field. The name in the
+// stash is consumed by AnonLessonPage's celebration ("You did it,
+// Maya.") and could power lesson-2 personalization in a future
+// admin-API write, but Day 4 doesn't do that.
+// StartPage then routes directly to lesson 2.
 //
 // Why sessionStorage and not localStorage:
 //   - Privacy. Stash dies with the browser tab. If Maya signs up on
@@ -58,16 +68,18 @@ export interface AnonStashV1 {
   name: string | null;
   /**
    * Honest record of which orientation surfaces actually fired on the
-   * anon path before signup. The handoff endpoint mirrors these into
-   * user_preferences (welcome_done, first_run_done, workspace_coach_done)
-   * so post-signup ONLY suppresses what the user genuinely already saw.
-   * Pre-promising "all done" before the surfaces actually shipped on
-   * anon (Day 6 mounts WorkspaceCoach) would silently skip a feature
-   * Maya never saw — so this is now the writer's responsibility.
+   * anon path before signup. Mirrored into user_preferences columns
+   * (welcome_done, workspace_coach_done) by the handoff endpoint so
+   * post-signup ONLY suppresses what the user genuinely already saw.
+   * Day 6 will mount WorkspaceCoach on anon and start setting
+   * workspaceCoachDone=true; pre-Day-6 stash writers MUST pass false
+   * to avoid silently skipping a feature Maya never saw. There is
+   * no DB column for "first run done" — it's the same flag as
+   * welcomeDone in this codebase (markFirstRunComplete just sets
+   * welcome_done=true), so we don't carry a separate field.
    */
   flags: {
     welcomeDone: boolean;
-    firstRunDone: boolean;
     workspaceCoachDone: boolean;
   };
 }
@@ -96,7 +108,7 @@ export function writeAnonStash(stash: Omit<AnonStashV1, "v">): void {
 }
 
 /**
- * Read the stash on the SignupPage. Returns null if missing,
+ * Read the stash on StartPage. Returns null if missing,
  * unparsable, or schema-mismatched (so a stale stash from a future
  * version of the app doesn't crash the post-signup flow).
  */
@@ -114,7 +126,7 @@ export function readAnonStash(): AnonStashV1 | null {
 }
 
 /**
- * Clear the stash. Called on the SignupPage AFTER a successful
+ * Clear the stash. Called on StartPage AFTER a successful
  * /api/anon-handoff response so a refresh of the post-signup
  * landing page can't replay the handoff.
  */

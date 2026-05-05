@@ -12,6 +12,8 @@ import { listPublicCourses, loadAllLessonMetas } from "../features/learning/cont
 import { ResumeLearningCard } from "../features/learning/components/ResumeLearningCard";
 import { StreakChip } from "../features/learning/components/StreakChip";
 import type { Course, CourseProgress, LessonMeta } from "../features/learning/types";
+import { clearAnonStash, readAnonStash } from "../features/anon/anonStash";
+import { api } from "../api/client";
 
 interface ResumeTarget {
   course: Course;
@@ -27,31 +29,103 @@ export default function StartPage() {
   const courseProgressMap = useProgressStore((s) => s.courseProgress);
   const progressHydrated = useProgressStore((s) => s.hydrated);
 
-  // Redirect any learner with welcomeDone=false into the /welcome
-  // cinematic BEFORE StartPage's card grid paints. This must happen
-  // synchronously during render — an earlier version ran the nav
-  // inside a useEffect, which fired *after* commit, so the dashboard
-  // briefly flashed between AuthLoader dissolving and the cinematic
-  // mounting. `<Navigate>` resolves in the same render cycle: React
-  // Router processes it before any DOM is committed, so StartPage
-  // never paints for a first-run user.
+  // Phase 27-v2 Day 4a: anon→authed handoff intercept. SignupPage
+  // and AuthCallbackPage both land authed users at /start. If a
+  // freshly-signed-up user has a sessionStorage stash from the
+  // /try/ flow (Day 3c writes it on the celebration's Sign Up CTA),
+  // we redeem it BEFORE StartPage's existing welcomeDone gate
+  // bounces them to /welcome — otherwise Maya would replay the
+  // cinematic she just dismissed and redo lesson 1 she just
+  // completed. The handoff endpoint idempotently:
+  //   - marks lesson 1 done in lesson_progress (status=completed,
+  //     completed_at=now, last_code={"main.py": user's code})
+  //   - upserts course_progress (in_progress, completedLessonIds)
+  //   - sets welcome_done + workspace_coach_done on user_preferences
+  //     per the honest flags the stash carries
+  // We then route her to lesson 2 directly. Maya's signup-form
+  // firstName remains the source of truth for the lesson-2 tutor's
+  // "Hey {name}" — the stash.name is informational, not persisted
+  // server-side (would require Supabase auth admin API). The local
+  // preferences store is also patched optimistically so a later
+  // /start visit in-session doesn't re-trip the welcome redirect
+  // before HydrationGate's next pull.
   //
-  // Wait for BOTH stores to hydrate first — a returning user on a
-  // flaky connection whose welcomeDone is `true` server-side but
-  // still `false` in the local default would otherwise get ambushed
-  // by the cinematic for a frame before rehydration corrects the
-  // flag.
-  //
-  // (Older revisions here carried a FIRST_RUN_SHIP_DATE backfill
-  // that silently flipped welcomeDone=true for accounts predating
-  // the cinematic. That was removed deliberately after the
-  // progress-wipe migration — every account should see the cinematic
-  // on next login. Bring it back with a fresh date if we ever do
-  // another soft-launch rollout.)
-  if (prefsHydrated && progressHydrated && !welcomeDone) {
-    return <Navigate to="/welcome" replace />;
-  }
+  // Captured ONCE at first render via useState's initializer so the
+  // welcomeDone gate below can hold the /welcome redirect while the
+  // POST is in flight. If no stash, phase starts at "ok" and the
+  // existing flow runs unchanged. The effect runs ONCE on mount —
+  // we don't depend on handoffPhase or call setHandoffPhase mid-
+  // effect, since that would tear down the cleanup (cancelled=true)
+  // and the .then handler would skip the nav, leaving the user
+  // stuck on the loading shell forever.
+  const [handoffPhase, setHandoffPhase] = useState<
+    "needed" | "ok" | "failed"
+  >(() => {
+    return readAnonStash() ? "needed" : "ok";
+  });
 
+  useEffect(() => {
+    const stash = readAnonStash();
+    if (!stash) return; // No stash → existing flow runs.
+    let cancelled = false;
+    api
+      .postAnonHandoff({
+        courseId: stash.courseId,
+        lessonId: stash.lessonId,
+        code: stash.code,
+        name: stash.name,
+        flags: stash.flags,
+      })
+      .then(() => {
+        if (cancelled) return;
+        clearAnonStash();
+        // Patch the local preferences store BEFORE the nav so a
+        // subsequent /start visit in the same session (e.g., via
+        // LearningDashboardPage's ← Home) doesn't see stale
+        // welcomeDone=false and bounce to /welcome — that would
+        // resurrect the doubled-cinematic anti-experience the v1
+        // audit BLOCK SHIP'd on. setState is sync; the next render
+        // sees the new value.
+        usePreferencesStore.setState({
+          welcomeDone: stash.flags.welcomeDone,
+          workspaceCoachDone: stash.flags.workspaceCoachDone,
+        });
+        // Lesson 2 of python-fundamentals is "variables".
+        // replace:true so back-button doesn't re-summon /start
+        // → handoff path again.
+        nav(
+          "/learn/course/python-fundamentals/lesson/variables",
+          { replace: true },
+        );
+      })
+      .catch(() => {
+        // Network/5xx — fall back to the /welcome flow. Stash stays
+        // in sessionStorage so a same-tab refresh re-triggers the
+        // attempt; if Maya keeps failing, she gets the standard
+        // direct-signup experience without losing her account.
+        // Better than blocking on the handoff forever.
+        if (cancelled) return;
+        setHandoffPhase("failed");
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Empty deps: effect runs once per mount. The phase state
+    // transitions are driven only by the success/failure callbacks
+    // above, NOT by re-running the effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Hooks must run in stable order across every render — this entire
+  // function does ALL hook calls before any of the conditional
+  // returns below. The Day-4 handoff added a "carrying your work
+  // over…" early-return that, paired with the existing welcomeDone
+  // <Navigate>, used to skip the resume-card hooks on the first
+  // render and run them on the second — a Rules-of-Hooks violation
+  // that crashes "Rendered more hooks than during the previous
+  // render" on the failure path. Hoisting all hooks here means
+  // every render runs them, and the conditional returns at the end
+  // of the function only switch which JSX comes back.
   const headerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<HTMLButtonElement>(null);
   const guidedRef = useRef<HTMLButtonElement>(null);
@@ -121,6 +195,43 @@ export default function StartPage() {
       cancelled = true;
     };
   }, [resumeCourseId, courseProgressMap]);
+
+  // ───────────── Conditional returns (no hooks below this line) ─────────────
+
+  // Phase 27-v2 Day 4a: while the anon→authed handoff is in flight,
+  // hold ALL of StartPage's existing routing — including the
+  // welcomeDone redirect to /welcome. The user sees a brief loading
+  // shell so they don't catch a flash of the dashboard or the
+  // cinematic mid-handoff. ~1 round-trip is typically sub-300ms on
+  // dev/prod; the loading shell itself is cheap so the visible
+  // delay is dominated by the network call. Copy reinforces the
+  // "your work is being carried over" promise the celebration block
+  // + wall just made.
+  if (handoffPhase === "needed") {
+    return (
+      <div className="flex h-full items-center justify-center bg-bg text-muted">
+        <div className="text-[13px]">Carrying your work over…</div>
+      </div>
+    );
+  }
+
+  // Redirect any learner with welcomeDone=false into the /welcome
+  // cinematic BEFORE StartPage's card grid paints. This must happen
+  // synchronously during render — an earlier version ran the nav
+  // inside a useEffect, which fired *after* commit, so the dashboard
+  // briefly flashed between AuthLoader dissolving and the cinematic
+  // mounting. `<Navigate>` resolves in the same render cycle: React
+  // Router processes it before any DOM is committed, so StartPage
+  // never paints for a first-run user.
+  //
+  // Wait for BOTH stores to hydrate first — a returning user on a
+  // flaky connection whose welcomeDone is `true` server-side but
+  // still `false` in the local default would otherwise get ambushed
+  // by the cinematic for a frame before rehydration corrects the
+  // flag.
+  if (prefsHydrated && progressHydrated && !welcomeDone) {
+    return <Navigate to="/welcome" replace />;
+  }
 
   return (
     <div className="relative flex h-full flex-col bg-bg text-ink">

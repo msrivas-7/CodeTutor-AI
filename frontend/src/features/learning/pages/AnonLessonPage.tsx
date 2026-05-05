@@ -814,7 +814,6 @@ export default function AnonLessonPage() {
                       // doesn't suppress a feature Maya never saw.
                       flags: {
                         welcomeDone: true,
-                        firstRunDone: true,
                         workspaceCoachDone: false,
                       },
                     });

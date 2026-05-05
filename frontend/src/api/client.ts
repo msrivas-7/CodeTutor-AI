@@ -1342,12 +1342,15 @@ export const api = {
       body,
     ),
 
-  // Phase 27-v2: anon→authed handoff. Called from SignupPage right
-  // after a successful auth that originated from the /try/... anon
-  // flow. The body comes from sessionStorage (see anonStash.ts).
-  // Day 1 stub returns { ok: true, applied: false }; Day 4 fills in
-  // the actual idempotent writes (lesson_progress, project store,
-  // user_metadata.first_name, preferences flags).
+  // Phase 27-v2: anon→authed handoff. Called from StartPage on first
+  // mount after a freshly-signed-up user lands there from SignupPage
+  // / AuthCallbackPage. Body comes from sessionStorage (see
+  // anonStash.ts). Day 4 implements the idempotent writes:
+  // lesson_progress (status=completed, last_code), course_progress
+  // (in_progress, completedLessonIds), and user_preferences
+  // (welcome_done + workspace_coach_done from stash flags). Returns
+  // applied:true on first apply, applied:false when the lesson was
+  // already complete (refresh-during-handoff or replay scenarios).
   postAnonHandoff: (body: AnonHandoffBody) =>
     post<AnonHandoffResponse>("/api/anon-handoff", body),
 };
@@ -1357,6 +1360,18 @@ export interface AnonHandoffBody {
   lessonId: "hello-world";
   code: string;
   name: string | null;
+  /**
+   * Honest record of orientation surfaces that fired on the anon
+   * path. Mirrored into user_preferences columns by the handoff
+   * endpoint (welcome_done, workspace_coach_done). welcomeDone=true
+   * is what suppresses /welcome cinematic + ?firstRun=1 choreography
+   * post-signup; workspaceCoachDone is gated on Day 6 (false today
+   * because the coach hasn't been mounted on anon yet).
+   */
+  flags: {
+    welcomeDone: boolean;
+    workspaceCoachDone: boolean;
+  };
 }
 
 export interface AnonHandoffResponse {

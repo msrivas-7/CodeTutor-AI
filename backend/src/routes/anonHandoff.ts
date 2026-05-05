@@ -1,36 +1,41 @@
-// Phase 27-v2 Day 1 — anon→authed handoff endpoint.
+// Phase 27-v2 Day 4b — anon→authed handoff endpoint.
 //
 // Mounted at /api/anon-handoff (NOT under /api/anon — that's the
 // unauthed surface). Caller must be authenticated; the request body
 // describes what the user did on the anon trial path before signing
 // up, and the endpoint idempotently:
-//   - marks lesson 1 done in lesson_progress
-//   - persists `name` into user_metadata.first_name (so the lesson 2
-//     scripted greeter says "Hey Maya")
-//   - persists the final main.py code into the project store
-//   - sets first_run_done = true, workspace_coach_done = true,
-//     welcome_done = true on user_preferences so /welcome cinematic,
-//     ?firstRun=1 choreography, and the WorkspaceCoach 6-step tour
-//     all stay suppressed on the post-signup landing
+//   - marks lesson 1 done in lesson_progress (status=completed,
+//     completed_at=now, last_code.main.py=user's final code)
+//   - upserts course_progress so course-level dashboards see the
+//     lesson as completed
+//   - sets welcome_done + workspace_coach_done on user_preferences
+//     to suppress /welcome cinematic + ?firstRun=1 + the 6-step
+//     spotlight tour on the post-signup landing
 //
-// Day 1 (this file): VALIDATION + STUB. Accepts the body, validates
-// shape, returns { ok: true, applied: false } without writing. The
-// real idempotent inserts land Day 4 alongside the SignupPage
-// signup-from-anon detection. Stub-now lets the frontend wire end
-// to end (write stash → signup → POST handoff → route to lesson 2)
-// before any of the underlying writes are live.
+// Idempotency: callers (StartPage's handoff phase) replay this on
+// every fresh-tab return until the stash clears. Every write uses
+// UPSERT semantics keyed on (user_id, course_id, lesson_id) so a
+// second invocation is a no-op as long as the data is unchanged. We
+// return `applied: true` on first successful invocation,
+// `applied: false` when the lesson was ALREADY completed (the
+// caller's behavior is the same — route to lesson 2 — but the
+// distinction lets ops/metrics see how often a refresh re-triggered
+// the path).
 //
-// Idempotency contract (for Day 4):
-//   - If lesson_progress already has a completed row for this
-//     (userId, course, lesson), return { ok: true, applied: false }.
-//   - If preferences already has welcome_done=true, leave them as-is
-//     (no clobbering a user who somehow signed up direct THEN
-//     navigated through anon — vanishingly rare but the code
-//     shouldn't lie about it).
-//   - Otherwise apply all four writes and return { ok: true, applied: true }.
+// What's INTENTIONALLY not written here:
+//   - user_metadata.first_name: too privileged (requires Supabase
+//     admin API). Maya's signup form firstName is the source of
+//     truth for the lesson-2 tutor's "Hey Maya"; the stash.name is
+//     informational and used only for the anon celebration's
+//     "You did it, Maya." header.
+//   - editor_project: the scratch editor's project store. Lesson
+//     code lives in lesson_progress.last_code, not editor_project.
 
 import { Router, type Request, type Response } from "express";
 import { z } from "zod";
+import { upsertLessonProgress, listLessonProgress } from "../db/lessonProgress.js";
+import { upsertCourseProgress } from "../db/courseProgress.js";
+import { upsertPreferences } from "../db/preferences.js";
 
 const handoffBody = z.object({
   // Bounded to lesson 1 of python-fundamentals — same allowlist as
@@ -46,13 +51,23 @@ const handoffBody = z.object({
   // The literal name parsed from `name = "Maya"` in the user's code,
   // OR null if the parser didn't find a clean match. Bounded the
   // same way the anonStash.extractNameFromCode parser bounds it
-  // (1..40 chars, not "YOUR_NAME").
+  // (1..40 chars, not "YOUR_NAME"). Currently informational only on
+  // the server side — the lesson-2 tutor reads firstName from
+  // signup user_metadata, not from this field.
   name: z
     .string()
     .min(1)
     .max(40)
     .regex(/^[^"'<>]*$/) // No quote/angle-bracket smuggling.
     .nullable(),
+  // Honest record of orientation surfaces that fired on anon. Day 6
+  // will mount WorkspaceCoach on anon and start passing
+  // workspaceCoachDone:true; pre-Day-6 stash writers MUST pass
+  // false to avoid silently skipping a feature Maya never saw.
+  flags: z.object({
+    welcomeDone: z.boolean(),
+    workspaceCoachDone: z.boolean(),
+  }),
 });
 
 export type HandoffBody = z.infer<typeof handoffBody>;
@@ -74,15 +89,69 @@ export function createAnonHandoffRouter(): Router {
         .status(400)
         .json({ error: parsed.error.issues.map((i) => i.message).join("; ") });
     }
+    const body = parsed.data;
 
-    // Day 1 stub. Day 4 will:
-    //   - INSERT INTO lesson_progress (idempotent ON CONFLICT)
-    //   - UPDATE user_metadata SET first_name = body.name (Supabase auth)
-    //   - UPSERT project_files for (userId, course, lesson)
-    //   - UPDATE user_preferences SET welcome_done=true,
-    //         first_run_done=true, workspace_coach_done=true
-    // All under one tx via withRlsContext(userId).
-    return res.json({ ok: true, applied: false, stub: true });
+    // Idempotency check: did this user already complete lesson 1?
+    // listLessonProgress already RLS-scopes by userId. If found
+    // completed, skip the writes and report applied=false. Maya
+    // refreshing /start mid-redirect must not double-write.
+    const existing = await listLessonProgress(userId, body.courseId);
+    const alreadyCompleted = existing.some(
+      (lp) => lp.lessonId === body.lessonId && lp.status === "completed",
+    );
+    if (alreadyCompleted) {
+      return res.json({ ok: true, applied: false });
+    }
+
+    const completedAt = new Date().toISOString();
+
+    // Run the three writes. Not in one DB transaction because each
+    // helper opens its own withRlsContext() block (different
+    // tables, different RLS scopes). If lesson_progress succeeds
+    // and preferences fails, the user's lesson is correctly marked
+    // done but their /welcome flag isn't suppressed — they'd see
+    // the cinematic on next visit, but their progress is intact.
+    // That's the right failure mode (under-suppress vs lose
+    // progress); the alternative — reverse order — risks losing
+    // the lesson completion if preferences errors after.
+    await upsertLessonProgress(userId, body.courseId, body.lessonId, {
+      status: "completed",
+      startedAt: completedAt,
+      completedAt,
+      attemptCount: 1,
+      runCount: 1,
+      lastCode: { "main.py": body.code },
+    });
+
+    // Course progress: mark in-progress, set completed_lesson_ids
+    // to [lessonId]. Note this OVERWRITES any prior list — the
+    // upsert helper's COALESCE returns the new value when the
+    // patch supplies a non-null value, which we always do. Data
+    // loss is bounded by the idempotency early-return above:
+    // we only reach this write when lesson_progress shows
+    // hello-world NOT yet completed, which for any real user
+    // means course_progress also has an empty/missing list. If
+    // a future edit removes the early-return, this write needs
+    // to be changed to array-union semantics or we'd clobber a
+    // legitimate "user manually completed lessons 2-3 already"
+    // edge case (vanishingly rare on signup-from-anon, but worth
+    // calling out).
+    await upsertCourseProgress(userId, body.courseId, {
+      status: "in_progress",
+      lastLessonId: body.lessonId,
+      completedLessonIds: [body.lessonId],
+    });
+
+    // Preferences: flip welcome_done + workspace_coach_done per
+    // the honest flags from the stash. workspace_coach_done is
+    // false today (Day 6 mounts the coach on anon); after Day 6,
+    // the stash carries true and post-signup coach is suppressed.
+    await upsertPreferences(userId, {
+      welcomeDone: body.flags.welcomeDone,
+      workspaceCoachDone: body.flags.workspaceCoachDone,
+    });
+
+    return res.json({ ok: true, applied: true });
   });
 
   return router;
