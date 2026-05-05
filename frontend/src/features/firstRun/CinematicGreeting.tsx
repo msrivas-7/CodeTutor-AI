@@ -29,7 +29,7 @@ export interface CinematicGreetingProps {
   /** Name goes straight into the hero line. Pre-resolved by caller via
    * resolveFirstName — the greeting stays dumb. */
   firstName: string;
-  /** Full mode: the user's first visit — hero is "Hi, {name}!".
+  /** Full mode: the user's first visit — hero is "Hello, {name}!".
    *  Minimal mode: returning learner — hero is "Welcome back, {name}." */
   heroLine: string;
   /** Sits below the hero in both modes. In full mode, arrives in Beat 5.
@@ -112,10 +112,17 @@ const MINIMAL_TIMELINE = {
   total: 5300,
 };
 
-// Sample dynamic code line for Beat 2. Keeping it string-concatenated
-// instead of pulled from a template so the REPL prompt reads as
-// monospaced-visual-design, not "i18n copy we forgot to localize."
-const CODE_LINE = '>>> print(f"Hi, {learner.name}!")';
+// Sample dynamic code line for Beat 2. Phase 27-v2: this code MUST
+// match the lesson 1 starter pattern (string concat with `+`) — not
+// an f-string. The cinematic plays <60s before the user sees lesson
+// 1 on the anon /try/ path, and on the authed /welcome path it
+// plays right before /learn/.../hello-world. Lesson 1 teaches `+`
+// concatenation with a `name` variable; if the cinematic shows
+// f-strings (a feature lesson 1 doesn't reach), the cinematic's
+// "every lesson works like this" subtitle reads as a broken promise
+// the next 60 seconds. Hero output below lands as "Hello, {name}!"
+// — same shape as the lesson 1 starter's stdout.
+const CODE_LINE = '>>> print("Hello, " + name + "!")';
 
 export function CinematicGreeting(props: CinematicGreetingProps) {
   const reduce = useReducedMotion();
@@ -417,7 +424,7 @@ function FullCinematic({
 
           {/* Ring pulse chime — anchored to the hero text's own
               relative container so its center coincides exactly with
-              the visual center of "Hi, {firstName}!" The previous
+              the visual center of "Hello, {firstName}!" The previous
               implementation positioned the ring at the viewport
               center (left-1/2 top-1/2), which fought the hero cluster's
               flex-centered + gapped stack and read as off-center. A

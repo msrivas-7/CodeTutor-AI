@@ -30,6 +30,16 @@
 const STORAGE_KEY = "codetutor.anonRun";
 const SCHEMA_VERSION = 1;
 
+// Phase 27-v2 Day 2: separate one-shot flag tracking whether the
+// /try/... cinematic has already played for this tab. Lives next to
+// the stash so all anon-flow state is in one place. sessionStorage
+// (not localStorage) so a brand-new browser tab — including a new
+// device or private window — gets a fresh cinematic. A reload in
+// the same tab AFTER the cinematic has dismissed does NOT replay.
+// A reload BEFORE the cinematic dismissed (mid-arc) does replay,
+// because the flag is only stamped on onComplete/onSkip.
+const CINEMATIC_SEEN_KEY = "codetutor.anonCinematicSeen";
+
 export interface AnonStashV1 {
   v: 1;
   /** UTC ISO timestamp the lesson completed at. */
@@ -47,32 +57,33 @@ export interface AnonStashV1 {
    */
   name: string | null;
   /**
-   * The flags the handoff endpoint flips on the user_preferences row
-   * to suppress /welcome cinematic, ?firstRun=1 choreography, and
-   * WorkspaceCoach on the post-signup landing.
+   * Honest record of which orientation surfaces actually fired on the
+   * anon path before signup. The handoff endpoint mirrors these into
+   * user_preferences (welcome_done, first_run_done, workspace_coach_done)
+   * so post-signup ONLY suppresses what the user genuinely already saw.
+   * Pre-promising "all done" before the surfaces actually shipped on
+   * anon (Day 6 mounts WorkspaceCoach) would silently skip a feature
+   * Maya never saw — so this is now the writer's responsibility.
    */
   flags: {
-    welcomeDone: true;
-    firstRunDone: true;
-    workspaceCoachDone: true;
+    welcomeDone: boolean;
+    firstRunDone: boolean;
+    workspaceCoachDone: boolean;
   };
 }
 
 /**
  * Write the stash. Called from AnonLessonPage right before opening the
  * SignupWallDialog at lesson completion, so a tab close at the wall
- * doesn't lose the artifact she earned.
+ * doesn't lose the artifact she earned. The caller passes `flags`
+ * reflecting what actually fired on anon — never auto-true a flag for
+ * a surface that hasn't shipped on the anon path yet.
  */
-export function writeAnonStash(stash: Omit<AnonStashV1, "v" | "flags">): void {
+export function writeAnonStash(stash: Omit<AnonStashV1, "v">): void {
   if (typeof window === "undefined") return;
   try {
     const payload: AnonStashV1 = {
       v: SCHEMA_VERSION,
-      flags: {
-        welcomeDone: true,
-        firstRunDone: true,
-        workspaceCoachDone: true,
-      },
       ...stash,
     };
     window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
@@ -111,6 +122,29 @@ export function clearAnonStash(): void {
   if (typeof window === "undefined") return;
   try {
     window.sessionStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // Same fail-soft semantics as writeAnonStash.
+  }
+}
+
+/**
+ * Has the /try/... cinematic already played for this tab? Returns
+ * false on first call (cinematic should play); the consumer flips it
+ * by calling markCinematicSeen() on cinematic complete or skip.
+ */
+export function hasCinematicSeen(): boolean {
+  if (typeof window === "undefined") return true; // SSR: assume seen so we don't render the cinematic on a node render path.
+  try {
+    return window.sessionStorage.getItem(CINEMATIC_SEEN_KEY) === "1";
+  } catch {
+    return true; // private-mode storage error: don't replay on every nav.
+  }
+}
+
+export function markCinematicSeen(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(CINEMATIC_SEEN_KEY, "1");
   } catch {
     // Same fail-soft semantics as writeAnonStash.
   }

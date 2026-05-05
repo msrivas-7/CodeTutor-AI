@@ -25,7 +25,7 @@ export default function SignupPage() {
   const clearError = useAuthStore((s) => s.clearError);
 
   // Phase 22B: lastName dropped — the cinematic onboarding is firstName-only
-  // (3 spoken beats: hero "Hi, ${firstName}", greet, praise) and lastName
+  // (3 spoken beats: hero "Hello, ${firstName}", greet, praise) and lastName
   // appeared nowhere else in the experience. Cutting one field is a
   // measurable conversion win on the signup wall without any narrative loss.
   const [firstName, setFirstName] = useState("");

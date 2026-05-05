@@ -17,6 +17,23 @@ import { expect, test } from "@playwright/test";
 const ALLOWED_PATH = "/try/lesson/python-fundamentals/hello-world";
 
 test.describe("anonymous lesson 1 (Phase 27 §3a)", () => {
+  // Phase 27-v2 Day 2: AnonLessonPage now mounts the full first-run
+  // CinematicGreeting overlay (fixed inset-0 z-[60]) on first /try/
+  // visit, dissolving after ~14.5s. That overlay obstructs every
+  // click target the lesson-1 specs care about — Save / Next-lesson
+  // buttons, the mobile instructions toggle, and so on. Pre-set the
+  // sessionStorage flag the page reads so the cinematic short-circuits
+  // before mount; the cinematic itself gets its own dedicated test
+  // below ("plays full cinematic on first visit"). Using addInitScript
+  // (not localStorage) so each Playwright context, which gets a fresh
+  // sessionStorage, starts in the "already seen" state — matching the
+  // behaviour of a same-tab reload after the cinematic dismissed.
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => {
+      window.sessionStorage.setItem("codetutor.anonCinematicSeen", "1");
+    });
+  });
+
   test("anonymous visitor lands, sees the title + editor + Run button + tutor input", async ({
     page,
   }) => {
@@ -115,6 +132,13 @@ test.describe("anonymous lesson 1 (Phase 27 §3a)", () => {
       hasTouch: true,
     });
     const page = await ctx.newPage();
+    // The describe-level beforeEach pre-seeds the test-fixture page
+    // via addInitScript; this test uses a freshly-created context so
+    // we must reapply the seed manually. Same purpose: short-circuit
+    // the cinematic so the lesson-chrome assertions can run.
+    await page.addInitScript(() => {
+      window.sessionStorage.setItem("codetutor.anonCinematicSeen", "1");
+    });
     await page.goto(ALLOWED_PATH);
 
     // Title visible at the top — always.
@@ -141,7 +165,98 @@ test.describe("anonymous lesson 1 (Phase 27 §3a)", () => {
   });
 });
 
+test.describe("first-run cinematic on /try/ (Phase 27-v2 Day 2)", () => {
+  // Phase 27-v2: Maya's hero moment moves OFF /welcome and ONTO /try/.
+  // The full 14.2s CinematicGreeting (mode="full", firstName="there",
+  // heroLine="Hello, there!") plays inline, then dissolves to reveal the
+  // lesson workspace below. Once dismissed (auto or skip), the
+  // sessionStorage flag prevents replay on same-tab nav. A NEW tab
+  // gets a fresh cinematic — that's the design.
+
+  test("cinematic plays on first visit and is dismissable via Esc", async ({
+    page,
+  }) => {
+    // Cold context — sessionStorage starts empty so the cinematic
+    // should mount. Don't apply the describe-level seed.
+    await page.goto(ALLOWED_PATH);
+
+    // The cinematic's wrapper has a "Skip" affordance bottom-right
+    // and the hero hits "Hello, there!" mid-arc. Skip is the fast,
+    // deterministic dismiss path.
+    const skipButton = page.getByRole("button", { name: /skip/i });
+    await expect(skipButton).toBeVisible({ timeout: 6_000 });
+
+    // Mid-arc hero text actually renders. The hero string types in
+    // around the 7.3s mark of the FULL_TIMELINE; assert on it to
+    // catch any future regression that ships the cinematic mount
+    // without populating the heroLine prop. Generous timeout because
+    // typewriter beat lands ~9.3s in (heroType + heroGlow + heroHold
+    // are spread across that window). On anon path heroLine is
+    // "Hello, there!" — matches lesson 1's stdout shape, not a name
+    // (option d in v2 plan: name lands at the praise turn instead).
+    await expect(page.getByText("Hello, there!", { exact: true })).toBeVisible({
+      timeout: 12_000,
+    });
+
+    // Esc dismisses the cinematic immediately (handleSkipOnce path).
+    await page.keyboard.press("Escape");
+
+    // After Esc, the lesson workspace is visible. The "Try it — no signup"
+    // badge in the header is the canary that anon-mode is now active.
+    await expect(page.getByText(/Try it — no signup/i)).toBeVisible({
+      timeout: 5_000,
+    });
+
+    // Same-tab reload — cinematic should NOT replay because the
+    // markCinematicSeen() flag was stamped on dismiss.
+    await page.reload();
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible({
+      timeout: 10_000,
+    });
+    // Skip button should NOT be present after reload (cinematic short-
+    // circuited by sessionStorage flag).
+    await expect(page.getByRole("button", { name: /skip/i })).toHaveCount(0);
+  });
+
+  test("cinematic auto-completes within budget, revealing the lesson workspace", async ({
+    page,
+  }) => {
+    // The full timeline is 14_200ms + 300ms exit blur. If a future
+    // refactor strips the setTimeout that fires onComplete, the
+    // Esc-dismiss test still passes (user clicks). This test exercises
+    // the natural-completion path so the auto-reveal contract has
+    // direct coverage. 18s budget is the timeline + exit + safety.
+    //
+    // Ordering matters: assert the Skip button disappears FIRST with
+    // the 18s timeout. The "Try it — no signup" header badge sits in
+    // the DOM behind the cinematic overlay (z-[60] fixed inset-0 does
+    // NOT make the badge invisible to Playwright's toBeVisible — it
+    // only obstructs clicks). If we asserted the badge first, that
+    // assertion passes immediately on lesson load (~2-3s) and the
+    // following Skip-count check would then retry only against the
+    // global expect.timeout (10s in playwright.config.ts) — too short
+    // for the 14.5s cinematic to actually dissolve. Flip-flop.
+    await page.goto(ALLOWED_PATH);
+    await expect(page.getByRole("button", { name: /skip/i })).toHaveCount(0, {
+      timeout: 18_000,
+    });
+    await expect(page.getByText(/Try it — no signup/i)).toBeVisible();
+  });
+});
+
 test.describe("marketing CTA → anonymous lesson (Phase 27 §3a sub-commit 3)", () => {
+  // Same cinematic-suppression seed as the lesson-chrome describe.
+  // The h1 text-content assertions below would technically pass even
+  // with the cinematic mounted (heading is in the DOM behind the
+  // overlay), but seeding makes the suite uniformly fast and avoids
+  // anyone reading these tests assuming "h1 visible" includes
+  // "h1 unobstructed."
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => {
+      window.sessionStorage.setItem("codetutor.anonCinematicSeen", "1");
+    });
+  });
+
   test("anonymous visitor on / sees the 'Or try a lesson — no signup →' link pointing at /try/...", async ({
     page,
   }) => {

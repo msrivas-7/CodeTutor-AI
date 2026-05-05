@@ -79,7 +79,7 @@ export function FirstRunGreeting() {
   // is a brand-new learner or an existing user replaying via
   // "Show intro again." The branching I had earlier ("Welcome back,
   // let's pick up where we left off…") fought the first-run framing:
-  // the hero line is "Hi, Name!" — a first-time greeting — and a
+  // the hero line is "Hello, Name!" — a first-time greeting — and a
   // returning-user subtitle underneath it reads as an identity
   // conflict. The first-run cinematic IS the first-run cinematic;
   // returning users opting to replay it want to see the original
@@ -93,7 +93,7 @@ export function FirstRunGreeting() {
     <CinematicGreeting
       mode="full"
       firstName={firstName}
-      heroLine={`Hi, ${firstName}!`}
+      heroLine={`Hello, ${firstName}!`}
       subtitle="Every lesson works like this. Write code, watch it answer."
       // Support line is the same for everyone — replay path gets the
       // same copy as the first-run path. The tiny incoherence for

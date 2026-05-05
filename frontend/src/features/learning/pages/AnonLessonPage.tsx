@@ -6,6 +6,9 @@ import { loadFullLesson } from "../content/courseLoader";
 import type { Lesson } from "../types";
 import type { RunResult } from "../../../types";
 import { SignupWallDialog, type SignupWallReason } from "../components/SignupWallDialog";
+import { CinematicGreeting } from "../../firstRun/CinematicGreeting";
+import { useFirstRunStore } from "../../firstRun/useFirstRunStore";
+import { hasCinematicSeen, markCinematicSeen } from "../../anon/anonStash";
 
 // Phase 27 §3a — anonymous lesson 1 page.
 //
@@ -16,6 +19,10 @@ import { SignupWallDialog, type SignupWallReason } from "../components/SignupWal
 // stumble into a lesson the backend allowlist would 403 anyway.
 //
 // Surfaces:
+//   - First-run CinematicGreeting (mode="full", firstName="there")
+//     on first /try/ visit per browser tab — dissolves into the
+//     editor below. sessionStorage flag prevents replay after
+//     dismiss. Phase 27-v2 Day 2.
 //   - lesson title + content.md (rendered with the same minimal
 //     markdown style as LessonInstructionsPanel)
 //   - Monaco editor seeded from the lesson's starter file
@@ -65,6 +72,30 @@ export default function AnonLessonPage() {
   // via a "Show instructions" affordance.
   const [instructionsOpen, setInstructionsOpen] = useState(false);
 
+  // Phase 27-v2 Day 2: full first-run cinematic on the trial path.
+  // Same component the authed /welcome page uses (no fork) — anon
+  // learners get the SAME hero moment as a direct-signup user, just
+  // earlier in the funnel. firstName is "there" because we don't
+  // yet know Maya's name (option d in the v2 plan: personalization
+  // is earned at the praise turn after she replaces YOUR_NAME). The
+  // cinematic plays once per browser tab; reload mid-lesson does
+  // NOT replay (sessionStorage flag).
+  const [showCinematic, setShowCinematic] = useState(() => !hasCinematicSeen());
+  const dismissCinematic = () => {
+    markCinematicSeen();
+    setShowCinematic(false);
+    // CinematicGreeting in mode="full" stamps cinematicExitingAt for
+    // the /welcome → /learn/... match-cut RingPulse handoff. On the
+    // anon path that signal must NOT leak: if Maya immediately clicks
+    // Sign-up after dismiss and the post-signup nav lands on an
+    // authed LessonPage within the 1.5s match-cut window, LessonPage
+    // would render a contracting ring choreographed for the welcome
+    // boundary — wrong cut for the anon→signup→lesson-2 path. Clear
+    // it explicitly here so the anon dismiss never leaves a stale
+    // marker in the module-scoped store.
+    useFirstRunStore.getState().clearCinematicExiting();
+  };
+
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
   const onMount: OnMount = (editor) => {
     editorRef.current = editor;
@@ -96,20 +127,49 @@ export default function AnonLessonPage() {
 
   if (!allowed) return <Navigate to="/" replace />;
 
+  // Phase 27-v2 Day 2 — full first-run cinematic on /try/.
+  // Mounted at the SAME tree position (inside the single outer div
+  // pattern) regardless of loadError / !lesson / loaded state, so React
+  // preserves the CinematicGreeting instance across the
+  // loading→loaded transition. If we returned different root element
+  // types from each branch (Fragment vs div), React would unmount the
+  // cinematic mid-arc when lesson resolution flipped state, restarting
+  // the 14.2s timer at character 0 — visible glitch on the hero
+  // moment. The overlay is fixed inset-0 z-[60] so it covers
+  // whichever inner content is rendered (loading placeholder, error
+  // block, or full workspace).
+  const cinematicNode = showCinematic ? (
+    <CinematicGreeting
+      mode="full"
+      firstName="there"
+      heroLine="Hello, there!"
+      subtitle="Every lesson works like this. Write code, watch it answer."
+      supportLine="Starting your first lesson…"
+      onComplete={dismissCinematic}
+      onSkip={dismissCinematic}
+    />
+  ) : null;
+
   if (loadError) {
     return (
-      <div className="flex h-full items-center justify-center bg-bg p-8 text-center text-ink">
-        <div>
-          <h1 className="mb-2 text-xl font-semibold">Couldn't load this lesson</h1>
-          <p className="text-sm text-muted">{loadError}</p>
+      <div className="flex min-h-screen flex-col bg-bg text-ink">
+        {cinematicNode}
+        <div className="flex h-full items-center justify-center bg-bg p-8 text-center text-ink">
+          <div>
+            <h1 className="mb-2 text-xl font-semibold">Couldn't load this lesson</h1>
+            <p className="text-sm text-muted">{loadError}</p>
+          </div>
         </div>
       </div>
     );
   }
   if (!lesson) {
     return (
-      <div className="flex h-full items-center justify-center bg-bg text-muted">
-        Loading lesson…
+      <div className="flex min-h-screen flex-col bg-bg text-ink">
+        {cinematicNode}
+        <div className="flex h-full items-center justify-center bg-bg text-muted">
+          Loading lesson…
+        </div>
       </div>
     );
   }
@@ -308,6 +368,8 @@ export default function AnonLessonPage() {
 
   return (
     <div className="flex min-h-screen flex-col bg-bg text-ink">
+      {cinematicNode}
+
       {/* Top bar — anon badge + sign-up CTA */}
       <header className="flex items-center justify-between border-b border-border bg-panel/80 px-4 py-2 backdrop-blur">
         <div className="flex items-center gap-3">
