@@ -9,7 +9,7 @@
 import { Router } from "express";
 import { config } from "../config.js";
 import { db } from "../db/client.js";
-import { sumPlatformCostTodayGlobal } from "../db/usageLedger.js";
+import { sumPlatformCostTodayAllSources } from "../db/usageLedger.js";
 import { getEffectiveDailyUsdCap } from "../services/ai/effectiveCaps.js";
 import { getPlatformAuthStatus } from "../services/ai/credential.js";
 import {
@@ -110,7 +110,9 @@ async function buildSnapshot(): Promise<DashboardSnapshot> {
   let dbOk: "ok" | "fail" = "ok";
   try {
     [freeTierSpend, freeTierCap] = await Promise.all([
-      sumPlatformCostTodayGlobal(utcStartOfToday()),
+      // Phase 27 §3d: include anon spend so the dashboard "today
+      // spend" tile mirrors the resolver's L4 hard-cap view.
+      sumPlatformCostTodayAllSources(utcStartOfToday()),
       getEffectiveDailyUsdCap().catch(() => config.freeTier.dailyUsdCap),
     ]);
   } catch {

@@ -44,6 +44,17 @@ vi.mock("../../db/usageLedger.js", () => ({
   sumPlatformCostTodayForUser: vi.fn(async () => 0),
   sumPlatformCostLifetimeForUser: vi.fn(async () => 0),
   sumPlatformCostTodayGlobal: vi.fn(async () => 0),
+  // Phase 27 §3d: anon-side ledger exports. Existing authed-path tests
+  // never call resolveAnonAICredential so these defaults aren't read,
+  // but credential.ts now imports them at the module boundary —
+  // omitting them would crash test imports the moment §3a adds the
+  // first anon-path spec. Default 0 so any anon spec that doesn't
+  // override behaves like a fresh-IP first-request.
+  countPlatformQuestionsOnIpToday: vi.fn(async () => 0),
+  countPlatformQuestionsOnIpTodayLocked: vi.fn(async () => 0),
+  sumPlatformCostTodayAnonGlobal: vi.fn(async () => 0),
+  sumPlatformCostTodayAllSources: vi.fn(async () => 0),
+  writeAnonUsageRow: vi.fn(async () => undefined),
 }));
 
 // Phase 20-P5: credential.ts now reads caps via effectiveCaps. Default
@@ -113,6 +124,29 @@ describe("resolveAICredential", () => {
 
   it("L4 global $ cap: all users locked out once global daily spend hits the cap", async () => {
     vi.mocked(ledger.sumPlatformCostTodayGlobal).mockResolvedValueOnce(2.0);
+    const c = await resolveAICredential("u-1");
+    expect(c.source).toBe("none");
+    if (c.source === "none") expect(c.reason).toBe("usd_cap_hit");
+  });
+
+  it("L4 global $ cap: combined authed + anon spend trips the cap (Phase 27 §3d)", async () => {
+    // Watcher/resolver agreement invariant: the L4 check sums BOTH ledger
+    // tables. If a future edit removed the anon half of the sum, this test
+    // would catch it — authed alone (1.5) is below cap (2.0), anon alone
+    // (1.0) is below cap, but together (2.5) they trip the ceiling.
+    vi.mocked(ledger.sumPlatformCostTodayGlobal).mockResolvedValueOnce(1.5);
+    vi.mocked(ledger.sumPlatformCostTodayAnonGlobal).mockResolvedValueOnce(1.0);
+    const c = await resolveAICredential("u-1");
+    expect(c.source).toBe("none");
+    if (c.source === "none") expect(c.reason).toBe("usd_cap_hit");
+  });
+
+  it("L4 global $ cap: anon spend alone can trip the cap on the authed path", async () => {
+    // Edge case the prior P0 fix unlocked: even with zero authed spend,
+    // a runaway anon faucet must lock out authed users (they share the
+    // operator wallet). Authed=0, anon=2.5 → over cap of 2.0.
+    vi.mocked(ledger.sumPlatformCostTodayGlobal).mockResolvedValueOnce(0);
+    vi.mocked(ledger.sumPlatformCostTodayAnonGlobal).mockResolvedValueOnce(2.5);
     const c = await resolveAICredential("u-1");
     expect(c.source).toBe("none");
     if (c.source === "none") expect(c.reason).toBe("usd_cap_hit");

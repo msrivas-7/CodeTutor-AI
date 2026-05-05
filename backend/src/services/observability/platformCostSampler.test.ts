@@ -4,8 +4,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 // module-level config read lands on our fake.
 let mockSum = 0;
 const mockCap = 2;
+// Phase 27 §3d: sampler now reads `sumPlatformCostTodayAllSources`
+// (authed + anon). Same mock semantics — fake the unified hourly total —
+// so both export names route through the same `mockSum` value.
 vi.mock("../../db/usageLedger.js", () => ({
   sumPlatformCostTodayGlobal: vi.fn(async () => mockSum),
+  sumPlatformCostTodayAllSources: vi.fn(async () => mockSum),
 }));
 vi.mock("../../config.js", () => ({
   config: {

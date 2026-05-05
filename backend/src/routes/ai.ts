@@ -153,6 +153,10 @@ async function resolveCredentialOrRespond(
     denylisted: "denylisted",
     provider_auth_failed: "provider_auth_failed",
     email_not_confirmed: "email_not_confirmed",
+    // Phase 27 §3d: anon-only outcome. Authed routes can't actually
+    // surface this (resolveAICredential never returns it), but the
+    // type is shared and the map must be exhaustive.
+    anon_exhausted: "anon_exhausted",
   };
   aiPlatformRequests.inc({ outcome: outcomeByReason[reason], route });
 

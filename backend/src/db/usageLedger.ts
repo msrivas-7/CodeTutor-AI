@@ -12,6 +12,17 @@
 // directly. The ledger remains the durable source of truth — the denorm is
 // always reconstructable from SUM(cost_usd) WHERE funding_source='platform'
 // if anything ever drifts.
+//
+// Phase 27 §3d: anonymous (signed-out) traffic writes to a SECOND ledger
+// table — public.ai_anon_usage_ledger — keyed by ip_hash instead of
+// user_id. The anon helpers live at the bottom of this file. The L4
+// global $ cap is the one observer that must combine BOTH tables: the
+// resolver enforces the cap by summing them, so every observability
+// surface (budgetWatcher alert ladder, admin dashboard "today spend"
+// tile, hourly platformCostSampler marker) MUST call
+// `sumPlatformCostTodayAllSources` rather than the per-table helpers.
+// Diverging would break the watcher/resolver agreement: the alert
+// ladder would show $X while the resolver enforces $X+anon.
 
 import { db } from "./client.js";
 
@@ -162,4 +173,126 @@ export async function sumPlatformCostTodayGlobal(since: Date): Promise<number> {
        AND created_at >= ${since}
   `;
   return Number(rows[0]?.total ?? 0);
+}
+
+// =============================================================================
+// Phase 27 §3d — anonymous AI usage ledger.
+//
+// Anonymous traffic has no auth.users.id, so it can't write to the authed
+// ledger (FK + NOT NULL). The migration adds public.ai_anon_usage_ledger
+// keyed by ip_hash. The helpers below mirror the authed ones:
+//   - writeAnonUsageRow            mirrors writeUsageRow
+//   - countPlatformQuestionsOnIpTodayLocked  mirrors countPlatformQuestionsTodayLocked (L_anon)
+//   - sumPlatformCostTodayAnonGlobal mirrors sumPlatformCostTodayGlobal (L4 anon spend)
+//
+// Anon traffic does NOT bump user_ai_costs (no user_id to denorm against)
+// and does NOT have a lifetime cap (L3 doesn't apply — we don't track per-IP
+// across days; ip can rotate and we'd be over-blocking honest reuse). The
+// daily count cap (L_anon) plus the GLOBAL $ cap (L4, summed across both
+// tables) plus the per-request output-token clamp + deadline (Phase 27 §3b)
+// are the bounded-cost envelope.
+// =============================================================================
+
+export interface WriteAnonUsageRow {
+  ipHash: string;
+  model: string;
+  // Anon never uses BYOK — fundingSource is implicit "platform". Kept as
+  // a field name parity with WriteUsageRow so the call sites read alike.
+  route: "ask" | "ask_stream";
+  countsTowardQuota: boolean;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+  priceVersion: number;
+  status: "finish" | "error" | "aborted";
+  requestId: string;
+}
+
+export async function writeAnonUsageRow(row: WriteAnonUsageRow): Promise<void> {
+  const sql = db();
+  await sql`
+    INSERT INTO public.ai_anon_usage_ledger (
+      ip_hash, model, funding_source, route, counts_toward_quota,
+      input_tokens, output_tokens, cost_usd, price_version,
+      status, request_id
+    ) VALUES (
+      ${row.ipHash}, ${row.model}, 'platform', ${row.route},
+      ${row.countsTowardQuota}, ${row.inputTokens}, ${row.outputTokens},
+      ${row.costUsd}, ${row.priceVersion}, ${row.status}, ${row.requestId}
+    )
+  `;
+}
+
+// L_anon: per-IP-hash daily question count, used to gate anon AI calls.
+// Same advisory-lock pattern as countPlatformQuestionsTodayLocked so two
+// concurrent anon requests from the same IP can't both observe a pre-
+// insert count and bypass the cap. Lock key uses hashtext of the
+// already-hashed IP (no FK or PK type mismatch with the authed lock).
+export async function countPlatformQuestionsOnIpTodayLocked(
+  ipHash: string,
+  since: Date,
+): Promise<number> {
+  const sql = db();
+  const result = await sql.begin(async (tx) => {
+    await tx`SELECT pg_advisory_xact_lock(hashtext(${ipHash})::bigint)`;
+    const rows = await tx<Array<{ n: number }>>`
+      SELECT COUNT(*)::int AS n
+        FROM public.ai_anon_usage_ledger
+       WHERE counts_toward_quota = true
+         AND ip_hash = ${ipHash}
+         AND created_at >= ${since}
+    `;
+    return rows[0]?.n ?? 0;
+  });
+  return result as number;
+}
+
+// Unlocked variant for tests + non-cap-enforcing readers (e.g., a future
+// /admin/anon-stats panel). Cap-enforcement path MUST use the locked
+// variant.
+export async function countPlatformQuestionsOnIpToday(
+  ipHash: string,
+  since: Date,
+): Promise<number> {
+  const sql = db();
+  const rows = await sql<Array<{ n: number }>>`
+    SELECT COUNT(*)::int AS n
+      FROM public.ai_anon_usage_ledger
+     WHERE counts_toward_quota = true
+       AND ip_hash = ${ipHash}
+       AND created_at >= ${since}
+  `;
+  return rows[0]?.n ?? 0;
+}
+
+// L4 anon contribution: global daily $ across ALL anon traffic. Caller
+// adds this to sumPlatformCostTodayGlobal() before comparing to the
+// global cap so anon spend counts toward the same ceiling — anon
+// can't blow past the cap by virtue of writing to a different table.
+export async function sumPlatformCostTodayAnonGlobal(since: Date): Promise<number> {
+  const sql = db();
+  const rows = await sql<Array<{ total: string | null }>>`
+    SELECT SUM(cost_usd)::text AS total
+      FROM public.ai_anon_usage_ledger
+     WHERE created_at >= ${since}
+  `;
+  return Number(rows[0]?.total ?? 0);
+}
+
+// Phase 27 §3d: unified L4 view. Returns today's global platform $ spend
+// across BOTH the authed ledger AND the anon ledger. Every observability
+// surface (budgetWatcher 50/80/100% alert ladder, admin dashboard
+// "today spend" tile, hourly platformCostSampler log marker that drives
+// the "$30 in 1 hour" page-oncall alert) MUST use this — the resolver's
+// L4 hard-cap check uses the same combined sum, so blind any single
+// observer and the operator sees a different "today spend" than the
+// resolver enforces. That divergence violates the "watcher and resolver
+// always agree on what the cap is" invariant called out in the
+// budgetWatcher header. Two queries, two indexed scans — cheap.
+export async function sumPlatformCostTodayAllSources(since: Date): Promise<number> {
+  const [authed, anon] = await Promise.all([
+    sumPlatformCostTodayGlobal(since),
+    sumPlatformCostTodayAnonGlobal(since),
+  ]);
+  return authed + anon;
 }

@@ -206,6 +206,20 @@ export const config = {
     // is enabled. Required when freeTier.enabled is true — assertConfigValid
     // fails fast otherwise so a misconfig doesn't land as a 500-per-request.
     platformOpenaiApiKey: process.env.PLATFORM_OPENAI_API_KEY,
+    // Phase 27 §3d: anonymous (no signup) AI cap. Per-IP-hash daily count.
+    // Strictly tighter than the authed dailyQuestions (30) since anon
+    // traffic shares the platform key with no per-user identity. Default
+    // 8/day = enough for a curious visitor to complete lesson 1 with a
+    // few hint requests; not enough for sustained use. Anon spend ALSO
+    // counts toward the global L4 dailyUsdCap, so even at the per-IP
+    // cap there's a hard ceiling on anon's contribution to total spend.
+    anonDailyQuestionsPerIp: num(process.env.ANON_DAILY_QUESTIONS_PER_IP, 8),
+    // Phase 27 §3b: per-anonymous-request output-token clamp. Provider
+    // already caps to MAX_OUTPUT_TOKENS=2000 globally; this is the
+    // tighter ceiling we ask for on anon calls. 512 = enough for a
+    // tutor reply with one or two short sections; not enough for a
+    // novel.
+    anonMaxOutputTokens: num(process.env.ANON_MAX_OUTPUT_TOKENS, 512),
   },
 
   // Phase 22A: backend-originated email via Azure Communication Services.
@@ -477,6 +491,26 @@ export function assertConfigValid(): void {
     if (!Number.isInteger(caps.dailyQuestions) || caps.dailyQuestions <= 0) {
       throw new Error(
         `[config] FREE_TIER_DAILY_QUESTIONS must be a positive integer (got ${caps.dailyQuestions}).`,
+      );
+    }
+    // Phase 27 §3d: anon caps. Zero or negative values would silently
+    // break the resolver — anonDailyQuestionsPerIp=0 always returns
+    // anon_exhausted; a non-positive anonMaxOutputTokens would
+    // propagate to the OpenAI request body. Fail-fast at boot.
+    if (
+      !Number.isInteger(caps.anonDailyQuestionsPerIp) ||
+      caps.anonDailyQuestionsPerIp <= 0
+    ) {
+      throw new Error(
+        `[config] ANON_DAILY_QUESTIONS_PER_IP must be a positive integer (got ${caps.anonDailyQuestionsPerIp}).`,
+      );
+    }
+    if (
+      !Number.isInteger(caps.anonMaxOutputTokens) ||
+      caps.anonMaxOutputTokens <= 0
+    ) {
+      throw new Error(
+        `[config] ANON_MAX_OUTPUT_TOKENS must be a positive integer (got ${caps.anonMaxOutputTokens}).`,
       );
     }
   }

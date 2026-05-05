@@ -7,7 +7,7 @@
 
 import { Router } from "express";
 import { z } from "zod";
-import { sumPlatformCostTodayGlobal } from "../db/usageLedger.js";
+import { sumPlatformCostTodayAllSources } from "../db/usageLedger.js";
 import { logAdminAction } from "../db/adminAuditLog.js";
 import { getEffectiveDailyUsdCap } from "../services/ai/effectiveCaps.js";
 import {
@@ -38,7 +38,8 @@ adminBudgetWatcherRouter.get("/budget-watcher", async (_req, res, next) => {
       // env fallback already in `cap`
     }
     try {
-      spend = await sumPlatformCostTodayGlobal(utcStartOfToday());
+      // Phase 27 §3d: includes anon spend; mirrors resolver's L4 view.
+      spend = await sumPlatformCostTodayAllSources(utcStartOfToday());
     } catch {
       // soft fail; surface 0 + DB error in /dashboard.health.db
     }

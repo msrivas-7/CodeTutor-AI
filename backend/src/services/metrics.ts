@@ -153,10 +153,12 @@ export const aiTokensConsumed = new Counter({
 });
 
 // Phase 20-P4: free-tier telemetry. `outcome` is the resolver decision,
-// `route` pins which AI endpoint fired. Together they bound cardinality to
-// ~30 series permanently — no per-user labels. The operator graph is a
-// stacked bar of outcomes over time: a climbing 'exhausted' bar is exactly
-// the demand signal the free tier is meant to surface.
+// `route` pins which AI endpoint fired. Together they bound cardinality
+// to <50 series permanently — no per-user labels. The operator graph
+// is a stacked bar of outcomes over time: a climbing 'exhausted' bar
+// is exactly the demand signal the free tier is meant to surface.
+// (Phase 27 §3d: 'anon_exhausted' added; current cardinality is 12
+// outcomes × 3 routes = 36 series.)
 export const aiPlatformRequests = new Counter({
   name: "ai_platform_requests_total",
   help: "Platform AI requests, by resolver outcome and route.",

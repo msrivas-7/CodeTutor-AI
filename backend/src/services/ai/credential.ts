@@ -26,9 +26,11 @@ import { getOpenAIKey } from "../../db/preferences.js";
 import { isDenylisted } from "../../db/denylist.js";
 import { isEmailConfirmed } from "../../db/userEmailConfirm.js";
 import {
+  countPlatformQuestionsOnIpTodayLocked,
   countPlatformQuestionsTodayLocked,
   startOfUtcDay,
   sumPlatformCostLifetimeForUser,
+  sumPlatformCostTodayAnonGlobal,
   sumPlatformCostTodayForUser,
   sumPlatformCostTodayGlobal,
 } from "../../db/usageLedger.js";
@@ -50,7 +52,11 @@ export type CredentialNoneReason =
   | "usd_cap_hit"
   | "denylisted"
   | "provider_auth_failed"
-  | "email_not_confirmed";
+  | "email_not_confirmed"
+  // Phase 27 §3d — anonymous (signed-out) caller exhausted their per-IP
+  // daily count. Caller surfaces a sign-up wall, not the generic 30/day
+  // exhaustion card.
+  | "anon_exhausted";
 
 export type AICredential =
   | {
@@ -178,6 +184,28 @@ export function __resetCredentialCachesForTests(): void {
   providerAuthFailedAt = 0;
 }
 
+// Phase 27 §3d: anonymous-side cache invalidation hook. Currently a
+// no-op: the L4 path reads the anon side fresh on every call
+// (sumPlatformCostTodayAnonGlobal — small table, low query cost), so
+// a freshly-written anon row is visible immediately without any
+// cache to bust. The authed-side cache (globalCache.today) wraps
+// only the AUTHED ledger query, so an anon write doesn't touch its
+// validity.
+//
+// Why keep the export anyway: §3a's anon route handler should call
+// this after writing a ledger row by symmetry with how the authed
+// route calls invalidateUsageCaches(). If we ever introduce caching
+// on the anon side (e.g., to handle a higher-volume anon faucet),
+// the call sites won't have to change — flip this from a no-op to
+// the matching reset and the cache stays honest.
+//
+// Do NOT bust globalCache.today here: that cache wraps the authed
+// half only, and busting it on every anon write would penalize the
+// authed L4 hot path with an extra DB hit it didn't need.
+export function invalidateAnonUsageCaches(): void {
+  // intentional no-op; see header comment
+}
+
 function endOfUtcDay(since: Date): Date {
   const d = new Date(since);
   d.setUTCDate(d.getUTCDate() + 1);
@@ -270,9 +298,19 @@ export async function resolveAICredential(
   // DAU spike trips the global brake first.
   // Phase 20-P5: cap resolved via getEffectiveDailyUsdCap() which consults
   // system_config row first, falls through to env default.
+  // Phase 27 §3d: must add anon spend to the comparison. Once the anon
+  // route is live, anon writes to a SEPARATE ledger table; the L4
+  // ceiling is one ceiling for both. If we read only the authed sum
+  // here, the watcher/resolver agreement (every observer + the
+  // resolver see the same "today spend") breaks: the watcher's 100%
+  // alert email would fire while this branch keeps authorizing
+  // authed traffic, blowing past the operator's wallet brake.
+  // Authed half stays cached (60s TTL) — anon half is fresh (small
+  // table, low query cost in steady state).
   const dailyUsdCap = await getEffectiveDailyUsdCap();
-  const globalToday = await cachedGlobalToday(dayStart);
-  if (globalToday >= dailyUsdCap) {
+  const authedToday = await cachedGlobalToday(dayStart);
+  const anonToday = await sumPlatformCostTodayAnonGlobal(dayStart);
+  if (authedToday + anonToday >= dailyUsdCap) {
     return none("usd_cap_hit", dayEnd);
   }
 
@@ -320,6 +358,94 @@ export async function resolveAICredential(
     key: platformKey,
     remainingToday: Math.max(0, dailyQuestionsCap - questionsToday),
     capToday: dailyQuestionsCap,
+    allowedModels: PLATFORM_ALLOWED_MODELS,
+    resetAtUtc: dayEnd,
+  };
+}
+
+// =============================================================================
+// Phase 27 §3d — anonymous (signed-out) AI credential resolver.
+//
+// Mirrors resolveAICredential but keyed by an IP hash instead of a userId.
+// The cap chain is a strict subset:
+//
+//   L9     ENABLE_FREE_TIER !== '1'             → none / free_disabled
+//   provider-auth kill                          → none / provider_auth_failed
+//   L4     global daily $ ≥ FREE_TIER_DAILY_USD_CAP → none / usd_cap_hit
+//          (sums BOTH the authed ai_usage_ledger AND the anon
+//           ai_anon_usage_ledger so anon spend can't blow past the
+//           ceiling by writing to a different table)
+//   L_anon per-IP-hash daily count ≥ ANON_DAILY_QUESTIONS_PER_IP
+//                                              → none / anon_exhausted
+//   else                                       → platform + remainingToday
+//
+// What's intentionally MISSING vs the authed chain:
+//   - L0  BYOK — anonymous can't have a personal key.
+//   - L5  ai_platform_denylist — keyed by user_id; no parallel anon list yet.
+//   - L5b email_confirmed gate — N/A.
+//   - L3  lifetime per-user $ — IP can rotate; lifetime over an IP is
+//         either toothless (rotate) or over-blocking (shared NAT). The
+//         per-IP daily count + global $ cap together do the work.
+//   - L2  daily per-user $ — same rationale.
+//
+// The bounded-cost envelope for anon is therefore:
+//   per-request output cap (Phase 27 §3b: anonMaxOutputTokens=512)
+//   × per-IP daily count (anonDailyQuestionsPerIp=8)
+//   ≤ 4K output tokens / IP / day
+//   ≤ ~$0.002 / IP / day at gpt-4.1-nano rates
+// And L4 ($15/day default) is the global ceiling regardless of IP count.
+
+export async function resolveAnonAICredential(
+  ipHash: string,
+): Promise<AICredential> {
+  // L9: same nuclear kill as the authed path. If free tier is off,
+  // anon gets nothing.
+  if (!(await getEffectiveFreeTierEnabled())) return none("no_key");
+
+  // Provider-auth kill: same probe-window semantics as authed.
+  if (providerAuthFailed) {
+    if (Date.now() - providerAuthFailedAt < AUTO_UNSTICK_MS) {
+      return none("provider_auth_failed");
+    }
+    providerAuthFailedAt = Date.now();
+  }
+
+  const dayStart = startOfUtcDay();
+  const dayEnd = endOfUtcDay(dayStart);
+
+  // L4: global $ cap — sums BOTH ledger tables. Anon traffic must count
+  // toward the same ceiling that protects the operator's wallet from
+  // a runaway authed DAU spike. Cached read on the authed half;
+  // anon half is a fresh query (anon volume is small relative to
+  // authed in steady state).
+  const dailyUsdCap = await getEffectiveDailyUsdCap();
+  const authedToday = await cachedGlobalToday(dayStart);
+  const anonToday = await sumPlatformCostTodayAnonGlobal(dayStart);
+  if (authedToday + anonToday >= dailyUsdCap) {
+    return none("usd_cap_hit", dayEnd);
+  }
+
+  // L_anon: per-IP-hash daily question count. Locked variant prevents
+  // a multi-tab race from observing the same pre-insert count and
+  // writing two rows past the cap.
+  const anonCap = config.freeTier.anonDailyQuestionsPerIp;
+  const questionsToday = await countPlatformQuestionsOnIpTodayLocked(
+    ipHash,
+    dayStart,
+  );
+  if (questionsToday >= anonCap) {
+    return none("anon_exhausted", dayEnd);
+  }
+
+  // Platform key validation: same defense-in-depth as the authed path.
+  const platformKey = config.freeTier.platformOpenaiApiKey;
+  if (!platformKey) return none("free_disabled");
+
+  return {
+    source: "platform",
+    key: platformKey,
+    remainingToday: Math.max(0, anonCap - questionsToday),
+    capToday: anonCap,
     allowedModels: PLATFORM_ALLOWED_MODELS,
     resetAtUtc: dayEnd,
   };
