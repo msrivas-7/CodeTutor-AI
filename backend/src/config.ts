@@ -222,6 +222,19 @@ export const config = {
     anonMaxOutputTokens: num(process.env.ANON_MAX_OUTPUT_TOKENS, 512),
   },
 
+  // Phase 27-v2 quick fix #5: per-route kill switch for the anonymous
+  // lesson surface. Default ON (1) so a normal deploy keeps anon
+  // available; flip to "0" + restart to disable /api/anon/* without
+  // a code change. The router still mounts but every route returns
+  // 503 ANON_LESSON_DISABLED — operator can't accidentally leak anon
+  // traffic by forgetting to remove the route. Useful for: incident
+  // response (abuse spike), staged rollout, or paused-trial windows
+  // around marketing pushes that overshoot expected DAU. Kept as a
+  // top-level config key (not under freeTier) because anon enable is
+  // independent of free-tier enable — a deploy could keep authed
+  // free-tier on while turning anon off.
+  anonLessonEnabled: process.env.ENABLE_ANON_LESSON !== "0",
+
   // Phase 22A: backend-originated email via Azure Communication Services.
   // Used for operational alerts (budgetWatcher 50/80/100%) and user-facing
   // re-engagement (Phase 22D streak nudge). All three values come from

@@ -1341,7 +1341,30 @@ export const api = {
       "/api/admin/platform-auth/unstick",
       body,
     ),
+
+  // Phase 27-v2: anon→authed handoff. Called from SignupPage right
+  // after a successful auth that originated from the /try/... anon
+  // flow. The body comes from sessionStorage (see anonStash.ts).
+  // Day 1 stub returns { ok: true, applied: false }; Day 4 fills in
+  // the actual idempotent writes (lesson_progress, project store,
+  // user_metadata.first_name, preferences flags).
+  postAnonHandoff: (body: AnonHandoffBody) =>
+    post<AnonHandoffResponse>("/api/anon-handoff", body),
 };
+
+export interface AnonHandoffBody {
+  courseId: "python-fundamentals";
+  lessonId: "hello-world";
+  code: string;
+  name: string | null;
+}
+
+export interface AnonHandoffResponse {
+  ok: true;
+  applied: boolean;
+  /** Day 1: stub === true; Day 4 onwards: stub === false. */
+  stub?: boolean;
+}
 
 // PUT JSON helper (the existing post / patch helpers don't cover PUT,
 // and admin routes use PUT for set-override / set-system-config).

@@ -269,14 +269,33 @@ export async function countPlatformQuestionsOnIpToday(
 // adds this to sumPlatformCostTodayGlobal() before comparing to the
 // global cap so anon spend counts toward the same ceiling — anon
 // can't blow past the cap by virtue of writing to a different table.
+//
+// Phase 27-v2 quick fix #4 (migration safety): if the
+// ai_anon_usage_ledger table is missing — either because the
+// migration hasn't been applied yet on a fresh deploy, or because
+// it's been rolled back during incident response — return 0 instead
+// of bubbling a 42P01 (undefined_table). The L4 cap is then enforced
+// solely against the authed half, which is the conservative
+// fallback: in the worst case (anon traffic actually exists but
+// table is gone) we under-account anon spend rather than 500-ing
+// every authed AI call. The resolver still rejects new anon
+// requests because writeAnonUsageRow's INSERT will throw at write
+// time on the same missing table — bounded blast radius.
 export async function sumPlatformCostTodayAnonGlobal(since: Date): Promise<number> {
   const sql = db();
-  const rows = await sql<Array<{ total: string | null }>>`
-    SELECT SUM(cost_usd)::text AS total
-      FROM public.ai_anon_usage_ledger
-     WHERE created_at >= ${since}
-  `;
-  return Number(rows[0]?.total ?? 0);
+  try {
+    const rows = await sql<Array<{ total: string | null }>>`
+      SELECT SUM(cost_usd)::text AS total
+        FROM public.ai_anon_usage_ledger
+       WHERE created_at >= ${since}
+    `;
+    return Number(rows[0]?.total ?? 0);
+  } catch (err) {
+    if ((err as { code?: string }).code === "42P01") {
+      return 0;
+    }
+    throw err;
+  }
 }
 
 // Phase 27 §3d: unified L4 view. Returns today's global platform $ spend

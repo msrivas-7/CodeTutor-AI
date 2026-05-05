@@ -6,6 +6,7 @@ import { sessionRouter } from "./routes/session.js";
 import { createProjectRouter } from "./routes/project.js";
 import { createExecutionRouter } from "./routes/execution.js";
 import { createAnonRouter } from "./routes/anon.js";
+import { createAnonHandoffRouter } from "./routes/anonHandoff.js";
 import { createExecuteTestsRouter } from "./routes/executeTests.js";
 import { aiRouter } from "./routes/ai.js";
 import { userDataRouter } from "./routes/userData.js";
@@ -401,6 +402,23 @@ async function main() {
     bodyLimit(1024 * 1024),
     aiRateLimit,
     createAnonRouter(executionBackend),
+  );
+
+  // Phase 27-v2 Day 1: anon→authed handoff. Mounted SEPARATELY from
+  // /api/anon (which is unauthed) — the handoff is invoked by a
+  // freshly-authed user immediately after signup to apply their
+  // anon-path artifacts (lesson 1 progress, code, name, suppress
+  // /welcome + coach + ?firstRun=1) so they land directly on lesson
+  // 2 without redoing what they already did. Full csrfGuard +
+  // authMiddleware + mutationLimit chain because every write is
+  // scoped to req.userId and goes through withRlsContext (Day 4).
+  app.use(
+    "/api/anon-handoff",
+    bodyLimit(8 * 1024),
+    csrfGuard,
+    authMiddleware,
+    mutationLimit,
+    createAnonHandoffRouter(),
   );
 
   // Phase 18b: per-user state in Supabase Postgres (preferences, progress,

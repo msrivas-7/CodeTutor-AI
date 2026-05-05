@@ -217,6 +217,24 @@ function respondAnonCredentialDenied(
 export function createAnonRouter(backend: ExecutionBackend): Router {
   const router = Router();
 
+  // Phase 27-v2 quick fix #5: kill switch. If ENABLE_ANON_LESSON=0,
+  // every anon route short-circuits to 503 before doing any work
+  // (no DB read, no provider call, no container spawn). Mounted as
+  // the FIRST middleware on the router so it runs before any of the
+  // per-route validators. Operator flips this for incident response
+  // — abuse spike, paused trial, suspected platform-key leak — and
+  // restarts; no redeploy. Returns a stable error code the
+  // frontend's anon page can branch on to show a "trial paused,
+  // please sign up" fallback rather than a generic 503.
+  router.use((_req, res, next) => {
+    if (!config.anonLessonEnabled) {
+      return res
+        .status(503)
+        .json({ error: "ANON_LESSON_DISABLED" });
+    }
+    next();
+  });
+
   // -------- POST /api/anon/run -----------------------------------------
   // One-shot Python execution. Creates an ephemeral session per request;
   // tears it down in a finally block so a thrown executor doesn't leak
