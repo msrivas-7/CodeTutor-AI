@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { Link } from "react-router-dom";
 import { motion, useReducedMotion } from "framer-motion";
 import { MeshGradient } from "@paper-design/shaders-react";
 import Lenis from "lenis";
@@ -6,6 +7,8 @@ import Lenis from "lenis";
 import { CinematicLighting } from "../components/cinema/CinematicLighting";
 import { FilmGrain } from "../components/cinema/FilmGrain";
 import { HOUSE_EASE } from "../components/cinema/easing";
+
+import { useAuthStore } from "../auth/authStore";
 
 import { MarketingNav } from "../features/marketing/components/MarketingNav";
 import { MatchCutHero } from "../features/marketing/components/MatchCutHero";
@@ -46,6 +49,18 @@ const HERO = pickHeroCopy();
 
 export default function MarketingPage() {
   const reduce = useReducedMotion();
+  // Phase 27 §3a: anonymous "Try a lesson — no signup" link is shown
+  // ONLY to logged-out visitors. Logged-in users hitting / get the
+  // "Continue learning" path via MarketingCta + the nav's Dashboard
+  // affordance — pushing them toward an anon path would be a
+  // regression. While auth is hydrating, an invisible spacer
+  // reserves the link's row width so the CTA row doesn't reflow
+  // when the resolved state arrives. Mirrors MarketingNav's
+  // "flash of Sign in" defense — Maya is on mobile with a 90s
+  // attention budget; a CTA-row reflow mid-paint reads as
+  // "broken site, still loading."
+  const authUser = useAuthStore((s) => s.user);
+  const authLoading = useAuthStore((s) => s.loading);
   // Lenis instance lives in a ref so the "How it works ↓" click handler
   // can call lenis.scrollTo() — using native scrollIntoView() while
   // Lenis is hijacking wheel/touch events would have the two scroll
@@ -195,6 +210,29 @@ export default function MarketingPage() {
           className="mt-10 flex flex-col items-center gap-4 sm:flex-row sm:gap-6"
         >
           <MarketingCta size="hero" />
+          {/* Phase 27 §3a: no-friction entry point for the TikTok
+              audience — Maya can run lesson 1 without signing up.
+              Anchored to the same row as the primary CTA on desktop;
+              wraps below on mobile. Anon-only — a logged-in user
+              hitting / shouldn't be invited back into the trial path.
+              During auth hydration we render an invisible spacer
+              matching the link's footprint so the CTA row doesn't
+              reflow when the resolved state arrives. */}
+          {authLoading ? (
+            <span
+              aria-hidden="true"
+              className="invisible text-[13.5px]"
+            >
+              Or try a lesson — no signup →
+            </span>
+          ) : !authUser ? (
+            <Link
+              to="/try/lesson/python-fundamentals/hello-world"
+              className="text-[13.5px] text-accent transition hover:text-accent/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+            >
+              Or try a lesson — no signup →
+            </Link>
+          ) : null}
           <a
             href="#how-it-works"
             onClick={(e) => {
