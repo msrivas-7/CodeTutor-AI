@@ -122,13 +122,13 @@ Each scenario has **Setup**, **Steps**, **Expected**, and **Failure modes**. Run
 - t=1s: dark fullscreen overlay; subtle radial glow rising; nothing else visible yet.
 - t=4s: REPL prompt visible — text reads `>>> print("Hello, " + name + "!")`. Type writing animation in progress (cursor blinking).
 - t=8s: Code line settled; about to flash into hero text.
-- t=12s: Output preview line `Hello, YOUR_NAME!` visible (monospace) with the substring `YOUR_NAME` opacity-pulsing + dashed-underlined at accent color (a "fillable slot"). Hero text "Your turn." visible left-aligned BELOW the output preview, large display font (Phase 27-v2.1 anon variant — direct call-to-action; the user's actual name materializes later in the lesson, not in the cinematic).
+- t=12s: Output preview line `Hello, ____!` visible (monospace) with the substring `____` (four underscores) opacity-pulsing + dashed-underlined at accent color (a "fillable slot"). Hero text "Your turn." visible left-aligned BELOW the output preview, large display font (Phase 27-v2.2 Fix 2: was `Hello, YOUR_NAME!` in v2.1 — the literal token pre-resolved the in-lesson auto-Run reveal; blanks read as fillable without telegraphing).
 - t=16s: Cinematic dismissed. WorkspaceCoach 6-step tour mounted (first bubble: "Lesson Instructions").
 - "Skip" button bottom-right of cinematic visible from t≥4s onward.
 
 **Failure modes**:
 - Cinematic shows JavaScript code (`reverse() === ...` style) → STALE — Day 2 fix didn't land. CODE_LINE in `frontend/src/features/firstRun/CinematicGreeting.tsx:125` should be `'>>> print("Hello, " + name + "!")'`.
-- Hero says "Hello, there!" or "Hi, there!" or "Hello, world." → STALE — v2.1 anon redesign didn't land. Anon hero MUST read "Your turn." with the `Hello, YOUR_NAME!` output preview rendered above it.
+- Hero says "Hello, there!" or "Hi, there!" or "Hello, world." → STALE — v2.1 anon redesign didn't land. Anon hero MUST read "Your turn." with the `Hello, ____!` output preview rendered above it (Phase 27-v2.2 Fix 2 — was `Hello, YOUR_NAME!`; if you see the literal YOUR_NAME token in the cinematic, the placeholder change didn't land).
 - Cinematic restarts mid-arc (visible pop / glitch in the typewriter beat) → Day 2 round-2 P0 regression — `cinematicNode` not at same tree position across all branches.
 - "Loading lesson…" muted text visible briefly before cinematic mounts → also Day 2 round-2 regression.
 

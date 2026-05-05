@@ -144,9 +144,15 @@ test.describe("anonymous lesson 1 (Phase 27 §3a)", () => {
 test.describe("first-run cinematic on /try/ (Phase 27-v2 Day 2)", () => {
   // Phase 27-v2: Maya's hero moment moves OFF /welcome and ONTO /try/.
   // Phase 27-v2.1: anon variant of the cinematic — "Your turn." hero,
-  // output preview "Hello, YOUR_NAME!" with placeholder pulse, left-
-  // aligned hero+output stack, cursor-into-slot transition, support
-  // line cut. Authed /welcome cinematic stays unchanged.
+  // output preview placeholder pulse, left-aligned hero+output stack,
+  // cursor-into-slot transition, support line cut. Authed /welcome
+  // cinematic stays unchanged.
+  // Phase 27-v2.2 Fix 2: output preview template changed from
+  // "Hello, YOUR_NAME!" to "Hello, ____!" — the literal YOUR_NAME
+  // token in the cinematic was pre-resolving the lesson moment
+  // (the in-lesson auto-Run also prints "Hello, YOUR_NAME!" a few
+  // seconds later). Blanks read as fillable without telegraphing
+  // the exact lesson output.
 
   test("cinematic plays on first visit and is dismissable via Esc", async ({
     page,
@@ -168,11 +174,12 @@ test.describe("first-run cinematic on /try/ (Phase 27-v2 Day 2)", () => {
     await expect(page.getByText("Your turn.", { exact: true })).toBeVisible({
       timeout: 12_000,
     });
-    // Phase 27-v2.1 — anon cinematic also renders an output preview
-    // line `Hello, YOUR_NAME!` with the YOUR_NAME placeholder pulsing
-    // as a fillable slot. The substring "YOUR_NAME" is the visual
-    // setup for the lesson task.
-    await expect(page.getByText(/Hello, YOUR_NAME!/)).toBeVisible({
+    // Phase 27-v2.2 Fix 2 — anon cinematic renders an output preview
+    // line `Hello, ____!` with `____` as the pulsing placeholder
+    // (was `Hello, YOUR_NAME!` in v2.1; the literal token pre-resolved
+    // the in-lesson auto-Run's reveal). Blanks read as fillable; the
+    // lesson auto-Run still prints `Hello, YOUR_NAME!` after dismiss.
+    await expect(page.getByText(/Hello, ____!/)).toBeVisible({
       timeout: 12_000,
     });
 

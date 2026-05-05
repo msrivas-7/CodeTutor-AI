@@ -180,8 +180,16 @@ export default function AnonLessonPage() {
           heroLine="Your turn."
           subtitle="Make it say your name."
           outputPreview={{
-            template: "Hello, YOUR_NAME!",
-            placeholder: "YOUR_NAME",
+            // Phase 27-v2.2 Fix 2: was `Hello, YOUR_NAME!`. The cinematic
+            // displayed `Hello, YOUR_NAME!` and the lesson auto-Run a few
+            // seconds later printed the same exact string — the "Run
+            // prints the thing" reveal landed as a re-run of a clip
+            // Maya just watched. Plain blanks are the "fillable slot"
+            // signal without telegraphing the lesson output. The
+            // literal `YOUR_NAME` token stays in the lesson starter and
+            // the auto-Run, where it serves as the reveal.
+            template: "Hello, ____!",
+            placeholder: "____",
           }}
           heroAlign="left"
           cursorIntoSlot
