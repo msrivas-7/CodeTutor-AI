@@ -95,3 +95,74 @@ export function usePersistedFlag(
   );
   return [value, setValue];
 }
+
+// Phase 27 — device-local boolean flag, mirrors usePersistedFlag's
+// signature but persists to localStorage instead of the server-stored
+// uiLayout bucket. Use for UI state where the right value depends on
+// the device class (mobile vs desktop) — e.g., panel collapse flags.
+//
+// The bug this fixes: a user on a phone collapses the instructions or
+// tutor panel (or A20's auto-collapse fires on a narrow viewport),
+// then opens the same lesson on desktop — and the panel is still
+// collapsed. A new learner has no idea where the instructions went or
+// how to find the tutor. Server-side persistence is the right home
+// for cross-device prefs (theme, persona, BYOK key); collapse state
+// is per-device.
+//
+// Read happens synchronously in useState init so there's no flicker
+// between default render and the localStorage value. Writes go
+// through the standard React batch — there's no debounce because
+// collapse toggles are infrequent.
+//
+// Per /Users/mehul/.claude/projects/-Users-mehul-Projects-AICodeEditor/
+// memory/feedback_no_localstorage_migration.md: localStorage is fine
+// for device-local UI state; the rule "no localStorage → DB migration
+// ever" applies to legacy DATA hydration, not to per-device prefs.
+function readLocalStorageFlag(key: string, fallback: boolean): boolean {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (raw === null) return fallback;
+    if (raw === "true") return true;
+    if (raw === "false") return false;
+    return fallback;
+  } catch {
+    // localStorage can throw in private-mode Safari, sandboxed iframes,
+    // or when the quota is exhausted. Falling back is silent on
+    // purpose — the panel just renders in its default state.
+    return fallback;
+  }
+}
+
+function writeLocalStorageFlag(key: string, value: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(key, value ? "true" : "false");
+  } catch {
+    // Same swallow as the read path — write failures aren't fatal,
+    // the user can re-toggle if a future read returns the fallback.
+  }
+}
+
+export function useLocalStorageFlag(
+  key: string,
+  fallback: boolean,
+): [boolean, React.Dispatch<React.SetStateAction<boolean>>] {
+  const [value, setStateValue] = useState<boolean>(() =>
+    readLocalStorageFlag(key, fallback),
+  );
+  const setValue = useCallback<React.Dispatch<React.SetStateAction<boolean>>>(
+    (next) => {
+      setStateValue((prev) => {
+        const resolved =
+          typeof next === "function"
+            ? (next as (prev: boolean) => boolean)(prev)
+            : next;
+        writeLocalStorageFlag(key, resolved);
+        return resolved;
+      });
+    },
+    [key],
+  );
+  return [value, setValue];
+}

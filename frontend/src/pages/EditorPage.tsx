@@ -33,7 +33,13 @@ import { NarrowViewportGate } from "../components/NarrowViewportGate";
 import { SkipToContent } from "../components/SkipToContent";
 import { EditorCoach } from "../components/EditorCoach";
 import { usePreferencesStore } from "../state/preferencesStore";
-import { clamp, clampSide, usePersistedNumber, usePersistedFlag, useNarrowViewport } from "../util/layoutPrefs";
+import {
+  clamp,
+  clampSide,
+  usePersistedNumber,
+  useLocalStorageFlag,
+  useNarrowViewport,
+} from "../util/layoutPrefs";
 import { COACH_AUTO_OPEN_MS } from "../util/timings";
 
 const LS_LEFT = "ui:leftW";
@@ -80,8 +86,12 @@ export default function EditorPage() {
   const [leftW, setLeftW] = usePersistedNumber(LS_LEFT, DEFAULTS.left);
   const [rightW, setRightW] = usePersistedNumber(LS_RIGHT, DEFAULTS.right);
   const [outputH, setOutputH] = usePersistedNumber(LS_OUT, DEFAULTS.out);
-  const [tutorCollapsed, setTutorCollapsed] = usePersistedFlag(LS_TUTOR, false);
-  const [filesCollapsed, setFilesCollapsed] = usePersistedFlag(LS_FILES, false);
+  // Phase 27 bug fix: collapse flags moved from server-persisted
+  // uiLayout to localStorage so a phone-collapse doesn't leak into
+  // a desktop session. See useLessonLayout.ts for the same fix on
+  // the lesson page.
+  const [tutorCollapsed, setTutorCollapsed] = useLocalStorageFlag(LS_TUTOR, false);
+  const [filesCollapsed, setFilesCollapsed] = useLocalStorageFlag(LS_FILES, false);
   const [showSettings, setShowSettings] = useState(false);
   const [showCoach, setShowCoach] = useState(false);
 

@@ -1,11 +1,22 @@
 import { useEffect, useRef, useState } from "react";
 import { usePreferencesStore } from "../../../state/preferencesStore";
-import { usePersistedFlag, usePersistedNumber, useNarrowViewport } from "../../../util/layoutPrefs";
+import {
+  useLocalStorageFlag,
+  usePersistedNumber,
+  useNarrowViewport,
+} from "../../../util/layoutPrefs";
 import { COACH_AUTO_OPEN_MS } from "../../../util/timings";
 
 const LS_OUT_H = "ui:lesson:outputH";
 const LS_INSTR_W = "ui:lesson:instrW";
 const LS_TUTOR_W = "ui:lesson:tutorW";
+// Phase 27 bug fix: collapse flags moved from server-persisted
+// uiLayout to localStorage. A user collapsing on phone (or A20's
+// narrow-viewport auto-collapse firing on phone) was leaking state
+// to desktop sessions — a new learner opening their laptop saw a
+// hidden tutor panel + hidden instructions, no obvious recovery.
+// Device-local flags fix that. Same "ui:lesson:" prefix kept for
+// DevTools grep-ability.
 const LS_INSTR_COLLAPSED = "ui:lesson:instrCollapsed";
 const LS_TUTOR_COLLAPSED = "ui:lesson:tutorCollapsed";
 
@@ -32,8 +43,8 @@ export function useLessonLayout({ lessonReady }: UseLessonLayoutArgs) {
   const [outputH, setOutputH] = usePersistedNumber(LS_OUT_H, LESSON_LAYOUT_DEFAULTS.out);
   const [instrW, setInstrW] = usePersistedNumber(LS_INSTR_W, LESSON_LAYOUT_DEFAULTS.instr);
   const [tutorW, setTutorW] = usePersistedNumber(LS_TUTOR_W, LESSON_LAYOUT_DEFAULTS.tutor);
-  const [instrCollapsed, setInstrCollapsed] = usePersistedFlag(LS_INSTR_COLLAPSED, false);
-  const [tutorCollapsed, setTutorCollapsed] = usePersistedFlag(LS_TUTOR_COLLAPSED, false);
+  const [instrCollapsed, setInstrCollapsed] = useLocalStorageFlag(LS_INSTR_COLLAPSED, false);
+  const [tutorCollapsed, setTutorCollapsed] = useLocalStorageFlag(LS_TUTOR_COLLAPSED, false);
 
   // A20: below 1024 px three columns starve the editor. Auto-collapse the
   // tutor rail once on mount — instructions + editor stay visible. Users
