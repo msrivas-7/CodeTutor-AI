@@ -5,6 +5,7 @@ import { assertConfigValid, config } from "./config.js";
 import { sessionRouter } from "./routes/session.js";
 import { createProjectRouter } from "./routes/project.js";
 import { createExecutionRouter } from "./routes/execution.js";
+import { createAnonRouter } from "./routes/anon.js";
 import { createExecuteTestsRouter } from "./routes/executeTests.js";
 import { aiRouter } from "./routes/ai.js";
 import { userDataRouter } from "./routes/userData.js";
@@ -374,6 +375,32 @@ async function main() {
     authMiddleware,
     aiRateLimit,
     aiRouter,
+  );
+
+  // Phase 27 §3a: anonymous (signed-out) lesson endpoints. Unlike every
+  // other /api/* mount above, this one DELIBERATELY skips csrfGuard +
+  // authMiddleware — anon callers have no session cookie, so there's
+  // no identity an attacker could trick a user's browser into
+  // forging. Defenses come from elsewhere:
+  //   - aiRateLimit at mount (60/min/IP via bucketKey IP-floor fallback)
+  //   - sessionCreateLimit on /run only (30/min/IP); container
+  //     creation is the expensive op so the anon /run gets the same
+  //     floor authed /api/session has. Applied at the route level
+  //     in createAnonRouter — /ai/ask/stream keeps the looser
+  //     aiRateLimit budget (no container spawn).
+  //   - L_anon per-IP daily count + combined L4 $ cap (credential.ts)
+  //   - sandbox egress isolation (Phase 27 §3c)
+  //   - per-request output cap + 25s deadline + 250KB prompt-size
+  //     guard (Phase 27 §3b)
+  // The surface is two endpoints: /run (one-shot Python exec) and
+  // /ai/ask/stream (anon tutor SSE). Save / progress / streak / BYOK
+  // surfaces have NO anon variant; the frontend's SignupWallDialog
+  // catches those clicks instead.
+  app.use(
+    "/api/anon",
+    bodyLimit(1024 * 1024),
+    aiRateLimit,
+    createAnonRouter(executionBackend),
   );
 
   // Phase 18b: per-user state in Supabase Postgres (preferences, progress,

@@ -157,8 +157,8 @@ export const aiTokensConsumed = new Counter({
 // to <50 series permanently — no per-user labels. The operator graph
 // is a stacked bar of outcomes over time: a climbing 'exhausted' bar
 // is exactly the demand signal the free tier is meant to surface.
-// (Phase 27 §3d: 'anon_exhausted' added; current cardinality is 12
-// outcomes × 3 routes = 36 series.)
+// (Phase 27 §3d added 'anon_exhausted'; §3a added 'byok_unexpected_anon'.
+// Current cardinality is 13 outcomes × 3 routes = 39 series.)
 export const aiPlatformRequests = new Counter({
   name: "ai_platform_requests_total",
   help: "Platform AI requests, by resolver outcome and route.",
