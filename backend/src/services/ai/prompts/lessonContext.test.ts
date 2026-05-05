@@ -87,6 +87,15 @@ describe("buildLessonContextBlock", () => {
     expect(block).toMatch(/define the tested function/);
   });
 
+  it("renders forbidden_in_stdout rule as avoid task description", () => {
+    const ctx: LessonContext = {
+      ...full,
+      completionRules: [{ type: "forbidden_in_stdout", pattern: "YOUR_NAME" }],
+    };
+    const block = buildLessonContextBlock(ctx);
+    expect(block).toMatch(/avoid producing stdout containing "YOUR_NAME"/);
+  });
+
   it("renders custom_validator as pass custom validation", () => {
     const ctx: LessonContext = {
       ...full,

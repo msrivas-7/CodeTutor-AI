@@ -21,6 +21,10 @@
     {
       "type": "expected_stdout",
       "expected": "Hello, "
+    },
+    {
+      "type": "forbidden_in_stdout",
+      "pattern": "YOUR_NAME"
     }
   ],
   "prerequisiteLessonIds": [],

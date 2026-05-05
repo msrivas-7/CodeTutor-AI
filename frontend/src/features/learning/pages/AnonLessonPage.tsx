@@ -1,14 +1,23 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
 import Editor, { type OnMount } from "@monaco-editor/react";
 import type { editor as MonacoEditor } from "monaco-editor";
 import { loadFullLesson } from "../content/courseLoader";
+import { validateLesson } from "../utils/validator";
 import type { Lesson } from "../types";
 import type { RunResult } from "../../../types";
 import { SignupWallDialog, type SignupWallReason } from "../components/SignupWallDialog";
 import { CinematicGreeting } from "../../firstRun/CinematicGreeting";
 import { useFirstRunStore } from "../../firstRun/useFirstRunStore";
-import { hasCinematicSeen, markCinematicSeen } from "../../anon/anonStash";
+import { useFirstRunChoreography } from "../../firstRun/useFirstRunChoreography";
+import { useAIStore } from "../../../state/aiStore";
+import { useRunStore } from "../../../state/runStore";
+import {
+  extractNameFromCode,
+  hasCinematicSeen,
+  markCinematicSeen,
+  writeAnonStash,
+} from "../../anon/anonStash";
 
 // Phase 27 §3a — anonymous lesson 1 page.
 //
@@ -52,8 +61,23 @@ export default function AnonLessonPage() {
   const [lesson, setLesson] = useState<Lesson | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [code, setCode] = useState("");
+  // Phase 27-v2 Day 3b: capture the starter contents at lesson load
+  // so the choreography's runner.hasEdited can flip from false → true
+  // when the learner mutates the buffer. Without a stable starter
+  // baseline, hasEdited would always read true (the runner sees
+  // `code` which equals starterFiles[0].content from the moment the
+  // page mounts).
+  const [starterCode, setStarterCode] = useState("");
   const [running, setRunning] = useState(false);
   const [output, setOutput] = useState<RunResult | null>(null);
+  // Tracks how many times handleRun has resolved — the runner
+  // contract uses `hasRun: boolean` (any run done), but the
+  // choreography also disambiguates "auto-run for celebrateRun" from
+  // "user's own run for awaitEdit" by watching for a NEW result
+  // reference after step transitions to awaitEdit. Counter is just
+  // for debugging tooling; the boolean derived below is what the
+  // hook reads.
+  const [runCount, setRunCount] = useState(0);
   const [tutorInput, setTutorInput] = useState("");
   const [tutorMessages, setTutorMessages] = useState<TutorMessage[]>([]);
   const [tutorAsking, setTutorAsking] = useState(false);
@@ -101,6 +125,120 @@ export default function AnonLessonPage() {
     editorRef.current = editor;
   };
 
+  // Phase 27-v2 Day 3b: shared run state for the choreography hook.
+  // hasRun = at least one /api/anon/run round-trip has resolved (which
+  // updates `output` and bumps runCount). hasEdited = the buffer
+  // diverges from the captured starter — once true it stays true
+  // even if the learner reverts (Monaco's history is the recovery
+  // path, the runner just cares about "did they ever touch it").
+  const hasEdited = code !== starterCode && starterCode.length > 0;
+  // Phase 27 first-run choreography step (also drives the Check
+  // affordance reveal — Check is hidden until the praise turn lands).
+  const firstRunStep = useFirstRunStore((s) => s.step);
+
+  // Choreography wakes up only after the cinematic has dismissed
+  // AND the lesson has loaded (otherwise the greet beat fires while
+  // Maya's still watching the cinematic, or before Monaco is ready
+  // to receive the auto-Run). step === "done" tear-down handled by
+  // the hook itself.
+  const choreographyEnabled = !showCinematic && lesson !== null;
+
+  // handleRun is defined later in this function (it depends on
+  // state declared above), but the choreography needs a stable
+  // reference NOW to bind into runner.handleRun. A ref breaks the
+  // declaration cycle: render → ref-update effect → choreography
+  // reads ref.current at the moment it auto-clicks, never during
+  // the render that reads useFirstRunChoreography itself.
+  const handleRunRef = useRef<() => Promise<void>>(async () => {});
+
+  // Stable wrapper for the praise-time name extractor. Without this
+  // useRef indirection, the inline `() => extractNameFromCode(code)`
+  // arrow we'd otherwise pass to useFirstRunChoreography is a NEW
+  // function identity on every render — and `code` changes on every
+  // Monaco keystroke, so each render triggers the choreography
+  // effect's deps to re-fire, which would re-execute step transitions
+  // (praiseEditRun would stream the praise turn TWICE if Maya types
+  // a character mid-stream). The ref gives the hook a stable reference
+  // it can call lazily at the praise-time moment to read the current
+  // code, without participating in render-trigger reactivity.
+  const codeRef = useRef(code);
+  codeRef.current = code;
+  const resolvePraiseNameRef = useRef(() =>
+    extractNameFromCode(codeRef.current),
+  );
+
+  // Phase 27-v2 Day 3c: lesson-completion validator. Pure derivation
+  // off (output, code, lesson.completionRules) — runs every render
+  // but the validator itself is cheap (substring + small string ops).
+  // Used by (a) the choreography's awaitCheck step, which transitions
+  // to seed when validation.passed flips true, and (b) the Check
+  // button's enable state. The dual-rule lesson 1 (expected_stdout
+  // "Hello, " + forbidden_in_stdout "YOUR_NAME") guarantees this
+  // only flips true after Maya replaces YOUR_NAME with her own
+  // value AND runs the program.
+  const validation = useMemo(() => {
+    if (!output || !lesson) return null;
+    return validateLesson(
+      output,
+      [{ path: "main.py", content: code }],
+      lesson.completionRules,
+      { language: lesson.language },
+    );
+  }, [output, lesson, code]);
+
+  // Lesson-complete state — flipped when the user clicks Check AND
+  // validation passes. Mounts the celebration overlay below in place
+  // of the bottom Save / Next-lesson row.
+  const [lessonComplete, setLessonComplete] = useState(false);
+
+  // Single source of the typed name. The celebration JSX header AND
+  // the Sign Up CTA's stash payload both must agree on what gets
+  // shown post-signup: if the celebration says "You did it, Maya."
+  // and the stash carries name="maya" (lowercase) due to a future
+  // parser tweak, lesson 2's tutor would open with "Hey maya" while
+  // the celebration she JUST saw said "Maya." Memoizing once means
+  // any future change to the parser stays consistent across both
+  // surfaces. No deps on `code` directly because the parser already
+  // closes over it; React recomputes on every code edit, which is
+  // what we want.
+  const parsedName = useMemo(() => extractNameFromCode(code), [code]);
+
+  // Phase 27-v2 Day 3b: scripted-tutor history rendered alongside
+  // the user-driven tutor Q&A. The choreography pushes turns into
+  // useAIStore via pushScriptedAssistant; we read history + pending
+  // here so the bubble shows greet → celebrateRun → praise as they
+  // type in. The local `tutorMessages` state continues to hold the
+  // user's post-scripted Q&A turns. Both lists are rendered in
+  // chronological order (scripted first — they always fire before
+  // any user-driven question can land).
+  const scriptedHistory = useAIStore((s) => s.history);
+  const scriptedPending = useAIStore((s) => s.pending);
+  const scriptedActive = firstRunStep !== "idle" && firstRunStep !== "done";
+
+  useFirstRunChoreography({
+    enabled: choreographyEnabled,
+    firstName: "there",
+    runner: {
+      canRun: !!lesson && !running,
+      hasRun: runCount > 0,
+      hasEdited,
+      running,
+      handleRun: () => handleRunRef.current(),
+    },
+    validator: { validation },
+    onSeed: "anon-stash",
+    resolvePraiseName: resolvePraiseNameRef.current,
+  });
+
+  // Clear runStore on unmount so a user signing up immediately
+  // doesn't have anon stdout sitting in the shared store when
+  // LessonPage mounts. Same hygiene the authed page applies.
+  useEffect(() => {
+    return () => {
+      useRunStore.getState().setResult(null);
+    };
+  }, []);
+
   // Allowlist check — short-circuit with a redirect for any path
   // that doesn't match. The backend would 403 too; this saves a
   // round trip and keeps the anon URL space honest.
@@ -114,7 +252,9 @@ export default function AnonLessonPage() {
       .then((l) => {
         if (cancelled) return;
         setLesson(l);
-        setCode(l.starterFiles[0]?.content ?? "");
+        const starter = l.starterFiles[0]?.content ?? "";
+        setCode(starter);
+        setStarterCode(starter);
       })
       .catch((err: Error) => {
         if (cancelled) return;
@@ -199,6 +339,14 @@ export default function AnonLessonPage() {
       }
       const result = (await res.json()) as RunResult;
       setOutput(result);
+      setRunCount((n) => n + 1);
+      // Mirror into the shared runStore so useFirstRunChoreography's
+      // awaitEdit + celebrateRun observers can read the latest stdout
+      // for personalized-name detection. The choreography hook reads
+      // useRunStore.getState().result directly when picking copy
+      // (see useFirstRunChoreography.ts step="correctEdit" branch);
+      // without this mirror it would always see null on /try/.
+      useRunStore.getState().setResult(result);
     } catch (err) {
       setOutput({
         stdout: "",
@@ -212,6 +360,9 @@ export default function AnonLessonPage() {
       setRunning(false);
     }
   };
+  // Bind the latest handleRun into the ref so choreography auto-clicks
+  // pick up the freshest closure (not stale `lesson` / `code`).
+  handleRunRef.current = handleRun;
 
   const handleAskTutor = async () => {
     const question = tutorInput.trim();
@@ -331,31 +482,43 @@ export default function AnonLessonPage() {
             continue;
           }
           if (evt.delta) {
+            // Phase 27-v2 Day 3d: do NOT append raw JSON deltas into
+            // the visible bubble. The tutor stream emits structured
+            // JSON tokens (`{"summary":"..."`); writing them into
+            // the bubble surfaces the underlying protocol to Maya
+            // for ~2s before `done` arrives with the parsed sections.
+            // Instead we accumulate silently in pendingReply (kept
+            // for debugging via React DevTools / future telemetry)
+            // and let the empty bubble render the "…" thinking
+            // indicator (see jsx fallback `m.content || (tutorAsking
+            // ? "…" : "")`). The bubble flips to human-readable
+            // content the moment `done.sections` lands.
             pendingReply += evt.delta;
-            setTutorMessages((prev) => {
-              const next = [...prev];
-              next[next.length - 1] = { role: "assistant", content: pendingReply };
-              return next;
-            });
           }
           if (evt.done) {
-            // Replace raw JSON-streamed assistant content with the
-            // human-readable section if available — tutor sends a
-            // structured JSON reply; the summary/hint/nextStep are
-            // the parts a learner reads.
-            if (evt.sections) {
-              const s = evt.sections;
-              const human = [s.summary, s.hint, s.nextStep]
-                .filter((x): x is string => !!x && x.length > 0)
-                .join("\n\n");
-              if (human) {
-                setTutorMessages((prev) => {
-                  const next = [...prev];
-                  next[next.length - 1] = { role: "assistant", content: human };
-                  return next;
-                });
-              }
-            }
+            // Replace the empty assistant placeholder with the
+            // human-readable sections — summary/hint/nextStep
+            // joined into one paragraph. If the server sent `done`
+            // without sections (rare — malformed JSON tokens, or a
+            // model that returned text without structure), fall
+            // back to a friendly "couldn't parse" line rather than
+            // leaving a phantom empty bubble next to the now-idle
+            // input.
+            const s = evt.sections;
+            const human = s
+              ? [s.summary, s.hint, s.nextStep]
+                  .filter((x): x is string => !!x && x.length > 0)
+                  .join("\n\n")
+              : "";
+            setTutorMessages((prev) => {
+              const next = [...prev];
+              next[next.length - 1] = {
+                role: "assistant",
+                content: human ||
+                  "Couldn't read the tutor's reply — try asking again?",
+              };
+              return next;
+            });
           }
         }
       }
@@ -480,11 +643,50 @@ export default function AnonLessonPage() {
             <div className="text-[10px] font-semibold uppercase tracking-wider text-faint">
               Stuck? Ask the tutor
             </div>
-            {tutorMessages.length > 0 && (
+            {(scriptedHistory.length > 0 ||
+              scriptedPending !== null ||
+              tutorMessages.length > 0) && (
               <div className="max-h-[20vh] space-y-2 overflow-y-auto rounded-md border border-border bg-bg/50 p-2">
+                {/* Scripted choreography turns — always render first
+                    chronologically. Each turn's `summary` carries the
+                    rendered text (pushScriptedAssistant fills it). */}
+                {scriptedHistory.map((m, i) => {
+                  const text =
+                    m.role === "user"
+                      ? m.content
+                      : (m.sections?.summary ?? m.content);
+                  return (
+                    <div
+                      key={`s-${m.id ?? i}`}
+                      className={`text-[12px] leading-relaxed ${
+                        m.role === "user"
+                          ? "text-ink"
+                          : "rounded bg-accent/[0.06] px-2 py-1 italic text-accent"
+                      }`}
+                    >
+                      {m.role === "user" ? "You: " : "Tutor: "}
+                      <span className="not-italic">{text}</span>
+                    </div>
+                  );
+                })}
+                {/* Pending scripted stream — typewriter-cadenced text
+                    that hasn't yet been committed to history. */}
+                {scriptedPending && (
+                  <div className="rounded bg-accent/[0.06] px-2 py-1 text-[12px] italic leading-relaxed text-accent">
+                    Tutor:{" "}
+                    <span className="not-italic">
+                      {scriptedPending.sections?.summary ??
+                        scriptedPending.raw ??
+                        "…"}
+                    </span>
+                  </div>
+                )}
+                {/* User-driven Q&A — only rendered after the scripted
+                    choreography has handed back ("done"). During
+                    scripted phase, the input below is disabled too. */}
                 {tutorMessages.map((m, i) => (
                   <div
-                    key={i}
+                    key={`u-${i}`}
                     className={`text-[12px] leading-relaxed ${
                       m.role === "user"
                         ? "text-ink"
@@ -513,13 +715,22 @@ export default function AnonLessonPage() {
                 type="text"
                 value={tutorInput}
                 onChange={(e) => setTutorInput(e.target.value)}
-                placeholder="What's confusing you?"
-                disabled={tutorAsking}
+                placeholder={
+                  scriptedActive
+                    ? "Tutor's mid-thought — give them a sec…"
+                    : "What's confusing you?"
+                }
+                // Disabled during scripted choreography so a learner
+                // can't race ahead of the greet → run → praise arc;
+                // the ai-store subscription in useFirstRunChoreography
+                // also treats user typing as a skip signal, so this
+                // is belt-and-suspenders.
+                disabled={tutorAsking || scriptedActive}
                 className="flex-1 rounded-md border border-border bg-bg px-3 py-1.5 text-[13px] text-ink placeholder:text-faint focus:border-accent/60 focus:outline-none disabled:opacity-60"
               />
               <button
                 type="submit"
-                disabled={tutorAsking || !tutorInput.trim()}
+                disabled={tutorAsking || scriptedActive || !tutorInput.trim()}
                 className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-semibold text-bg transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Ask
@@ -528,22 +739,94 @@ export default function AnonLessonPage() {
           </div>
 
           {/* Save / Next CTAs — both gated behind the wall. */}
+          {/* Bottom CTA row. The shape changes once the lesson is
+              complete: pre-completion → Check (gated on validator) +
+              Save (signup wall save-frame). Post-completion → the
+              celebration block below the editor takes over and the
+              Sign-up CTA carries the stash to lesson 2. The Next-
+              lesson and Save buttons disappear once Maya has hit
+              the win moment so the celebration is the only path
+              forward (no competing call-to-action). */}
           <div className="flex items-center justify-end gap-2 border-t border-border bg-bg/60 p-3">
-            <button
-              type="button"
-              onClick={() => setWall({ open: true, reason: "save" })}
-              className="rounded-md border border-border px-3 py-1.5 text-[12px] font-medium text-muted transition hover:bg-elevated hover:text-ink"
-            >
-              Save
-            </button>
-            <button
-              type="button"
-              onClick={() => setWall({ open: true, reason: "next-lesson" })}
-              className="rounded-md bg-gradient-to-r from-accent to-violet px-4 py-1.5 text-[12px] font-bold text-bg transition hover:opacity-90"
-            >
-              Next lesson →
-            </button>
+            {!lessonComplete && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setWall({ open: true, reason: "save" })}
+                  className="rounded-md border border-border px-3 py-1.5 text-[12px] font-medium text-muted transition hover:bg-elevated hover:text-ink"
+                >
+                  Save
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (validation?.passed) {
+                      setLessonComplete(true);
+                    }
+                  }}
+                  disabled={!validation?.passed || scriptedActive}
+                  className="rounded-md bg-gradient-to-r from-accent to-violet px-4 py-1.5 text-[12px] font-bold text-bg transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Check my work ✓
+                </button>
+              </>
+            )}
           </div>
+
+          {/* Phase 27-v2 Day 3c — anon lesson-complete celebration.
+              Renders BELOW the bottom CTA row (which is empty after
+              completion). Confetti-adjacent ring pulse + "Lesson 1
+              complete!" header + a personalized praise line + Sign
+              Up CTA that carries the stash to lesson 2. The CTA
+              click writes sessionStorage with the user's code, name,
+              and the orientation flags that already fired (cinematic
+              + scripted walkthrough); the wall opens with reason
+              "next-lesson" so the copy reads as continuation, not
+              save. */}
+          {lessonComplete && lesson && (
+            <div className="border-t border-border bg-gradient-to-br from-accent/10 via-violet/5 to-transparent p-6 text-center">
+              <div className="text-[11px] font-bold uppercase tracking-widest text-accent">
+                Lesson 1 complete
+              </div>
+              <h2 className="mt-1 font-display text-[28px] font-semibold leading-tight text-ink">
+                {parsedName
+                  ? `You did it, ${parsedName}.`
+                  : "You wrote your first program."}
+              </h2>
+              <p className="mt-2 text-[14px] text-muted">
+                Lesson 2 picks up right where you are. Sign up to keep going —
+                your code and name come with you.
+              </p>
+              <div className="mt-5 flex items-center justify-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    writeAnonStash({
+                      completedAt: new Date().toISOString(),
+                      courseId: ANON_ALLOWED.courseId,
+                      lessonId: ANON_ALLOWED.lessonId,
+                      code,
+                      name: parsedName,
+                      // Day 2 + Day 3b actually shipped on anon —
+                      // welcome/cinematic + scripted walkthrough.
+                      // WorkspaceCoach hasn't shipped on anon yet
+                      // (Day 6); record honestly so the handoff
+                      // doesn't suppress a feature Maya never saw.
+                      flags: {
+                        welcomeDone: true,
+                        firstRunDone: true,
+                        workspaceCoachDone: false,
+                      },
+                    });
+                    setWall({ open: true, reason: "next-lesson" });
+                  }}
+                  className="rounded-md bg-gradient-to-r from-accent to-violet px-5 py-2 text-[13px] font-bold text-bg shadow-md transition hover:opacity-90"
+                >
+                  Sign up to keep going →
+                </button>
+              </div>
+            </div>
+          )}
         </section>
       </div>
 

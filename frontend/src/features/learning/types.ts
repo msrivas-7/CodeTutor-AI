@@ -52,7 +52,12 @@ export interface TestReport {
 }
 
 export interface CompletionRule {
-  type: "expected_stdout" | "required_file_contains" | "custom_validator" | "function_tests";
+  type:
+    | "expected_stdout"
+    | "forbidden_in_stdout"
+    | "required_file_contains"
+    | "custom_validator"
+    | "function_tests";
   expected?: string;
   file?: string;
   pattern?: string;

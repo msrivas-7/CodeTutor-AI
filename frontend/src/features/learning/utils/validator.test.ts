@@ -84,6 +84,51 @@ describe("validateLesson", () => {
     expect(result.feedback[0]).toMatch(/error/i);
   });
 
+  it("passes forbidden_in_stdout when pattern is absent", () => {
+    const rules: CompletionRule[] = [
+      { type: "forbidden_in_stdout", pattern: "YOUR_NAME" },
+    ];
+    const result = validateLesson(okRun, files, rules);
+    expect(result.passed).toBe(true);
+  });
+
+  it("fails forbidden_in_stdout when pattern still appears in output", () => {
+    const dirtyRun = { ...okRun, stdout: "Hello, YOUR_NAME!\n" };
+    const rules: CompletionRule[] = [
+      { type: "forbidden_in_stdout", pattern: "YOUR_NAME" },
+    ];
+    const result = validateLesson(dirtyRun, files, rules);
+    expect(result.passed).toBe(false);
+    expect(result.feedback[0]).toMatch(/YOUR_NAME/);
+  });
+
+  it("rejects unedited lesson 1 starter under expected_stdout + forbidden_in_stdout pair", () => {
+    // Phase 27-v2 Day 3a — the lesson 1 contract. Stdout from the
+    // unedited starter is `Hello, YOUR_NAME!\n`; it contains the
+    // expected substring "Hello, " but ALSO contains the forbidden
+    // "YOUR_NAME" sentinel. Both rules must fire on the same run for
+    // the lesson to feel honest — Maya can't share a "I did it!"
+    // celebration whose stdout still has the placeholder name.
+    const unedited = { ...okRun, stdout: "Hello, YOUR_NAME!\n" };
+    const rules: CompletionRule[] = [
+      { type: "expected_stdout", expected: "Hello, " },
+      { type: "forbidden_in_stdout", pattern: "YOUR_NAME" },
+    ];
+    const result = validateLesson(unedited, files, rules);
+    expect(result.passed).toBe(false);
+    // The personalized stdout DOES pass.
+    const personalized = { ...okRun, stdout: "Hello, Maya!\n" };
+    expect(validateLesson(personalized, files, rules).passed).toBe(true);
+  });
+
+  it("fails forbidden_in_stdout when no run result exists", () => {
+    const rules: CompletionRule[] = [
+      { type: "forbidden_in_stdout", pattern: "YOUR_NAME" },
+    ];
+    const result = validateLesson(null, files, rules);
+    expect(result.passed).toBe(false);
+  });
+
   it("passes required_file_contains when pattern is present", () => {
     const rules: CompletionRule[] = [
       { type: "required_file_contains", file: "main.py", pattern: "print" },

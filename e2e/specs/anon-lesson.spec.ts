@@ -62,8 +62,17 @@ test.describe("anonymous lesson 1 (Phase 27 §3a)", () => {
     // Tutor input — the "Stuck? Ask the tutor" affordance must be
     // reachable without scrolling on desktop. Maya's persona check.
     await expect(page.getByText(/Stuck\? Ask the tutor/i)).toBeVisible();
+    // Phase 27-v2 Day 3b: choreography fires synchronously after the
+    // cinematic seed short-circuits, so during the scripted greet/run/
+    // praise arc the placeholder reads "Tutor's mid-thought — give
+    // them a sec…". After step==="done" it falls back to "What's
+    // confusing you?". Either string is acceptable for this test —
+    // we're verifying the input affordance is present, not which
+    // scripted phase Maya happens to be in when Playwright assertions
+    // hit. The Esc-skip cinematic test (`first-run cinematic on /try/`
+    // describe below) covers the dismissed-state flow explicitly.
     await expect(
-      page.getByPlaceholder(/What's confusing you\?/i),
+      page.getByPlaceholder(/What's confusing you|Tutor's mid-thought/i),
     ).toBeVisible();
   });
 
@@ -97,20 +106,17 @@ test.describe("anonymous lesson 1 (Phase 27 §3a)", () => {
     await expect(dialog).toHaveCount(0);
   });
 
-  test("clicking 'Next lesson' opens the wall with the keep-going frame", async ({
-    page,
-  }) => {
-    await page.goto(ALLOWED_PATH);
-    await expect(page.getByRole("heading", { level: 1 })).toBeVisible({
-      timeout: 10_000,
-    });
-
-    await page.getByRole("button", { name: /next lesson/i }).click();
-    const dialog = page.getByRole("alertdialog");
-    await expect(dialog).toBeVisible();
-    // The "next-lesson" reason title is "Keep going?".
-    await expect(dialog.getByText(/Keep going\?/i)).toBeVisible();
-  });
+  // Phase 27-v2 Day 3c: the "Next lesson →" button was removed from
+  // the bottom CTA row. Post-completion the celebration block's
+  // "Sign up to keep going →" CTA writes the anon stash and opens
+  // the wall with reason="next-lesson". The full Run → edit → Run →
+  // Check → celebration → click sequence is the Day 5 anon→signup→
+  // lesson-2 e2e's job; we don't have a driven flow here today
+  // because it requires a real /api/anon/run round-trip + scripted
+  // choreography wait that this navigation-only spec was never
+  // designed to host. The previous test that asserted the bottom-row
+  // "Next lesson →" button was deleted with this commit — it tested
+  // a button that no longer exists. Day 5 adds the replacement.
 
   test("non-allowlisted lesson path redirects to /", async ({ page }) => {
     // The allowlist locks anon to python-fundamentals/hello-world.

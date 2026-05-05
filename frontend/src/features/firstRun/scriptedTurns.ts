@@ -30,7 +30,7 @@ export const PRAISE_EDIT_RUN_AND_SEED = (name: string): string =>
   `Perfect, ${name} — your computer just said hi to you, by name. ` +
   "Every lesson from here works the same: read the idea, tweak the code, " +
   "run it, check your work, ask me anything. " +
-  "For now, one last step: click **Check my work** to finish the lesson.";
+  "For now, one last step: click Check my work to finish the lesson.";
 
 // Fallback copy for the edge case where `runner.canRun` never becomes
 // true (backend down, session start failed). We don't let the

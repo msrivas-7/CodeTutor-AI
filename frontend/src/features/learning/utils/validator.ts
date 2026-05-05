@@ -88,6 +88,35 @@ export function validateLesson(
         }
         break;
       }
+      case "forbidden_in_stdout": {
+        // Phase 27-v2 Day 3a: paired with expected_stdout for lesson 1
+        // — rejects any stdout that still contains the placeholder
+        // sentinel (`YOUR_NAME` in lesson 1's case). Without this,
+        // the substring `expected_stdout: "Hello, "` happily passes
+        // the unedited starter's output `Hello, YOUR_NAME!` and the
+        // user can ship a "Sign up to keep going!" wall having done
+        // literally zero edits to the starter — trust break before
+        // the win moment ever lands.
+        if (!result) {
+          feedback.push("Run your code first before checking.");
+          allPassed = false;
+          break;
+        }
+        const forbidden = (rule.pattern ?? "").trim();
+        const stdoutForCheck = (result.stdout ?? "");
+        if (forbidden && stdoutForCheck.includes(forbidden)) {
+          feedback.push(
+            `Your output still contains "${forbidden}" — replace it with your own value first.`,
+          );
+          nextHints.push(
+            `Edit the code so the printed output no longer contains "${forbidden}".`,
+          );
+          allPassed = false;
+        } else {
+          feedback.push(`Output doesn't contain "${forbidden}" — good.`);
+        }
+        break;
+      }
       case "required_file_contains": {
         const targetPath = rule.file ?? (extra.language ? LANGUAGE_ENTRYPOINT[extra.language] : "main.py");
         const file = files.find((f) => f.path === targetPath);

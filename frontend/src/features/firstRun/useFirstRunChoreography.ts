@@ -54,6 +54,32 @@ interface UseFirstRunChoreographyArgs {
   validator: {
     validation: ValidationResult | null;
   };
+  /**
+   * Phase 27-v2 Day 3b: how the seed step persists "first-run is done."
+   *
+   *   "authed-mark-prefs" — default; calls markFirstRunComplete() which
+   *     PATCHes /api/preferences. Used by the authed /welcome flow.
+   *   "anon-stash" — caller (AnonLessonPage) handles persistence
+   *     itself by writing the sessionStorage stash on the wall click.
+   *     Choreography just transitions to "done" and exits cleanly.
+   *     Required because the anon path has no req.userId for
+   *     PATCH /api/preferences and the resolveAnonAICredential layer
+   *     would 401 a first-run choreography PATCH that leaked over.
+   *
+   * Default keeps existing /welcome behavior unchanged.
+   */
+  onSeed?: "authed-mark-prefs" | "anon-stash";
+  /**
+   * Phase 27-v2 Day 3b option (d): on anon path, the praise turn
+   * extracts the user's typed name from main.py at praise time and
+   * personalizes the celebration ("Perfect, Maya — your computer
+   * just said hi to you, by name."). Caller passes a getter that
+   * reads the current code and returns the parsed name (or null if
+   * the user kept YOUR_NAME or removed the assignment). Authed path
+   * leaves this undefined; choreography uses the user_metadata
+   * firstName like before.
+   */
+  resolvePraiseName?: () => string | null;
 }
 
 const GREET_TO_RUN_POLL_MS = 150;
@@ -78,6 +104,8 @@ export function useFirstRunChoreography({
   firstName,
   runner,
   validator,
+  onSeed = "authed-mark-prefs",
+  resolvePraiseName,
 }: UseFirstRunChoreographyArgs): void {
   const step = useFirstRunStore((s) => s.step);
   const skipped = useFirstRunStore((s) => s.skipped);
@@ -284,8 +312,16 @@ export function useFirstRunChoreography({
           // "Next lesson" prompt takes over — they won't come back to
           // read another scripted turn. So this is the real final
           // word from the scripted tutor.
+          //
+          // Phase 27-v2 Day 3b option (d): on anon path, resolve the
+          // user's typed name from their code at praise time and use
+          // it instead of the prop firstName. firstName on anon is
+          // "there" by design (we don't ask for a name at trial
+          // entry); the typed name landing on praise is exactly the
+          // moment personalization is earned and powerful.
+          const praiseName = resolvePraiseName?.() ?? firstName;
           const stream = pushScriptedAssistant(
-            PRAISE_EDIT_RUN_AND_SEED(firstName),
+            PRAISE_EDIT_RUN_AND_SEED(praiseName),
           );
           currentStreamRef.current = stream;
           await stream.done;
@@ -295,17 +331,20 @@ export function useFirstRunChoreography({
         }
 
         if (step === "seed") {
-          // Final step — flag the first-run as done server-side. The
-          // choreography exits cleanly; real tutor input is now
-          // unlocked (no scripted turns gate, and
-          // `welcomeDone === true` prevents the next LessonPage mount
-          // from re-running this hook). Check cancel BEFORE the await
-          // so a user who just skipped doesn't get a trailing server
-          // patch; check AGAIN after so a skip during the await
-          // aborts the setStep.
+          // Final step — choreography exits cleanly; real tutor input
+          // is now unlocked. On the authed path we PATCH preferences
+          // so welcomeDone=true and the next LessonPage mount doesn't
+          // re-run this hook. On the anon path the caller handles
+          // persistence via sessionStorage stash on the wall click —
+          // we just transition to "done" so the runner doesn't loop.
+          // Check cancel BEFORE the await so a skip doesn't trigger
+          // a trailing server patch; check AGAIN after so a skip
+          // during the await aborts the setStep.
           if (cancelled) return;
-          await markFirstRunComplete();
-          if (cancelled) return;
+          if (onSeed === "authed-mark-prefs") {
+            await markFirstRunComplete();
+            if (cancelled) return;
+          }
           setStep("done");
           return;
         }
@@ -315,7 +354,7 @@ export function useFirstRunChoreography({
     })();
 
     return cancel;
-  }, [enabled, skipped, step, firstName, setStep, skip]);
+  }, [enabled, skipped, step, firstName, onSeed, resolvePraiseName, setStep, skip]);
 
   // Observer: celebrateRun fires when the first run completes.
   useEffect(() => {
