@@ -40,7 +40,9 @@ import {
 // Cancellation paths:
 //   * User types in the composer (hasEdited to tutor) → skip
 //   * Error thrown anywhere → skip
-//   * 5-minute wall-clock timeout → skip
+//   * 5-minute idle-watchdog timeout (no step transition, no edit,
+//     no run) → skip. Resets on any forward-progress signal so a
+//     learner who reads the lesson slowly isn't punished.
 
 interface UseFirstRunChoreographyArgs {
   enabled: boolean;
@@ -98,7 +100,17 @@ const POST_GREET_BEAT_MS = 1_000;
 // starts typing. Gives the learner a beat to read `Hello, YOUR_NAME!`
 // in the output panel before the tutor speaks again.
 const POST_RUN_BEAT_MS = 2_000;
-const WALL_CLOCK_MAX_MS = 5 * 60 * 1000;
+// Phase 27-v2.2 post-Fix-7 user-bug fix — idle watchdog (was wall-clock).
+// Originally a hard 5-min cap from mount: catch a wedge that left
+// the choreography unable to advance. Field bug: Maya read the lesson
+// for 5 min before her first edit and the watchdog fired
+// silently, leaving the scripted tutor frozen mid-flow with no way to
+// recover. Convert to an idle watchdog — reset on any forward-progress
+// signal (step transition, runner.hasEdited, runner.hasRun). 5 min of
+// TRUE inactivity (no typing, no run, no step advance) still
+// auto-skips, which is the wedge-detection behavior we wanted; an
+// engaged-but-slow learner is no longer punished.
+const WATCHDOG_IDLE_MS = 5 * 60 * 1000;
 
 export function useFirstRunChoreography({
   enabled,
@@ -124,7 +136,7 @@ export function useFirstRunChoreography({
   validatorRef.current = validator;
 
   const currentStreamRef = useRef<ScriptedAssistantHandle | null>(null);
-  const wallClockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const idleWatchdogTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Phase 27-v2.1 audit pass 2 P1: every skip path (user-typed-mid-
   // walkthrough, 5-min wall-clock timeout, generator throw) must stamp
@@ -166,6 +178,21 @@ export function useFirstRunChoreography({
     return unsub;
   }, [enabled, skip, persistDoneOnSkip]);
 
+  // Idle-watchdog reset. Stable identity so the activity-observer
+  // effect below can sit in deps arrays without churning. Each call
+  // arms a fresh 5-min timer; any activity signal calls it again,
+  // pushing the deadline forward. The skip-on-fire branch matches
+  // the rest of the skip paths (cancel current stream, persist
+  // done-flag, set skipped=true).
+  const armWatchdog = useCallback(() => {
+    if (idleWatchdogTimerRef.current) clearTimeout(idleWatchdogTimerRef.current);
+    idleWatchdogTimerRef.current = setTimeout(() => {
+      currentStreamRef.current?.cancel();
+      persistDoneOnSkip();
+      skip();
+    }, WATCHDOG_IDLE_MS);
+  }, [persistDoneOnSkip, skip]);
+
   // Kick the whole thing off on mount.
   useEffect(() => {
     if (!enabled) return;
@@ -177,18 +204,25 @@ export function useFirstRunChoreography({
     // moment" framing the whole cinematic is built for.
     useAIStore.getState().clearConversation();
     start();
-    // Wall-clock watchdog — auto-skip after 5 min regardless of state.
-    wallClockTimerRef.current = setTimeout(() => {
-      currentStreamRef.current?.cancel();
-      persistDoneOnSkip();
-      skip();
-    }, WALL_CLOCK_MAX_MS);
+    armWatchdog();
     return () => {
-      if (wallClockTimerRef.current) clearTimeout(wallClockTimerRef.current);
+      if (idleWatchdogTimerRef.current) clearTimeout(idleWatchdogTimerRef.current);
       currentStreamRef.current?.cancel();
       reset();
     };
-  }, [enabled, start, skip, reset, persistDoneOnSkip]);
+  }, [enabled, start, reset, armWatchdog]);
+
+  // Activity observer — any forward-progress signal resets the idle
+  // watchdog. step covers scripted-tutor advances; runner.hasEdited
+  // covers Maya typing in Monaco BEFORE her first run (the most common
+  // "engaged-but-slow" path that the old wall-clock watchdog
+  // miscounted as idle); runner.hasRun covers Maya clicking Run
+  // (or the auto-click). Skipped/disabled exits short-circuit so a
+  // post-skip transition doesn't re-arm the timer.
+  useEffect(() => {
+    if (!enabled || skipped) return;
+    armWatchdog();
+  }, [enabled, skipped, step, runner.hasEdited, runner.hasRun, armWatchdog]);
 
   // The step runner. Cleanly separated so each effect handles exactly
   // one transition and the dependencies only pull the pieces that
