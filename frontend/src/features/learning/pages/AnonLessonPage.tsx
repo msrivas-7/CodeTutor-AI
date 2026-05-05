@@ -10,12 +10,15 @@ import { SignupWallDialog, type SignupWallReason } from "../components/SignupWal
 import { CinematicGreeting } from "../../firstRun/CinematicGreeting";
 import { useFirstRunStore } from "../../firstRun/useFirstRunStore";
 import { useFirstRunChoreography } from "../../firstRun/useFirstRunChoreography";
+import { WorkspaceCoach } from "../components/WorkspaceCoach";
 import { useAIStore } from "../../../state/aiStore";
 import { useRunStore } from "../../../state/runStore";
 import {
   extractNameFromCode,
   hasCinematicSeen,
+  hasCoachSeenAnon,
   markCinematicSeen,
+  markCoachSeenAnon,
   writeAnonStash,
 } from "../../anon/anonStash";
 
@@ -136,12 +139,57 @@ export default function AnonLessonPage() {
   // affordance reveal — Check is hidden until the praise turn lands).
   const firstRunStep = useFirstRunStore((s) => s.step);
 
-  // Choreography wakes up only after the cinematic has dismissed
-  // AND the lesson has loaded (otherwise the greet beat fires while
-  // Maya's still watching the cinematic, or before Monaco is ready
-  // to receive the auto-Run). step === "done" tear-down handled by
-  // the hook itself.
-  const choreographyEnabled = !showCinematic && lesson !== null;
+  // Phase 27-v2 Day 6: WorkspaceCoach mounts on the anon path
+  // between the cinematic dissolve and the scripted walkthrough.
+  // New users staring at Monaco + Run + tutor pane + terminal need
+  // orientation BEFORE the AI tutor takes over the screen — same
+  // reason it exists on /welcome → /learn/.../?firstRun=1. The
+  // 6-step tour fires once per browser tab; on dismiss we stamp a
+  // local flag (carried into the stash on the celebration's Sign
+  // Up CTA so post-signup lesson 2 doesn't re-show the coach).
+  // sessionStorage keeps it scoped: a fresh tab gets a fresh tour,
+  // a same-tab reload after dismiss does not replay.
+  const [coachDone, setCoachDone] = useState(() => hasCoachSeenAnon());
+  const dismissCoach = () => {
+    markCoachSeenAnon();
+    setCoachDone(true);
+  };
+  // coachReady is the "anchor refs have actually been attached"
+  // gate. Without it, on a cinematic-already-seen reload the
+  // workspace body's first render and showCoach=true happen in the
+  // SAME render — WorkspaceCoach reads anchor refs at .current=null,
+  // every step's targetUsable=false, and the coach self-cascades
+  // through all 6 steps without painting a bubble. Mirroring
+  // LessonPage's setTimeout-after-lessonReady pattern, this useEffect
+  // flips coachReady AFTER the body has committed (one frame later
+  // than the render that computed showCoach). LessonPage uses
+  // setTimeout for an additional breath; here a useEffect is enough
+  // because we don't have a multi-stage layout settle to wait on.
+  const [coachReady, setCoachReady] = useState(false);
+  useEffect(() => {
+    if (!showCinematic && lesson !== null) setCoachReady(true);
+  }, [showCinematic, lesson]);
+  const showCoach = coachReady && !coachDone;
+
+  // Refs for the 6 spotlight targets. Wired to the JSX nodes below
+  // via the ref={...} hooks — see the editor/run/check/etc. blocks.
+  // Element types match useLessonLayout.ts so the ref shapes
+  // continue to satisfy WorkspaceCoachRefs (HTMLElement | null).
+  const instrAnchorRef = useRef<HTMLDivElement>(null);
+  const editorAnchorRef = useRef<HTMLElement>(null);
+  const runBtnAnchorRef = useRef<HTMLButtonElement>(null);
+  const outputAnchorRef = useRef<HTMLDivElement>(null);
+  const checkBtnAnchorRef = useRef<HTMLButtonElement>(null);
+  const tutorAnchorRef = useRef<HTMLDivElement>(null);
+
+  // Choreography wakes up only after the cinematic has dismissed,
+  // the workspace body has committed (coachReady), the WorkspaceCoach
+  // has been completed/skipped (coachDone), AND the lesson has
+  // loaded. Without the coachReady gate, the same-render flip from
+  // null→Lesson would fire the greet beat while the spotlight is
+  // still pre-paint. step === "done" tear-down is handled by the
+  // hook itself.
+  const choreographyEnabled = coachReady && coachDone && lesson !== null;
 
   // handleRun is defined later in this function (it depends on
   // state declared above), but the choreography needs a stable
@@ -577,9 +625,11 @@ export default function AnonLessonPage() {
             {instructionsOpen ? "Hide instructions ↑" : "Show instructions ↓"}
           </button>
           {/* Full markdown — always visible on desktop, gated by the
-              mobile toggle on phones. */}
+              mobile toggle on phones. ref={instrAnchorRef} anchors
+              the WorkspaceCoach's first spotlight step. */}
           <div
             id="anon-lesson-instructions"
+            ref={instrAnchorRef}
             className={`mt-3 ${instructionsOpen ? "block" : "hidden"} md:block`}
           >
             <AnonMarkdown text={lesson.content} />
@@ -593,6 +643,7 @@ export default function AnonLessonPage() {
             <span className="font-mono text-[11px] text-muted">main.py</span>
             <button
               type="button"
+              ref={runBtnAnchorRef}
               onClick={handleRun}
               disabled={running}
               className="rounded-md bg-success/85 px-3 py-1 text-[12px] font-bold text-bg shadow-[0_2px_0_rgba(0,0,0,0.18)] transition hover:bg-success disabled:cursor-not-allowed disabled:opacity-60"
@@ -600,7 +651,10 @@ export default function AnonLessonPage() {
               {running ? "Running…" : "▶ Run"}
             </button>
           </div>
-          <div className="h-[40vh] md:h-[45vh]">
+          <section
+            ref={editorAnchorRef}
+            className="h-[40vh] md:h-[45vh]"
+          >
             <Editor
               height="100%"
               language="python"
@@ -615,10 +669,14 @@ export default function AnonLessonPage() {
                 automaticLayout: true,
               }}
             />
-          </div>
+          </section>
 
-          {/* Output */}
-          <div className="border-t border-border bg-elevated/40 p-3 font-mono text-[12px] leading-relaxed">
+          {/* Output — ref={outputAnchorRef} anchors the WorkspaceCoach
+              4th spotlight step. */}
+          <div
+            ref={outputAnchorRef}
+            className="border-t border-border bg-elevated/40 p-3 font-mono text-[12px] leading-relaxed"
+          >
             <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-faint">
               Output
             </div>
@@ -638,8 +696,12 @@ export default function AnonLessonPage() {
             )}
           </div>
 
-          {/* Tutor */}
-          <div className="flex flex-col gap-2 border-t border-border bg-panel/40 p-3">
+          {/* Tutor — ref={tutorAnchorRef} anchors the WorkspaceCoach
+              6th (final) spotlight step. */}
+          <div
+            ref={tutorAnchorRef}
+            className="flex flex-col gap-2 border-t border-border bg-panel/40 p-3"
+          >
             <div className="text-[10px] font-semibold uppercase tracking-wider text-faint">
               Stuck? Ask the tutor
             </div>
@@ -759,6 +821,7 @@ export default function AnonLessonPage() {
                 </button>
                 <button
                   type="button"
+                  ref={checkBtnAnchorRef}
                   onClick={() => {
                     if (validation?.passed) {
                       setLessonComplete(true);
@@ -807,14 +870,18 @@ export default function AnonLessonPage() {
                       lessonId: ANON_ALLOWED.lessonId,
                       code,
                       name: parsedName,
-                      // Day 2 + Day 3b actually shipped on anon —
-                      // welcome/cinematic + scripted walkthrough.
-                      // WorkspaceCoach hasn't shipped on anon yet
-                      // (Day 6); record honestly so the handoff
-                      // doesn't suppress a feature Maya never saw.
+                      // Phase 27-v2 Day 6: workspaceCoachDone now
+                      // reflects whether the 6-step tour actually
+                      // fired on /try/ in this tab. It's true if the
+                      // user dismissed the coach or auto-skipped past
+                      // the last step (coachDone is initialized from
+                      // the sessionStorage flag, so a reload mid-
+                      // lesson preserves the truth). welcomeDone
+                      // remains true because the cinematic + scripted
+                      // walkthrough shipped Day 2 + Day 3b.
                       flags: {
                         welcomeDone: true,
-                        workspaceCoachDone: false,
+                        workspaceCoachDone: coachDone,
                       },
                     });
                     setWall({ open: true, reason: "next-lesson" });
@@ -834,6 +901,29 @@ export default function AnonLessonPage() {
         reason={wall.reason}
         onDismiss={() => setWall({ open: false, reason: wall.reason })}
       />
+
+      {/* Phase 27-v2 Day 6 — WorkspaceCoach. Mounts AFTER cinematic
+          dismisses but BEFORE the scripted walkthrough fires (the
+          choreography is gated on coachDone). persistDone=false so
+          the dismiss handler doesn't PATCH /api/user/preferences
+          (no userId on anon); we track state locally and propagate
+          into the stash on the celebration's Sign Up CTA so post-
+          signup lesson 2 sees workspace_coach_done=true and the
+          authed LessonPage doesn't re-fire the tour. */}
+      {showCoach && (
+        <WorkspaceCoach
+          refs={{
+            instructions: instrAnchorRef.current,
+            editor: editorAnchorRef.current,
+            runButton: runBtnAnchorRef.current,
+            outputPanel: outputAnchorRef.current,
+            checkButton: checkBtnAnchorRef.current,
+            tutorPanel: tutorAnchorRef.current,
+          }}
+          onComplete={dismissCoach}
+          persistDone={false}
+        />
+      )}
     </div>
   );
 }

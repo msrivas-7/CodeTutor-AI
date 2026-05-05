@@ -68,17 +68,33 @@ export interface WorkspaceCoachRefs {
 interface WorkspaceCoachProps {
   refs: WorkspaceCoachRefs;
   onComplete: () => void;
+  /**
+   * Phase 27-v2 Day 6: skip the markOnboardingDone() PATCH on anon
+   * mounts. The default (true) preserves the authed /learn/...
+   * behavior — coach dismissal PATCHes user_preferences so the next
+   * lesson visit doesn't re-fire the tour. The anon path has no
+   * userId; PATCHing /api/user/preferences would 401. Anon caller
+   * passes false and tracks coach dismissal in local state, then
+   * propagates the truth into the sessionStorage stash so the
+   * post-signup handoff can flip the persistent flag at /api/anon-
+   * handoff time. Same pattern useFirstRunChoreography.onSeed uses.
+   */
+  persistDone?: boolean;
 }
 
 function isDone(): boolean {
   return usePreferencesStore.getState().workspaceCoachDone;
 }
 
-function markDone(): void {
-  markOnboardingDone("workspaceCoachDone");
+function maybeMarkDone(persistDone: boolean): void {
+  if (persistDone) markOnboardingDone("workspaceCoachDone");
 }
 
-export function WorkspaceCoach({ refs, onComplete }: WorkspaceCoachProps) {
+export function WorkspaceCoach({
+  refs,
+  onComplete,
+  persistDone = true,
+}: WorkspaceCoachProps) {
   const [step, setStep] = useState(0);
   const [targetRect, setTargetRect] = useState<DOMRect | null>(null);
   const keys = useShortcutLabels();
@@ -113,7 +129,7 @@ export function WorkspaceCoach({ refs, onComplete }: WorkspaceCoachProps) {
       // at stale coordinates for a frame while the cascade resolves.
       setTargetRect(null);
       if (step < STEPS.length - 1) setStep((s) => s + 1);
-      else { markDone(); onComplete(); }
+      else { maybeMarkDone(persistDone); onComplete(); }
       return;
     }
     // Spotlight target can drift if anything scrolls (panels, window) or the
@@ -132,7 +148,7 @@ export function WorkspaceCoach({ refs, onComplete }: WorkspaceCoachProps) {
         if (r.width <= 0 || r.height <= 0) {
           setTargetRect(null);
           if (step < STEPS.length - 1) setStep((s) => s + 1);
-          else { markDone(); onComplete(); }
+          else { maybeMarkDone(persistDone); onComplete(); }
           return;
         }
         setTargetRect(r);
@@ -149,21 +165,21 @@ export function WorkspaceCoach({ refs, onComplete }: WorkspaceCoachProps) {
       window.removeEventListener("resize", update);
       window.removeEventListener("scroll", update, { capture: true } as EventListenerOptions);
     };
-  }, [targetEl, step, onComplete, STEPS.length]);
+  }, [targetEl, step, onComplete, persistDone, STEPS.length]);
 
   const advance = useCallback(() => {
     if (step >= STEPS.length - 1) {
-      markDone();
+      maybeMarkDone(persistDone);
       onComplete();
     } else {
       setStep((s) => s + 1);
     }
-  }, [step, onComplete, STEPS.length]);
+  }, [step, onComplete, persistDone, STEPS.length]);
 
   const dismiss = useCallback(() => {
-    markDone();
+    maybeMarkDone(persistDone);
     onComplete();
-  }, [onComplete]);
+  }, [onComplete, persistDone]);
 
   // A6: Esc dismisses the coach — matches the Modal + WelcomeOverlay pattern.
   useEffect(() => {

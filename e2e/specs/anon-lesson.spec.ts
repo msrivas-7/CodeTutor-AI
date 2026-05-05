@@ -31,6 +31,12 @@ test.describe("anonymous lesson 1 (Phase 27 §3a)", () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
       window.sessionStorage.setItem("codetutor.anonCinematicSeen", "1");
+      // Phase 27-v2 Day 6: WorkspaceCoach now also fires on /try/
+      // after the cinematic. Seed its sessionStorage flag too so
+      // the chrome-presence tests below aren't obstructed by the
+      // 6-step tour. The coach's own behavior is exercised by the
+      // dedicated "first-run cinematic on /try/" test below.
+      window.sessionStorage.setItem("codetutor.anonCoachSeen", "1");
     });
   });
 
@@ -144,6 +150,12 @@ test.describe("anonymous lesson 1 (Phase 27 §3a)", () => {
     // the cinematic so the lesson-chrome assertions can run.
     await page.addInitScript(() => {
       window.sessionStorage.setItem("codetutor.anonCinematicSeen", "1");
+      // Phase 27-v2 Day 6: WorkspaceCoach now also fires on /try/
+      // after the cinematic. Seed its sessionStorage flag too so
+      // the chrome-presence tests below aren't obstructed by the
+      // 6-step tour. The coach's own behavior is exercised by the
+      // dedicated "first-run cinematic on /try/" test below.
+      window.sessionStorage.setItem("codetutor.anonCoachSeen", "1");
     });
     await page.goto(ALLOWED_PATH);
 
@@ -224,6 +236,49 @@ test.describe("first-run cinematic on /try/ (Phase 27-v2 Day 2)", () => {
     await expect(page.getByRole("button", { name: /skip/i })).toHaveCount(0);
   });
 
+  test("WorkspaceCoach auto-opens on /try/ after cinematic dismisses", async ({
+    page,
+  }) => {
+    // Phase 27-v2 Day 6: brand-new tab → cinematic plays → cinematic
+    // dismisses → WorkspaceCoach 6-step tour mounts BEFORE the
+    // scripted walkthrough fires. The plan calls this "no
+    // orientation surface fires twice for the same user": coach
+    // shows once on anon (now), gets stashed as workspaceCoachDone,
+    // and lesson 2 (post-signup) does NOT replay it.
+    //
+    // Seed the cinematic-seen flag (skip the 14s) but NOT the
+    // coach-seen flag, so we land directly on the coach's first
+    // step.
+    await page.addInitScript(() => {
+      window.sessionStorage.setItem("codetutor.anonCinematicSeen", "1");
+    });
+    await page.goto(ALLOWED_PATH);
+
+    // The coach's first step bubble carries the "Lesson Instructions"
+    // title + body — assert on the title text. Generous timeout
+    // because the coach mounts only after lesson loads + the
+    // useEffect-driven spotlight rect resolves on the instructions
+    // anchor element.
+    await expect(
+      page.getByText(/Lesson Instructions/i).first(),
+    ).toBeVisible({ timeout: 10_000 });
+
+    // Esc dismisses the coach (parity with /welcome → /learn cinematic).
+    await page.keyboard.press("Escape");
+
+    // After dismiss the coach is gone; lesson chrome is unobstructed.
+    await expect(page.getByText(/Lesson Instructions/i)).toHaveCount(0);
+    await expect(page.getByText(/Try it — no signup/i)).toBeVisible();
+
+    // Same-tab reload — coach should NOT replay (markCoachSeenAnon
+    // stamps sessionStorage).
+    await page.reload();
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.getByText(/Lesson Instructions/i)).toHaveCount(0);
+  });
+
   test("cinematic auto-completes within budget, revealing the lesson workspace", async ({
     page,
   }) => {
@@ -260,6 +315,12 @@ test.describe("marketing CTA → anonymous lesson (Phase 27 §3a sub-commit 3)",
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
       window.sessionStorage.setItem("codetutor.anonCinematicSeen", "1");
+      // Phase 27-v2 Day 6: WorkspaceCoach now also fires on /try/
+      // after the cinematic. Seed its sessionStorage flag too so
+      // the chrome-presence tests below aren't obstructed by the
+      // 6-step tour. The coach's own behavior is exercised by the
+      // dedicated "first-run cinematic on /try/" test below.
+      window.sessionStorage.setItem("codetutor.anonCoachSeen", "1");
     });
   });
 

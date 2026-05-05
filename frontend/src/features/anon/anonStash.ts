@@ -50,6 +50,13 @@ const SCHEMA_VERSION = 1;
 // because the flag is only stamped on onComplete/onSkip.
 const CINEMATIC_SEEN_KEY = "codetutor.anonCinematicSeen";
 
+// Phase 27-v2 Day 6: parallel flag for the WorkspaceCoach 6-step
+// tour. Same sessionStorage scope/semantics as the cinematic flag.
+// On dismiss, AnonLessonPage flips this AND propagates the truth
+// into the stash's flags.workspaceCoachDone so post-signup lesson
+// 2 doesn't re-fire the tour.
+const COACH_SEEN_KEY = "codetutor.anonCoachSeen";
+
 export interface AnonStashV1 {
   v: 1;
   /** UTC ISO timestamp the lesson completed at. */
@@ -159,6 +166,29 @@ export function markCinematicSeen(): void {
     window.sessionStorage.setItem(CINEMATIC_SEEN_KEY, "1");
   } catch {
     // Same fail-soft semantics as writeAnonStash.
+  }
+}
+
+/**
+ * Has the WorkspaceCoach 6-step tour already played for this tab?
+ * Same semantics as hasCinematicSeen — false on first call (coach
+ * should mount); flipped to true by markCoachSeenAnon() on dismiss.
+ */
+export function hasCoachSeenAnon(): boolean {
+  if (typeof window === "undefined") return true;
+  try {
+    return window.sessionStorage.getItem(COACH_SEEN_KEY) === "1";
+  } catch {
+    return true;
+  }
+}
+
+export function markCoachSeenAnon(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(COACH_SEEN_KEY, "1");
+  } catch {
+    // Fail-soft.
   }
 }
 
