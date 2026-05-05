@@ -21,6 +21,14 @@ interface LessonCompletePanelProps {
   // is hidden rather than shown disabled. Sharing is celebratory; a
   // dimmed "Share" feels worse than no share at all.
   onShare?: () => void;
+  /**
+   * Phase 27-v2.1 — when "anon", suppresses the streak refetch + read
+   * (would 401 on /api/user/streak), and the streak/practice-grid
+   * surfaces that read from authed-only state. Default "authed"
+   * preserves all existing behavior. The celebration body, share card,
+   * mastery callout, and Next CTA all render the same on both modes.
+   */
+  mode?: "authed" | "anon";
 }
 
 export function LessonCompletePanel({
@@ -32,6 +40,7 @@ export function LessonCompletePanel({
   onDismiss,
   onStartPractice,
   onShare,
+  mode = "authed",
 }: LessonCompletePanelProps) {
   const practiceExercises = lesson.practiceExercises ?? [];
   const practiceCount = practiceExercises.length;
@@ -67,10 +76,16 @@ export function LessonCompletePanel({
   //   fired. The chip lands prominently with a single RingPulse +
   //   acknowledge so the learner sees their streak as part of the
   //   celebration, not as a detached "+1" event.
+  // Phase 27-v2.1: anon skips streak fetch + read entirely. The streak
+  // endpoint is auth-gated; firing it on the celebration moment for an
+  // unauth caller would 401 in the network panel. The streak chip
+  // render below already gates on `streak`, so streak === null on anon
+  // hides the surface naturally.
   useEffect(() => {
+    if (mode === "anon") return;
     invalidateStreak();
-  }, []);
-  const { streak } = useStreak();
+  }, [mode]);
+  const { streak } = useStreak({ skip: mode === "anon" });
   // Phase 27: hide every streak-related surface on this panel when the
   // user has opted out. The chip render below + the milestone-confetti
   // effect both gate on this — turning off must mean nothing flashes.
@@ -381,9 +396,18 @@ export function LessonCompletePanel({
               <button
                 onClick={onDismiss}
                 className="flex-1 rounded-lg border border-border px-4 py-2 text-xs font-medium text-muted transition hover:bg-elevated hover:text-ink"
-                aria-label="Close celebration and stay on this lesson"
+                // Phase 27-v2.1 medium-lock: anon dismiss is "Done for now"
+                // — names the choice as completion, not escape (per the
+                // director's lens: the curtain falls, the lobby opens).
+                // Authed dismiss stays "Keep practicing" since they have
+                // a real lesson 2 they can navigate to anytime.
+                aria-label={
+                  mode === "anon"
+                    ? "Done for now — opens the signup wall"
+                    : "Close celebration and stay on this lesson"
+                }
               >
-                Keep practicing
+                {mode === "anon" ? "Done for now" : "Keep practicing"}
               </button>
               {onNext && (
                 <button
@@ -436,7 +460,9 @@ export function LessonCompletePanel({
           </div>
         )}
 
-        <LessonFeedbackChip lessonId={lesson.id} lessonTitle={lesson.title} />
+        {mode === "authed" && (
+          <LessonFeedbackChip lessonId={lesson.id} lessonTitle={lesson.title} />
+        )}
       </div>
       </motion.div>
     </motion.div>

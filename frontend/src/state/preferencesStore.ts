@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { api, type UserPreferences, type UserPreferencesPatch } from "../api/client";
 import { currentGen } from "../auth/generation";
+import { hasAuthSession } from "../auth/hasAuthSession";
 import { invalidateAIStatus } from "./useAIStatus";
 
 // Phase 18b: single source of truth for every per-user preference that used
@@ -278,6 +279,17 @@ export function setUiLayoutValue(path: string, value: unknown): void {
   if (uiLayoutFlushTimer) clearTimeout(uiLayoutFlushTimer);
   uiLayoutFlushTimer = setTimeout(() => {
     uiLayoutFlushTimer = null;
+    // Phase 27-v2.1: skip the server PATCH when there's no auth session.
+    // Anon callers (LessonPage mode="anon" → useLessonLayout →
+    // usePersistedNumber → setUiLayoutValue) used to fire this PATCH on
+    // every splitter drag; the request 401d, handle401() called
+    // supabase.auth.signOut(), and the SIGNED_OUT listener reset
+    // preferencesStore back to DEFAULTS — wiping workspaceCoachDone
+    // mid-lesson and re-mounting the WorkspaceCoach + restarting the
+    // scripted choreography. The local optimistic state above is
+    // sufficient for the anon path; uiLayout has nowhere to persist
+    // without a user row anyway.
+    if (!hasAuthSession()) return;
     const { uiLayout } = usePreferencesStore.getState();
     void api.patchPreferences({ uiLayout }).catch((err) => {
       console.error(

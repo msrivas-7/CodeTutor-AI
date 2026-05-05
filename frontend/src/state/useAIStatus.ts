@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type AIStatusResponse } from "../api/client";
 import { supabase } from "../auth/supabaseClient";
+import { hasAuthSession } from "../auth/hasAuthSession";
 
 // Phase 20-P4: the UI reads /api/user/ai-status to decide how to render the
 // tutor surface — which chip to show (UsageChip vs FreeTierPill), whether to
@@ -134,16 +135,32 @@ export function notePlatformQuestionConsumed(): void {
   setGlobal({ ...v, remainingToday: next });
 }
 
-export function useAIStatus(): {
+export function useAIStatus(opts?: { skip?: boolean }): {
   status: AIStatusResponse | null;
   refetch: () => void;
 } {
+  // Phase 27-v2.1: anon callers (GuidedTutorPanel mounted under
+  // mode="anon") pass {skip: true} so we don't fire GET /api/user/ai-status
+  // on a tab with no JWT. The endpoint is authMiddleware-gated; calling
+  // it without a session 401s, handle401() calls supabase.auth.signOut(),
+  // and the SIGNED_OUT listener resets every store — wiping
+  // workspaceCoachDone, aiStore history, etc., right under Maya's feet.
+  //
+  // Defense-in-depth: even if a caller forgets to pass skip, bail when
+  // there's no auth session present. Found by audit pass 1 — an
+  // unconditional useAIStatus() call inside EditorTabs (line 26)
+  // mounted on /try/ and caused exactly this 401-signOut cascade.
+  // Future callers in the LessonPage subtree can't accidentally
+  // re-introduce the bug.
+  const skip = !!opts?.skip || !hasAuthSession();
   const [status, setStatus] = useState<AIStatusResponse | null>(() => {
+    if (skip) return null;
     if (cached && Date.now() - cached.at < TTL_MS) return cached.value;
     return null;
   });
 
   useEffect(() => {
+    if (skip) return;
     subscribers.add(setStatus);
     if (!cached || Date.now() - cached.at >= TTL_MS) {
       void fetchFresh();
@@ -151,16 +168,17 @@ export function useAIStatus(): {
     return () => {
       subscribers.delete(setStatus);
     };
-  }, []);
+  }, [skip]);
 
   const refetch = useCallback(() => {
+    if (skip) return;
     // Bypass cache AND any stale in-flight request. Without nulling
     // `inflight`, two simultaneous refetch() calls could both piggyback on
     // a pre-invalidation fetch and get stale data.
     cached = null;
     inflight = null;
     void fetchFresh();
-  }, []);
+  }, [skip]);
 
   return { status, refetch };
 }

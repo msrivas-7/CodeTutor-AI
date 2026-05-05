@@ -805,6 +805,34 @@ export const api = {
       releaseSessionRequest(sessionId, ctrl);
     }
   },
+  /**
+   * Phase 27-v2.1 — anon (unauthed) one-shot Python execution. Used by
+   * useLessonRunner when LessonPage is in mode="anon" (the /try/
+   * trial flow). The backend route at `/api/anon/run` spawns an
+   * ephemeral container per request — no sessionId, no per-user
+   * snapshot store. Subject to ENABLE_ANON_LESSON kill switch +
+   * sessionCreateLimit (30/min/IP).
+   *
+   * The body shape mirrors the authed runProject path: `{ language,
+   * files, stdin? }`. No CSRF / Authorization required (route is
+   * unauthed by design); the kill switch + per-IP rate limits are
+   * the load-bearing defenses.
+   */
+  runAnon: async (
+    language: Language,
+    files: ProjectFile[],
+    stdin?: string,
+  ) => {
+    const res = await fetch(`${API_BASE}/api/anon/run`, {
+      method: "POST",
+      headers: { ...JSON_HEADERS, ...CSRF_HEADER },
+      body: JSON.stringify({ language, files, stdin }),
+    });
+    if (!res.ok) {
+      await throwApiError(res, "/api/anon/run");
+    }
+    return (await res.json()) as RunResult;
+  },
   executeTests: async (
     sessionId: string,
     language: Language,
@@ -1040,7 +1068,18 @@ export const api = {
   }) => post<{ id: string; createdAt: string }>("/api/feedback", body),
   askAIStream: async (
     body: AskStreamRequest,
-    handlers: AskStreamHandlers
+    handlers: AskStreamHandlers,
+    options?: {
+      /**
+       * Phase 27-v2.1 — caller-overridable endpoint. Defaults to the
+       * authed `/api/ai/ask/stream`. Anon callers (LessonPage in
+       * mode="anon") pass `/api/anon/ai/ask/stream` so the trial path
+       * uses the unauthed AI surface (subject to L_anon per-IP cap).
+       * Auth headers are still attempted; the unauthed route ignores
+       * them on its end (no Authorization required).
+       */
+      endpoint?: string;
+    },
   ): Promise<void> => {
     // QA-H2: no-chunk watchdog. If the SSE stream produces no data for
     // STREAM_STALL_MS, abort the fetch and surface it as an error — a
@@ -1075,7 +1114,8 @@ export const api = {
     let res: Response;
     try {
       const auth = await authHeaders();
-      res = await fetch(`${API_BASE}/api/ai/ask/stream`, {
+      const endpoint = options?.endpoint ?? "/api/ai/ask/stream";
+      res = await fetch(`${API_BASE}${endpoint}`, {
         method: "POST",
         headers: { ...JSON_HEADERS, ...CSRF_HEADER, ...auth },
         body: JSON.stringify(body),

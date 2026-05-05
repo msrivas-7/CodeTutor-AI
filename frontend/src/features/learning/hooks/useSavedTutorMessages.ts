@@ -56,10 +56,19 @@ export interface UseSavedTutorMessagesResult {
  * exerciseId). Pass null in all three for the editor scope. The hook never
  * sets `loading = true` while a previous-scope's data is still rendering;
  * the new scope's data simply replaces the prior on resolve.
+ *
+ * Phase 27-v2.1: `mode === "anon"` short-circuits all reads and writes —
+ * the underlying endpoints require an authenticated user, and an anon
+ * caller should never trigger a 401 just by mounting GuidedTutorPanel.
+ * Returns the same empty-but-callable shape; save/unsave become no-ops.
  */
-export function useSavedTutorMessages(scope: SavedTutorScope): UseSavedTutorMessagesResult {
+export function useSavedTutorMessages(
+  scope: SavedTutorScope,
+  mode: "authed" | "anon" = "authed",
+): UseSavedTutorMessagesResult {
+  const isAnon = mode === "anon";
   const key = scopeKey(scope);
-  const cached = scopeCache.get(key);
+  const cached = isAnon ? undefined : scopeCache.get(key);
 
   // Seed from cache so first paint already has the rows. If the cache is
   // empty (first-ever entry into this scope), `savedMessages` starts as
@@ -77,6 +86,7 @@ export function useSavedTutorMessages(scope: SavedTutorScope): UseSavedTutorMess
   activeKeyRef.current = key;
 
   const refetch = useCallback(async () => {
+    if (isAnon) return;
     const myKey = key;
     setError(null);
     if (!cached) setLoading(true);
@@ -92,17 +102,18 @@ export function useSavedTutorMessages(scope: SavedTutorScope): UseSavedTutorMess
       if (activeKeyRef.current === myKey) setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, isAnon]);
 
   // Refetch when scope changes. Stale cache entries past TTL are still
   // shown immediately (no flash), but a refresh fires in the background.
   useEffect(() => {
+    if (isAnon) return;
     setSavedMessages(scopeCache.get(key)?.messages ?? []);
     const c = scopeCache.get(key);
     const stale = !c || Date.now() - c.fetchedAt > CACHE_TTL_MS;
     if (stale) void refetch();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, isAnon]);
 
   const savedIds = useMemo(() => {
     return new Set(savedMessages.map((m) => m.messageId));
@@ -110,6 +121,7 @@ export function useSavedTutorMessages(scope: SavedTutorScope): UseSavedTutorMess
 
   const save = useCallback(
     async (msg: SaveArgs) => {
+      if (isAnon) return;
       // Optimistic: insert a placeholder row with a generated client id so
       // the bookmark fills immediately. Replace with the server row on
       // resolve; revert on failure.
@@ -153,11 +165,12 @@ export function useSavedTutorMessages(scope: SavedTutorScope): UseSavedTutorMess
         throw e;
       }
     },
-    [key, scope.courseId, scope.lessonId, scope.exerciseId],
+    [key, scope.courseId, scope.lessonId, scope.exerciseId, isAnon],
   );
 
   const unsave = useCallback(
     async (id: string) => {
+      if (isAnon) return;
       const prev = savedMessages;
       const next = prev.filter((m) => m.id !== id);
       setSavedMessages(next);
@@ -171,7 +184,7 @@ export function useSavedTutorMessages(scope: SavedTutorScope): UseSavedTutorMess
         throw e;
       }
     },
-    [savedMessages, key],
+    [savedMessages, key, isAnon],
   );
 
   return { savedIds, savedMessages, loading, error, save, unsave, refetch };

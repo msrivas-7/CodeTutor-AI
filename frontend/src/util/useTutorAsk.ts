@@ -34,6 +34,34 @@ export interface UseTutorAskOpts {
   // — e.g. the guided panel's hint counter only commits on success, so the
   // student doesn't burn a hint on a 500 they never saw.
   onAskComplete?: (outcome: { ok: boolean }) => void;
+  /**
+   * Phase 27-v2.1 — endpoint override for anon mode. Defaults to the
+   * authed `/api/ai/ask/stream`; anon callers pass
+   * `/api/anon/ai/ask/stream`. The guided/editor tutor panels select
+   * the right endpoint based on the LessonPage mode prop they were
+   * mounted under.
+   */
+  endpoint?: string;
+  /**
+   * Phase 27-v2.1 — mode-aware behavior. When "anon": skip the
+   * /api/user/ai-status fetch (would 401 without a session), treat the
+   * caller as configured (anon endpoint has its own auth-free contract +
+   * server-side L_anon per-IP cap), and skip the optimistic
+   * platform-quota decrement (anon doesn't have a per-user platform
+   * quota — only an IP-scoped one the server tracks).
+   */
+  mode?: "authed" | "anon";
+  /**
+   * Phase 27-v2.1 audit pass 1 fix #5: invoked when the anon AI cap
+   * (L_anon, server-side per-IP daily limit) is hit. The server returns
+   * 429 with body `{"error":"ANON_EXHAUSTED",...}` from /api/anon/ai/
+   * ask/stream. Without this hook, the raw error string would render
+   * in AskErrorView with a Retry button that 429s again. The wrapper
+   * (AnonLessonPage) opens the SignupWallDialog with reason="exhausted"
+   * — same surface the wall uses for the save/next-lesson paths,
+   * different framing copy.
+   */
+  onAnonExhausted?: () => void;
 }
 
 export interface UseTutorAskResult {
@@ -71,14 +99,19 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
 
   const hasKey = usePreferencesStore((s) => s.hasOpenaiKey);
   const snapshot = useProjectStore((s) => s.snapshot);
-  const { status: aiStatus } = useAIStatus();
+  const isAnon = opts.mode === "anon";
+  const { status: aiStatus } = useAIStatus({ skip: isAnon });
   const abortRef = useRef<AbortController | null>(null);
 
   // Platform (free-tier) users have no BYOK key and no selectedModel — the
   // backend picks `gpt-4.1-nano` for them. Mirror the panel-level gate here
   // so submitAsk doesn't early-return for every platform user.
+  // Anon: always configured. The /api/anon/ai/ask/stream endpoint accepts
+  // unauthenticated callers (subject to the L_anon per-IP cap); there's no
+  // BYOK / selectedModel concept for anon, and we must NOT early-return
+  // submitAsk on isAnon paths.
   const onPlatform = !hasKey && aiStatus?.source === "platform";
-  const configured = onPlatform || (hasKey && !!selectedModel);
+  const configured = isAnon || onPlatform || (hasKey && !!selectedModel);
 
   const submitAsk = async (question: string): Promise<void> => {
     const trimmed = question.trim();
@@ -147,29 +180,59 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
       });
 
       let askOk = false;
-      await api.askAIStream(body, {
-        signal: controller.signal,
-        onDelta: (chunk) => {
-          raw += chunk;
-          scheduleParse();
+      await api.askAIStream(
+        body,
+        {
+          signal: controller.signal,
+          onDelta: (chunk) => {
+            raw += chunk;
+            scheduleParse();
+          },
+          onDone: (finalRaw, sections, usage) => {
+            cancelPending();
+            pushAssistant(finalRaw || raw, sections, usage);
+            clearStream();
+            committed = true;
+            askOk = true;
+            // P-H6: optimistic local decrement avoids a /ai-status refetch per
+            // turn. The 30s cache + next natural fetch reconciles if we drift.
+            // Anon: skip — there's no /api/user/ai-status cache to decrement,
+            // and the L_anon ledger is per-IP server-side.
+            if (!isAnon && aiStatus?.source === "platform")
+              notePlatformQuestionConsumed();
+          },
+          onError: (message) => {
+            cancelPending();
+            // Phase 27-v2.1 audit pass 1 fix #5: detect the L_anon
+            // cap-exceeded error code and route to the wall instead
+            // of showing a generic AskErrorView with a Retry button
+            // (which would just 429 again). Match defensively on
+            // both the raw token and any reasonable variation the
+            // server might send so a backend copy tweak doesn't
+            // silently regress this.
+            if (
+              isAnon &&
+              opts.onAnonExhausted &&
+              // Pass 2 P2 #2: dropped bare `429` to avoid false-positives
+              // (generic upstream rate-limit copy that mentions "HTTP 429"
+              // would otherwise wrongly open the wall). Backend always
+              // returns the literal "ANON_EXHAUSTED" token in the body
+              // for the L_anon path (backend/src/routes/anon.ts:202),
+              // so case-insensitive match on that is sufficient + safe.
+              /ANON_EXHAUSTED/i.test(message)
+            ) {
+              opts.onAnonExhausted();
+              clearStream();
+              committed = true;
+              return;
+            }
+            setAskError(message);
+            clearStream();
+            committed = true;
+          },
         },
-        onDone: (finalRaw, sections, usage) => {
-          cancelPending();
-          pushAssistant(finalRaw || raw, sections, usage);
-          clearStream();
-          committed = true;
-          askOk = true;
-          // P-H6: optimistic local decrement avoids a /ai-status refetch per
-          // turn. The 30s cache + next natural fetch reconciles if we drift.
-          if (aiStatus?.source === "platform") notePlatformQuestionConsumed();
-        },
-        onError: (message) => {
-          cancelPending();
-          setAskError(message);
-          clearStream();
-          committed = true;
-        },
-      });
+        opts.endpoint ? { endpoint: opts.endpoint } : undefined,
+      );
 
       // Abort path: askAIStream returns without firing onDone/onError. Commit
       // partial text so the student keeps the context rather than losing it.

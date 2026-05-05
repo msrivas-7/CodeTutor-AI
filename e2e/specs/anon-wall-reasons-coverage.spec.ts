@@ -1,0 +1,124 @@
+// Phase 27-v2.1 — SignupWallDialog reasons coverage.
+//
+// The wall fires from three call sites with three reason codes:
+//
+//   reason="save"        — header "Sign up to save" pill click. Copy:
+//                          "Sign up to save?" / "Takes 10 seconds.
+//                          From the moment you sign up, your code and
+//                          progress save automatically..." / "Sign up
+//                          for free"
+//   reason="next-lesson" — celebration dismiss / Next Lesson click /
+//                          header in-page Next Lesson click / practice
+//                          start (medium-lock). Copy: "Lesson 2 is
+//                          queued up." / "Save your spot — takes 10
+//                          seconds..." / "Start lesson 2" / "Maybe
+//                          later" (dismiss link)
+//   reason="exhausted"   — anon AI 429 ANON_EXHAUSTED. Copy: "You're
+//                          getting it." / "free tutor questions" /
+//                          "Sign up for free"
+//
+// This spec verifies all three reasons render distinct, on-brand
+// copy. It catches:
+//   - Copy collision (two reasons accidentally sharing a CTA)
+//   - Default-reason fallback bug (an unset reason rendering "save")
+//   - Missing route to a reason (e.g., medium-lock dismiss not firing
+//     reason="next-lesson")
+
+import { expect, test } from "@playwright/test";
+
+const PATH = "/try/lesson/python-fundamentals/hello-world";
+
+const SEED_FLAGS = `
+  window.sessionStorage.setItem("codetutor.anonCinematicSeen", "1");
+  window.sessionStorage.setItem("codetutor.anonCoachSeen", "1");
+  window.sessionStorage.setItem("codetutor.anonChoreographyDone", "1");
+`;
+
+test.describe("Phase 27-v2.1 — SignupWallDialog reasons coverage", () => {
+  test("reason='save' from header pill — 'Sign up to save?' headline", async ({
+    page,
+  }) => {
+    await page.addInitScript(SEED_FLAGS);
+    await page.goto(PATH);
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible({
+      timeout: 10_000,
+    });
+    await page.getByRole("button", { name: /sign up to save/i }).click();
+    await expect(page.getByText(/Sign up to save\?/i)).toBeVisible();
+    // Different from next-lesson copy.
+    await expect(page.getByText(/Lesson 2 is queued up/i)).toHaveCount(0);
+  });
+
+  test("reason='next-lesson' from celebration dismiss — 'Lesson 2 is queued up.' headline + 'Maybe later' dismiss", async ({
+    page,
+  }) => {
+    await page.addInitScript(SEED_FLAGS);
+    await page.route("**/api/anon/run", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          stdout: "Hello, Maya!\n",
+          stderr: "",
+          exitCode: 0,
+          timedOut: false,
+          durationMs: 42,
+        }),
+      }),
+    );
+    await page.goto(PATH);
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible({
+      timeout: 10_000,
+    });
+    await page
+      .getByRole("button", { name: /run/i })
+      .first()
+      .click();
+    await expect(page.getByText(/Hello, Maya!/).last()).toBeVisible({
+      timeout: 5_000,
+    });
+    await page
+      .getByRole("button", { name: /check/i })
+      .first()
+      .click();
+    await expect(page.getByRole("alertdialog").first()).toBeVisible({
+      timeout: 10_000,
+    });
+    // Dismiss celebration — wall opens with next-lesson copy.
+    await page.keyboard.press("Escape");
+    await expect(page.getByText(/Lesson 2 is queued up\./i)).toBeVisible();
+    // Specific dismiss copy for THIS reason: "Maybe later" (not "Not yet").
+    await expect(
+      page.getByRole("button", { name: /maybe later/i }),
+    ).toBeVisible();
+    // Different from save / exhausted copy.
+    await expect(page.getByText(/Sign up to save\?/i)).toHaveCount(0);
+    await expect(page.getByText(/You're getting it\./i)).toHaveCount(0);
+  });
+
+  test("reason='exhausted' from L_anon 429 — 'You're getting it.' headline", async ({
+    page,
+  }) => {
+    await page.addInitScript(SEED_FLAGS);
+    await page.route("**/api/anon/ai/ask/stream", (route) =>
+      route.fulfill({
+        status: 429,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "ANON_EXHAUSTED" }),
+      }),
+    );
+    await page.goto(PATH);
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible({
+      timeout: 10_000,
+    });
+    const textarea = page.getByLabel(/ask the tutor/i);
+    await textarea.fill("hello");
+    await textarea.press("Enter");
+    await expect(page.getByText(/You're getting it\./i)).toBeVisible({
+      timeout: 5_000,
+    });
+    // Different from save / next-lesson copy.
+    await expect(page.getByText(/Sign up to save\?/i)).toHaveCount(0);
+    await expect(page.getByText(/Lesson 2 is queued up/i)).toHaveCount(0);
+  });
+});

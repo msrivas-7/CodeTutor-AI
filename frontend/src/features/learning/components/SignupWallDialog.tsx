@@ -52,10 +52,16 @@ const COPY_BY_REASON: Record<SignupWallReason, { title: string; body: string; ct
   // (until Day 6, then suppressed too). The body names what comes
   // with her so the wall reads as continuation of the win moment,
   // not a transactional "create an account" ask.
+  // Phase 27-v2.1 medium-lock copy (creative director pass): tighten
+  // the headline to "Lesson 2 is queued up." — the question-mark version
+  // ("Keep going?") reads as a quiz the celebration just finished
+  // dispelling. Body keeps the carry-over promise concrete (Maya needs
+  // to hear "your name comes with you" — that's what makes the wall
+  // a continuation of the moment instead of an interruption of it).
   "next-lesson": {
-    title: "Keep going?",
+    title: "Lesson 2 is queued up.",
     body:
-      "Lesson 2 picks up right where you are. Your code, your name, and the lesson you just finished come with you when you sign up.",
+      "Save your spot — takes 10 seconds. Your code, your name, and the lesson you just finished come with you.",
     cta: "Start lesson 2",
   },
   exhausted: {
@@ -122,7 +128,12 @@ export function SignupWallDialog({ open, reason, onDismiss }: SignupWallDialogPr
                 onClick={onDismiss}
                 className="rounded-lg border border-border px-4 py-2 text-[13px] font-medium text-muted transition hover:bg-elevated hover:text-ink"
               >
-                Not yet
+                {/* Phase 27-v2.1 medium-lock copy: "Maybe later" reads as
+                    completion-deferred, not refusal. "Not yet" suggests
+                    she hasn't met some requirement; "Maybe later" honors
+                    her agency. Reason-specific so the save/exhausted
+                    paths keep their punchier "Not yet" framing. */}
+                {reason === "next-lesson" ? "Maybe later" : "Not yet"}
               </button>
               <Link
                 to="/signup"

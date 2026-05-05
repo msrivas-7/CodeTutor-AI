@@ -47,6 +47,11 @@ import { resolveFirstName } from "../../firstRun/resolveFirstName";
 import { useFirstRunStore } from "../../firstRun/useFirstRunStore";
 import { FirstRunSpotlight } from "../../firstRun/FirstRunSpotlight";
 import { FirstRunHandoffReveal } from "../../firstRun/FirstRunHandoffReveal";
+import {
+  extractNameFromCode,
+  hasChoreographyDoneAnon,
+} from "../../anon/anonStash";
+import { useProjectStore } from "../../../state/projectStore";
 import { StreakChip } from "../components/StreakChip";
 import { FirstSuccessReveal } from "../components/FirstSuccessReveal";
 import { motion } from "framer-motion";
@@ -88,12 +93,35 @@ interface LessonPageProps {
   courseId?: string;
   /** Same shape as courseId. */
   lessonId?: string;
+  /**
+   * Phase 27-v2.1 — anon-only callbacks. Required when mode="anon",
+   * ignored when mode="authed".
+   *
+   * onAnonSave: invoked when the user clicks the "Sign up to save"
+   *   pill in the anon header bar (replaces UserMenu / StreakChip).
+   *   The wrapper opens SignupWallDialog reason="save".
+   *
+   * onAnonNext: invoked when the user clicks "Next lesson" on the
+   *   LessonCompletePanel celebration after Check pass. The wrapper
+   *   writes the sessionStorage anon stash + opens SignupWallDialog
+   *   reason="next-lesson". Replaces the authed nav-to-next-lesson.
+   *
+   * onAnonExhausted: invoked when GuidedTutorPanel's anon stream
+   *   hits the L_anon per-IP cap (server 429 ANON_EXHAUSTED). The
+   *   wrapper opens SignupWallDialog reason="exhausted".
+   */
+  onAnonSave?: () => void;
+  onAnonNext?: () => void;
+  onAnonExhausted?: () => void;
 }
 
 export default function LessonPage({
   mode = "authed",
   courseId: courseIdProp,
   lessonId: lessonIdProp,
+  onAnonSave,
+  onAnonNext,
+  onAnonExhausted,
 }: LessonPageProps = {}) {
   const params = useParams<{
     courseId: string;
@@ -104,7 +132,15 @@ export default function LessonPage({
   const [searchParams] = useSearchParams();
   const nav = useNavigate();
   const user = useAuthStore((s) => s.user);
-  const learnerId = user!.id;
+  // Phase 27-v2.1: learnerId is null on the anon path (no signed-in
+  // user). Downstream hooks (useLessonLoader, useLessonRunner,
+  // useLessonValidator, the resetLessonProgress useEffect) accept
+  // null and gate their /api/user/* PATCH calls accordingly — anon
+  // never writes to the per-user progress / preferences tables.
+  // useSessionLifecycle below already gates on `!user` internally
+  // (line 55 of that file: `if (authLoading || !user) return;`), so
+  // calling it on anon is a safe no-op — no /api/session POST fires.
+  const learnerId = mode === "authed" ? user!.id : null;
   useSessionLifecycle();
 
   const lessonProgressMap = useProgressStore((s) => s.lessonProgress);
@@ -172,7 +208,15 @@ export default function LessonPage({
     if (ageMs >= 1500) {
       // Stale flag (backgrounded tab, missed window). Clear and
       // skip — a normal lesson visit later mustn't re-trigger.
+      // Pass 2 P3 #6: also force inHandoff=false here. The useState
+      // initializer at line 194 may have already committed
+      // inHandoff=true on render 1 if the timestamp was fresh at
+      // mount but went stale by the time this effect ran (e.g.,
+      // paint-stall ≥1.5s during cinematic exit). Without this
+      // explicit reset, inHandoff stays true for the lesson
+      // lifetime, suppressing the page-mount fade-up animation.
       useFirstRunStore.getState().clearCinematicExiting();
+      setInHandoff(false);
       return;
     }
     setInHandoff(true);
@@ -215,8 +259,11 @@ export default function LessonPage({
     // First-run cinematic relies on the authored starter code being
     // present verbatim (the scripted "replace YOUR_NAME with your
     // name" beat). Skip the resume-from-savedCode branch when
-    // landing here via the cinematic hand-off.
-    forceStarter: isFirstRun,
+    // landing here via the cinematic hand-off, or when the visitor
+    // is an anon /try/ user (no learnerId, nothing to resume from
+    // anyway, but force keeps any in-memory project-store state
+    // from leaking across mounts).
+    forceStarter: isFirstRun || mode === "anon",
   });
 
   // Phase 21A: chat context key includes practice scope so lesson↔practice
@@ -252,6 +299,7 @@ export default function LessonPage({
     initializedRef: loader.initializedForRef,
     tutorCollapsed: layout.tutorCollapsed,
     setTutorCollapsed: layout.setTutorCollapsed,
+    mode,
   });
   const validator = useLessonValidator({
     lesson: loader.lesson,
@@ -273,6 +321,7 @@ export default function LessonPage({
       runner.setHasEdited(false);
       runner.setHasRun(false);
     },
+    mode,
   });
 
   // Run-success ring + Check sonar removed per user direction —
@@ -302,24 +351,43 @@ export default function LessonPage({
   // assertion — without the persistent flag, the initial 3s window
   // before auto-open would falsely pass the gate.
   const firstRunStep = useFirstRunStore((s) => s.step);
+  // Phase 27-v2.1 — anon mounts the same scripted walkthrough as
+  // authed-with-?firstRun=1. `isChoreographed` is the merged gate the
+  // spotlight + lock + clear-hidden derivations use; the actual
+  // choreography hook below also enables on this. `isFirstRun` is
+  // preserved separately for URL-param-specific behaviors only
+  // (lessonProgress wipe, forceStarter, FeedbackButton/UserMenu chrome
+  // politeness — all in the authed branch).
+  //
+  // Audit pass 3+ fix: also check `!anonChoreographyAlreadyDone`.
+  // Without this, on a /try/ reload after the walkthrough completed,
+  // choreography is suppressed (good) BUT the locks here still applied
+  // because firstRunStep was reset to "idle" by the in-memory zustand
+  // store. Result: Run/Check/tutor were locked forever. Caught by the
+  // medium-lock spec where Maya finishes the walkthrough, reloads,
+  // and tries to Check.
+  const anonChoreographyAlreadyDone =
+    mode === "anon" && hasChoreographyDoneAnon();
+  const isChoreographed =
+    (isFirstRun || mode === "anon") && !anonChoreographyAlreadyDone;
   // Map the scripted-tutor step to the surface we want to spotlight.
   // The tutor panel gets the glow whenever the scripted turn is
   // streaming (user should follow the typing); the Run button gets
   // the glow right before auto-click; the Check button gets the glow
   // when we nudge the learner to validate.
   const spotlightTutor =
-    isFirstRun &&
+    isChoreographed &&
     (firstRunStep === "greet" ||
       firstRunStep === "celebrateRun" ||
       firstRunStep === "correctEdit" ||
       firstRunStep === "praiseEditRun");
-  const spotlightRun = isFirstRun && firstRunStep === "awaitRun";
-  const spotlightCheck = isFirstRun && firstRunStep === "awaitCheck";
+  const spotlightRun = isChoreographed && firstRunStep === "awaitRun";
+  const spotlightCheck = isChoreographed && firstRunStep === "awaitCheck";
   // During awaitEdit the tutor just said "change one word and run
   // again." The editor is where the action happens — spotlight it
   // so the learner knows where to put their attention instead of
   // scanning the whole UI.
-  const spotlightEditor = isFirstRun && firstRunStep === "awaitEdit";
+  const spotlightEditor = isChoreographed && firstRunStep === "awaitEdit";
 
   // Lock the tutor composer + hint / action chips while the scripted
   // choreography is mid-sentence. The last scripted message is
@@ -328,7 +396,7 @@ export default function LessonPage({
   // moment between mount and the first `start()` tick doesn't let the
   // learner type into an empty panel before the greeting lands.
   const tutorInputLocked =
-    isFirstRun &&
+    isChoreographed &&
     (firstRunStep === "idle" ||
       firstRunStep === "greet" ||
       firstRunStep === "awaitRun" ||
@@ -345,22 +413,59 @@ export default function LessonPage({
   // only during awaitCheck — the final nudge before lesson pass.
   // Both unlock completely once the choreography reaches "done".
   const runButtonLocked =
-    isFirstRun &&
+    isChoreographed &&
     firstRunStep !== "idle" &&
     firstRunStep !== "awaitRun" &&
     firstRunStep !== "awaitEdit" &&
     firstRunStep !== "done";
   const checkButtonLocked =
-    isFirstRun && firstRunStep !== "awaitCheck" && firstRunStep !== "done";
+    isChoreographed &&
+    firstRunStep !== "awaitCheck" &&
+    firstRunStep !== "done";
   // Hide "clear" entirely during the welcome sequence — a learner
   // who clears mid-narration wipes the scripted turns and breaks
   // the flow. After "done" the product is fully back to normal.
-  const tutorClearHidden = isFirstRun && firstRunStep !== "done";
+  const tutorClearHidden = isChoreographed && firstRunStep !== "done";
+
+  // Phase 27-v2.1 — the praise turn parses the learner's typed name
+  // out of the editor buffer (option d in the v2 plan). Authed users
+  // get this from auth metadata via firstName; anon users have
+  // firstName="there" but we extract the literal value of `name = "..."`
+  // at praise time. The project store holds the live editor buffer
+  // (useLessonLoader seeds it; Monaco edits flow through setContent).
+  // resolvePraiseName is read by the choreography hook lazily at the
+  // praise moment, so it stays a stable function identity across
+  // every keystroke that would otherwise re-run the hook's effect.
+  const resolvePraiseNameRef = useRef<() => string | null>(() => {
+    const files = useProjectStore.getState().snapshot();
+    const main = files.find((f) => f.path === "main.py") ?? files[0];
+    return extractNameFromCode(main?.content ?? "");
+  });
+
+  // Phase 27-v2.1 audit pass 1 fix #3: anon-only choreography-done flag.
+  // Re-checked on every render so a /try/ reload after the choreography
+  // completed in a prior tab session lands with this true and skips the
+  // scripted walkthrough. Authed path uses preferencesStore.welcomeDone
+  // for the same reload-suppression role; anon has no DB row so we
+  // mirror the contract via sessionStorage. (Defined inline above near
+  // the lock derivations — same constant, just lifted earlier.)
 
   useFirstRunChoreography({
+    // Authed: gate on URL param + coach completion (workspaceCoachDone
+    // covers reload-replay, !layout.showCoach covers the fresh first
+    // run before the persistent flag has been set yet).
+    // Anon: gate on mode + coach completion (workspaceCoachDone here
+    // is the locally-flipped flag from WorkspaceCoach.maybeMarkDone
+    // when persistDone=false — Phase 27-v2.1 made that path do a
+    // preferencesStore.setState even without the PATCH) AND on the
+    // sessionStorage choreography-done flag so a reload mid-or-post
+    // lesson doesn't replay the scripted walkthrough.
     enabled:
-      isFirstRun && !layout.showCoach && workspaceCoachDone,
-    firstName: resolveFirstName(user),
+      (isFirstRun || mode === "anon") &&
+      !layout.showCoach &&
+      workspaceCoachDone &&
+      !anonChoreographyAlreadyDone,
+    firstName: mode === "anon" ? "there" : resolveFirstName(user),
     runner: {
       canRun: runner.canRun,
       hasRun: runner.hasRun,
@@ -369,6 +474,9 @@ export default function LessonPage({
       handleRun: runner.handleRun,
     },
     validator: { validation: validator.validation ?? null },
+    onSeed: mode === "anon" ? "anon-stash" : "authed-mark-prefs",
+    resolvePraiseName:
+      mode === "anon" ? resolvePraiseNameRef.current : undefined,
   });
 
   // Phase 21C: ShareDialog mount state. Lifted here so the dialog can
@@ -387,6 +495,12 @@ export default function LessonPage({
       ? lessonProgressMap[`${courseId}/${lessonId}`]
       : undefined;
   const shareCheckTrigger =
+    // Pass 2 P2 #4: gate on mode === "authed" so a future change that
+    // populates progressStore on anon (or a stale entry from a prior
+    // authed session in the same tab — possible if SIGNED_OUT reset
+    // missed something) doesn't trip the api.getMyShareForLesson call,
+    // which would 401 → handle401() → signOut cascade.
+    mode === "authed" &&
     courseId && lessonId && lpForShareCheck?.status === "completed"
       ? `${courseId}/${lessonId}`
       : null;
@@ -524,8 +638,21 @@ export default function LessonPage({
             the wrapper keeps mouse events flowing to anything that may
             sit beneath; the chip itself (a button/status) re-enables
             them with `pointer-events-auto`. */}
+        {/* Phase 27-v2.1 — header center surface. Authed: StreakChip.
+            Anon: "Try it — no signup" badge so the user always knows
+            which path they're on. The badge replaces (does not
+            overlay) the StreakChip — anon has no streak to show
+            and the auth-only chip would 401 on /api/user/streak. */}
         <div className="pointer-events-none absolute left-1/2 -translate-x-1/2">
-          <div className="pointer-events-auto"><StreakChip /></div>
+          <div className="pointer-events-auto">
+            {mode === "anon" ? (
+              <span className="rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-accent">
+                Try it — no signup
+              </span>
+            ) : (
+              <StreakChip />
+            )}
+          </div>
         </div>
         <div className="ml-auto flex items-center gap-2">
           {runner.sessionPhase === "starting" && (
@@ -638,28 +765,45 @@ export default function LessonPage({
               first-impression and full-product chrome arriving
               uninvited inside that frame breaks the spell. Both
               return on a 250ms fade-up at firstRunStep === "done". */}
-          <motion.div
-            animate={{
-              opacity: isFirstRun && firstRunStep !== "done" ? 0.3 : 1,
-            }}
-            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
-            style={{
-              display: "inline-flex",
-              pointerEvents:
-                isFirstRun && firstRunStep !== "done" ? "none" : "auto",
-            }}
-          >
-            <FeedbackButton />
-          </motion.div>
-          {(!isFirstRun || firstRunStep === "done") && (
-            <motion.div
-              initial={isFirstRun ? { opacity: 0, y: -4 } : false}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
-              style={{ display: "inline-flex" }}
+          {mode === "anon" ? (
+            // Phase 27-v2.1 — anon header right cluster. UserMenu +
+            // FeedbackButton swap for a "Sign up to save" pill that
+            // opens SignupWallDialog reason="save". The wrapper owns
+            // the wall mount + state; LessonPage just calls the
+            // onAnonSave callback when the user clicks.
+            <button
+              type="button"
+              onClick={() => onAnonSave?.()}
+              className="rounded-lg border border-border px-3 py-1 text-xs font-medium text-muted transition hover:bg-elevated hover:text-ink"
             >
-              <UserMenu />
-            </motion.div>
+              Sign up to save
+            </button>
+          ) : (
+            <>
+              <motion.div
+                animate={{
+                  opacity: isFirstRun && firstRunStep !== "done" ? 0.3 : 1,
+                }}
+                transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+                style={{
+                  display: "inline-flex",
+                  pointerEvents:
+                    isFirstRun && firstRunStep !== "done" ? "none" : "auto",
+                }}
+              >
+                <FeedbackButton />
+              </motion.div>
+              {(!isFirstRun || firstRunStep === "done") && (
+                <motion.div
+                  initial={isFirstRun ? { opacity: 0, y: -4 } : false}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+                  style={{ display: "inline-flex" }}
+                >
+                  <UserMenu />
+                </motion.div>
+              )}
+            </>
           )}
         </div>
       </header>
@@ -1011,9 +1155,18 @@ export default function LessonPage({
                 )}
                 {!practiceMode && showNext && (
                   <button
-                    onClick={() =>
-                      nav(`/learn/course/${courseId}/lesson/${nextLessonId}`)
-                    }
+                    onClick={() => {
+                      // Phase 27-v2.1 medium-lock: anon can't actually
+                      // nav to /learn/.../lesson-2 (auth-gated, would
+                      // bounce to login). Fire the same wall the
+                      // celebration's "Next Lesson →" fires. Authed
+                      // path keeps the direct nav.
+                      if (mode === "anon") {
+                        onAnonNext?.();
+                      } else {
+                        nav(`/learn/course/${courseId}/lesson/${nextLessonId}`);
+                      }
+                    }}
                     className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-violet to-accent px-4 py-1.5 text-xs font-semibold text-bg shadow-glow transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet"
                     aria-label="Go to next lesson"
                   >
@@ -1185,6 +1338,8 @@ export default function LessonPage({
               resetNonce={validator.resetNonce}
               inputLocked={tutorInputLocked}
               clearHidden={tutorClearHidden}
+              mode={mode}
+              onAnonExhausted={onAnonExhausted}
             />
           </motion.aside>
         </motion.main>
@@ -1218,21 +1373,64 @@ export default function LessonPage({
       {validator.showComplete && lesson && (
         <LessonCompletePanel
           lesson={lesson}
+          mode={mode}
           completedPracticeIds={lp?.practiceCompletedIds ?? []}
           mastery={computeMastery(lp, lesson)?.level ?? null}
           timeSpentMs={lp?.timeSpentMs}
-          onDismiss={() => validator.setShowComplete(false)}
+          onDismiss={() => {
+            validator.setShowComplete(false);
+            // Phase 27-v2.1 medium-lock: on anon, dismissing the
+            // celebration without clicking "Next Lesson" should still
+            // open the signup wall (reason="next-lesson"). The
+            // celebration is the curtain-call of Maya's three-act
+            // trial; dropping her back into a free-roam editor without
+            // the wall ask = silent bounce. The wall is itself
+            // dismissable (Esc / "Not yet"), so this is medium lock,
+            // not hard lock — she can still keep tinkering on lesson
+            // 1, but the conversion ask fires before she has the
+            // chance to walk away unprompted. Decision: product +
+            // staff-ux + staff-qa + creative director (4-agent
+            // consensus) in audit pass 3+.
+            if (mode === "anon" && onAnonNext) onAnonNext();
+          }}
           onNext={
-            nextLessonId
-              ? () => nav(`/learn/course/${courseId}/lesson/${nextLessonId}`)
-              : undefined
+            // Phase 27-v2.1 — anon mode replaces the authed nav-to-
+            // next-lesson with a wrapper-provided callback that
+            // writes the sessionStorage anon stash + opens the
+            // SignupWallDialog reason="next-lesson". The handoff
+            // endpoint redeems the stash on signup; the user lands
+            // directly on lesson 2 with their code + completion
+            // state carried. Also dismisses the celebration first so
+            // the wall sits on lesson chrome (not on a stacked
+            // celebration that re-fires the wall on second-Esc) —
+            // closes the medium-lock re-trap loop.
+            mode === "anon"
+              ? () => {
+                  validator.setShowComplete(false);
+                  onAnonNext?.();
+                }
+              : nextLessonId
+                ? () => nav(`/learn/course/${courseId}/lesson/${nextLessonId}`)
+                : undefined
           }
           onStartPractice={
             lesson.practiceExercises?.length
-              ? () => {
-                  validator.setShowComplete(false);
-                  validator.handleEnterPractice();
-                }
+              ? mode === "anon"
+                ? // Phase 27-v2.1 medium-lock: practice exercises on
+                  // /try/ are "more content" beyond the trial promise
+                  // (lesson-1 baseline = "make it say your name"). Same
+                  // logic as Next-Lesson — fire the wall so Maya
+                  // converts before getting more content. Wall dismiss
+                  // returns her to lesson chrome (still interactive on
+                  // lesson 1 within the L_anon cap).
+                  () => {
+                    validator.setShowComplete(false);
+                    onAnonNext?.();
+                  }
+                : () => {
+                    validator.setShowComplete(false);
+                    validator.handleEnterPractice();
+                  }
               : undefined
           }
           onShare={
@@ -1242,6 +1440,15 @@ export default function LessonPage({
             // Practice mode has its own scope/key — sharing a practice
             // exercise's code through this lesson dialog would mislabel
             // the artifact, so we hide the button there too.
+            //
+            // Phase 27-v2.1 audit pass 1 fix #7: hide the Share button
+            // on anon entirely. Public anon-share is not yet supported
+            // (would need anon /api/shares endpoints + ShareDialog
+            // mode-awareness; deferred to Phase 28). The audit noted
+            // the welcome-scene parity table calls for anon share, but
+            // the backend infra isn't there — better to ship hidden
+            // than to ship a button that 401-signOut-cascades on click.
+            mode === "authed" &&
             !practiceMode &&
             !!lp?.lastCode?.[LANGUAGE_ENTRYPOINT[lesson.language]]?.trim()
               ? () => setShareOpen(true)
@@ -1296,6 +1503,7 @@ export default function LessonPage({
             checkButton: layout.checkBtnRef.current,
             tutorPanel: layout.tutorRef.current,
           }}
+          persistDone={mode === "authed"}
           onComplete={() => layout.setShowCoach(false)}
         />
       )}

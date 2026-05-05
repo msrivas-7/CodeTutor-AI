@@ -31,6 +31,7 @@ temp/sessions/
 .idea/
 .claude/
 .agents/
+.codex/
 
 # Playwright E2E artifacts (e2e/ has its own .gitignore; these catch stray
 # outputs when playwright is invoked from the repo root).

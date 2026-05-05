@@ -173,6 +173,19 @@ export function CinematicGreeting(props: CinematicGreetingProps) {
   const onSkipRef = useRef(props.onSkip);
   onSkipRef.current = props.onSkip;
 
+  // Phase 27-v2.1 audit pass 1 fix #4: track "cinematic is currently
+  // mounted" in useFirstRunStore so peer surfaces (specifically
+  // WorkspaceCoach, which auto-mounts on /try/ ~600 ms after lesson
+  // load — i.e., UNDER the cinematic overlay) can suppress their
+  // global keydown handlers while the cinematic owns the screen.
+  // Without this, a single Esc keystroke during the cinematic
+  // dismissed both surfaces.
+  useEffect(() => {
+    if (props.mode !== "full") return;
+    useFirstRunStore.getState().setCinematicShowing(true);
+    return () => useFirstRunStore.getState().setCinematicShowing(false);
+  }, [props.mode]);
+
   // onComplete fires after the full timeline regardless of mode.
   useEffect(() => {
     const t = window.setTimeout(() => {
@@ -206,6 +219,18 @@ export function CinematicGreeting(props: CinematicGreetingProps) {
     if (terminalFiredRef.current) return;
     if (!onSkipRef.current) return;
     terminalFiredRef.current = true;
+    // Cinema Kit Continuity Pass — match-cut handoff also fires on Esc/Skip.
+    // Required for the anon /try/ path (Phase 27-v2.1 Part 3+) where the
+    // cinematic dissolves OVER an already-mounted LessonPage(mode="anon")
+    // and the iris reveal needs cinematicExitingAt set to fire the
+    // "circle opening up" continuity beat. The authed /welcome Esc-skip
+    // navs to /start, not a lesson, so its 1.5s freshness window stales
+    // out before any lesson mount — no behavior change for Alex's path.
+    // Only on full mode (minimal-mode is the welcome-back overlay which
+    // dissolves over its own surface, not into a lesson).
+    if (props.mode === "full") {
+      useFirstRunStore.getState().markCinematicExiting();
+    }
     onSkipRef.current();
   };
 
@@ -225,16 +250,33 @@ export function CinematicGreeting(props: CinematicGreetingProps) {
   // line + subtitle, no typewriter, no blur, no theatre. Still
   // personalized, still legible. Duration scales to half for respect.
   if (reduce) {
+    // Phase 27-v2.1 audit pass 1 fix #6: reduced-motion fallback also
+    // needs to fire markCinematicExiting on its terminal paths so the
+    // anon iris reveal ("circle opening up") fires uniformly for users
+    // who honor prefers-reduced-motion. Without this, the fallback
+    // dissolved straight into the lesson with no handoff beat — the
+    // accessibility lane silently lost the welcome-scene parity beat.
+    // Only on full mode (minimal-mode is the welcome-back overlay
+    // which dissolves over its own surface).
+    const wrapTerminal = (fn: (() => void) | undefined) => {
+      if (!fn) return undefined;
+      return () => {
+        if (props.mode === "full") {
+          useFirstRunStore.getState().markCinematicExiting();
+        }
+        fn();
+      };
+    };
     return (
       <ReducedMotionFallback
         heroLine={props.heroLine}
         subtitle={props.subtitle}
-        onSkip={props.onSkip}
+        onSkip={wrapTerminal(props.onSkip)}
         // Critical: pass onComplete through so learners who honor
         // prefers-reduced-motion aren't stranded on /welcome. The
         // fallback fires it after a short static reveal — same
         // terminal nav as the full cinematic, just without theatre.
-        onComplete={props.onComplete}
+        onComplete={wrapTerminal(props.onComplete)!}
       />
     );
   }

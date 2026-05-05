@@ -40,11 +40,22 @@ interface FirstRunStoreState {
    *  after it's read so a stale value can't trigger the handoff
    *  on a normal lesson visit later. */
   cinematicExitingAt: number | null;
+  /** Phase 27-v2.1 audit pass 1 fix #4: tracks whether the
+   *  CinematicGreeting overlay is currently mounted. WorkspaceCoach
+   *  reads this to suppress its Esc handler while cinematic is on top
+   *  — without it, a single Esc keystroke during the cinematic
+   *  dismisses both surfaces (cinematic via its own handler, coach
+   *  via its global window listener). Maya then never sees the
+   *  6-step orientation tour even though it was supposed to fire
+   *  AFTER the cinematic. CinematicGreeting toggles this on mount /
+   *  unmount via the helper actions below. */
+  cinematicShowing: boolean;
   start: () => void;
   setStep: (step: FirstRunStep) => void;
   bumpWrongEditAttempts: () => void;
   markCinematicExiting: () => void;
   clearCinematicExiting: () => void;
+  setCinematicShowing: (showing: boolean) => void;
   skip: () => void;
   reset: () => void;
 }
@@ -55,6 +66,7 @@ export const useFirstRunStore = create<FirstRunStoreState>((set, get) => ({
   skipped: false,
   wrongEditAttempts: 0,
   cinematicExitingAt: null,
+  cinematicShowing: false,
   start: () => {
     if (get().step !== "idle") return; // idempotent
     set({ step: "greet", startedAt: Date.now(), skipped: false, wrongEditAttempts: 0 });
@@ -64,7 +76,15 @@ export const useFirstRunStore = create<FirstRunStoreState>((set, get) => ({
     set({ wrongEditAttempts: get().wrongEditAttempts + 1 }),
   markCinematicExiting: () => set({ cinematicExitingAt: Date.now() }),
   clearCinematicExiting: () => set({ cinematicExitingAt: null }),
+  setCinematicShowing: (showing) => set({ cinematicShowing: showing }),
   skip: () => set({ skipped: true, step: "done" }),
   reset: () =>
-    set({ step: "idle", startedAt: null, skipped: false, wrongEditAttempts: 0, cinematicExitingAt: null }),
+    set({
+      step: "idle",
+      startedAt: null,
+      skipped: false,
+      wrongEditAttempts: 0,
+      cinematicExitingAt: null,
+      cinematicShowing: false,
+    }),
 }));

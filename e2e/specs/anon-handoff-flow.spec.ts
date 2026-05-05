@@ -68,6 +68,56 @@ test.describe("anon→authed handoff (Phase 27-v2 Day 5b)", () => {
       });
     });
 
+    // Mock /api/user/lessons (the listLessonProgress endpoint) so the
+    // frontend's progressStore hydration sees lesson 1 as completed
+    // — otherwise useLessonLoader's shouldBouncePrereq check fails
+    // for lesson 2 (which has hello-world as a prerequisite) and
+    // bounces to /learn/course/python-fundamentals (course overview)
+    // instead of the lesson page. The real backend handoff route
+    // writes this row; the frontend tests just need the read shape
+    // mocked.
+    await page.route("**/api/user/lessons*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          lessons: [
+            {
+              courseId: "python-fundamentals",
+              lessonId: "hello-world",
+              status: "completed",
+              completedAt: new Date().toISOString(),
+              attemptCount: 1,
+              runCount: 1,
+              hintCount: 0,
+              timeSpentMs: 60000,
+              lastCode: { "main.py": 'name = "Maya"\nprint("Hello, " + name + "!")' },
+              practiceCompletedIds: [],
+            },
+          ],
+        }),
+      });
+    });
+    // Same for course progress: hello-world counted as completed in
+    // the python-fundamentals course.
+    await page.route("**/api/user/courses*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          courses: [
+            {
+              courseId: "python-fundamentals",
+              status: "in_progress",
+              completedLessonIds: ["hello-world"],
+              startedAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            },
+          ],
+        }),
+      });
+    });
+
     // Land on /start as if just-signed-up (the auth fixture has
     // already injected a session). The handoff intercept fires
     // before any redirect — we expect the loading shell first.
@@ -142,8 +192,12 @@ test.describe("anon→authed handoff (Phase 27-v2 Day 5b)", () => {
     // the shell text would pass at the pre-mount frame too;
     // requiring positive evidence of the post-shell render closes
     // that hole.)
+    // StartPage renders BOTH "Open Editor" and "Guided Course" as h2
+    // headings inside button cards. The regex matches both, so use
+    // .first() to disambiguate — we only need positive evidence that
+    // StartPage rendered, not which specific tile.
     await expect(
-      page.getByRole("heading", { name: /Open Editor|Guided Course/i }),
+      page.getByRole("heading", { name: /Open Editor|Guided Course/i }).first(),
     ).toBeVisible({ timeout: 10_000 });
     // Belt-and-suspenders: the loading shell text isn't visible
     // anymore. Now that we know we're past it, this assertion

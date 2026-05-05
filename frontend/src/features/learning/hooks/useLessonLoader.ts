@@ -25,7 +25,15 @@ import { shouldBouncePrereq } from "./lessonGuards";
 export interface UseLessonLoaderArgs {
   courseId: string | undefined;
   lessonId: string | undefined;
-  learnerId: string;
+  /**
+   * Phase 27-v2.1: null on the anon `/try/` path (no signed-in user).
+   * When null, internal /api/user/* PATCH calls (startLesson, lesson-
+   * progress writes) are skipped — anon never writes to the per-user
+   * progress / preferences tables. Lesson content (markdown, starter
+   * files, completionRules) is loaded from the public course JSON
+   * regardless of mode.
+   */
+  learnerId: string | null;
   // Passed in so the debounced auto-save writes to the right bucket
   // (lastCode vs. practiceExerciseCode) without the loader owning the
   // practice state machine itself.
@@ -141,7 +149,13 @@ export function useLessonLoader({
         setLessonOrder(course.lessonOrder);
         const metaMap = new Map(metas.map((m) => [m.id, m]));
         setPriorConcepts(conceptsAvailableBefore(course, metaMap, lessonId));
-        startLesson(learnerId, courseId, lessonId);
+        // Phase 27-v2.1: skip the per-learner startLesson PATCH on
+        // anon mode (learnerId === null). Lesson content is fetched
+        // and rendered identically; only the server-side "user has
+        // started this lesson" tracking is suppressed.
+        if (learnerId !== null) {
+          startLesson(learnerId, courseId, lessonId);
+        }
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -274,8 +288,18 @@ export function useLessonLoader({
   // cadence + pagehide/visibilitychange (via fetch keepalive). Net: ≤ 1
   // server write per lesson per minute instead of every 30s tick, and a
   // tab close flushes the in-flight delta instead of dropping it.
+  //
+  // Phase 27-v2.1: skip the heartbeat lifecycle entirely on anon
+  // (learnerId === null). The `bufferLessonTime` + 60s flush would
+  // POST /api/user/lessons/heartbeat → 401 (no token). Anon's time-
+  // on-lesson is informational only; we don't track it server-side
+  // because there's no per-user row to write to. The in-memory
+  // "Time spent" badge IS rendered for anon (cosmetic), but the
+  // durable write path is suppressed — Maya pausing on /try/ for
+  // 60+s won't fire failing POSTs against the backend.
   useEffect(() => {
     if (!courseId || !lessonId || practiceMode) return;
+    if (learnerId === null) return;
     const uninstall = installLessonHeartbeatLifecycle();
     let lastTick = Date.now();
     const TICK_MS = 30_000;
@@ -312,7 +336,7 @@ export function useLessonLoader({
       void flushLessonHeartbeat();
       uninstall();
     };
-  }, [courseId, lessonId, practiceMode, incrementLessonTime]);
+  }, [courseId, lessonId, practiceMode, learnerId, incrementLessonTime]);
 
   return {
     lesson,

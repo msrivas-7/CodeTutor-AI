@@ -6,6 +6,7 @@ import {
   markOnboardingDone,
   usePreferencesStore,
 } from "../../../state/preferencesStore";
+import { useFirstRunStore } from "../../firstRun/useFirstRunStore";
 import { HOUSE_EASE } from "../../../components/cinema/easing";
 
 interface CoachStep {
@@ -87,7 +88,17 @@ function isDone(): boolean {
 }
 
 function maybeMarkDone(persistDone: boolean): void {
-  if (persistDone) markOnboardingDone("workspaceCoachDone");
+  if (persistDone) {
+    markOnboardingDone("workspaceCoachDone");
+    return;
+  }
+  // Phase 27-v2.1 — anon path: flip the local preferencesStore flag
+  // WITHOUT the PATCH /api/user/preferences. This is what unblocks
+  // LessonPage's choreography enable gate (which reads
+  // workspaceCoachDone) on the trial path. Without the local flip,
+  // the gate would stay false on anon and the scripted walkthrough
+  // would never fire after the coach dismissed.
+  usePreferencesStore.setState({ workspaceCoachDone: true });
 }
 
 export function WorkspaceCoach({
@@ -182,13 +193,26 @@ export function WorkspaceCoach({
   }, [onComplete, persistDone]);
 
   // A6: Esc dismisses the coach — matches the Modal + WelcomeOverlay pattern.
+  //
+  // Phase 27-v2.1 audit pass 1 fix #4: gate the Esc handler on
+  // `cinematicShowing` being false. On /try/ the coach mounts ~600 ms
+  // after lesson load (COACH_AUTO_OPEN_MS), but the CinematicGreeting
+  // is still on top until ~14 s. The coach's anchor refs ARE
+  // populated under the cinematic (the lesson chrome is laid out
+  // beneath the overlay), so targetRect resolves and the keydown
+  // listener registers. Without this gate, a single Esc keystroke
+  // during the cinematic dismissed BOTH surfaces (cinematic via its
+  // own handler, coach via this listener) — Maya then never saw the
+  // 6-step orientation tour.
+  const cinematicShowing = useFirstRunStore((s) => s.cinematicShowing);
   useEffect(() => {
+    if (cinematicShowing) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") dismiss();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [dismiss]);
+  }, [dismiss, cinematicShowing]);
 
   if (!targetRect || !currentStep) return null;
 

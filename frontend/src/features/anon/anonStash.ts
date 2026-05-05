@@ -192,6 +192,38 @@ export function markCoachSeenAnon(): void {
   }
 }
 
+const CHOREOGRAPHY_DONE_KEY = "codetutor.anonChoreographyDone";
+
+/**
+ * Has the scripted Socratic walkthrough already played (greet → awaitRun →
+ * celebrateRun → awaitEdit → praiseEditRun → awaitCheck → seed) for this
+ * tab? Mirrors the cinematic + coach flag pattern. Phase 27-v2.1 Part 3
+ * audit pass 1 found that without this flag, a /try/ reload mid-lesson
+ * (or post-lesson, pre-signup) re-fires the choreography from "greet" —
+ * wiping Maya's tutor history via clearConversation() and replaying the
+ * auto-Run. This flag is set when the choreography reaches the "seed"
+ * step (the natural end of the walkthrough); the post-signup handoff
+ * stash carries `welcomeDone=true` independently to suppress the
+ * choreography on lesson 2.
+ */
+export function hasChoreographyDoneAnon(): boolean {
+  if (typeof window === "undefined") return true;
+  try {
+    return window.sessionStorage.getItem(CHOREOGRAPHY_DONE_KEY) === "1";
+  } catch {
+    return true;
+  }
+}
+
+export function markChoreographyDoneAnon(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(CHOREOGRAPHY_DONE_KEY, "1");
+  } catch {
+    // Fail-soft.
+  }
+}
+
 /**
  * Parse `name = "Maya"` (or single-quote, or whitespace variants) out
  * of the user's main.py. Returns the literal between the quotes if

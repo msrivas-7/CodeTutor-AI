@@ -1,7 +1,8 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useAIStore } from "../../state/aiStore";
 import { useRunStore } from "../../state/runStore";
 import { markFirstRunComplete } from "../../state/preferencesStore";
+import { markChoreographyDoneAnon } from "../anon/anonStash";
 import type { ValidationResult } from "../learning/types";
 import { useFirstRunStore } from "./useFirstRunStore";
 import {
@@ -125,6 +126,25 @@ export function useFirstRunChoreography({
   const currentStreamRef = useRef<ScriptedAssistantHandle | null>(null);
   const wallClockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Phase 27-v2.1 audit pass 2 P1: every skip path (user-typed-mid-
+  // walkthrough, 5-min wall-clock timeout, generator throw) must stamp
+  // the per-mode "done" signal — otherwise a reload re-fires the
+  // choreography from "greet" and clearConversation() wipes the
+  // learner's tutor history. Mirror the natural-seed-step persistence
+  // so skip and complete are symmetric. Authed: fire-and-forget the
+  // server PATCH (await would block the user-typed-into-tutor handoff
+  // by ~100ms which feels worse than missing the persist on skip,
+  // and the PATCH catches up on next sign-in regardless). Anon:
+  // synchronous sessionStorage write. Stable identity via useCallback
+  // so it can sit in deps arrays without churning effects.
+  const persistDoneOnSkip = useCallback(() => {
+    if (onSeed === "anon-stash") {
+      markChoreographyDoneAnon();
+    } else {
+      void markFirstRunComplete();
+    }
+  }, [onSeed]);
+
   // Cancel the current scripted stream if the user types a question.
   // Detection: `aiStore.history` gains a user-role message after the
   // scripted stream started.
@@ -139,11 +159,12 @@ export function useFirstRunChoreography({
       if (state.history.length > initialLen) {
         // User has said something real — hand the tutor back to them.
         currentStreamRef.current?.cancel();
+        persistDoneOnSkip();
         skip();
       }
     });
     return unsub;
-  }, [enabled, skip]);
+  }, [enabled, skip, persistDoneOnSkip]);
 
   // Kick the whole thing off on mount.
   useEffect(() => {
@@ -159,6 +180,7 @@ export function useFirstRunChoreography({
     // Wall-clock watchdog — auto-skip after 5 min regardless of state.
     wallClockTimerRef.current = setTimeout(() => {
       currentStreamRef.current?.cancel();
+      persistDoneOnSkip();
       skip();
     }, WALL_CLOCK_MAX_MS);
     return () => {
@@ -166,7 +188,7 @@ export function useFirstRunChoreography({
       currentStreamRef.current?.cancel();
       reset();
     };
-  }, [enabled, start, skip, reset]);
+  }, [enabled, start, skip, reset, persistDoneOnSkip]);
 
   // The step runner. Cleanly separated so each effect handles exactly
   // one transition and the dependencies only pull the pieces that
@@ -344,17 +366,32 @@ export function useFirstRunChoreography({
           if (onSeed === "authed-mark-prefs") {
             await markFirstRunComplete();
             if (cancelled) return;
+          } else if (onSeed === "anon-stash") {
+            // Phase 27-v2.1 audit pass 1 fix #3 + pass 2 P2 #3: stamp
+            // the per-tab sessionStorage flag so a /try/ reload mid-
+            // or post-lesson doesn't replay the scripted walkthrough
+            // from "greet" (which would also fire
+            // useAIStore.clearConversation() and wipe Maya's tutor
+            // history). Lesson 2 post-signup is handled separately
+            // by the welcomeDone flag in the anon-handoff stash.
+            // Pass 2 moved this to a static top-of-file import to
+            // close the reload-window leak — dynamic import resolution
+            // (~ms-tens) between cancel-check and flag-stamp could
+            // skip the persist on a slow-network reload.
+            markChoreographyDoneAnon();
           }
           setStep("done");
           return;
         }
       } catch {
+        // Pass 2 P1 #1: catch-block skip path also persists "done".
+        persistDoneOnSkip();
         skip();
       }
     })();
 
     return cancel;
-  }, [enabled, skipped, step, firstName, onSeed, resolvePraiseName, setStep, skip]);
+  }, [enabled, skipped, step, firstName, onSeed, resolvePraiseName, setStep, skip, persistDoneOnSkip]);
 
   // Observer: celebrateRun fires when the first run completes.
   useEffect(() => {
