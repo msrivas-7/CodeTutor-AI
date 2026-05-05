@@ -43,10 +43,19 @@ const COPY_BY_REASON: Record<SignupWallReason, { title: string; body: string; ct
       "Takes 10 seconds. From the moment you sign up, your code and progress save automatically — so you never lose a line of work again.",
     cta: "Sign up for free",
   },
+  // Phase 27-v2 Day 5a: next-lesson reason now honestly promises the
+  // carry-over Day 3c writes (sessionStorage stash) and Day 4 redeems
+  // (POST /api/anon-handoff from StartPage on first authed mount).
+  // Maya signing up from the celebration CTA lands directly on lesson
+  // 2 with her code, name, and lesson-1 completion already applied —
+  // no /welcome cinematic replay, no lesson-1 redo, no WorkspaceCoach
+  // (until Day 6, then suppressed too). The body names what comes
+  // with her so the wall reads as continuation of the win moment,
+  // not a transactional "create an account" ask.
   "next-lesson": {
     title: "Keep going?",
     body:
-      "Lesson 2 starts where this one left off. Make a free account and pick up where you are.",
+      "Lesson 2 picks up right where you are. Your code, your name, and the lesson you just finished come with you when you sign up.",
     cta: "Start lesson 2",
   },
   exhausted: {
