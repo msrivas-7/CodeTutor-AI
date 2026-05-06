@@ -117,11 +117,18 @@ interface LessonPageProps {
    *   pivot to SignupWallDialog reason="share" — same conversion lever
    *   as save/next-lesson, different framing because Maya's intent is
    *   "text my friend." Phase 27-v2.2 Fix 1.
+   *
+   * onAnonTrialPaused: invoked when GuidedTutorPanel's anon stream
+   *   returns 503 ANON_LESSON_DISABLED (operator flipped the kill
+   *   switch). The wrapper opens SignupWallDialog reason="trial-paused"
+   *   — same medium-lock pattern as exhausted, different framing copy.
+   *   Phase 27-v2.2 audit fix E1.
    */
   onAnonSave?: () => void;
   onAnonNext?: () => void;
   onAnonExhausted?: () => void;
   onAnonShare?: () => void;
+  onAnonTrialPaused?: () => void;
 }
 
 export default function LessonPage({
@@ -132,6 +139,7 @@ export default function LessonPage({
   onAnonNext,
   onAnonExhausted,
   onAnonShare,
+  onAnonTrialPaused,
 }: LessonPageProps = {}) {
   const params = useParams<{
     courseId: string;
@@ -1350,6 +1358,7 @@ export default function LessonPage({
               clearHidden={tutorClearHidden}
               mode={mode}
               onAnonExhausted={onAnonExhausted}
+              onAnonTrialPaused={onAnonTrialPaused}
             />
           </motion.aside>
         </motion.main>

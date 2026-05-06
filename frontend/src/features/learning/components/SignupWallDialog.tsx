@@ -27,7 +27,18 @@ import { motion, AnimatePresence } from "framer-motion";
 // happens AFTER signup. Same conversion lever as save / next-lesson,
 // different framing because Maya's emotional intent here is "text
 // this to my group chat," not "save my work."
-export type SignupWallReason = "save" | "exhausted" | "next-lesson" | "share";
+export type SignupWallReason =
+  | "save"
+  | "exhausted"
+  | "next-lesson"
+  | "share"
+  // Phase 27-v2.2 audit fix E1 (staff-ux): operator flipped the anon
+  // kill switch off. Without this reason the route returns 503
+  // ANON_LESSON_DISABLED and useTutorAsk surfaces a raw "Request
+  // failed" with no path forward. Pivot the wall as "trial paused —
+  // sign up to keep going" so an actively-engaged user during an
+  // incident isn't bounced into nothing.
+  | "trial-paused";
 
 interface SignupWallDialogProps {
   open: boolean;
@@ -88,6 +99,16 @@ const COPY_BY_REASON: Record<SignupWallReason, { title: string; body: string; ct
     body:
       "Takes 10 seconds. Your code, your name, and the share image come with you.",
     cta: "Sign up & share",
+  },
+  // Phase 27-v2.2 audit fix E1: trial paused (operator-flipped kill
+  // switch). Reads as "small ops blip; sign up so you don't lose your
+  // place" — preserves the conversion lever the kill switch would
+  // otherwise destroy. Body promises continuity, not punishment.
+  "trial-paused": {
+    title: "We're catching our breath.",
+    body:
+      "The trial is paused for a moment. Sign up to keep going — your code and your name come with you.",
+    cta: "Sign up to continue",
   },
 };
 
@@ -156,7 +177,7 @@ export function SignupWallDialog({ open, reason, onDismiss }: SignupWallDialogPr
                     — same continuation framing as next-lesson (Maya
                     just earned the artifact; deferring is completion-
                     deferred, not refusal). */}
-                {reason === "next-lesson" || reason === "share"
+                {reason === "next-lesson" || reason === "share" || reason === "trial-paused"
                   ? "Maybe later"
                   : "Not yet"}
               </button>

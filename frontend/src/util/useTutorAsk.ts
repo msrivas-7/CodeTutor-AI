@@ -62,6 +62,14 @@ export interface UseTutorAskOpts {
    * different framing copy.
    */
   onAnonExhausted?: () => void;
+  /**
+   * Phase 27-v2.2 audit fix E1 (staff-ux): invoked when the anon kill
+   * switch is on (server returns 503 with `ANON_LESSON_DISABLED`).
+   * Wrapper opens the SignupWallDialog with reason="trial-paused" so
+   * an actively-engaged user doesn't bounce on a raw "Request failed"
+   * during an operator-driven incident response.
+   */
+  onAnonTrialPaused?: () => void;
 }
 
 export interface UseTutorAskResult {
@@ -222,6 +230,20 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
               /ANON_EXHAUSTED/i.test(message)
             ) {
               opts.onAnonExhausted();
+              clearStream();
+              committed = true;
+              return;
+            }
+            // Phase 27-v2.2 audit fix E1: kill-switch-flipped path.
+            // Backend returns 503 with body containing
+            // ANON_LESSON_DISABLED. Same wall pivot as ANON_EXHAUSTED,
+            // different framing reason.
+            if (
+              isAnon &&
+              opts.onAnonTrialPaused &&
+              /ANON_LESSON_DISABLED/i.test(message)
+            ) {
+              opts.onAnonTrialPaused();
               clearStream();
               committed = true;
               return;

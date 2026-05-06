@@ -54,7 +54,14 @@ const EVENT_LABELS = [
 // anon_wall_opened. Keeping a literal union here gives an early 400
 // on a typo that would otherwise just land as a free-text reason
 // that the dashboard can't aggregate.
-const WALL_REASONS = ["save", "next-lesson", "exhausted", "share"] as const;
+const WALL_REASONS = [
+  "save",
+  "next-lesson",
+  "exhausted",
+  "share",
+  // Phase 27-v2.2 audit fix E1: kill-switch-flipped wall reason.
+  "trial-paused",
+] as const;
 
 const eventBody = z.object({
   event: z.enum(EVENT_LABELS),

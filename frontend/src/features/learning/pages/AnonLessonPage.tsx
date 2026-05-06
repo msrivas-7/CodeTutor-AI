@@ -171,6 +171,11 @@ export default function AnonLessonPage() {
   // in LessonPage still hides on practice-mode for both authed and
   // anon — this callback only fires for non-practice celebrations.
   const onAnonShare = () => openWall("share");
+  // Phase 27-v2.2 audit fix E1: kill-switch flipped path. The tutor
+  // ask returns 503 ANON_LESSON_DISABLED; instead of leaving Maya
+  // staring at "Request failed", route to the wall with the trial-
+  // paused framing.
+  const onAnonTrialPaused = () => openWall("trial-paused");
 
   const onAnonNext = () => {
     // Read the live code out of the project store at the moment of
@@ -231,6 +236,7 @@ export default function AnonLessonPage() {
         onAnonNext={onAnonNext}
         onAnonExhausted={onAnonExhausted}
         onAnonShare={onAnonShare}
+        onAnonTrialPaused={onAnonTrialPaused}
       />
       <SignupWallDialog
         open={wall.open}

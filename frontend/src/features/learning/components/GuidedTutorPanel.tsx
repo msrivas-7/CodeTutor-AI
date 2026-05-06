@@ -66,9 +66,14 @@ interface GuidedTutorPanelProps {
    * Only meaningful when mode === "anon".
    */
   onAnonExhausted?: () => void;
+  /**
+   * Phase 27-v2.2 audit fix E1: invoked when the anon kill switch is
+   * on (server 503 ANON_LESSON_DISABLED). Opens reason="trial-paused".
+   */
+  onAnonTrialPaused?: () => void;
 }
 
-export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, priorConcepts, activePracticeExercise, onCollapse, onOpenSettings, resetNonce, inputLocked, clearHidden, mode = "authed", onAnonExhausted }: GuidedTutorPanelProps) {
+export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, priorConcepts, activePracticeExercise, onCollapse, onOpenSettings, resetNonce, inputLocked, clearHidden, mode = "authed", onAnonExhausted, onAnonTrialPaused }: GuidedTutorPanelProps) {
   const incrementHint = useProgressStore((s) => s.incrementHint);
   // Derive the hint cap from the DB-backed hint_count (not local component
   // state) so the limit survives navigation + reload. Local state rewinds on
@@ -179,6 +184,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
     endpoint: mode === "anon" ? "/api/anon/ai/ask/stream" : undefined,
     mode,
     onAnonExhausted,
+    onAnonTrialPaused,
     onAskComplete: ({ ok }) => {
       if (pendingHintRef.current) {
         pendingHintRef.current = false;

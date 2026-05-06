@@ -1456,7 +1456,7 @@ export const api = {
       | "anon_wall_opened"
       | "anon_signup_completed"
       | "anon_lesson2_reached",
-    reason?: "save" | "next-lesson" | "exhausted" | "share",
+    reason?: "save" | "next-lesson" | "exhausted" | "share" | "trial-paused",
   ): void => {
     // Fire-and-forget. We don't use the `post<T>` helper because:
     //   - That expects a JSON response body; the route returns 204.
