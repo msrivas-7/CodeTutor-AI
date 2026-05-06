@@ -1,0 +1,17 @@
+{
+  "_comment": "Baseline run for tutor-quality eval. Replace this file with a real run from eval/runs/<timestamp>.json once the founder runs the eval against the production model + golden set and trusts the result. Until then, --gate exits with a clear 'no baseline' message rather than passing inadvertently.",
+  "timestamp": "1970-01-01T00:00:00.000Z",
+  "tutorModel": "gpt-4.1-nano",
+  "judgeModel": "gpt-4.1-mini",
+  "totalPrompts": 0,
+  "succeeded": 0,
+  "errored": 0,
+  "passRate": {
+    "hallucination": 0,
+    "socratic": 0,
+    "grounded": 0,
+    "all": 0
+  },
+  "byIntent": {},
+  "perPrompt": []
+}

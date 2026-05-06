@@ -1,0 +1,691 @@
+# Phase A — Tutor-quality golden set v1
+#
+# 30 hand-authored prompts covering the 5 tutor intents (debug / concept /
+# howto / walkthrough / checkin) across Python and JavaScript. Each prompt
+# carries a 3-dimension Y/N rubric:
+#   - hallucinationY: tutor invented NO API not in stdlib or user file
+#   - socraticY: tutor asks at least one diagnostic question and does NOT
+#     paste a complete fixed code block (per coreRules.ts)
+#   - groundedY: tutor cites at least one file:line reference
+#
+# When the eval runner invokes this set, each prompt's tutor response is
+# graded by gpt-4.1-mini on each rubric dimension. Aggregate pass-rate is
+# the AND across the three dimensions.
+#
+# Prompt IDs use g###. Intent distribution: 6 each × 5 intents.
+# Language distribution: ~half Python, ~half JS.
+#
+# Add new prompts at the end. Don't reorder — IDs are stable references.
+
+- id: g001
+  intent: debug
+  language: python
+  lessonContext:
+    courseId: python-fundamentals
+    lessonId: variables
+    lessonTitle: "Variables and Types"
+    lessonOrder: 2
+    totalLessons: 12
+    teachesConceptTags: ["variables", "int", "str", "string-concat"]
+    usesConceptTags: ["print"]
+    priorConcepts: ["print", "strings", "syntax"]
+  userMessage: "i did print(name) but it says NameError: name is not defined"
+  userFile: |
+    nme = "Maya"
+    print(name)
+  rubric:
+    hallucinationY: "The response does NOT invent any Python API not in the standard library or the user's code."
+    socraticY: "The response asks at least one diagnostic question and does NOT paste a complete fixed code block."
+    groundedY: "The response references at least one file:line citation pointing at the user's code."
+
+- id: g002
+  intent: debug
+  language: python
+  lessonContext:
+    courseId: python-fundamentals
+    lessonId: variables
+    lessonTitle: "Variables and Types"
+    lessonOrder: 2
+    totalLessons: 12
+    teachesConceptTags: ["variables", "int", "str", "string-concat"]
+    usesConceptTags: ["print"]
+    priorConcepts: ["print", "strings"]
+  userMessage: "TypeError: can only concatenate str (not 'int') to str"
+  userFile: |
+    name = "Alice"
+    age = 25
+    print("Name: " + name + " Age: " + age)
+  rubric:
+    hallucinationY: "The response does NOT invent any Python API not in the standard library or the user's code."
+    socraticY: "The response asks at least one diagnostic question and does NOT paste a complete fixed code block."
+    groundedY: "The response references at least one file:line citation pointing at the user's code."
+
+- id: g003
+  intent: debug
+  language: javascript
+  lessonContext:
+    courseId: javascript-fundamentals
+    lessonId: variables
+    lessonTitle: "Variables and Types"
+    lessonOrder: 2
+    totalLessons: 10
+    teachesConceptTags: ["let", "const", "var"]
+    usesConceptTags: ["console.log"]
+    priorConcepts: ["console.log", "strings"]
+  userMessage: "ReferenceError: Cannot access 'x' before initialization"
+  userFile: |
+    console.log(x);
+    let x = 5;
+  rubric:
+    hallucinationY: "The response does NOT invent any JavaScript API not in the standard runtime or the user's code."
+    socraticY: "The response asks at least one diagnostic question and does NOT paste a complete fixed code block."
+    groundedY: "The response references at least one file:line citation pointing at the user's code."
+
+- id: g004
+  intent: debug
+  language: python
+  lessonContext:
+    courseId: python-fundamentals
+    lessonId: hello-world
+    lessonTitle: "Hello, World!"
+    lessonOrder: 1
+    totalLessons: 12
+    teachesConceptTags: ["print", "strings", "syntax"]
+    usesConceptTags: []
+    priorConcepts: []
+  userMessage: "my code runs but doesnt print anything"
+  userFile: |
+    name = "Maya"
+    "Hello, " + name + "!"
+  rubric:
+    hallucinationY: "The response does NOT invent any Python API not in the standard library or the user's code."
+    socraticY: "The response asks at least one diagnostic question and does NOT paste a complete fixed code block."
+    groundedY: "The response references at least one file:line citation pointing at the user's code."
+
+- id: g005
+  intent: debug
+  language: javascript
+  lessonContext:
+    courseId: javascript-fundamentals
+    lessonId: variables
+    lessonTitle: "Variables and Types"
+    lessonOrder: 2
+    totalLessons: 10
+    teachesConceptTags: ["let", "const"]
+    usesConceptTags: ["console.log"]
+    priorConcepts: ["console.log"]
+  userMessage: "TypeError: Assignment to constant variable."
+  userFile: |
+    const count = 0;
+    count = count + 1;
+    console.log(count);
+  rubric:
+    hallucinationY: "The response does NOT invent any JavaScript API not in the standard runtime or the user's code."
+    socraticY: "The response asks at least one diagnostic question and does NOT paste a complete fixed code block."
+    groundedY: "The response references at least one file:line citation pointing at the user's code."
+
+- id: g006
+  intent: debug
+  language: python
+  lessonContext:
+    courseId: python-fundamentals
+    lessonId: loops
+    lessonTitle: "Loops"
+    lessonOrder: 4
+    totalLessons: 12
+    teachesConceptTags: ["for", "range"]
+    usesConceptTags: ["print", "variables"]
+    priorConcepts: ["print", "variables", "string-concat"]
+  userMessage: "infinite loop, what's wrong?"
+  userFile: |
+    i = 0
+    while i < 5:
+        print(i)
+  rubric:
+    hallucinationY: "The response does NOT invent any Python API not in the standard library or the user's code."
+    socraticY: "The response asks at least one diagnostic question and does NOT paste a complete fixed code block."
+    groundedY: "The response references at least one file:line citation pointing at the user's code."
+
+- id: g007
+  intent: concept
+  language: python
+  lessonContext:
+    courseId: python-fundamentals
+    lessonId: variables
+    lessonTitle: "Variables and Types"
+    lessonOrder: 2
+    totalLessons: 12
+    teachesConceptTags: ["variables", "int", "str", "string-concat"]
+    usesConceptTags: ["print"]
+    priorConcepts: ["print"]
+  userMessage: "what is a variable?"
+  userFile: |
+    name = "Maya"
+    print("Hello, " + name + "!")
+  rubric:
+    hallucinationY: "The response does NOT invent any Python API not in the standard library or the user's code."
+    socraticY: "The response is short (≤3 sentences) and does NOT paste a complete fixed code block."
+    groundedY: "The response ties the explanation to the user's code (mentions `name` or references the file)."
+
+- id: g008
+  intent: concept
+  language: javascript
+  lessonContext:
+    courseId: javascript-fundamentals
+    lessonId: functions
+    lessonTitle: "Functions"
+    lessonOrder: 4
+    totalLessons: 10
+    teachesConceptTags: ["function", "parameter", "return"]
+    usesConceptTags: ["console.log", "let"]
+    priorConcepts: ["console.log", "let", "const"]
+  userMessage: "what does return do?"
+  userFile: |
+    function add(a, b) {
+        return a + b;
+    }
+    console.log(add(2, 3));
+  rubric:
+    hallucinationY: "The response does NOT invent any JavaScript API not in the standard runtime or the user's code."
+    socraticY: "The response is short (≤3 sentences) and does NOT paste a complete fixed code block."
+    groundedY: "The response ties the explanation to the user's code (e.g., mentions `add` or references the file)."
+
+- id: g009
+  intent: concept
+  language: python
+  lessonContext:
+    courseId: python-fundamentals
+    lessonId: lists
+    lessonTitle: "Lists"
+    lessonOrder: 5
+    totalLessons: 12
+    teachesConceptTags: ["list", "indexing"]
+    usesConceptTags: ["print", "variables"]
+    priorConcepts: ["print", "variables", "for"]
+  userMessage: "whats the difference between a list and a string?"
+  userFile: |
+    word = "hello"
+    items = ["apple", "banana"]
+    print(word[0])
+    print(items[0])
+  rubric:
+    hallucinationY: "The response does NOT invent any Python API not in the standard library or the user's code."
+    socraticY: "The response is short (≤3 sentences) and does NOT paste a complete fixed code block."
+    groundedY: "The response ties the explanation to the user's code (mentions `word` or `items` or references the file)."
+
+- id: g010
+  intent: concept
+  language: javascript
+  lessonContext:
+    courseId: javascript-fundamentals
+    lessonId: arrays
+    lessonTitle: "Arrays"
+    lessonOrder: 5
+    totalLessons: 10
+    teachesConceptTags: ["array", "indexing"]
+    usesConceptTags: ["console.log", "let"]
+    priorConcepts: ["console.log", "let", "for"]
+  userMessage: "what is push?"
+  userFile: |
+    let nums = [1, 2, 3];
+    nums.push(4);
+    console.log(nums);
+  rubric:
+    hallucinationY: "The response does NOT invent any JavaScript API not in the standard runtime or the user's code."
+    socraticY: "The response is short (≤3 sentences) and does NOT paste a complete fixed code block."
+    groundedY: "The response ties the explanation to the user's code (mentions `nums` or `push` and references the file)."
+
+- id: g011
+  intent: concept
+  language: python
+  lessonContext:
+    courseId: python-fundamentals
+    lessonId: conditionals
+    lessonTitle: "If statements"
+    lessonOrder: 3
+    totalLessons: 12
+    teachesConceptTags: ["if", "else", "comparison"]
+    usesConceptTags: ["print", "variables", "int"]
+    priorConcepts: ["print", "variables"]
+  userMessage: "why use elif and not just multiple ifs?"
+  userFile: |
+    age = 18
+    if age < 13:
+        print("kid")
+    elif age < 20:
+        print("teen")
+    else:
+        print("adult")
+  rubric:
+    hallucinationY: "The response does NOT invent any Python API not in the standard library or the user's code."
+    socraticY: "The response is short (≤3 sentences) and does NOT paste a complete fixed code block."
+    groundedY: "The response ties the explanation to the user's code (mentions the user's `if/elif/else` ladder or references the file)."
+
+- id: g012
+  intent: concept
+  language: javascript
+  lessonContext:
+    courseId: javascript-fundamentals
+    lessonId: conditionals
+    lessonTitle: "If statements"
+    lessonOrder: 3
+    totalLessons: 10
+    teachesConceptTags: ["if", "else"]
+    usesConceptTags: ["console.log", "let", "const"]
+    priorConcepts: ["console.log", "let"]
+  userMessage: "what is === vs ==?"
+  userFile: |
+    let x = "5";
+    if (x == 5) console.log("loose");
+    if (x === 5) console.log("strict");
+  rubric:
+    hallucinationY: "The response does NOT invent any JavaScript API not in the standard runtime or the user's code."
+    socraticY: "The response is short (≤3 sentences) and does NOT paste a complete fixed code block."
+    groundedY: "The response ties the explanation to the user's code (mentions `x` or the user's `==` / `===` lines)."
+
+- id: g013
+  intent: howto
+  language: python
+  lessonContext:
+    courseId: python-fundamentals
+    lessonId: input-output
+    lessonTitle: "Reading input"
+    lessonOrder: 7
+    totalLessons: 12
+    teachesConceptTags: ["input", "type-conversion"]
+    usesConceptTags: ["print", "variables", "string-concat"]
+    priorConcepts: ["print", "variables", "string-concat"]
+  userMessage: "how do i ask the user for their name and print it back?"
+  userFile: |
+    # I want to ask for a name and greet them
+    print("Hello!")
+  rubric:
+    hallucinationY: "The response does NOT invent any Python API not in the standard library or the user's code."
+    socraticY: "The response describes the general approach in 2-3 sentences and gives ONE concrete next step. NO complete fixed code block."
+    groundedY: "The response references the user's existing file or explicitly tells the user to add a line at a specific location."
+
+- id: g014
+  intent: howto
+  language: javascript
+  lessonContext:
+    courseId: javascript-fundamentals
+    lessonId: arrays
+    lessonTitle: "Arrays"
+    lessonOrder: 5
+    totalLessons: 10
+    teachesConceptTags: ["array", "iteration"]
+    usesConceptTags: ["console.log", "let", "const"]
+    priorConcepts: ["console.log", "let", "for"]
+  userMessage: "how do i print every item in this array?"
+  userFile: |
+    const fruits = ["apple", "banana", "cherry"];
+    // print each one
+  rubric:
+    hallucinationY: "The response does NOT invent any JavaScript API not in the standard runtime or the user's code."
+    socraticY: "The response describes the general approach in 2-3 sentences and gives ONE concrete next step. NO complete fixed code block."
+    groundedY: "The response references the user's `fruits` array or the existing comment line."
+
+- id: g015
+  intent: howto
+  language: python
+  lessonContext:
+    courseId: python-fundamentals
+    lessonId: lists
+    lessonTitle: "Lists"
+    lessonOrder: 5
+    totalLessons: 12
+    teachesConceptTags: ["list", "append"]
+    usesConceptTags: ["print", "variables"]
+    priorConcepts: ["print", "variables"]
+  userMessage: "how do i add an item to a list?"
+  userFile: |
+    items = ["apple", "banana"]
+    print(items)
+  rubric:
+    hallucinationY: "The response does NOT invent any Python API not in the standard library or the user's code."
+    socraticY: "The response describes the general approach in 2-3 sentences and gives ONE concrete next step. NO complete fixed code block."
+    groundedY: "The response references the user's `items` list or its line in the file."
+
+- id: g016
+  intent: howto
+  language: javascript
+  lessonContext:
+    courseId: javascript-fundamentals
+    lessonId: functions
+    lessonTitle: "Functions"
+    lessonOrder: 4
+    totalLessons: 10
+    teachesConceptTags: ["function", "parameter"]
+    usesConceptTags: ["console.log"]
+    priorConcepts: ["console.log", "let"]
+  userMessage: "how do i make a function that takes two numbers and returns the bigger one?"
+  userFile: |
+    // I want a max() function
+    console.log("hello");
+  rubric:
+    hallucinationY: "The response does NOT invent any JavaScript API not in the standard runtime or the user's code."
+    socraticY: "The response describes the general approach in 2-3 sentences and gives ONE concrete next step. NO complete fixed code block."
+    groundedY: "The response references the user's existing comment or file structure."
+
+- id: g017
+  intent: howto
+  language: python
+  lessonContext:
+    courseId: python-fundamentals
+    lessonId: loops
+    lessonTitle: "Loops"
+    lessonOrder: 4
+    totalLessons: 12
+    teachesConceptTags: ["for", "range"]
+    usesConceptTags: ["print"]
+    priorConcepts: ["print", "variables"]
+  userMessage: "how do i print numbers 1 to 10?"
+  userFile: |
+    # print 1 to 10 here
+  rubric:
+    hallucinationY: "The response does NOT invent any Python API not in the standard library or the user's code."
+    socraticY: "The response describes the general approach in 2-3 sentences and gives ONE concrete next step. NO complete fixed code block."
+    groundedY: "The response references the user's existing comment or file structure."
+
+- id: g018
+  intent: howto
+  language: javascript
+  lessonContext:
+    courseId: javascript-fundamentals
+    lessonId: objects
+    lessonTitle: "Objects"
+    lessonOrder: 6
+    totalLessons: 10
+    teachesConceptTags: ["object", "property-access"]
+    usesConceptTags: ["console.log", "const"]
+    priorConcepts: ["console.log", "const"]
+  userMessage: "how do i make an object with name and age and print just the name?"
+  userFile: |
+    // an object with name and age
+    console.log("hi");
+  rubric:
+    hallucinationY: "The response does NOT invent any JavaScript API not in the standard runtime or the user's code."
+    socraticY: "The response describes the general approach in 2-3 sentences and gives ONE concrete next step. NO complete fixed code block."
+    groundedY: "The response references the user's existing comment or file structure."
+
+- id: g019
+  intent: walkthrough
+  language: python
+  lessonContext:
+    courseId: python-fundamentals
+    lessonId: hello-world
+    lessonTitle: "Hello, World!"
+    lessonOrder: 1
+    totalLessons: 12
+    teachesConceptTags: ["print", "strings", "syntax"]
+    usesConceptTags: []
+    priorConcepts: []
+  userMessage: "walk me through this"
+  userFile: |
+    name = "Maya"
+    print("Hello, " + name + "!")
+  rubric:
+    hallucinationY: "The response does NOT invent any Python API not in the standard library or the user's code."
+    socraticY: "The response uses the walkthrough field with ≤6 ordered steps. Each step's body is 1-2 sentences. NO complete fixed code block."
+    groundedY: "Each walkthrough step has a `path` and `line` pointing at the user's code, and `citations` is non-empty."
+
+- id: g020
+  intent: walkthrough
+  language: javascript
+  lessonContext:
+    courseId: javascript-fundamentals
+    lessonId: variables
+    lessonTitle: "Variables and Types"
+    lessonOrder: 2
+    totalLessons: 10
+    teachesConceptTags: ["let", "const"]
+    usesConceptTags: ["console.log"]
+    priorConcepts: ["console.log"]
+  userMessage: "explain this code line by line"
+  userFile: |
+    const greeting = "Hello";
+    let name = "Alex";
+    console.log(greeting + ", " + name + "!");
+  rubric:
+    hallucinationY: "The response does NOT invent any JavaScript API not in the standard runtime or the user's code."
+    socraticY: "The response uses the walkthrough field with ≤6 ordered steps. Each step's body is 1-2 sentences. NO complete fixed code block."
+    groundedY: "Each walkthrough step has a `path` and `line` pointing at the user's code, and `citations` is non-empty."
+
+- id: g021
+  intent: walkthrough
+  language: python
+  lessonContext:
+    courseId: python-fundamentals
+    lessonId: conditionals
+    lessonTitle: "If statements"
+    lessonOrder: 3
+    totalLessons: 12
+    teachesConceptTags: ["if", "else"]
+    usesConceptTags: ["print", "variables", "int"]
+    priorConcepts: ["print", "variables"]
+  userMessage: "i wrote this but i'm not sure how it actually flows"
+  userFile: |
+    score = 75
+    if score >= 90:
+        print("A")
+    elif score >= 80:
+        print("B")
+    elif score >= 70:
+        print("C")
+    else:
+        print("F")
+  rubric:
+    hallucinationY: "The response does NOT invent any Python API not in the standard library or the user's code."
+    socraticY: "The response uses the walkthrough field with ≤6 ordered steps. Each step's body is 1-2 sentences. NO complete fixed code block."
+    groundedY: "Each walkthrough step has a `path` and `line` pointing at the user's code, and `citations` is non-empty."
+
+- id: g022
+  intent: walkthrough
+  language: javascript
+  lessonContext:
+    courseId: javascript-fundamentals
+    lessonId: functions
+    lessonTitle: "Functions"
+    lessonOrder: 4
+    totalLessons: 10
+    teachesConceptTags: ["function", "parameter", "return"]
+    usesConceptTags: ["console.log", "let"]
+    priorConcepts: ["console.log", "let", "const"]
+  userMessage: "what does this code do?"
+  userFile: |
+    function greet(name) {
+        const message = "Hello, " + name + "!";
+        return message;
+    }
+    let result = greet("Alex");
+    console.log(result);
+  rubric:
+    hallucinationY: "The response does NOT invent any JavaScript API not in the standard runtime or the user's code."
+    socraticY: "The response uses the walkthrough field with ≤6 ordered steps. Each step's body is 1-2 sentences. NO complete fixed code block."
+    groundedY: "Each walkthrough step has a `path` and `line` pointing at the user's code, and `citations` is non-empty."
+
+- id: g023
+  intent: walkthrough
+  language: python
+  lessonContext:
+    courseId: python-fundamentals
+    lessonId: lists
+    lessonTitle: "Lists"
+    lessonOrder: 5
+    totalLessons: 12
+    teachesConceptTags: ["list", "for", "indexing"]
+    usesConceptTags: ["print", "variables"]
+    priorConcepts: ["print", "variables", "for"]
+  userMessage: "trace through this for me"
+  userFile: |
+    nums = [10, 20, 30]
+    total = 0
+    for n in nums:
+        total = total + n
+    print(total)
+  rubric:
+    hallucinationY: "The response does NOT invent any Python API not in the standard library or the user's code."
+    socraticY: "The response uses the walkthrough field with ≤6 ordered steps. Each step's body is 1-2 sentences. NO complete fixed code block."
+    groundedY: "Each walkthrough step has a `path` and `line` pointing at the user's code, and `citations` is non-empty."
+
+- id: g024
+  intent: walkthrough
+  language: javascript
+  lessonContext:
+    courseId: javascript-fundamentals
+    lessonId: arrays
+    lessonTitle: "Arrays"
+    lessonOrder: 5
+    totalLessons: 10
+    teachesConceptTags: ["array", "iteration", "method"]
+    usesConceptTags: ["console.log", "const"]
+    priorConcepts: ["console.log", "const", "for"]
+  userMessage: "explain"
+  userFile: |
+    const nums = [1, 2, 3, 4];
+    const doubled = nums.map(n => n * 2);
+    console.log(doubled);
+  rubric:
+    hallucinationY: "The response does NOT invent any JavaScript API not in the standard runtime or the user's code."
+    socraticY: "The response uses the walkthrough field with ≤6 ordered steps. Each step's body is 1-2 sentences. NO complete fixed code block."
+    groundedY: "Each walkthrough step has a `path` and `line` pointing at the user's code, and `citations` is non-empty."
+
+- id: g025
+  intent: checkin
+  language: python
+  lessonContext:
+    courseId: python-fundamentals
+    lessonId: input-output
+    lessonTitle: "Reading input"
+    lessonOrder: 7
+    totalLessons: 12
+    teachesConceptTags: ["input", "type-conversion"]
+    usesConceptTags: ["print", "variables", "string-concat"]
+    priorConcepts: ["print", "variables", "string-concat"]
+  userMessage: "is this on the right track?"
+  userFile: |
+    name = input("What's your name? ")
+    print("Hi, " + name)
+  rubric:
+    hallucinationY: "The response does NOT invent any Python API not in the standard library or the user's code."
+    socraticY: "The response gives an honest read in `diagnose` and a single `nextStep`. NO complete fixed code block."
+    groundedY: "The response references the user's specific lines (e.g., the `input` call or the `print` call)."
+
+- id: g026
+  intent: checkin
+  language: javascript
+  lessonContext:
+    courseId: javascript-fundamentals
+    lessonId: functions
+    lessonTitle: "Functions"
+    lessonOrder: 4
+    totalLessons: 10
+    teachesConceptTags: ["function", "parameter", "return"]
+    usesConceptTags: ["console.log"]
+    priorConcepts: ["console.log", "let", "const"]
+  userMessage: "i think i'm done — does this look right?"
+  userFile: |
+    function isEven(n) {
+        if (n % 2 === 0) {
+            return true;
+        }
+        return false;
+    }
+    console.log(isEven(4));
+  rubric:
+    hallucinationY: "The response does NOT invent any JavaScript API not in the standard runtime or the user's code."
+    socraticY: "The response gives an honest read in `diagnose` and a single `nextStep`. NO complete fixed code block."
+    groundedY: "The response references the user's specific lines (e.g., the `if` block or the `return`s)."
+
+- id: g027
+  intent: checkin
+  language: python
+  lessonContext:
+    courseId: python-fundamentals
+    lessonId: loops
+    lessonTitle: "Loops"
+    lessonOrder: 4
+    totalLessons: 12
+    teachesConceptTags: ["for", "while"]
+    usesConceptTags: ["print", "variables"]
+    priorConcepts: ["print", "variables"]
+  userMessage: "am i doing this right? i want to print 1-5"
+  userFile: |
+    for i in range(1, 6):
+        print(i)
+  rubric:
+    hallucinationY: "The response does NOT invent any Python API not in the standard library or the user's code."
+    socraticY: "The response gives an honest read in `diagnose` and a single `nextStep`. NO complete fixed code block."
+    groundedY: "The response references the user's `for` loop line."
+
+- id: g028
+  intent: checkin
+  language: javascript
+  lessonContext:
+    courseId: javascript-fundamentals
+    lessonId: arrays
+    lessonTitle: "Arrays"
+    lessonOrder: 5
+    totalLessons: 10
+    teachesConceptTags: ["array", "iteration"]
+    usesConceptTags: ["console.log", "let"]
+    priorConcepts: ["console.log", "let", "const", "for"]
+  userMessage: "is there a better way to do this?"
+  userFile: |
+    const nums = [1, 2, 3, 4, 5];
+    let total = 0;
+    for (let i = 0; i < nums.length; i++) {
+        total = total + nums[i];
+    }
+    console.log(total);
+  rubric:
+    hallucinationY: "The response does NOT invent any JavaScript API not in the standard runtime or the user's code."
+    socraticY: "The response gives an honest read in `diagnose` and a single `nextStep`. NO complete fixed code block."
+    groundedY: "The response references the user's specific loop lines."
+
+- id: g029
+  intent: checkin
+  language: python
+  lessonContext:
+    courseId: python-fundamentals
+    lessonId: variables
+    lessonTitle: "Variables and Types"
+    lessonOrder: 2
+    totalLessons: 12
+    teachesConceptTags: ["variables", "string-concat"]
+    usesConceptTags: ["print"]
+    priorConcepts: ["print"]
+  userMessage: "did i do the practice exercise right?"
+  userFile: |
+    first = "Maya"
+    last = "Smith"
+    print("Name: " + first + " " + last)
+  rubric:
+    hallucinationY: "The response does NOT invent any Python API not in the standard library or the user's code."
+    socraticY: "The response gives an honest read in `diagnose` and a single `nextStep`. NO complete fixed code block."
+    groundedY: "The response references the user's `print` line or variable assignments."
+
+- id: g030
+  intent: checkin
+  language: javascript
+  lessonContext:
+    courseId: javascript-fundamentals
+    lessonId: objects
+    lessonTitle: "Objects"
+    lessonOrder: 6
+    totalLessons: 10
+    teachesConceptTags: ["object", "property-access"]
+    usesConceptTags: ["console.log", "const"]
+    priorConcepts: ["console.log", "const"]
+  userMessage: "checking — is this what an object looks like?"
+  userFile: |
+    const person = {
+        name: "Alex",
+        age: 28
+    };
+    console.log(person.name);
+    console.log(person.age);
+  rubric:
+    hallucinationY: "The response does NOT invent any JavaScript API not in the standard runtime or the user's code."
+    socraticY: "The response gives an honest read in `diagnose` and a single `nextStep`. NO complete fixed code block."
+    groundedY: "The response references the user's `person` object lines."
