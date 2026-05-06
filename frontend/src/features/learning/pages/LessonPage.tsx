@@ -657,15 +657,21 @@ export default function LessonPage({
             sit beneath; the chip itself (a button/status) re-enables
             them with `pointer-events-auto`. */}
         {/* Phase 27-v2.1 — header center surface. Authed: StreakChip.
-            Anon: "Try it — no signup" badge so the user always knows
-            which path they're on. The badge replaces (does not
-            overlay) the StreakChip — anon has no streak to show
-            and the auth-only chip would 401 on /api/user/streak. */}
+            Anon: course-context chip. Phase 27-v2.2 audit fix E3
+            (product-owner): the prior "Try it — no signup" badge
+            reframed Maya's experience as a demo/trial when the v2.1
+            invariant is "this IS the product, not a lookalike". The
+            "Sign up to save" header pill on the right already names
+            the upgrade path; the center chip should orient her in the
+            curriculum, not remind her she hasn't paid. The chip
+            replaces (does not overlay) the StreakChip — anon has no
+            streak to show and the auth-only chip would 401 on
+            /api/user/streak. */}
         <div className="pointer-events-none absolute left-1/2 -translate-x-1/2">
           <div className="pointer-events-auto">
             {mode === "anon" ? (
-              <span className="rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-accent">
-                Try it — no signup
+              <span className="rounded-full bg-elevated/60 px-2 py-0.5 text-[10px] font-medium text-muted ring-1 ring-border">
+                Lesson 1 · Python
               </span>
             ) : (
               <StreakChip />
