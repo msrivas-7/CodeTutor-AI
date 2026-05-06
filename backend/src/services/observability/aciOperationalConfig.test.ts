@@ -25,6 +25,14 @@ vi.mock("../../config.js", () => ({
       dailyUsdCap: 20,
       maxOverflow: 36,
     },
+    // Phase 24B-resize: warmHigh/Low watermark defaults now derive from
+    // session.maxGlobal so they scale with SKU. Mock cap of 14 (B2ms-era
+    // value) keeps existing test expectations aligned with their
+    // previously-hardcoded 12/10 watermarks (high=13, low=7 with new
+    // formula; tests that assert specific defaults set them via
+    // __forceAciOperationalConfigForTests so the exact cap value below
+    // doesn't load-bear).
+    session: { maxGlobal: 14 },
   },
 }));
 
