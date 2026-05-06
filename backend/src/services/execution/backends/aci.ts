@@ -19,9 +19,9 @@
 //   Claim                       LocalDocker mechanism      ACI mechanism
 //   -----                       ---------------------      -------------
 //   C1  non-root UID 1100       USER runner (Dockerfile)   USER runner (image)
-//   C3  capDrop ALL             HostConfig.CapDrop         securityContext.capabilities.drop
-//   C4  readonly rootfs         HostConfig.ReadonlyRootfs  securityContext.readOnlyRootFilesystem
-//   C5  no-new-privileges       SecurityOpt                securityContext.allowPrivilegeEscalation: false
+//   C3  capDrop ALL             HostConfig.CapDrop         ACI default cap set (NOT tightenable)
+//   C4  readonly rootfs         HostConfig.ReadonlyRootfs  emptyDir-only writes; image has no setuid
+//   C5  no-new-privileges       SecurityOpt                structural: non-root + no setuid in image
 //   C6  memory cap              HostConfig.Memory          resources.limits.memoryInGB
 //   C7  CPU cap                 HostConfig.NanoCpus        resources.limits.cpu
 //   C8  PidsLimit (fork-bomb)   HostConfig.PidsLimit       agent ulimit -u (RUNNER_AGENT_NPROC_LIMIT)
@@ -474,15 +474,28 @@ export class AciExecutionBackend implements ExecutionBackend {
             requests: { memoryInGB, cpu },
             limits: { memoryInGB, cpu },
           },
-          // C1 / C3 / C4 / C5 — kernel-level claims. ACI's securityContext
-          // is the documented mapping for these Linux kernel knobs.
+          // ACI accepts ONLY the `privileged` flag in securityContext —
+          // the API rejects the entire spawn with "Some SecurityContext
+          // properties in container 'runner' is not supported. Only the
+          // 'Privileged' flag is supported." if any other field is set.
+          //
+          // The other LocalDocker hardening (C1/C3/C4/C5) is preserved
+          // by the runner image itself rather than the ACI spec:
+          //  • runAsUser=1100, runAsNonRoot — `USER runner` (UID/GID
+          //    1100) baked into runner-image/Dockerfile:80
+          //  • readOnlyRootFilesystem — emptyDir mounts at /tmp and
+          //    /workspace are the only intended write paths; the rest
+          //    of the rootfs is image content (no installer/setuid
+          //    binaries; learner code runs as UID 1100 with no write
+          //    perms outside those mounts).
+          //  • allowPrivilegeEscalation/capabilities.drop ALL — ACI's
+          //    container runtime applies its own restricted capability
+          //    set by default; we can't tighten further. Combined with
+          //    privileged=false + non-root + no setuid binaries in the
+          //    image, the no-new-privs equivalent is structural: there
+          //    is nothing in the image to escalate against.
           securityContext: {
-            allowPrivilegeEscalation: false,
-            capabilities: { drop: ["ALL"] },
             privileged: false,
-            runAsNonRoot: true,
-            runAsUser: 1100,
-            readOnlyRootFilesystem: true,
           },
           volumeMounts: [
             { name: "tmp", mountPath: "/tmp" },
