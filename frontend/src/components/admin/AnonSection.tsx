@@ -117,7 +117,7 @@ function FunnelTile({ snap }: { snap: AdminAnonSummary }) {
   const pct = (a: number, b: number) =>
     b === 0 ? "—" : `${Math.round((a / b) * 100)}%`;
   return (
-    <Tile title="Funnel (cumulative)">
+    <Tile title="Funnel (today, UTC)">
       <div className="flex flex-col gap-1.5 text-[11px]">
         <FunnelRow label="Page view" value={fe.anon_page_view} />
         <FunnelRow
@@ -137,8 +137,8 @@ function FunnelTile({ snap }: { snap: AdminAnonSummary }) {
         />
       </div>
       <div className="mt-2 text-[10px] leading-relaxed text-faint">
-        Cumulative since the funnel-events table was created. % shows
-        conversion from the previous stage.
+        Today (UTC). % shows conversion from the previous stage. Resets
+        at midnight; for historical comparison query the table directly.
       </div>
     </Tile>
   );

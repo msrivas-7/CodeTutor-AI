@@ -118,11 +118,17 @@ adminAnonSummaryRouter.get("/anon-summary", async (_req, res, next) => {
         throw err;
       });
 
+    // Phase 27-v2.2 audit fix A1: scope to today (UTC). Pre-fix, this
+    // returned cumulative-since-table-creation counts side-by-side with
+    // today's ledger numbers — the admin tab labels both as "today" so
+    // the operator's wall→signup ratio drifts upward as funnel data
+    // accumulates. The (event, occurred_at) index now matches.
     const funnelPromise = sql<
       Array<{ event: string; n: number }>
     >`
       SELECT event, COUNT(*)::int AS n
         FROM public.phase27_funnel_events
+       WHERE occurred_at >= ${since}
        GROUP BY event
     `.then((rows) => {
       const out: AnonSummary["funnelEvents"] = {
