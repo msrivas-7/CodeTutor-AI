@@ -105,13 +105,29 @@ export default function StartPage() {
         );
       })
       .catch(() => {
-        // Network/5xx — fall back to the /welcome flow. Stash stays
-        // in sessionStorage so a same-tab refresh re-triggers the
-        // attempt; if Maya keeps failing, she gets the standard
-        // direct-signup experience without losing her account.
-        // Better than blocking on the handoff forever.
+        // Phase 27-v2.2 audit fix B2 (fresh-eyes): handoff failure must
+        // NOT fall through to /welcome (welcomeDone=false bounces there
+        // via the standard auth flow). That replays the cinematic Maya
+        // just dismissed on /try/, hitting the doubled-cinematic anti-
+        // experience the v1 audit BLOCK SHIP'd on. Patch local prefs
+        // optimistically (Maya already saw the cinematic + coach on
+        // anon, so welcomeDone=true / workspaceCoachDone=true is what
+        // her client-side state should be) and route directly to the
+        // lesson she was on. Stash stays in sessionStorage so a refresh
+        // can retry the handoff; the server PATCH eventually catches up
+        // on next sign-in regardless. Worse case: Maya re-completes
+        // lesson 1 — that's a much smaller surface than the cinematic
+        // replay.
         if (cancelled) return;
+        usePreferencesStore.setState({
+          welcomeDone: true,
+          workspaceCoachDone: true,
+        });
         setHandoffPhase("failed");
+        nav(
+          "/learn/course/python-fundamentals/lesson/hello-world",
+          { replace: true },
+        );
       });
     return () => {
       cancelled = true;
