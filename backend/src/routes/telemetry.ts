@@ -99,7 +99,17 @@ export function createTelemetryRouter(): Router {
       // to null so an over-sharing client doesn't pollute the column.
       const reasonForDb = event === "anon_wall_opened" ? reason ?? null : null;
 
-      const ipHash = hashClientIp(req.ip ?? "");
+      // Phase 27-v2.2 audit fix: skip the row if Express couldn't
+      // populate req.ip — empty-string fallthrough would hash everyone
+      // to one ip_hash and corrupt the funnel (one apparent visitor =
+      // every unknown-IP caller). Telemetry is fire-and-forget; 204
+      // back to the client is honest ("we got your event but had no
+      // way to attribute it").
+      if (!req.ip) {
+        res.status(204).end();
+        return;
+      }
+      const ipHash = hashClientIp(req.ip);
       try {
         const sql = db();
         await sql`

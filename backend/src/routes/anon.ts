@@ -415,7 +415,25 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
       return res.status(403).json({ error: "MODEL_NOT_ALLOWED" });
     }
 
-    const ipHash = hashClientIp(req.ip ?? "");
+    // Phase 27-v2.2 audit fix (staff-security P2 + bug-hunter P3):
+    // refuse the request if Express couldn't populate req.ip. Pre-fix,
+    // empty-string fallthrough hashed to a stable digest, collapsing
+    // every unknown-IP caller into one shared L_anon=8 bucket — first
+    // such request burned the quota for everyone (legitimate users
+    // affected by trust-proxy misconfig). Fail-loud here so the operator
+    // sees the misconfig and fixes it instead of silently fail-closing
+    // legitimate users.
+    if (!req.ip) {
+      console.error(
+        JSON.stringify({
+          level: "error",
+          evt: "anon_ask_stream_no_ip",
+          msg: "req.ip empty — trust-proxy chain misconfigured",
+        }),
+      );
+      return res.status(503).json({ error: "CLIENT_IDENTITY_UNKNOWN" });
+    }
+    const ipHash = hashClientIp(req.ip);
     const cred = await resolveAnonAICredential(ipHash);
     if (cred.source === "none") {
       respondAnonCredentialDenied(res, cred.reason, "ask_stream");
@@ -584,6 +602,40 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
           status: "aborted",
           requestId,
         });
+      }
+    } catch (err) {
+      // Phase 27-v2.2 audit fix (fresh-eyes P2-A): defense-in-depth
+      // around openaiProvider.askStream. Today the provider drives
+      // every terminal through callbacks (onError, onAbort, onDone)
+      // and never throws — but a future refactor that lets a throw
+      // escape would (without this catch) silently leave the SSE
+      // connection hanging with no terminal frame written. Symmetric
+      // to the existing onError callback: write an aborted-status
+      // ledger row, send {error}, finish.
+      if (!terminalFired) {
+        await safeWriteAnonUsage({
+          ipHash,
+          model: parsed.data.model,
+          route: "ask_stream",
+          countsTowardQuota: false,
+          inputTokens: 0,
+          outputTokens: 0,
+          costUsd: 0,
+          priceVersion: 1,
+          status: "error",
+          requestId,
+        });
+      }
+      console.error(
+        JSON.stringify({
+          level: "error",
+          evt: "anon_ask_stream_unhandled",
+          msg: (err as Error).message,
+        }),
+      );
+      if (!closed) {
+        send({ error: "internal_error" });
+        finish();
       }
     } finally {
       res.off("close", onClose);

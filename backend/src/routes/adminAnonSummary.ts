@@ -31,22 +31,30 @@ interface AbuseSnapshot {
 }
 
 async function snapshotAbuseSignals(): Promise<AbuseSnapshot> {
-  const json = (await aiPlatformAbuseSignals.get()) as {
-    values?: Array<{ labels?: Record<string, string>; value: number }>;
-  };
-  let anonNotAllowed = 0;
-  let modelRejection = 0;
-  for (const v of json.values ?? []) {
-    if (v.labels?.signal === "anon_lesson_not_allowed") {
-      anonNotAllowed += v.value;
-    } else if (v.labels?.signal === "model_rejection") {
-      modelRejection += v.value;
+  // Phase 27-v2.2 audit fix (bug-hunter P2): degrade to zeros on any
+  // prom-client throw rather than letting Promise.all short-circuit
+  // the whole admin endpoint. The other three promises in the parent
+  // Promise.all already have .catch fallbacks; this matches.
+  try {
+    const json = (await aiPlatformAbuseSignals.get()) as {
+      values?: Array<{ labels?: Record<string, string>; value: number }>;
+    };
+    let anonNotAllowed = 0;
+    let modelRejection = 0;
+    for (const v of json.values ?? []) {
+      if (v.labels?.signal === "anon_lesson_not_allowed") {
+        anonNotAllowed += v.value;
+      } else if (v.labels?.signal === "model_rejection") {
+        modelRejection += v.value;
+      }
     }
+    return {
+      anon_lesson_not_allowed: anonNotAllowed,
+      model_rejection: modelRejection,
+    };
+  } catch {
+    return { anon_lesson_not_allowed: 0, model_rejection: 0 };
   }
-  return {
-    anon_lesson_not_allowed: anonNotAllowed,
-    model_rejection: modelRejection,
-  };
 }
 
 function utcStartOfToday(): Date {
