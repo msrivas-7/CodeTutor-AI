@@ -52,6 +52,10 @@ import {
 import { writeAnonUsageRow } from "../db/usageLedger.js";
 import { hashClientIp } from "../services/ai/ipHash.js";
 import {
+  registerAbortController,
+  unregisterAbortController,
+} from "../services/shutdown/abortRegistry.js";
+import {
   aiPlatformRequests,
   aiPlatformAbuseSignals,
 } from "../services/metrics.js";
@@ -378,6 +382,21 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
       clientCtx.lessonId !== ANON_ALLOWED_LESSON.lessonId
     ) {
       aiPlatformAbuseSignals.inc({ signal: "anon_lesson_not_allowed" });
+      // Phase 27-v2.2 audit fix C5 (staff-sre): structured log emit so
+      // log-based alerting (KQL on ContainerLog) can fire on this signal
+      // independent of the in-process Prom counter (which resets on
+      // backend restart and isn't scraped externally). Each signal
+      // carries the rejected (courseId, lessonId) so the operator can
+      // distinguish honest errors from someone iterating values.
+      console.warn(
+        JSON.stringify({
+          level: "warn",
+          evt: "anon_abuse_signal",
+          signal: "anon_lesson_not_allowed",
+          courseId: clientCtx.courseId,
+          lessonId: clientCtx.lessonId,
+        }),
+      );
       return res.status(403).json({ error: "LESSON_NOT_ALLOWED_ANON" });
     }
     const ctx = ANON_PINNED_LESSON_CONTEXT;
@@ -385,6 +404,14 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
     if (!isPlatformAllowedModel(parsed.data.model)) {
       aiPlatformRequests.inc({ outcome: "model_rejected", route: "ask_stream" });
       aiPlatformAbuseSignals.inc({ signal: "model_rejection" });
+      console.warn(
+        JSON.stringify({
+          level: "warn",
+          evt: "anon_abuse_signal",
+          signal: "model_rejection",
+          model: parsed.data.model,
+        }),
+      );
       return res.status(403).json({ error: "MODEL_NOT_ALLOWED" });
     }
 
@@ -425,11 +452,22 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
       closed = true;
     });
 
-    // Per-request abort: only need the client-close signal here. The
-    // provider's own deadline (Phase 27 §3b: REQUEST_DEADLINE_MS=25s)
-    // gives the upstream-stall backstop. Anon has no shutdown registry
-    // entry — fan-abort by user doesn't apply.
+    // Per-request abort: client-close signal + process-level shutdown
+    // registry. The provider's own deadline (Phase 27 §3b:
+    // REQUEST_DEADLINE_MS=25s) gives the upstream-stall backstop.
+    //
+    // Phase 27-v2.2 audit fix C2 (staff-sre): pre-fix, the anon SSE
+    // handler did NOT register with abortRegistry. On SIGTERM in-flight
+    // anon streams kept burning OpenAI tokens until the upstream
+    // deadline. More importantly, when the operator flipped
+    // anon_lesson_enabled=false to drain abuse, NEW requests got 503
+    // — but EXISTING streams continued to completion, prolonging
+    // damage by minutes. Registering the controller (with userId=null
+    // since anon has no user) makes the kill switch's drain semantic
+    // honest: the operator can call abortRegistry.abortAll() during
+    // an incident to stop all in-flight anon streams alongside SIGTERM.
     const controller = new AbortController();
+    const registryEntry = registerAbortController(controller, null);
     const onClose = (): void => controller.abort();
     res.on("close", onClose);
 
@@ -549,6 +587,9 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
       }
     } finally {
       res.off("close", onClose);
+      // Phase 27-v2.2 audit fix C2: unregister so the entry doesn't
+      // pile up in the registry across thousands of anon requests.
+      unregisterAbortController(registryEntry);
     }
   });
 
