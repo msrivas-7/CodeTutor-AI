@@ -14,6 +14,10 @@ vi.mock("../../config.js", () => ({
       lifetimeUsdPerUser: 1.0,
       dailyUsdCap: 2.0,
       platformOpenaiApiKey: "sk-platform-test",
+      // Phase 27 §3a + Phase 27-v2.2 Fix 8: anon-path resolver reads
+      // this constant directly (not via effectiveCaps); the per-IP
+      // daily question cap is config-only, not admin-toggleable.
+      anonDailyQuestionsPerIp: 8,
     },
   },
 }));
@@ -75,6 +79,7 @@ const ledger = await import("../../db/usageLedger.js");
 const caps = await import("./effectiveCaps.js");
 const {
   resolveAICredential,
+  resolveAnonAICredential,
   markPlatformAuthFailed,
   __resetCredentialCachesForTests,
 } = await import("./credential.js");
@@ -88,6 +93,11 @@ beforeEach(() => {
   vi.mocked(ledger.sumPlatformCostTodayForUser).mockReset().mockResolvedValue(0);
   vi.mocked(ledger.sumPlatformCostLifetimeForUser).mockReset().mockResolvedValue(0);
   vi.mocked(ledger.sumPlatformCostTodayGlobal).mockReset().mockResolvedValue(0);
+  // Phase 27 §3a + Fix 8: reset anon-side ledger mocks too so a per-test
+  // override doesn't bleed into the next describe block.
+  vi.mocked(ledger.countPlatformQuestionsOnIpToday).mockReset().mockResolvedValue(0);
+  vi.mocked(ledger.countPlatformQuestionsOnIpTodayLocked).mockReset().mockResolvedValue(0);
+  vi.mocked(ledger.sumPlatformCostTodayAnonGlobal).mockReset().mockResolvedValue(0);
   // Phase 20-P5: reset cap resolvers each test so a per-test override
   // doesn't leak. Defaults match the mocked env config above so existing
   // tests behave as before.
@@ -374,5 +384,97 @@ describe("resolveAICredential — Phase 20-P5 cap overrides", () => {
     const c = await resolveAICredential("u-1");
     expect(c.source).toBe("none");
     if (c.source === "none") expect(c.reason).toBe("denylisted");
+  });
+});
+
+// Phase 27-v2.2 Fix 8 — direct unit coverage for resolveAnonAICredential.
+// The anon resolver was added in Phase 27 §3a but only tested transitively
+// via the route-level e2e specs. These tests pin each branch so a future
+// edit that, e.g., drops the anon half of the L4 sum or inverts the
+// per-IP off-by-one is caught at the resolver level instead of waiting
+// for an e2e to flake. The mocks in the top-level beforeEach already
+// reset every dependency this resolver touches.
+describe("resolveAnonAICredential", () => {
+  const IP_HASH = "ip-hash-test-deadbeef";
+
+  it("L9 free tier disabled: returns none with reason=no_key", async () => {
+    // Free-tier kill switch off — anon path mirrors authed (same
+    // user-facing reason so the UI doesn't have to distinguish).
+    vi.mocked(caps.getEffectiveFreeTierEnabled).mockResolvedValueOnce(false);
+    const c = await resolveAnonAICredential(IP_HASH);
+    expect(c.source).toBe("none");
+    if (c.source === "none") expect(c.reason).toBe("no_key");
+  });
+
+  it("provider_auth_failed propagates from the platform-auth probe window", async () => {
+    // markPlatformAuthFailed flips the in-process flag; both authed
+    // and anon resolvers honor it for AUTO_UNSTICK_MS. A regression
+    // that branched the auth gate on userId vs ipHash would let an
+    // anon learner mint requests against a known-bad key.
+    markPlatformAuthFailed();
+    const c = await resolveAnonAICredential(IP_HASH);
+    expect(c.source).toBe("none");
+    if (c.source === "none") expect(c.reason).toBe("provider_auth_failed");
+  });
+
+  it("L4 global $ cap: combined authed + anon spend trips the cap (anon path)", async () => {
+    // Same watcher/resolver agreement as the authed L4 test. Authed
+    // alone (1.5) is below cap (2.0), anon alone (1.0) is below cap,
+    // but together (2.5) they trip — anon resolver must observe the
+    // same combined total or it leaks past the operator's wallet
+    // ceiling.
+    vi.mocked(ledger.sumPlatformCostTodayGlobal).mockResolvedValueOnce(1.5);
+    vi.mocked(ledger.sumPlatformCostTodayAnonGlobal).mockResolvedValueOnce(1.0);
+    const c = await resolveAnonAICredential(IP_HASH);
+    expect(c.source).toBe("none");
+    if (c.source === "none") expect(c.reason).toBe("usd_cap_hit");
+  });
+
+  it("L_anon: returns anon_exhausted when this IP is at the per-IP daily cap", async () => {
+    // count == cap (8 == 8) trips the brake. The reason code is
+    // anon-specific so the route can branch the wall copy on
+    // exhausted-vs-other.
+    vi.mocked(ledger.countPlatformQuestionsOnIpTodayLocked).mockResolvedValueOnce(8);
+    const c = await resolveAnonAICredential(IP_HASH);
+    expect(c.source).toBe("none");
+    if (c.source === "none") expect(c.reason).toBe("anon_exhausted");
+  });
+
+  it("success: returns platform source with remainingToday computed against anon cap", async () => {
+    // Fresh-IP first request — count=0, cap=8, remaining=8. The cap
+    // surfaced to the client is the ANON cap, not the authed 30 —
+    // ensures the L_anon ceiling shows up correctly in any future
+    // header / panel that displays remaining.
+    vi.mocked(ledger.countPlatformQuestionsOnIpTodayLocked).mockResolvedValueOnce(0);
+    const c = await resolveAnonAICredential(IP_HASH);
+    expect(c.source).toBe("platform");
+    if (c.source === "platform") {
+      expect(c.remainingToday).toBe(8);
+      expect(c.capToday).toBe(8);
+      expect(c.allowedModels).toEqual(["gpt-4.1-nano"]);
+      expect(c.key).toBe("sk-platform-test");
+      expect(c.resetAtUtc).toBeInstanceOf(Date);
+    }
+  });
+
+  it("off-by-one boundary: count=7 → success (8th request); count=8 → anon_exhausted (9th blocked)", async () => {
+    // The cap is INCLUSIVE on the request count: 8 requests allowed,
+    // 9th blocked. count=7 means the 8th about-to-fire request is
+    // still under cap (7 < 8 → allow); count=8 means 9th is blocked
+    // (8 >= 8 → deny). A flipped >= vs > here would either let 9
+    // through or refuse the 8th.
+    vi.mocked(ledger.countPlatformQuestionsOnIpTodayLocked).mockResolvedValueOnce(7);
+    const c8 = await resolveAnonAICredential(IP_HASH);
+    expect(c8.source).toBe("platform");
+    if (c8.source === "platform") {
+      expect(c8.remainingToday).toBe(1);
+      expect(c8.capToday).toBe(8);
+    }
+
+    __resetCredentialCachesForTests();
+    vi.mocked(ledger.countPlatformQuestionsOnIpTodayLocked).mockResolvedValueOnce(8);
+    const c9 = await resolveAnonAICredential(IP_HASH);
+    expect(c9.source).toBe("none");
+    if (c9.source === "none") expect(c9.reason).toBe("anon_exhausted");
   });
 });
