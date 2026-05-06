@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { AuthShell } from "../auth/AuthShell";
 import { OAuthButtons } from "../auth/OAuthButtons";
@@ -37,6 +37,9 @@ export default function SignupPage() {
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
+  // Phase 27-v2.2 audit fix A3 follow-on (staff-pm P2-2): guard against
+  // StrictMode / re-render double-fire of anon_signup_completed.
+  const signupEventFiredRef = useRef(false);
 
   // Display-name validation is intentionally permissive: names contain
   // apostrophes (O'Neil), hyphens (Anne-Marie), spaces, and non-Latin
@@ -59,7 +62,8 @@ export default function SignupPage() {
       // doesn't lose the event. Fire-and-forget. The matching
       // anon_lesson2_reached fires after StartPage's handoff success
       // branch — tells us whether the conversion stuck end-to-end.
-      if (readAnonStash() !== null) {
+      if (!signupEventFiredRef.current && readAnonStash() !== null) {
+        signupEventFiredRef.current = true;
         api.postFunnelEvent("anon_signup_completed");
       }
       nav("/start", { replace: true });
