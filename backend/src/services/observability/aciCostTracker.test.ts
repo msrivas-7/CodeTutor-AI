@@ -24,36 +24,42 @@ describe("AciCostTracker", () => {
   });
 
   it("rate constant matches Azure ACI's per-session-hour pricing", () => {
-    expect(ACI_COST_RATE_USD_PER_SESSION_HOUR).toBe(0.053);
+    // Azure Standard tier eastus2: 1 vCPU $0.0405/hr + 0.5 GB × $0.00445/hr
+    // = $0.042725/hr; rounded to $0.0427 in the constant. Verified against
+    // the Azure Retail Prices API (2026-05-06).
+    expect(ACI_COST_RATE_USD_PER_SESSION_HOUR).toBe(0.0427);
   });
 
-  it("a 15-second session bills $0.053 × 15/3600 = $0.000221 at end", () => {
+  it("a 15-second session bills rate × 15/3600 at end", () => {
     const t0 = Date.parse("2026-04-30T12:00:00Z");
     aciCostTracker.recordSessionStart("s1", t0);
     aciCostTracker.recordSessionEnd("s1", t0 + 15 * SEC_MS);
     expect(aciCostTracker.spentTodayUsd(t0 + 15 * SEC_MS)).toBeCloseTo(
-      0.053 * (15 / 3600),
+      ACI_COST_RATE_USD_PER_SESSION_HOUR * (15 / 3600),
       6,
     );
   });
 
-  it("a 5-minute session bills $0.053 × 300/3600 = $0.004417", () => {
+  it("a 5-minute session bills rate × 300/3600", () => {
     const t0 = Date.parse("2026-04-30T12:00:00Z");
     aciCostTracker.recordSessionStart("s1", t0);
     aciCostTracker.recordSessionEnd("s1", t0 + 5 * MIN_MS);
     expect(aciCostTracker.spentTodayUsd(t0 + 5 * MIN_MS)).toBeCloseTo(
-      0.053 * (300 / 3600),
+      ACI_COST_RATE_USD_PER_SESSION_HOUR * (300 / 3600),
       6,
     );
   });
 
-  it("two concurrent sessions for 1 hour bills $0.106 — sum is correct", () => {
+  it("two concurrent sessions for 1 hour bills 2× rate — sum is correct", () => {
     const t0 = Date.parse("2026-04-30T12:00:00Z");
     aciCostTracker.recordSessionStart("s1", t0);
     aciCostTracker.recordSessionStart("s2", t0);
     aciCostTracker.recordSessionEnd("s1", t0 + HOUR_MS);
     aciCostTracker.recordSessionEnd("s2", t0 + HOUR_MS);
-    expect(aciCostTracker.spentTodayUsd(t0 + HOUR_MS)).toBeCloseTo(0.106, 4);
+    expect(aciCostTracker.spentTodayUsd(t0 + HOUR_MS)).toBeCloseTo(
+      2 * ACI_COST_RATE_USD_PER_SESSION_HOUR,
+      4,
+    );
   });
 
   it("in-flight sessions are billed up to the moment of the read", () => {
@@ -64,11 +70,14 @@ describe("AciCostTracker", () => {
     aciCostTracker.recordSessionStart("s1", t0);
     // 30 minutes in — session still running.
     expect(aciCostTracker.spentTodayUsd(t0 + 30 * MIN_MS)).toBeCloseTo(
-      0.053 / 2,
+      ACI_COST_RATE_USD_PER_SESSION_HOUR / 2,
       4,
     );
     // 1 hour in — still running.
-    expect(aciCostTracker.spentTodayUsd(t0 + HOUR_MS)).toBeCloseTo(0.053, 4);
+    expect(aciCostTracker.spentTodayUsd(t0 + HOUR_MS)).toBeCloseTo(
+      ACI_COST_RATE_USD_PER_SESSION_HOUR,
+      4,
+    );
   });
 
   it("recordSessionEnd before recordSessionStart is a silent no-op", () => {
@@ -81,7 +90,10 @@ describe("AciCostTracker", () => {
     aciCostTracker.recordSessionStart("s1", t0);
     aciCostTracker.recordSessionEnd("s1", t0 + HOUR_MS);
     aciCostTracker.recordSessionEnd("s1", t0 + HOUR_MS); // duplicate
-    expect(aciCostTracker.spentTodayUsd(t0 + HOUR_MS)).toBeCloseTo(0.053, 4);
+    expect(aciCostTracker.spentTodayUsd(t0 + HOUR_MS)).toBeCloseTo(
+      ACI_COST_RATE_USD_PER_SESSION_HOUR,
+      4,
+    );
   });
 
   it("clock skew clamps duration to >= 0 (negative interval → no spend)", () => {
@@ -115,9 +127,9 @@ describe("AciCostTracker", () => {
       activeSessions: [["long-runner", yesterdayStart]],
     });
     const oneMinPastMidnight = Date.parse("2026-04-30T00:01:00Z");
-    // After the rollover, today's spend should be ~1 minute × $0.053/hr.
+    // After the rollover, today's spend should be ~1 minute × rate.
     expect(aciCostTracker.spentTodayUsd(oneMinPastMidnight)).toBeCloseTo(
-      0.053 * (1 / 60),
+      ACI_COST_RATE_USD_PER_SESSION_HOUR * (1 / 60),
       4,
     );
     expect(aciCostTracker.spentTodayUsd(oneMinPastMidnight)).toBeLessThan(0.001);
@@ -143,45 +155,58 @@ describe("AciCostTracker", () => {
     aciCostTracker.recordSessionStart("c", t0);
     const s = aciCostTracker.getStatus(t0 + 30 * MIN_MS);
     expect(s.activeSessions).toBe(3);
-    // 3 sessions × $0.053/hr = $0.159/hr instantaneous burn rate
-    expect(s.hourlyBurnRateUsd).toBeCloseTo(0.159, 4);
+    // 3 sessions × rate = instantaneous burn rate
+    expect(s.hourlyBurnRateUsd).toBeCloseTo(
+      3 * ACI_COST_RATE_USD_PER_SESSION_HOUR,
+      4,
+    );
     // 3 sessions × 30 min × rate
-    expect(s.spentTodayUsd).toBeCloseTo(3 * (0.053 / 2), 4);
+    expect(s.spentTodayUsd).toBeCloseTo(
+      3 * (ACI_COST_RATE_USD_PER_SESSION_HOUR / 2),
+      4,
+    );
   });
 
   // ── P0-2: atomic cost reservation ─────────────────────────────────
 
   describe("tryReserve / cancelReservation (P0-2)", () => {
+    // Reservation amount per spawn = 1 hour × rate (the worst-case
+    // session lifetime ceiling). Tests size their seed values relative
+    // to this so rate changes don't require manual cap arithmetic.
+    const RESERVE_USD = ACI_COST_RATE_USD_PER_SESSION_HOUR;
+
     it("returns null when projected spend would exceed the cap", () => {
       const t0 = Date.parse("2026-04-30T12:00:00Z");
-      aciCostTracker.__forceForTests({ completedTodayUsd: 19.99 });
-      // Reserving 1 hour ($0.053) would project $20.043 > $20.
+      // Seed = 20 - 0.5 × reserve → seed + reserve > 20.
+      aciCostTracker.__forceForTests({ completedTodayUsd: 20 - 0.5 * RESERVE_USD });
       expect(aciCostTracker.tryReserve(60 * 60 * 1000, 20, t0)).toBe(null);
     });
 
-    it("returns a token + bumps spentTodayUsd by the reserved amount", () => {
+    it("returns a token + bumps projectedSpentTodayUsd by the reserved amount", () => {
       const t0 = Date.parse("2026-04-30T12:00:00Z");
       const id = aciCostTracker.tryReserve(60 * 60 * 1000, 100, t0);
       expect(id).not.toBe(null);
-      // 1 hour at $0.053/hr = $0.053 reserved.
-      expect(aciCostTracker.spentTodayUsd(t0)).toBeCloseTo(0.053, 6);
+      // Reservation visible in projected (kill-switch view) but NOT in
+      // operator-facing spentTodayUsd (display view). This is the split
+      // that fixes operator-confusing $-jumps during cold-start churn.
+      expect(aciCostTracker.projectedSpentTodayUsd(t0)).toBeCloseTo(RESERVE_USD, 6);
+      expect(aciCostTracker.spentTodayUsd(t0)).toBeCloseTo(0, 6);
     });
 
     it("two concurrent reserves see each other — second sees first's pending charge", () => {
       const t0 = Date.parse("2026-04-30T12:00:00Z");
-      // Cap leaves room for exactly one 1-hour reservation.
-      aciCostTracker.__forceForTests({ completedTodayUsd: 19.9 });
+      // Seed = 20 - 1.5 × reserve → first fits (seed + 1×reserve < 20),
+      // second doesn't (seed + 2×reserve > 20).
+      aciCostTracker.__forceForTests({ completedTodayUsd: 20 - 1.5 * RESERVE_USD });
       const a = aciCostTracker.tryReserve(60 * 60 * 1000, 20, t0);
       const b = aciCostTracker.tryReserve(60 * 60 * 1000, 20, t0);
-      // First reservation succeeded ($19.9 + $0.053 = $19.953 < $20).
-      // Second sees $19.953 + $0.053 = $20.006 > $20 and refuses.
       expect(a).not.toBe(null);
       expect(b).toBe(null);
     });
 
     it("cancelReservation releases the budget for subsequent attempts", () => {
       const t0 = Date.parse("2026-04-30T12:00:00Z");
-      aciCostTracker.__forceForTests({ completedTodayUsd: 19.9 });
+      aciCostTracker.__forceForTests({ completedTodayUsd: 20 - 1.5 * RESERVE_USD });
       const a = aciCostTracker.tryReserve(60 * 60 * 1000, 20, t0)!;
       expect(aciCostTracker.tryReserve(60 * 60 * 1000, 20, t0)).toBe(null);
       aciCostTracker.cancelReservation(a);
@@ -193,10 +218,14 @@ describe("AciCostTracker", () => {
     it("recordSessionStart consumes the reservation atomically (no double-count)", () => {
       const t0 = Date.parse("2026-04-30T12:00:00Z");
       const id = aciCostTracker.tryReserve(60 * 60 * 1000, 100, t0)!;
-      // Pre-consume: reservation contributes $0.053.
-      expect(aciCostTracker.spentTodayUsd(t0)).toBeCloseTo(0.053, 6);
+      // Pre-consume: reservation contributes RESERVE_USD to PROJECTED
+      // (kill-switch) view; spentTodayUsd (display) shows $0.
+      expect(aciCostTracker.projectedSpentTodayUsd(t0)).toBeCloseTo(RESERVE_USD, 6);
+      expect(aciCostTracker.spentTodayUsd(t0)).toBeCloseTo(0, 6);
       aciCostTracker.recordSessionStart("s1", t0, id);
-      // Post-consume: only the in-flight session contributes (0 ms in).
+      // Post-consume: reservation gone, session started but 0ms elapsed
+      // — both views read 0.
+      expect(aciCostTracker.projectedSpentTodayUsd(t0)).toBeCloseTo(0, 6);
       expect(aciCostTracker.spentTodayUsd(t0)).toBeCloseTo(0, 6);
     });
 

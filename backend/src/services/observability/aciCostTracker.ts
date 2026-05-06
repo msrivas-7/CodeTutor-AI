@@ -68,7 +68,16 @@ import {
   type AciCostStateRow,
 } from "../../db/aciCostState.js";
 
-const ACI_RATE_USD_PER_SESSION_HOUR = 0.053;
+// ACI rate for 1 vCPU + 0.5 GB in eastus2, Standard tier. Source: Azure
+// Retail Prices API (2026-05-06 verification):
+//   vCPU:   $0.0405/hr × 1 = $0.0405
+//   memory: $0.00445/GB-hr × 0.5 = $0.002225
+//   total:  $0.042725/hour
+// Was $0.053 pre-2026-05-06 — that constant inflated displayed spend by
+// ~24% vs Azure's actual invoice (kill switch fired earlier than needed).
+// Daily-cap kill switch is still safety-side conservative because of the
+// per-spawn 1-hour reservation projection in tryReserve.
+const ACI_RATE_USD_PER_SESSION_HOUR = 0.0427;
 
 class AciCostTracker {
   // Cumulative cost from sessions that have already ended today (UTC).
@@ -305,29 +314,49 @@ class AciCostTracker {
   }
 
   /**
-   * Total cost projected for today (UTC). Includes:
+   * Operator-facing total spend today (UTC) — what shows in the admin
+   * dashboard "ACI spent today". Includes:
    *   - sum of all sessions that ENDED today
    *   - sum of all sessions still RUNNING, billed up to `now`
-   *   - sum of pending reservations (P0-2: in-flight spawn budget)
-   * Read on every kill-switch check + every hourly emission. The
-   * reservation component is what makes the cap race-safe — concurrent
-   * tryReserve callers see each other's pending charges.
+   *
+   * Does NOT include pending reservations — those are kill-switch
+   * accounting only. Pre-2026-05-06 this method DID include reservations,
+   * which led to confusing operator UX: a 1-hour worst-case reservation
+   * per in-flight spawn ($0.0427 each) made the displayed spend jump
+   * during cold-start churn and "drop" when reservations released, even
+   * though no real money was being un-spent. Reservations are a control-
+   * plane construct — they belong in projectedSpentTodayUsd, not here.
    */
   spentTodayUsd(now: number = Date.now()): number {
+    this.maybeRollover(now);
+    return this.completedTodayUsd + this.activeSpendUsd(now);
+  }
+
+  /**
+   * Kill-switch-facing projection. Includes everything spentTodayUsd
+   * counts, PLUS the worst-case-1-hour reservations held by in-flight
+   * spawns. Used by tryReserve + exceedsDailyCap so concurrent spawn
+   * attempts see each other's pending charges and the daily cap can't
+   * be punched through during cold-start windows.
+   */
+  projectedSpentTodayUsd(now: number = Date.now()): number {
     this.maybeRollover(now);
     return this.computeSpentTodayUsd(now);
   }
 
-  private computeSpentTodayUsd(now: number): number {
-    let inProgressUsd = 0;
+  private activeSpendUsd(now: number): number {
+    let usd = 0;
     for (const startedAt of this.active.values()) {
       const durationMs = Math.max(0, now - startedAt);
-      inProgressUsd +=
-        (durationMs / 3_600_000) * ACI_RATE_USD_PER_SESSION_HOUR;
+      usd += (durationMs / 3_600_000) * ACI_RATE_USD_PER_SESSION_HOUR;
     }
+    return usd;
+  }
+
+  private computeSpentTodayUsd(now: number): number {
     let reservedUsd = 0;
     for (const r of this.reservations.values()) reservedUsd += r;
-    return this.completedTodayUsd + inProgressUsd + reservedUsd;
+    return this.completedTodayUsd + this.activeSpendUsd(now) + reservedUsd;
   }
 
   /**
@@ -338,7 +367,10 @@ class AciCostTracker {
    */
   exceedsDailyCap(dailyCapUsd: number, now: number = Date.now()): boolean {
     if (this.hydrationState === "degraded") return true;
-    return this.spentTodayUsd(now) >= dailyCapUsd;
+    // Use projected (reservations-included) here — kill switch must see
+    // in-flight spawns' worst-case budget so concurrent callers can't
+    // collectively punch through the cap during cold-start windows.
+    return this.projectedSpentTodayUsd(now) >= dailyCapUsd;
   }
 
   /**

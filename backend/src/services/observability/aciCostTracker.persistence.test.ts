@@ -21,7 +21,9 @@ vi.mock("../../db/aciCostState.js", () => {
 const { loadAciCostState, saveAciCostState } = await import(
   "../../db/aciCostState.js"
 );
-const { aciCostTracker } = await import("./aciCostTracker.js");
+const { aciCostTracker, ACI_COST_RATE_USD_PER_SESSION_HOUR } = await import(
+  "./aciCostTracker.js"
+);
 
 const SEC_MS = 1000;
 
@@ -62,9 +64,12 @@ describe("AciCostTracker — Postgres persistence (P0-1)", () => {
     const now = Date.parse("2026-04-30T12:00:00Z");
     await aciCostTracker.init(now);
 
-    // Completed = previous completed + orphan's 1-hour duration = 1.234 + 0.053.
+    // Completed = previous completed + orphan's 1-hour duration.
     // Active is 0 because all hydrated sessions were rolled to completed.
-    expect(aciCostTracker.spentTodayUsd(now)).toBeCloseTo(1.234 + 0.053, 6);
+    expect(aciCostTracker.spentTodayUsd(now)).toBeCloseTo(
+      1.234 + ACI_COST_RATE_USD_PER_SESSION_HOUR,
+      6,
+    );
     expect(aciCostTracker.getStatus(now).activeSessions).toBe(0);
   });
 
@@ -118,14 +123,17 @@ describe("AciCostTracker — Postgres persistence (P0-1)", () => {
 
     // Today's bucket should reflect 2 hours of post-midnight orphan
     // time only — yesterday's $5 has rolled away.
-    expect(aciCostTracker.spentTodayUsd(today02)).toBeCloseTo(2 * 0.053, 6);
+    expect(aciCostTracker.spentTodayUsd(today02)).toBeCloseTo(
+      2 * ACI_COST_RATE_USD_PER_SESSION_HOUR,
+      6,
+    );
     expect(aciCostTracker.getStatus(today02).currentDateUtc).toBe("2026-05-01");
   });
 
   it("P1-6: same-day restart preserves persisted completedTodayUsd + bills full orphan duration", async () => {
     // Restart at 14:00 UTC, with a row from 12:00 UTC same day. Orphan
     // started at 13:00 UTC. Today's bucket should retain the persisted
-    // $1.234 AND credit the orphan's full 1-hour duration ($0.053).
+    // $1.234 AND credit the orphan's full 1-hour duration (1 × rate).
     const t13 = Date.parse("2026-04-30T13:00:00Z");
     const t14 = Date.parse("2026-04-30T14:00:00Z");
     vi.mocked(loadAciCostState).mockResolvedValue({
@@ -137,7 +145,10 @@ describe("AciCostTracker — Postgres persistence (P0-1)", () => {
 
     await aciCostTracker.init(t14);
 
-    expect(aciCostTracker.spentTodayUsd(t14)).toBeCloseTo(1.234 + 0.053, 6);
+    expect(aciCostTracker.spentTodayUsd(t14)).toBeCloseTo(
+      1.234 + ACI_COST_RATE_USD_PER_SESSION_HOUR,
+      6,
+    );
     expect(aciCostTracker.getStatus(t14).currentDateUtc).toBe("2026-04-30");
   });
 
@@ -176,7 +187,10 @@ describe("AciCostTracker — Postgres persistence (P0-1)", () => {
 
     expect(saveAciCostState).toHaveBeenCalled();
     const last = vi.mocked(saveAciCostState).mock.calls.at(-1)?.[0];
-    expect(last?.completedTodayUsd).toBeCloseTo(0.053 * (30 / 3600), 6);
+    expect(last?.completedTodayUsd).toBeCloseTo(
+      ACI_COST_RATE_USD_PER_SESSION_HOUR * (30 / 3600),
+      6,
+    );
     expect(last?.activeSessions).toEqual([]);
     expect(last?.currentDateUtc).toBe("2026-04-30");
   });
@@ -259,7 +273,7 @@ describe("AciCostTracker — Postgres persistence (P0-1)", () => {
 
     // In-memory state is still correct even though DB write failed.
     expect(aciCostTracker.spentTodayUsd(t0 + 5 * SEC_MS)).toBeCloseTo(
-      0.053 * (5 / 3600),
+      ACI_COST_RATE_USD_PER_SESSION_HOUR * (5 / 3600),
       6,
     );
     expect(errSpy).toHaveBeenCalled();
