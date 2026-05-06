@@ -28,10 +28,20 @@ async function readBool(
   try {
     const row = await getSystemConfig(key);
     if (row && typeof row.value === "boolean") return row.value;
+    // DB read succeeded, no override row exists → env default applies.
+    return envFallback;
   } catch {
-    /* DB unreachable — env wins so prod doesn't open up by accident */
+    // DB read THREW. For share_*_disabled keys, env default is false
+    // (kill OFF, feature accessible) — same fail-closed-on-disable
+    // semantic as the share routes assume. For anon_lesson_enabled,
+    // env default is TRUE so falling through to envFallback would
+    // RE-OPEN the trial path during a DB outage even when an admin
+    // had explicitly disabled it. (Phase 27-v2.2 audit fix C1 —
+    // staff-security + staff-sre convergence.) Fail CLOSED on the
+    // anon switch: assume the trial is disabled until the DB recovers.
+    if (key === "anon_lesson_enabled") return false;
+    return envFallback;
   }
-  return envFallback;
 }
 
 export function isSharePublicDisabled(): Promise<boolean> {
