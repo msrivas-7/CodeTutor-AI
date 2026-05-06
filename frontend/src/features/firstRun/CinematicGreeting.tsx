@@ -160,7 +160,14 @@ export function CinematicGreeting(props: CinematicGreetingProps) {
   // hides Skip during the radial-glow rise (Beat 1, 0–1.4s) so the
   // skip-affordance doesn't telegraph "skippable" at frame zero.
   const isPhone = usePhoneFormFactor();
-  const skipDelayS = isPhone ? 1.5 : 4;
+  // Phase 27-v2.2 audit fix E2 (product-owner): Beat 1 (radial glow rise)
+  // ends at 1.4s, Beat 2 (cursor materialize) at 1.9s. Phone Skip
+  // appearing at 1.5s telegraphed "skippable" before Maya saw the cursor
+  // — the production undermined itself by offering an exit before showing
+  // her anything was happening. 2.5s lands the affordance after Beat 2
+  // completes but before Beat 3's typewriter (2.4s) commits to the
+  // sentence. Desktop keeps 4s (Beat 4's hold).
+  const skipDelayS = isPhone ? 2.5 : 4;
   const [exiting, setExiting] = useState(false);
   // Single terminal-handler guard: once either onComplete or onSkip
   // has fired, both are ignored. Prevents the "Esc at second 14.18"

@@ -345,18 +345,20 @@ test.describe("first-run cinematic on /try/ (Phase 27-v2 Day 2)", () => {
     await phoneCtx.close();
   });
 
-  test("cinematic Skip-button reveals earlier on phone (Fix 5)", async ({
+  test("cinematic Skip-button reveals earlier on phone (Fix 5 + audit E2)", async ({
     browser,
   }) => {
     // Phase 27-v2.2 Fix 5 — desktop keeps 4s skip-hidden delay
     // (cinema-respect, the full beat sequence wants eyes-forward
     // through the typewriter setup before admitting skippable).
-    // Phone reveals at 1.5s — Maya's 90s patience can't afford a
-    // 15% upfront "I cannot leave this" tax. Skip-button still
-    // hides during Beat 1 (0–1.4s radial glow) so the skip-
-    // affordance doesn't telegraph "skippable" at frame zero.
+    // Phase 27-v2.2 audit fix E2 (product-owner): phone reveals at
+    // 2.5s, not 1.5s. The earlier value telegraphed "skippable"
+    // before Beat 2 (cursor materialize at 1.9s) had landed. 2.5s
+    // sits between Beat 2's end and Beat 3's typewriter start (2.4s),
+    // so the affordance only appears after the production has shown
+    // her something is happening.
     //
-    // This test pins the phone-side contract: at 2s the Skip
+    // This test pins the phone-side contract: at ~3.0s the Skip
     // button IS visible. The desktop-side 4s contract is
     // implicitly verified by the existing cinematic-skip test
     // at the desktop default viewport.
@@ -365,23 +367,20 @@ test.describe("first-run cinematic on /try/ (Phase 27-v2 Day 2)", () => {
       isMobile: true,
       hasTouch: true,
       // Force prefers-reduced-motion: no-preference so the cinematic
-      // hits FullCinematic (where the Fix 5 skipDelayS lives), not
-      // the ReducedMotionFallback (which auto-completes in 2.5s and
-      // would unmount before the Skip-button polling window).
+      // hits FullCinematic (where skipDelayS lives), not the
+      // ReducedMotionFallback (which auto-completes in 2.5s and would
+      // unmount before the Skip-button polling window).
       reducedMotion: "no-preference",
     });
     const page = await phoneCtx.newPage();
     await page.goto(ALLOWED_PATH);
-    // Wait past the phone delay (1.5s + ~400ms fade) but well
-    // under the desktop delay (4s). At ~2.0s the Skip button must
-    // be visible if Fix 5 landed. Without Fix 5 (4s desktop delay
-    // applied to phone), it would still be opacity 0 at this
-    // timestamp. Use Playwright's poll-until-visible up to 1s on
-    // top of the 2.0s wait — total budget 3.0s, well below 4s.
-    await page.waitForTimeout(2_000);
+    // Wait past the phone delay (2.5s + ~400ms fade) but well under
+    // the desktop delay (4s). At ~3.0s the Skip button must be
+    // visible if E2 landed. Without it (4s desktop delay applied to
+    // phone), it would still be opacity 0 at this timestamp.
+    await page.waitForTimeout(3_000);
     // Skip button has aria-label "Skip introduction" — its accessible
-    // name is the aria-label, not the text content. Use the loose
-    // regex to match.
+    // name is the aria-label, not the text content.
     await expect(
       page.getByRole("button", { name: /skip introduction/i }),
     ).toBeVisible({ timeout: 1_000 });
@@ -471,24 +470,27 @@ test.describe("Phase 27-v2.1 Part 3: pixel-equivalence chrome on /try/", () => {
     ).toBeVisible();
   });
 
-  test("anon header carries 'Try it — no signup' badge AND 'Sign up to save' pill (not StreakChip / UserMenu)", async ({
+  test("anon header carries 'Lesson 1 · Python' chip AND 'Sign up to save' pill (not StreakChip / UserMenu)", async ({
     page,
   }) => {
+    // Phase 27-v2.2 audit fix E3 (product-owner): center chip changed
+    // from "Try it — no signup" (which reframed the experience as a
+    // demo) to "Lesson 1 · Python" (curriculum-orienting, not status-
+    // promo language).
     await page.goto(ALLOWED_PATH);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible({
       timeout: 10_000,
     });
 
     // The two anon-only header surfaces.
-    await expect(page.getByText(/Try it — no signup/i)).toBeVisible();
+    await expect(page.getByText(/Lesson 1 · Python/i)).toBeVisible();
     await expect(
       page.getByRole("button", { name: /sign up to save/i }),
     ).toBeVisible();
 
+    // Negative assertion — the prior promo badge is gone.
+    await expect(page.getByText(/Try it — no signup/i)).toHaveCount(0);
     // Negative assertion — the authed-only surfaces should NOT render.
-    // StreakChip text begins with "🔥" and a number; UserMenu carries
-    // an "Open user menu" aria-label. Their absence confirms the mode
-    // gate is wired correctly.
     await expect(page.getByLabel(/open user menu/i)).toHaveCount(0);
   });
 });
