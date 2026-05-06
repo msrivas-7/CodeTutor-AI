@@ -108,7 +108,9 @@ export function PracticeInstructionsView({
         )}
       </header>
 
-      <div className="flex-1 overflow-y-auto px-4 py-3">
+      {/* tabIndex=0 so keyboard users can scroll the body with arrow keys.
+          Without it, axe flags `scrollable-region-focusable` (serious). */}
+      <div className="flex-1 overflow-y-auto px-4 py-3" tabIndex={0}>
         <button
           onClick={onExitPractice}
           className="mb-3 flex items-center gap-1 text-[11px] text-muted transition hover:text-ink"

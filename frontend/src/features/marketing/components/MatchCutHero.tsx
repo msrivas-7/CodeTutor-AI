@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { motion, useMotionValue, useReducedMotion, useSpring, useTransform } from "framer-motion";
 import { HOUSE_EASE } from "../../../components/cinema/easing";
 
-// Phase 22C — MatchCutHero.
+// Phase 22C — MatchCutHero. (Phase 27: Python content, was JS palindrome.)
 //
 // The opening motion piece on the marketing page. The story arc is
 // "stuck → ask" — code types in, holds, the tutor's question fades up
@@ -11,28 +11,28 @@ import { HOUSE_EASE } from "../../../components/cinema/easing";
 // magic. One beat, generous pacing, then the still frame holds.
 //
 //   0.0  – 0.4s    caret blinks twice on a dark glass panel
-//   0.4  – 3.4s    four lines of palindrome check type in:
-//                      function isPalindrome(s) {
-//                        const reversed = s.split('').reverse().join('');
-//                        return s === reversed;
-//                      }
+//   0.4  – 3.4s    four lines of Python type in:
+//                      name = "Maya"
+//                      points = 100
+//                      message = name + " earned " + points + " points!"
+//                      print(message)
 //   3.4  – 5.2s    READ PAUSE (1.8s). Code stays still, no caret.
 //                  Viewer scans the body and thinks "looks fine to me."
 //   5.2  – 5.8s    iris sweep (subtle horizontal contract — film cut
 //                  punctuation between the code-only beat and the
 //                  tutor-question beat)
 //   5.8  – 7.2s    tutor question fades up below the code:
-//                      Why does this fail on 'racecar '?
+//                      Why does this fail when points is 100?
 //   7.2  – 8.4s    scale-exhale settle (1.0 → 1.005 → 1.0)
 //   8.4s+          HOLD forever on the final state — code + tutor
 //                  question both visible, viewer absorbs the question
 //                  at their own pace
 //
 // The match-cut grammar: a coding moment cuts to the question that
-// turns the moment into learning. The wrong-output panel is removed
-// to honor principle 8 — "the marketing page shows the posture,
-// never the product." The visitor's brain spots the trailing-
-// whitespace bug on its own once the tutor names the input.
+// turns the moment into learning. The visitor's brain spots the
+// str + int TypeError on its own once the tutor frames the question:
+// Python's + means "concatenate" for strings and "add" for numbers,
+// and it refuses to bridge the two — the canonical week-1 surprise.
 //
 // The vignettes in §2 ("How it works") complete the story: the Read
 // beat introduces the trim concept, the Ask beat shows the tutor
@@ -55,7 +55,7 @@ import { HOUSE_EASE } from "../../../components/cinema/easing";
 // layer arrives.
 const BEAT = {
   caret: { start: 0, end: 400 },
-  typing: { start: 400, end: 3400 }, // ~3.0s for ~95 chars (4-line code)
+  typing: { start: 400, end: 3400 }, // ~3.0s for ~90 chars (4-line code)
   // READ PAUSE 3400 → 5200 (1.8s, code stays still, no caret)
   iris: { start: 5200, end: 5800 },
   bubble: { start: 5800, end: 7200 },
@@ -65,22 +65,22 @@ const BEAT = {
 
 type Phase = "caret" | "typing" | "iris" | "bubble" | "exhale" | "hold";
 
-// Buggy palindrome check. Looks clean — reverse the string, compare it
-// against the original. Misses two real-world edge cases:
-//  1. trailing/leading whitespace (the bug the tutor highlights)
-//  2. case sensitivity (a separate teaching moment elsewhere)
-// On `'racecar '` (with trailing space) it returns false because
-// `'racecar '` !== `' racecar'`. Splitting the reverse step into its
-// own line keeps the longest line shorter so it fits the hero panel
-// at 16.5px mono on any modern viewport without horizontal scroll.
+// Canonical week-1 Python TypeError. Looks clean — name a string, name
+// a number, glue them together with `+`, print. Fails because Python's
+// `+` operator demands both sides be the same type: it concatenates
+// strings or adds numbers, but refuses to bridge str + int. The fix the
+// tutor will eventually walk the learner toward is `str(points)` (or
+// f-strings later). Lines are sized so the longest (~50 chars) fits
+// the hero panel at 16.5px mono on any modern viewport without
+// horizontal scroll.
 const CODE_LINES: readonly string[] = [
-  "function isPalindrome(s) {",
-  "  const reversed = s.split('').reverse().join('');",
-  "  return s === reversed;",
-  "}",
+  'name = "Maya"',
+  "points = 100",
+  'message = name + " earned " + points + " points!"',
+  "print(message)",
 ];
 const FULL_CODE = CODE_LINES.join("\n");
-const TUTOR_QUESTION = "Why does this fail on 'racecar '?";
+const TUTOR_QUESTION = "Why does this fail when points is 100?";
 
 // Logarithmic typewriter pacing — same curve as SharePage's
 // CodeTypewriter, tuned for ~3s total over ~80 chars. Faster start,
@@ -349,12 +349,12 @@ export function MatchCutHero() {
 function CodeLineColored({ line }: { line: string }) {
   // Token-style coloring for one line. Walks the partial-line and
   // tags each segment with a token kind. JetBrains Mono palette:
-  //   keyword (function, return)  → accent (sky-400)
+  //   keyword (def, return, if)   → accent (sky-400)
   //   string ('', "")             → success-green (emerald)
   //   call (foo before "(")       → violet
   //   identifier                  → ink/light
   //   punctuation (parens etc)    → muted
-  //   operator (===, ==, etc)     → faint accent
+  //   operator (=, ==, etc)       → faint accent
   const segments = tokenizeLine(line);
   return (
     <>
@@ -374,7 +374,11 @@ function CodeLineColored({ line }: { line: string }) {
 }
 
 type TokenKind = "kw" | "id" | "fn" | "str" | "punct" | "op";
-const KEYWORDS = new Set(["function", "return", "const", "let", "var", "if", "else"]);
+const KEYWORDS = new Set([
+  "def", "return", "if", "else", "elif", "for", "while", "in", "is",
+  "not", "and", "or", "import", "from", "as", "class", "True", "False",
+  "None", "lambda", "pass",
+]);
 
 function tokenizeLine(s: string): Array<{ text: string; kind: TokenKind }> {
   const out: Array<{ text: string; kind: TokenKind }> = [];

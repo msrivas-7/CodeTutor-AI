@@ -27,6 +27,12 @@ export default defineConfig({
   // tests race to 30s session-start timeouts. Four is the sweet spot on an
   // M1 Pro — plenty of CPU headroom, stable under parallel container churn.
   // CI stays at 2 so we don't starve the runner.
+  //
+  // CI parallelism comes from sharding (4 matrix shards × 2 workers = 8
+  // effective workers across separate ubuntu-latest runners) — see
+  // .github/workflows/e2e.yml `--shard=${{ matrix.shard }}/4`. Larger
+  // GitHub-hosted runners require a paid Team/Enterprise plan even for
+  // public repos, so sharding is the right shape for the Free tier.
   workers: IS_CI ? 2 : 4,
   timeout: 60_000,
   expect: { timeout: 10_000 },

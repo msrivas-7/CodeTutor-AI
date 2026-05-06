@@ -36,7 +36,18 @@ export interface UseLessonValidatorArgs {
   lesson: Lesson | null;
   courseId: string | undefined;
   lessonId: string | undefined;
-  learnerId: string;
+  /**
+   * Phase 27-v2.1: null on the anon `/try/` path. When null, the
+   * three /api/user/* PATCH paths in this hook (completeLesson on
+   * Check pass, resetLessonProgress on practice entry, startLesson
+   * on lesson re-entry from practice) are skipped — anon never
+   * writes to the per-user lesson_progress / course_progress tables.
+   * The validator's client-side validation (validateLesson against
+   * the lesson's completionRules) runs identically regardless of
+   * mode — the Check button still works, the celebration still
+   * fires, just no PATCH side-effects on anon.
+   */
+  learnerId: string | null;
   totalLessons: number;
   sessionId: string | null;
   sessionPhase: string;
@@ -58,6 +69,16 @@ export interface UseLessonValidatorArgs {
   // Reset hooks owned by the runner so "Reset Lesson" can clear hasRun /
   // hasEdited alongside the validator-owned counters.
   onResetRunnerFlags?: () => void;
+  /**
+   * Phase 27-v2.1 audit pass 2 P2 #5: when "anon", `handleRunExamples`
+   * early-returns. The path runs `api.snapshotProject` + `api.executeTests`
+   * which are auth-required + sessionId-keyed; if a future anon-allowlisted
+   * lesson defines `function_tests`, calling these unauth'd would 401 →
+   * handle401() → signOut cascade. Today's hello-world has no
+   * function_tests so the gate is dormant; landing it now closes the
+   * trap door.
+   */
+  mode?: "authed" | "anon";
 }
 
 export function useLessonValidator({
@@ -77,6 +98,7 @@ export function useLessonValidator({
   tutorCollapsed,
   setTutorCollapsed,
   onResetRunnerFlags,
+  mode = "authed",
 }: UseLessonValidatorArgs) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [validation, setValidation] = useState<ValidationResult | null>(null);
@@ -153,6 +175,13 @@ export function useLessonValidator({
   })();
 
   const handleRunExamples = useCallback(async () => {
+    // Pass 2 P2 #5: anon path has no sessionId; api.snapshotProject /
+    // executeTests are auth+session-keyed and would 401 → cascade.
+    // Today's hello-world has no function_tests so this gate is dormant
+    // (the existing `!sessionId` check below already early-returns), but
+    // landing the explicit mode check now closes the trap door for any
+    // future anon-allowlisted lesson with function_tests.
+    if (mode === "anon") return;
     if (!sessionId || sessionPhase !== "active" || runningTests || !courseId || !lessonId || !lesson) return;
     if (functionTests.length === 0) return;
     setRunningTests(true);
@@ -173,7 +202,7 @@ export function useLessonValidator({
     } finally {
       setRunningTests(false);
     }
-  }, [sessionId, sessionPhase, runningTests, courseId, lessonId, lesson, functionTests]);
+  }, [sessionId, sessionPhase, runningTests, courseId, lessonId, lesson, functionTests, mode]);
 
   const handleCheck = useCallback(async () => {
     if (!lesson || !courseId || !lessonId) return;
@@ -285,7 +314,16 @@ export function useLessonValidator({
       setLastFailedName(null);
     }
     if (v.passed && !validation?.passed) {
-      completeLesson(learnerId, courseId, lessonId, totalLessons);
+      // Phase 27-v2.1: skip server-side completion PATCH on anon
+      // (learnerId === null). Client-side validation has already
+      // flipped to passed; the celebration UI fires regardless.
+      // Anon's lesson 1 completion is recorded server-side only at
+      // signup-handoff time (POST /api/anon-handoff writes
+      // lesson_progress.status=completed atomically with the user
+      // creation).
+      if (learnerId !== null) {
+        completeLesson(learnerId, courseId, lessonId, totalLessons);
+      }
       // Cinema Kit — déjà vu beat. Before the confetti explosion,
       // fire a three-ring sonar expanding from the Check button.
       // This is the same RingPulse shape the learner first saw at
@@ -365,6 +403,15 @@ export function useLessonValidator({
 
   const handleEnterPractice = useCallback(() => {
     if (!lesson?.practiceExercises?.length) return;
+    // Phase 27-v2.1 medium-lock: practice exercises are gated behind
+    // signup on /try/. The LessonCompletePanel mount routes anon-mode
+    // onStartPractice clicks to onAnonNext (opens the wall), so this
+    // direct handler shouldn't fire on anon — but defense-in-depth in
+    // case a future entry point (e.g., a Practice tab in
+    // LessonInstructionsPanel) calls it without the gate. The auto-
+    // enter-practice URL path is already gated transitively via
+    // lessonProgress[key] being undefined on anon.
+    if (mode === "anon") return;
     savedLessonCode.current = useProjectStore.getState().snapshot().reduce(
       (acc, f) => { acc[f.path] = f.content; return acc; },
       {} as Record<string, string>,
@@ -373,7 +420,7 @@ export function useLessonValidator({
     setPracticeIndex(0);
     setShowComplete(false);
     applyPracticeStarter(0);
-  }, [lesson, applyPracticeStarter]);
+  }, [lesson, applyPracticeStarter, mode]);
 
   // Auto-enter practice mode when navigated with ?mode=practice. Fires once
   // per lesson load, only if the lesson is actually completed + has
@@ -495,7 +542,11 @@ export function useLessonValidator({
       setConfirmResetLesson(false);
       return;
     }
-    resetLessonProgress(learnerId, courseId, lessonId);
+    // Phase 27-v2.1: skip server-side reset PATCH on anon
+    // (learnerId === null). Anon never has lesson_progress to reset.
+    if (learnerId !== null) {
+      resetLessonProgress(learnerId, courseId, lessonId);
+    }
     const files: Record<string, string> = {};
     const order: string[] = [];
     for (const f of lesson.starterFiles) {
@@ -519,7 +570,10 @@ export function useLessonValidator({
     setFailedHiddenTests(0);
     setHasChecked(false);
     onResetRunnerFlags?.();
-    startLesson(learnerId, courseId, lessonId);
+    // Phase 27-v2.1: skip startLesson PATCH on anon.
+    if (learnerId !== null) {
+      startLesson(learnerId, courseId, lessonId);
+    }
   }, [lesson, courseId, lessonId, learnerId, resetLessonProgress, startLesson, onResetRunnerFlags]);
 
   // "Ask tutor why" from the FailedTestCallout. For visible tests we can

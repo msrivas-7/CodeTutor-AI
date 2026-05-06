@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, Navigate } from "react-router-dom";
 import { AuthShell } from "../auth/AuthShell";
 import { supabase } from "../auth/supabaseClient";
 import { useAuthStore } from "../auth/authStore";
+import { readAnonStash } from "../features/anon/anonStash";
+import { api } from "../api/client";
 
 // Landing route for Supabase's email + OAuth redirects. Our client is
 // configured with `detectSessionInUrl: true`, so `getSession()` kicks off
@@ -57,6 +59,15 @@ export default function AuthCallbackPage() {
   const user = useAuthStore((s) => s.user);
   const [err, setErr] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  // Phase 27-v2.2 audit fix A3 (fresh-eyes + bug-hunter): the funnel
+  // event `anon_signup_completed` was only fired from SignupPage's
+  // email/password path. OAuth signups (and email-confirm-on flows
+  // that land here post-confirm) never triggered it, so the funnel's
+  // signup numerator silently undercounts and the wall→signup ratio
+  // looks much lower than it is. Fire here when the session resolves
+  // AND a fresh anon stash is present (only-when-relevant guard).
+  // useRef prevents StrictMode double-mount from double-counting.
+  const signupEventFiredRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -72,6 +83,13 @@ export default function AuthCallbackPage() {
           handle(error.message);
         } else if (!data.session) {
           setErr(friendlyAuthMessage("expired"));
+        } else if (!signupEventFiredRef.current && readAnonStash() !== null) {
+          // Session resolved successfully + stash exists ⇒ this is an
+          // anon→authed conversion landing on /auth/callback. Fire the
+          // event before <Navigate> takes us to /start (where StartPage
+          // will fire anon_lesson2_reached on handoff success).
+          signupEventFiredRef.current = true;
+          api.postFunnelEvent("anon_signup_completed");
         }
         setReady(true);
       })

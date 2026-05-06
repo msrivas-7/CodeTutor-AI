@@ -240,6 +240,12 @@ export interface UserPreferences {
   // unsubscribe link flips this to false directly via the unsubscribe
   // route (bypasses the patch path).
   emailOptIn: boolean;
+  // Phase 27: hide the streak system entirely for this user. Defaults
+  // FALSE; when TRUE, StreakChip + lesson-complete streak section +
+  // share-page streak count + daily streak email are all suppressed.
+  // Streak data on the server is preserved; toggling back to FALSE
+  // resumes display from the persisted value.
+  disableStreaks: boolean;
   updatedAt: string;
   // Phase 25: account-freeze flag. When true, the user is blocked from
   // creating new sessions and the authed shell renders a generic
@@ -260,6 +266,7 @@ export interface UserPreferencesPatch {
   uiLayout?: Record<string, unknown>;
   lastWelcomeBackAt?: string | null;
   emailOptIn?: boolean;
+  disableStreaks?: boolean;
 }
 
 export interface ServerCourseProgress {
@@ -446,7 +453,10 @@ export type SystemConfigKey =
   // P2-2: warm-pool hysteresis knobs.
   | "aci_warm_high_watermark"
   | "aci_warm_low_watermark"
-  | "aci_warm_max_pool_size";
+  | "aci_warm_max_pool_size"
+  // Phase 27-v2.2 Fix 7c — master kill switch for /api/anon/*. False
+  // 503s the anon trial path on the next request (60s cache TTL).
+  | "anon_lesson_enabled";
 
 export interface SystemConfigEntry {
   value: boolean | number;
@@ -497,6 +507,39 @@ export interface AdminAuditLogResponse {
   nextCursor: string | null;
 }
 
+// Phase 27-v2.2 Fix 7b: anon-trial-path summary for the new admin tab.
+// Read-only; the kill switch toggle goes through adminSetSystemConfig.
+export interface AdminAnonSummary {
+  generatedAt: string;
+  /** Today's anon questions counted against quota (counts_toward_quota). */
+  questionsToday: number;
+  /** Distinct ip_hash values seen today. */
+  distinctIpsToday: number;
+  /** IPs that hit the per-IP daily cap today (count == anonDailyQuestionsPerIp). */
+  exhaustedIpsToday: number;
+  /** Per-IP cap and combined L4 daily cap (for context). */
+  perIpDailyCap: number;
+  /** Cumulative abuse signals since process boot (Counter snapshot). */
+  abuseSignals: { anon_lesson_not_allowed: number; model_rejection: number };
+  /** Cumulative funnel events since the table started recording. Useful
+   *  for "did the page get hit / wall open / signup happen" sanity. */
+  funnelEvents: {
+    anon_page_view: number;
+    anon_wall_opened: number;
+    anon_signup_completed: number;
+    anon_lesson2_reached: number;
+  };
+  killSwitch: {
+    /** True if /api/anon/* is currently enabled. */
+    enabled: boolean;
+    /** "override" if system_config has a row, "env" otherwise. */
+    source: "override" | "env";
+    setBy: string | null;
+    setAt: string | null;
+    reason: string | null;
+  };
+}
+
 // Phase 25: dashboard snapshot.
 export interface AdminDashboardSnapshot {
   generatedAt: string;
@@ -519,6 +562,11 @@ export interface AdminDashboardSnapshot {
   freeTier: {
     enabled: boolean;
     spentTodayUsd: number;
+    /** Phase 27-v2.2 Fix 7a — authed-only spend today; sums with
+     *  spentTodayUsdAnon to spentTodayUsd. */
+    spentTodayUsdAuthed: number;
+    /** Phase 27-v2.2 Fix 7a — anon-only spend today. */
+    spentTodayUsdAnon: number;
     dailyUsdCap: number;
     lastFiredKey: string | null;
   };
@@ -798,6 +846,34 @@ export const api = {
       releaseSessionRequest(sessionId, ctrl);
     }
   },
+  /**
+   * Phase 27-v2.1 — anon (unauthed) one-shot Python execution. Used by
+   * useLessonRunner when LessonPage is in mode="anon" (the /try/
+   * trial flow). The backend route at `/api/anon/run` spawns an
+   * ephemeral container per request — no sessionId, no per-user
+   * snapshot store. Subject to ENABLE_ANON_LESSON kill switch +
+   * sessionCreateLimit (30/min/IP).
+   *
+   * The body shape mirrors the authed runProject path: `{ language,
+   * files, stdin? }`. No CSRF / Authorization required (route is
+   * unauthed by design); the kill switch + per-IP rate limits are
+   * the load-bearing defenses.
+   */
+  runAnon: async (
+    language: Language,
+    files: ProjectFile[],
+    stdin?: string,
+  ) => {
+    const res = await fetch(`${API_BASE}/api/anon/run`, {
+      method: "POST",
+      headers: { ...JSON_HEADERS, ...CSRF_HEADER },
+      body: JSON.stringify({ language, files, stdin }),
+    });
+    if (!res.ok) {
+      await throwApiError(res, "/api/anon/run");
+    }
+    return (await res.json()) as RunResult;
+  },
   executeTests: async (
     sessionId: string,
     language: Language,
@@ -1033,7 +1109,18 @@ export const api = {
   }) => post<{ id: string; createdAt: string }>("/api/feedback", body),
   askAIStream: async (
     body: AskStreamRequest,
-    handlers: AskStreamHandlers
+    handlers: AskStreamHandlers,
+    options?: {
+      /**
+       * Phase 27-v2.1 — caller-overridable endpoint. Defaults to the
+       * authed `/api/ai/ask/stream`. Anon callers (LessonPage in
+       * mode="anon") pass `/api/anon/ai/ask/stream` so the trial path
+       * uses the unauthed AI surface (subject to L_anon per-IP cap).
+       * Auth headers are still attempted; the unauthed route ignores
+       * them on its end (no Authorization required).
+       */
+      endpoint?: string;
+    },
   ): Promise<void> => {
     // QA-H2: no-chunk watchdog. If the SSE stream produces no data for
     // STREAM_STALL_MS, abort the fetch and surface it as an error — a
@@ -1068,7 +1155,8 @@ export const api = {
     let res: Response;
     try {
       const auth = await authHeaders();
-      res = await fetch(`${API_BASE}/api/ai/ask/stream`, {
+      const endpoint = options?.endpoint ?? "/api/ai/ask/stream";
+      res = await fetch(`${API_BASE}${endpoint}`, {
         method: "POST",
         headers: { ...JSON_HEADERS, ...CSRF_HEADER, ...auth },
         body: JSON.stringify(body),
@@ -1213,6 +1301,10 @@ export const api = {
       reason: string;
       confirmDisable?: string;
       confirmReduction?: string;
+      // Phase 27-v2.2 Fix 7c — required when toggling
+      // anon_lesson_enabled to false. See PHRASE_DISABLE_ANON in
+      // ProjectCapsSection / PHRASE_DISABLE_ANON_LESSON in admin.ts.
+      confirmAnonDisable?: string;
     },
   ) =>
     putJson<SystemConfigEntry & { key: SystemConfigKey }>(
@@ -1241,6 +1333,10 @@ export const api = {
   // ----------------------------------------------------------------------
 
   adminGetDashboard: () => get<AdminDashboardSnapshot>("/api/admin/dashboard"),
+
+  // Phase 27-v2.2 Fix 7b: admin anon-trial-path summary.
+  adminGetAnonSummary: () =>
+    get<AdminAnonSummary>("/api/admin/anon-summary"),
 
   adminListSessions: () => get<AdminSessionsResponse>("/api/admin/sessions"),
 
@@ -1334,7 +1430,77 @@ export const api = {
       "/api/admin/platform-auth/unstick",
       body,
     ),
+
+  // Phase 27-v2: anon→authed handoff. Called from StartPage on first
+  // mount after a freshly-signed-up user lands there from SignupPage
+  // / AuthCallbackPage. Body comes from sessionStorage (see
+  // anonStash.ts). Day 4 implements the idempotent writes:
+  // lesson_progress (status=completed, last_code), course_progress
+  // (in_progress, completedLessonIds), and user_preferences
+  // (welcome_done + workspace_coach_done from stash flags). Returns
+  // applied:true on first apply, applied:false when the lesson was
+  // already complete (refresh-during-handoff or replay scenarios).
+  postAnonHandoff: (body: AnonHandoffBody) =>
+    post<AnonHandoffResponse>("/api/anon-handoff", body),
+
+  // Phase 27-v2.2 Fix 6 — funnel telemetry. Fire-and-forget by design:
+  // a failed POST must not break the UX. The backend's table is
+  // 42P01-tolerant (telemetry drops if migration not applied), and the
+  // route returns 204 on success. Caller does not await the result;
+  // any thrown promise is swallowed so a network blip doesn't surface
+  // to the user as a banner. Reason is only meaningful for
+  // anon_wall_opened — the backend coerces it to null otherwise.
+  postFunnelEvent: (
+    event:
+      | "anon_page_view"
+      | "anon_wall_opened"
+      | "anon_signup_completed"
+      | "anon_lesson2_reached",
+    reason?: "save" | "next-lesson" | "exhausted" | "share" | "trial-paused",
+  ): void => {
+    // Fire-and-forget. We don't use the `post<T>` helper because:
+    //   - That expects a JSON response body; the route returns 204.
+    //   - That calls handle401 → supabase.auth.signOut on 401, which
+    //     would cascade-reset stores. Telemetry is fire-and-forget by
+    //     design — a server hiccup must NEVER drop the user's session.
+    // Backend route is unauthed + no csrfGuard, so we ship just the
+    // JSON content-type header. Direct fetch with .catch swallow keeps
+    // the UX bulletproof on any failure.
+    void fetch(`${API_BASE}/api/telemetry/event`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ event, reason }),
+    }).catch(() => {
+      /* swallow — telemetry must not break the UX */
+    });
+  },
 };
+
+export interface AnonHandoffBody {
+  courseId: "python-fundamentals";
+  lessonId: "hello-world";
+  code: string;
+  name: string | null;
+  /**
+   * Honest record of orientation surfaces that fired on the anon
+   * path. Mirrored into user_preferences columns by the handoff
+   * endpoint (welcome_done, workspace_coach_done). welcomeDone=true
+   * is what suppresses /welcome cinematic + ?firstRun=1 choreography
+   * post-signup; workspaceCoachDone is gated on Day 6 (false today
+   * because the coach hasn't been mounted on anon yet).
+   */
+  flags: {
+    welcomeDone: boolean;
+    workspaceCoachDone: boolean;
+  };
+}
+
+export interface AnonHandoffResponse {
+  ok: true;
+  applied: boolean;
+  /** Day 1: stub === true; Day 4 onwards: stub === false. */
+  stub?: boolean;
+}
 
 // PUT JSON helper (the existing post / patch helpers don't cover PUT,
 // and admin routes use PUT for set-override / set-system-config).

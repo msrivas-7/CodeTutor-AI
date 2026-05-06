@@ -33,6 +33,20 @@ export const expectedStdoutRuleSchema = z.object({
   expected: nonEmptyString,
 });
 
+// Phase 27-v2 Day 3a: lesson 1's `expected_stdout: "Hello, "` substring
+// rule passes the unedited starter (`name = "YOUR_NAME"` → stdout
+// `Hello, YOUR_NAME!` → contains "Hello, "). Adding a paired
+// `forbidden_in_stdout` rule lets the lesson reject any output that
+// still contains the placeholder, without changing the existing
+// permissive substring shape (which other lessons may rely on).
+// The pair (expected_stdout: "Hello, " + forbidden_in_stdout:
+// "YOUR_NAME") is what tightens lesson 1 specifically — every other
+// lesson gets the new variant available but doesn't need to use it.
+export const forbiddenInStdoutRuleSchema = z.object({
+  type: z.literal("forbidden_in_stdout"),
+  pattern: nonEmptyString,
+});
+
 export const requiredFileContainsRuleSchema = z.object({
   type: z.literal("required_file_contains"),
   file: z.string().optional(),
@@ -50,6 +64,7 @@ export const customValidatorRuleSchema = z.object({
 
 export const completionRuleSchema = z.discriminatedUnion("type", [
   expectedStdoutRuleSchema,
+  forbiddenInStdoutRuleSchema,
   requiredFileContainsRuleSchema,
   functionTestsRuleSchema,
   customValidatorRuleSchema,

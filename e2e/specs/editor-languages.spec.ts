@@ -82,7 +82,13 @@ test.describe("editor: per-language starter run", () => {
         await expect(page.locator('[role="alertdialog"]')).toBeVisible();
         await page.getByRole("button", { name: /^switch$/i }).click();
         await expect(page.locator('[role="alertdialog"]')).toHaveCount(0);
-        await waitForMonacoReady(page);
+        // Bumped from 15s default to 30s. Heavy compiled languages
+        // (rust, java) load larger language packs into Monaco and the
+        // CI runner under cumulative load can push past the 15s
+        // ceiling, while the same call passes locally in ~2s. Bumping
+        // here doesn't slow the happy path — waitForMonacoReady polls
+        // and returns the moment models load.
+        await waitForMonacoReady(page, 30_000);
       }
       // Python is the /editor default — no switch needed. EditorPage
       // seeds starterStdin(language) on first mount so the Python

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type UserStreakResponse } from "../api/client";
 import { supabase } from "../auth/supabaseClient";
+import { hasAuthSession } from "../auth/hasAuthSession";
 
 // Phase 21B: learning streak hook.
 //
@@ -79,13 +80,26 @@ export interface UseStreakResult {
   refetch: () => void;
 }
 
-export function useStreak(): UseStreakResult {
+export function useStreak(opts?: { skip?: boolean }): UseStreakResult {
+  // Phase 27-v2.1: anon callers (LessonCompletePanel mounted under
+  // mode="anon") pass {skip: true} so we don't fire GET /api/user/streak
+  // on a tab with no JWT. The endpoint is auth-gated; calling it without
+  // a session 401s in the network tab on Maya's celebration moment.
+  //
+  // Defense-in-depth (mirrors useAIStatus): also bail when there's no
+  // auth session. Even if a future caller forgets to pass skip, an anon
+  // mount won't 401 → handle401() → supabase.auth.signOut() → reset
+  // cascade. Caught by the fresh-eyes pre-commit review as a parity gap
+  // with useAIStatus.
+  const skip = !!opts?.skip || !hasAuthSession();
   const [streak, setStreak] = useState<UserStreakResponse | null>(() => {
+    if (skip) return null;
     if (cached && Date.now() - cached.at < TTL_MS) return cached.value;
     return null;
   });
 
   useEffect(() => {
+    if (skip) return;
     subscribers.add(setStreak);
     if (!cached || Date.now() - cached.at >= TTL_MS) {
       void fetchFresh();
@@ -93,13 +107,14 @@ export function useStreak(): UseStreakResult {
     return () => {
       subscribers.delete(setStreak);
     };
-  }, []);
+  }, [skip]);
 
   const refetch = useCallback(() => {
+    if (skip) return;
     cached = null;
     inflight = null;
     void fetchFresh();
-  }, []);
+  }, [skip]);
 
   return { streak, refetch };
 }

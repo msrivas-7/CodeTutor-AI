@@ -65,6 +65,7 @@ import {
 import { isAdmin, invalidateUserRoleCache } from "../db/userRoles.js";
 import { abortAllForUser } from "../services/shutdown/abortRegistry.js";
 import { adminDestroyUserSessions } from "../services/session/sessionManager.js";
+import { adminAnonSummaryRouter } from "./adminAnonSummary.js";
 import { adminBudgetWatcherRouter } from "./adminBudgetWatcher.js";
 import { adminDashboardRouter } from "./adminDashboard.js";
 import { adminEmailLogRouter } from "./adminEmailLog.js";
@@ -77,6 +78,12 @@ const PHRASE_DISABLE_FREE_TIER =
   "I understand this stops free AI for everyone";
 const PHRASE_REDUCE_GLOBAL_CAP =
   "I understand this may exhaust free tier today";
+// Phase 27-v2.2 Fix 7c — phrase confirm for the anon-trial kill switch.
+// Same shape as PHRASE_DISABLE_FREE_TIER: a single accidental click can
+// 503 every /try/lesson visitor, so the toggle requires a verbatim
+// phrase server-side (the frontend mirrors it in ProjectCapsSection).
+const PHRASE_DISABLE_ANON_LESSON =
+  "I understand this stops the anon trial path for everyone";
 
 // Bounds per cap key. Out-of-range values rejected with 400.
 const KEY_BOUNDS: Record<
@@ -122,6 +129,11 @@ const KEY_BOUNDS: Record<
   aci_warm_high_watermark: { type: "number", min: 0, max: 14 },
   aci_warm_low_watermark: { type: "number", min: 0, max: 14 },
   aci_warm_max_pool_size: { type: "number", min: 0, max: 10 },
+  // Phase 27-v2.2 Fix 7c — anon trial path kill switch. False
+  // disables /api/anon/* (returns 503 ANON_LESSON_DISABLED) without
+  // a redeploy. Boolean; env (ENABLE_ANON_LESSON) is the boot-time
+  // default + DB-unreachable fallback.
+  anon_lesson_enabled: { type: "boolean" },
 };
 
 // Env defaults exposed in GET /api/admin/system-config so the UI can
@@ -158,6 +170,8 @@ function envDefaultFor(key: SystemConfigKey): boolean | number {
       return config.aci.warmLowWatermark ?? 10;
     case "aci_warm_max_pool_size":
       return config.aci.warmMaxPoolSize ?? 2;
+    case "anon_lesson_enabled":
+      return config.anonLessonEnabled;
   }
 }
 
@@ -399,6 +413,9 @@ const systemConfigBody = z
     reason: z.string().min(4).max(500),
     confirmDisable: z.string().optional(),
     confirmReduction: z.string().optional(),
+    // Phase 27-v2.2 Fix 7c — required only when toggling
+    // anon_lesson_enabled to false. See PHRASE_DISABLE_ANON_LESSON.
+    confirmAnonDisable: z.string().optional(),
   })
   .strict();
 
@@ -480,6 +497,26 @@ adminRouter.put("/system-config/:key", async (req, res, next) => {
       return res.status(400).json({
         error: "confirmDisable phrase required to disable free tier",
         requiredPhrase: PHRASE_DISABLE_FREE_TIER,
+      });
+    }
+  }
+
+  // Phase 27-v2.2 Fix 7c: same shape for anon_lesson_enabled = false.
+  // Without the phrase, a fat-finger click 503s every /try/lesson visitor
+  // until the operator unflips. The reason field alone is too low-friction
+  // for an action with this blast radius.
+  if (typedKey === "anon_lesson_enabled" && value === false) {
+    if (parsed.data.confirmAnonDisable !== PHRASE_DISABLE_ANON_LESSON) {
+      await logAdminAction({
+        actorId,
+        eventType: "rejected_attempt",
+        targetKey: typedKey,
+        after: parsed.data,
+        reason: "missing or wrong confirmAnonDisable phrase",
+      });
+      return res.status(400).json({
+        error: "confirmAnonDisable phrase required to disable anon trial path",
+        requiredPhrase: PHRASE_DISABLE_ANON_LESSON,
       });
     }
   }
@@ -1016,3 +1053,4 @@ adminRouter.use(adminSessionsRouter);
 adminRouter.use(adminEmailLogRouter);
 adminRouter.use(adminBudgetWatcherRouter);
 adminRouter.use(adminPlatformAuthRouter);
+adminRouter.use(adminAnonSummaryRouter);

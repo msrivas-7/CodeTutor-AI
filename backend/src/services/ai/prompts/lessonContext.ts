@@ -38,6 +38,7 @@ export function buildLessonContextBlock(ctx: LessonContext): string {
   const task = ctx.completionRules
     .map((r) => {
       if (r.type === "expected_stdout") return `produce stdout containing "${r.expected}"`;
+      if (r.type === "forbidden_in_stdout") return `avoid producing stdout containing "${r.pattern}"`;
       if (r.type === "required_file_contains") return `write code in ${r.file ?? entryFile} containing \`${r.pattern}\``;
       if (r.type === "function_tests") return `define the tested function(s) at module scope so the harness can call them`;
       return `pass custom validation`;

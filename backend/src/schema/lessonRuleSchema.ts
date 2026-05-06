@@ -32,6 +32,14 @@ export const completionRuleSchema = z.discriminatedUnion("type", [
     type: z.literal("expected_stdout"),
     expected: z.string(),
   }),
+  // Phase 27-v2 Day 3a: paired with expected_stdout to reject the
+  // unedited lesson 1 starter (`Hello, YOUR_NAME!` contains the
+  // forbidden substring). See parallel comment in
+  // frontend/src/features/learning/content/schema.ts.
+  z.object({
+    type: z.literal("forbidden_in_stdout"),
+    pattern: z.string(),
+  }),
   z.object({
     type: z.literal("required_file_contains"),
     file: z.string().optional(),

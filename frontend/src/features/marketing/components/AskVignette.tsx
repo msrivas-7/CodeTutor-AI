@@ -15,8 +15,8 @@ import { HOUSE_EASE } from "../../../components/cinema/easing";
 // Reduced-motion: render the FINAL state — tutor bubble + completed
 // learner reply — with no transitions. Same meaning, no movement.
 
-const TUTOR_TEXT = "What does s.trim() change about the input?";
-const LEARNER_TEXT = "It removes whitespace from both ends.";
+const TUTOR_TEXT = "What does str(points) change about the value?";
+const LEARNER_TEXT = "It turns the number into a string so + can join them.";
 
 export function AskVignette() {
   const reduce = useReducedMotion();

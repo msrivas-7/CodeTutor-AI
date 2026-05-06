@@ -96,6 +96,8 @@ export const HERO_CANDIDATES: readonly HeroCandidate[] = [
 /**
  * The default hero shown to non-workshop visitors. Index 13 = "AI that
  * builds you, not the code." — operator pick after the workshop pass.
+ * Stays language-agnostic on purpose: editor supports 9 languages and
+ * the course catalog is expected to grow beyond Python.
  *
  * In dev (Vite import.meta.env.DEV), the URL `?hero=N` overrides this so
  * we can A/B-render candidates against the real page chrome without

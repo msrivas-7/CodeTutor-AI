@@ -125,6 +125,13 @@ export interface AIAskParams {
   // OpenAI call is cancelled so we stop burning the user's tokens and free
   // the response slot. Non-stream `ask` also honors it.
   signal?: AbortSignal;
+  // Phase 27 precondition: optional per-request output-token cap. If
+  // omitted, defaults to the provider's MAX_OUTPUT_TOKENS (2000).
+  // Anonymous callers pass a tighter value (e.g. 512) so a single
+  // anon request can't stretch the bounded-cost envelope. The
+  // provider clamps to min(supplied, MAX_OUTPUT_TOKENS) — callers
+  // can never ask for MORE than the global ceiling.
+  maxOutputTokens?: number;
   // Guided learning mode — when present, the tutor uses lesson-aware prompting.
   lessonContext?: {
     courseId: string;

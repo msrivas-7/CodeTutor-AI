@@ -16,8 +16,15 @@ const mockSumPlatform = vi.fn();
 const mockSendEmail = vi.fn();
 const mockGetEffectiveDailyUsdCap = vi.fn();
 
+// Phase 27 §3d: budgetWatcher now reads `sumPlatformCostTodayAllSources`
+// (sum of authed + anon ledgers). Same mock semantics — the test fakes
+// the unified "today total" — so we route both export names through
+// the same `mockSumPlatform` to preserve every existing assertion
+// without rewriting the suite. `sumPlatformCostTodayGlobal` is kept
+// as a no-op stub in case any helper still imports it.
 vi.mock("../db/usageLedger.js", () => ({
   sumPlatformCostTodayGlobal: (...args: unknown[]) => mockSumPlatform(...args),
+  sumPlatformCostTodayAllSources: (...args: unknown[]) => mockSumPlatform(...args),
 }));
 
 vi.mock("./email/acsClient.js", () => ({

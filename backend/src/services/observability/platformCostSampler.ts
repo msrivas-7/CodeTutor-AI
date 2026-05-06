@@ -11,7 +11,7 @@
 // pathological enough to warrant a page even though L4 already hard-caps
 // absolute daily spend.
 
-import { sumPlatformCostTodayGlobal } from "../../db/usageLedger.js";
+import { sumPlatformCostTodayAllSources } from "../../db/usageLedger.js";
 import { config } from "../../config.js";
 import { getEffectiveDailyUsdCap } from "../ai/effectiveCaps.js";
 
@@ -21,7 +21,10 @@ let timer: NodeJS.Timeout | null = null;
 
 async function sampleOnce(): Promise<void> {
   const since = new Date(Date.now() - ONE_HOUR_MS);
-  const sum = await sumPlatformCostTodayGlobal(since);
+  // Phase 27 §3d: include anon spend so the "$30 in 1 hour" page-oncall
+  // alert sees the full picture; the rolling-hour sampler must agree
+  // with the resolver's L4 view.
+  const sum = await sumPlatformCostTodayAllSources(since);
   const dailyCap = await getEffectiveDailyUsdCap();
   const threshold = dailyCap * 2;
   const exceeded = sum > threshold;

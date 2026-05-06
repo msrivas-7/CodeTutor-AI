@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { AuthShell } from "../auth/AuthShell";
 import { OAuthButtons } from "../auth/OAuthButtons";
@@ -7,6 +7,8 @@ import { ResendEmailButton } from "../auth/ResendEmailButton";
 import { isValidEmail } from "../auth/emailValidation";
 import { isPasswordAcceptable } from "../auth/passwordPolicy";
 import { useAuthStore } from "../auth/authStore";
+import { api } from "../api/client";
+import { readAnonStash } from "../features/anon/anonStash";
 
 export default function SignupPage() {
   const nav = useNavigate();
@@ -25,7 +27,7 @@ export default function SignupPage() {
   const clearError = useAuthStore((s) => s.clearError);
 
   // Phase 22B: lastName dropped — the cinematic onboarding is firstName-only
-  // (3 spoken beats: hero "Hi, ${firstName}", greet, praise) and lastName
+  // (3 spoken beats: hero "Hello, ${firstName}", greet, praise) and lastName
   // appeared nowhere else in the experience. Cutting one field is a
   // measurable conversion win on the signup wall without any narrative loss.
   const [firstName, setFirstName] = useState("");
@@ -35,6 +37,9 @@ export default function SignupPage() {
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
+  // Phase 27-v2.2 audit fix A3 follow-on (staff-pm P2-2): guard against
+  // StrictMode / re-render double-fire of anon_signup_completed.
+  const signupEventFiredRef = useRef(false);
 
   // Display-name validation is intentionally permissive: names contain
   // apostrophes (O'Neil), hyphens (Anne-Marie), spaces, and non-Latin
@@ -49,6 +54,18 @@ export default function SignupPage() {
   // Phase 22C: in-product home is /start, not / (marketing page is /).
   useEffect(() => {
     if (sent && user) {
+      // Phase 27-v2.2 Fix 6 — funnel telemetry: anon_signup_completed
+      // fires when a freshly-created user has the anon-trial stash
+      // present (Maya converted from /try/). Direct-signup users (no
+      // stash) don't emit this event — that's the event's whole
+      // discriminator. Fire BEFORE nav so even a slow route transition
+      // doesn't lose the event. Fire-and-forget. The matching
+      // anon_lesson2_reached fires after StartPage's handoff success
+      // branch — tells us whether the conversion stuck end-to-end.
+      if (!signupEventFiredRef.current && readAnonStash() !== null) {
+        signupEventFiredRef.current = true;
+        api.postFunnelEvent("anon_signup_completed");
+      }
       nav("/start", { replace: true });
     }
   }, [sent, user, nav]);

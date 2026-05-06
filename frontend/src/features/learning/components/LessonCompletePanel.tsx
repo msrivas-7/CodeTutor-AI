@@ -6,6 +6,7 @@ import { LessonFeedbackChip } from "./LessonFeedbackChip";
 import { StreakChip } from "./StreakChip";
 import { RingPulse } from "../../../components/cinema/RingPulse";
 import { invalidateStreak, useStreak } from "../../../state/useStreak";
+import { useDisableStreaks } from "../../../state/preferencesStore";
 
 interface LessonCompletePanelProps {
   lesson: LessonMeta;
@@ -20,6 +21,14 @@ interface LessonCompletePanelProps {
   // is hidden rather than shown disabled. Sharing is celebratory; a
   // dimmed "Share" feels worse than no share at all.
   onShare?: () => void;
+  /**
+   * Phase 27-v2.1 — when "anon", suppresses the streak refetch + read
+   * (would 401 on /api/user/streak), and the streak/practice-grid
+   * surfaces that read from authed-only state. Default "authed"
+   * preserves all existing behavior. The celebration body, share card,
+   * mastery callout, and Next CTA all render the same on both modes.
+   */
+  mode?: "authed" | "anon";
 }
 
 export function LessonCompletePanel({
@@ -31,6 +40,7 @@ export function LessonCompletePanel({
   onDismiss,
   onStartPractice,
   onShare,
+  mode = "authed",
 }: LessonCompletePanelProps) {
   const practiceExercises = lesson.practiceExercises ?? [];
   const practiceCount = practiceExercises.length;
@@ -66,13 +76,25 @@ export function LessonCompletePanel({
   //   fired. The chip lands prominently with a single RingPulse +
   //   acknowledge so the learner sees their streak as part of the
   //   celebration, not as a detached "+1" event.
+  // Phase 27-v2.1: anon skips streak fetch + read entirely. The streak
+  // endpoint is auth-gated; firing it on the celebration moment for an
+  // unauth caller would 401 in the network panel. The streak chip
+  // render below already gates on `streak`, so streak === null on anon
+  // hides the surface naturally.
   useEffect(() => {
+    if (mode === "anon") return;
     invalidateStreak();
-  }, []);
-  const { streak } = useStreak();
+  }, [mode]);
+  const { streak } = useStreak({ skip: mode === "anon" });
+  // Phase 27: hide every streak-related surface on this panel when the
+  // user has opted out. The chip render below + the milestone-confetti
+  // effect both gate on this — turning off must mean nothing flashes.
+  const disableStreaks = useDisableStreaks();
 
   const isMilestone =
-    !!streak && [7, 14, 30, 100, 365].includes(streak.current);
+    !disableStreaks &&
+    !!streak &&
+    [7, 14, 30, 100, 365].includes(streak.current);
   // Lazy confetti for milestones — only the most special days earn it.
   // Reduced-motion users get nothing fired, matching the rest of the
   // panel's choreography.
@@ -143,7 +165,7 @@ export function LessonCompletePanel({
             the effect above.
             Position: top-right of the panel, sized large enough to read
             without competing with the heading. */}
-        {streak && streak.current > 0 && (
+        {streak && streak.current > 0 && !disableStreaks && (
           <div className="absolute right-2 top-2 z-10">
             <div className="relative">
               {/* Soft glow disc behind the chip — blooms on mount,
@@ -297,6 +319,49 @@ export function LessonCompletePanel({
           </div>
         )}
 
+        {/* Phase 27: prominent share-the-win callout, shown only on
+            Lesson 1 of a course (order === 1) — the first program is
+            the most emotionally chargeable moment in the journey, and
+            the small "Share this win" pill at the bottom undersells it.
+            Replaces the bottom pill for lesson 1; pill stays for the
+            rest of the course. */}
+        {lesson.order === 1 && onShare && (
+          <div className="mb-5 rounded-lg border border-accent/30 bg-gradient-to-br from-accent/10 via-violet/5 to-success/10 px-4 py-4">
+            <h3 className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-accent/80">
+              Your first one
+            </h3>
+            <p className="mb-3 text-[13px] leading-relaxed text-ink/85">
+              First program shipped. Text it to someone who'd be proud — a
+              friend, a group chat, anyone you want to show.
+            </p>
+            <button
+              type="button"
+              onClick={onShare}
+              className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-accent to-violet px-4 py-2 text-[12px] font-bold text-bg shadow-sm transition hover:opacity-90"
+              aria-label="Share your first program"
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <circle cx="18" cy="5" r="3"></circle>
+                <circle cx="6" cy="12" r="3"></circle>
+                <circle cx="18" cy="19" r="3"></circle>
+                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+              </svg>
+              Share it
+            </button>
+          </div>
+        )}
+
         {/* CTA priority swap: when mastery is shaky and practice is incomplete,
             Start Practice becomes primary and Next Lesson is secondary. */}
         <div className="flex items-center gap-2">
@@ -331,9 +396,23 @@ export function LessonCompletePanel({
               <button
                 onClick={onDismiss}
                 className="flex-1 rounded-lg border border-border px-4 py-2 text-xs font-medium text-muted transition hover:bg-elevated hover:text-ink"
-                aria-label="Close celebration and stay on this lesson"
+                // Phase 27-v2.1 medium-lock: anon dismiss preserves
+                // agency by labeling the conversion ask honestly.
+                // Phase 27-v2.2 audit fix E4 (product-owner): the prior
+                // "Done for now" label promised completion ("I'm done")
+                // but the click opens the wall titled "Lesson 2 is
+                // queued up" — clicked-stop, got-go. "See lesson 2"
+                // names the actual outcome so the wall reads as the
+                // promised destination, not a surprise. Authed dismiss
+                // stays "Keep practicing" since they have a real
+                // lesson 2 they can navigate to anytime.
+                aria-label={
+                  mode === "anon"
+                    ? "See lesson 2 — opens the signup wall"
+                    : "Close celebration and stay on this lesson"
+                }
               >
-                Keep practicing
+                {mode === "anon" ? "See lesson 2" : "Keep practicing"}
               </button>
               {onNext && (
                 <button
@@ -353,8 +432,10 @@ export function LessonCompletePanel({
             gradient pill. The dialog itself owns the visual reward
             (preview, opt-in, "Make public & share" gradient button).
             Hidden entirely when onShare is not wired (e.g., practice
-            mode, no code to share) — better than a dimmed affordance. */}
-        {onShare && (
+            mode, no code to share) — better than a dimmed affordance.
+            Phase 27: also hidden on Lesson 1 — the prominent "Your
+            first one" card above already owns the share affordance. */}
+        {onShare && lesson.order !== 1 && (
           <div className="mt-3 flex items-center justify-center">
             <button
               type="button"
@@ -384,7 +465,9 @@ export function LessonCompletePanel({
           </div>
         )}
 
-        <LessonFeedbackChip lessonId={lesson.id} lessonTitle={lesson.title} />
+        {mode === "authed" && (
+          <LessonFeedbackChip lessonId={lesson.id} lessonTitle={lesson.title} />
+        )}
       </div>
       </motion.div>
     </motion.div>

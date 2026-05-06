@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type RefObject } from "react";
 import type { Lesson } from "../types";
+import type { RunResult } from "../../../types";
 import { useAIStore } from "../../../state/aiStore";
 import { useProjectStore } from "../../../state/projectStore";
 import { useRunStore } from "../../../state/runStore";
@@ -22,6 +23,15 @@ export interface UseLessonRunnerArgs {
   // needs to expand it when the tutor is hidden.
   tutorCollapsed: boolean;
   setTutorCollapsed: (v: boolean) => void;
+  /**
+   * Phase 27-v2.1 — when "anon", handleRun routes to /api/anon/run
+   * (one-shot ephemeral container) instead of the session-bound
+   * /api/execute. canRun is gated on `lesson` presence rather than
+   * `sessionId`. Per-user PATCHes (incrementRun, saveCode,
+   * saveOutput) are skipped — anon never writes to /api/user/*.
+   * Default "authed" preserves all existing behavior.
+   */
+  mode?: "authed" | "anon";
 }
 
 export function useLessonRunner({
@@ -32,6 +42,7 @@ export function useLessonRunner({
   initializedRef,
   tutorCollapsed,
   setTutorCollapsed,
+  mode = "authed",
 }: UseLessonRunnerArgs) {
   const sessionId = useSessionStore((s) => s.sessionId);
   const sessionPhase = useSessionStore((s) => s.phase);
@@ -48,9 +59,20 @@ export function useLessonRunner({
 
   const [hasRun, setHasRun] = useState(false);
   const [hasEdited, setHasEdited] = useState(false);
+  // Phase 27-v2.2 audit fix (staff-qa P2 + bug-hunter latent): a
+  // monotonic counter of edits, exposed so observers can detect
+  // SUBSEQUENT edits (not just the first). hasEdited stays true once
+  // it flips, which made it useless as a forward-progress signal for
+  // the idle watchdog after the first character. editCount changes
+  // on every projectFiles update, so any consumer that reads it as
+  // an effect dep gets a fresh value per edit.
+  const [editCount, setEditCount] = useState(0);
 
   const handleRun = useCallback(async () => {
-    if (!sessionId || sessionPhase !== "active" || running || !courseId || !lessonId || !lesson) return;
+    if (running || !courseId || !lessonId || !lesson) return;
+    // Phase 27-v2.1: mode="authed" still requires an active session;
+    // mode="anon" skips the session check (no sessionId on /try/).
+    if (mode === "authed" && (!sessionId || sessionPhase !== "active")) return;
     // QA-C2: block Run while Check is executing. The frontend Check button is
     // `disabled={runningTests}`, but Cmd+Enter fires at the window level via
     // `capture:true` and bypasses that. Without this guard, a Cmd+Enter during
@@ -61,12 +83,21 @@ export function useLessonRunner({
     setRunError(null);
     try {
       const files = useProjectStore.getState().snapshot();
-      await api.snapshotProject(sessionId, files);
       const stdin = useRunStore.getState().stdin || undefined;
-      const result = await api.execute(sessionId, lesson.language, stdin);
+      let result: RunResult;
+      if (mode === "anon") {
+        // Phase 27-v2.1 — anon path: one-shot ephemeral container,
+        // no project snapshot needed (the route accepts files
+        // directly in the body). Skip session-bound API calls.
+        result = await api.runAnon(lesson.language, files, stdin);
+      } else {
+        // Authed path — unchanged from v2: snapshot project then
+        // execute against the persistent session container.
+        await api.snapshotProject(sessionId!, files);
+        result = await api.execute(sessionId!, lesson.language, stdin);
+      }
       setResult(result);
       setHasRun(true);
-      incrementRun(courseId, lessonId);
       // Cinema Kit — first-successful-run celebration. Session-scoped
       // (no schema change), per-lesson. Fires a single RingPulse +
       // confetti burst the first time the learner gets a zero-exit
@@ -76,20 +107,27 @@ export function useLessonRunner({
           .getState()
           .markIfFirst(courseId, lessonId);
       }
-      if (!practiceMode) {
-        if (result.stdout) {
-          saveOutput(courseId, lessonId, result.stdout);
+      // Phase 27-v2.1 — skip per-user PATCHes on anon. Anon's run
+      // counter, saved code, and saved output never persist to
+      // /api/user/lessons/* — the lesson 1 completion gets recorded
+      // server-side only at signup-handoff time.
+      if (mode === "authed") {
+        incrementRun(courseId, lessonId);
+        if (!practiceMode) {
+          if (result.stdout) {
+            saveOutput(courseId, lessonId, result.stdout);
+          }
+          const codeMap: Record<string, string> = {};
+          for (const f of files) codeMap[f.path] = f.content;
+          saveCode(courseId, lessonId, codeMap);
         }
-        const codeMap: Record<string, string> = {};
-        for (const f of files) codeMap[f.path] = f.content;
-        saveCode(courseId, lessonId, codeMap);
       }
     } catch (err) {
       setRunError((err as Error).message);
     } finally {
       setRunning(false);
     }
-  }, [sessionId, sessionPhase, running, courseId, lessonId, lesson, setRunning, setRunError, setResult, incrementRun, saveOutput, saveCode, practiceMode]);
+  }, [mode, sessionId, sessionPhase, running, courseId, lessonId, lesson, setRunning, setRunError, setResult, incrementRun, saveOutput, saveCode, practiceMode]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -104,7 +142,10 @@ export function useLessonRunner({
   }, [handleRun]);
 
   useEffect(() => {
-    if (initializedRef.current) setHasEdited(true);
+    if (initializedRef.current) {
+      setHasEdited(true);
+      setEditCount((n) => n + 1);
+    }
   }, [projectFiles, initializedRef]);
 
   const handleExplainError = useCallback(() => {
@@ -117,13 +158,20 @@ export function useLessonRunner({
   }, [lastResult, setPendingAsk, tutorCollapsed, setTutorCollapsed]);
 
   const hasStderr = !!(lastResult?.stderr?.trim());
-  const canRun = !!sessionId && sessionPhase === "active" && !running;
+  // Phase 27-v2.1: anon mode doesn't need a session — Run is enabled
+  // as soon as the lesson is loaded and no run is in flight. Authed
+  // mode gates on sessionPhase as before.
+  const canRun =
+    mode === "anon"
+      ? !!lesson && !running
+      : !!sessionId && sessionPhase === "active" && !running;
 
   return {
     handleRun,
     handleExplainError,
     hasRun,
     hasEdited,
+    editCount,
     canRun,
     hasStderr,
     lastResult,

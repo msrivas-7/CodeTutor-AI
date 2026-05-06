@@ -6,6 +6,7 @@ import { FilmGrain } from "../../components/cinema/FilmGrain";
 import { CinematicLighting } from "../../components/cinema/CinematicLighting";
 import { RingPulse } from "../../components/cinema/RingPulse";
 import { useFirstRunStore } from "./useFirstRunStore";
+import { usePhoneFormFactor } from "../../util/layoutPrefs";
 
 // The product's opening credits. Two modes:
 //
@@ -29,7 +30,7 @@ export interface CinematicGreetingProps {
   /** Name goes straight into the hero line. Pre-resolved by caller via
    * resolveFirstName — the greeting stays dumb. */
   firstName: string;
-  /** Full mode: the user's first visit — hero is "Hi, {name}!".
+  /** Full mode: the user's first visit — hero is "Hello, {name}!".
    *  Minimal mode: returning learner — hero is "Welcome back, {name}." */
   heroLine: string;
   /** Sits below the hero in both modes. In full mode, arrives in Beat 5.
@@ -38,6 +39,30 @@ export interface CinematicGreetingProps {
   /** Only used in full mode — the "Starting your first lesson…" line
    *  that lands in Beat 6. Ignored for minimal. */
   supportLine?: string;
+  /**
+   * Phase 27-v2.1 — anon variant: render an output preview line in
+   * monospaced font as a reveal beat between the code and the hero.
+   * The literal `placeholder` substring inside `template` opacity-pulses
+   * (0.9s anxious-anticipatory tempo) with a 1px dashed underline at
+   * accent color — reads as a "fillable slot" for the lesson task.
+   * When omitted (authed path), the cinematic renders unchanged: hero
+   * materializes where the code was without an intermediate output beat.
+   */
+  outputPreview?: { template: string; placeholder: string };
+  /**
+   * Phase 27-v2.1 — hero alignment. Default "center" preserves authed
+   * cinematic layout. Anon passes "left" so "Your turn." sits under
+   * the output preview as one continuation, not centered like a
+   * keynote slide.
+   */
+  heroAlign?: "center" | "left";
+  /**
+   * Phase 27-v2.1 — anon variant: 200ms cursor materialization inside
+   * the placeholder slot before exit blur. Telegraphs "this slot
+   * accepts focus" — the handoff made visible. Authed path doesn't
+   * pass this since there's no placeholder to anchor to.
+   */
+  cursorIntoSlot?: boolean;
   /**
    * Fires when the whole cinematic has finished dissolving. Caller owns
    * the subsequent navigation (first-run → lesson; welcome-back →
@@ -112,13 +137,37 @@ const MINIMAL_TIMELINE = {
   total: 5300,
 };
 
-// Sample dynamic code line for Beat 2. Keeping it string-concatenated
-// instead of pulled from a template so the REPL prompt reads as
-// monospaced-visual-design, not "i18n copy we forgot to localize."
-const CODE_LINE = '>>> print(f"Hi, {learner.name}!")';
+// Sample dynamic code line for Beat 2. Phase 27-v2: this code MUST
+// match the lesson 1 starter pattern (string concat with `+`) — not
+// an f-string. The cinematic plays <60s before the user sees lesson
+// 1 on the anon /try/ path, and on the authed /welcome path it
+// plays right before /learn/.../hello-world. Lesson 1 teaches `+`
+// concatenation with a `name` variable; if the cinematic shows
+// f-strings (a feature lesson 1 doesn't reach), the cinematic's
+// "every lesson works like this" subtitle reads as a broken promise
+// the next 60 seconds. Hero output below lands as "Hello, {name}!"
+// — same shape as the lesson 1 starter's stdout.
+const CODE_LINE = '>>> print("Hello, " + name + "!")';
 
 export function CinematicGreeting(props: CinematicGreetingProps) {
   const reduce = useReducedMotion();
+  // Phase 27-v2.2 Fix 5 — phone gets a faster Skip-button reveal. On
+  // a 390px phone Maya has ~90s of patience; 4s of "I cannot leave
+  // this" is a 15% upfront tax before the affordance even shows.
+  // Desktop keeps 4s (cinema-respect — the full beat sequence wants
+  // the audience eyes-forward through the typewriter setup before
+  // we admit you can leave). Phone reveals at 1.5s, which still
+  // hides Skip during the radial-glow rise (Beat 1, 0–1.4s) so the
+  // skip-affordance doesn't telegraph "skippable" at frame zero.
+  const isPhone = usePhoneFormFactor();
+  // Phase 27-v2.2 audit fix E2 (product-owner): Beat 1 (radial glow rise)
+  // ends at 1.4s, Beat 2 (cursor materialize) at 1.9s. Phone Skip
+  // appearing at 1.5s telegraphed "skippable" before Maya saw the cursor
+  // — the production undermined itself by offering an exit before showing
+  // her anything was happening. 2.5s lands the affordance after Beat 2
+  // completes but before Beat 3's typewriter (2.4s) commits to the
+  // sentence. Desktop keeps 4s (Beat 4's hold).
+  const skipDelayS = isPhone ? 2.5 : 4;
   const [exiting, setExiting] = useState(false);
   // Single terminal-handler guard: once either onComplete or onSkip
   // has fired, both are ignored. Prevents the "Esc at second 14.18"
@@ -142,8 +191,29 @@ export function CinematicGreeting(props: CinematicGreetingProps) {
   const onSkipRef = useRef(props.onSkip);
   onSkipRef.current = props.onSkip;
 
+  // Phase 27-v2.1 audit pass 1 fix #4: track "cinematic is currently
+  // mounted" in useFirstRunStore so peer surfaces (specifically
+  // WorkspaceCoach, which auto-mounts on /try/ ~600 ms after lesson
+  // load — i.e., UNDER the cinematic overlay) can suppress their
+  // global keydown handlers while the cinematic owns the screen.
+  // Without this, a single Esc keystroke during the cinematic
+  // dismissed both surfaces.
+  useEffect(() => {
+    if (props.mode !== "full") return;
+    useFirstRunStore.getState().setCinematicShowing(true);
+    return () => useFirstRunStore.getState().setCinematicShowing(false);
+  }, [props.mode]);
+
   // onComplete fires after the full timeline regardless of mode.
   useEffect(() => {
+    // Phase 27-v2.2 audit fix (bug-hunter P2): the inner setTimeout
+    // for onCompleteRef had no cleanup. If the consumer unmounted
+    // CinematicGreeting during the 300ms exit window, the inner
+    // timeout still fired, calling onComplete on a dead tree. Both
+    // anon (markCinematicSeen + setShowCinematic(false)) and authed
+    // (router nav) handle post-unmount calls today, but it's a
+    // setState-after-unmount path waiting for the next refactor.
+    let inner: number | null = null;
     const t = window.setTimeout(() => {
       if (terminalFiredRef.current) return;
       terminalFiredRef.current = true;
@@ -161,9 +231,12 @@ export function CinematicGreeting(props: CinematicGreetingProps) {
       }
       // Allow the exit blur / fade to breathe before unmounting.
       const exitMs = props.mode === "full" ? 300 : 400;
-      window.setTimeout(() => onCompleteRef.current(), exitMs);
+      inner = window.setTimeout(() => onCompleteRef.current(), exitMs);
     }, total);
-    return () => window.clearTimeout(t);
+    return () => {
+      window.clearTimeout(t);
+      if (inner !== null) window.clearTimeout(inner);
+    };
   }, [total, props.mode]);
 
   // Every terminal dismiss path — Esc key, Skip button, onComplete
@@ -175,6 +248,18 @@ export function CinematicGreeting(props: CinematicGreetingProps) {
     if (terminalFiredRef.current) return;
     if (!onSkipRef.current) return;
     terminalFiredRef.current = true;
+    // Cinema Kit Continuity Pass — match-cut handoff also fires on Esc/Skip.
+    // Required for the anon /try/ path (Phase 27-v2.1 Part 3+) where the
+    // cinematic dissolves OVER an already-mounted LessonPage(mode="anon")
+    // and the iris reveal needs cinematicExitingAt set to fire the
+    // "circle opening up" continuity beat. The authed /welcome Esc-skip
+    // navs to /start, not a lesson, so its 1.5s freshness window stales
+    // out before any lesson mount — no behavior change for Alex's path.
+    // Only on full mode (minimal-mode is the welcome-back overlay which
+    // dissolves over its own surface, not into a lesson).
+    if (props.mode === "full") {
+      useFirstRunStore.getState().markCinematicExiting();
+    }
     onSkipRef.current();
   };
 
@@ -194,16 +279,33 @@ export function CinematicGreeting(props: CinematicGreetingProps) {
   // line + subtitle, no typewriter, no blur, no theatre. Still
   // personalized, still legible. Duration scales to half for respect.
   if (reduce) {
+    // Phase 27-v2.1 audit pass 1 fix #6: reduced-motion fallback also
+    // needs to fire markCinematicExiting on its terminal paths so the
+    // anon iris reveal ("circle opening up") fires uniformly for users
+    // who honor prefers-reduced-motion. Without this, the fallback
+    // dissolved straight into the lesson with no handoff beat — the
+    // accessibility lane silently lost the welcome-scene parity beat.
+    // Only on full mode (minimal-mode is the welcome-back overlay
+    // which dissolves over its own surface).
+    const wrapTerminal = (fn: (() => void) | undefined) => {
+      if (!fn) return undefined;
+      return () => {
+        if (props.mode === "full") {
+          useFirstRunStore.getState().markCinematicExiting();
+        }
+        fn();
+      };
+    };
     return (
       <ReducedMotionFallback
         heroLine={props.heroLine}
         subtitle={props.subtitle}
-        onSkip={props.onSkip}
+        onSkip={wrapTerminal(props.onSkip)}
         // Critical: pass onComplete through so learners who honor
         // prefers-reduced-motion aren't stranded on /welcome. The
         // fallback fires it after a short static reveal — same
         // terminal nav as the full cinematic, just without theatre.
-        onComplete={props.onComplete}
+        onComplete={wrapTerminal(props.onComplete)!}
       />
     );
   }
@@ -224,14 +326,17 @@ export function CinematicGreeting(props: CinematicGreetingProps) {
           the production doesn't tell the audience IN ADVANCE that
           what they're about to watch is skippable. After 4s it
           fades up at low contrast. Copy reduced to plain "Skip"
-          (the arrow was doing two jobs and read as "advance"). */}
+          (the arrow was doing two jobs and read as "advance").
+          Phase 27-v2.2 Fix 5: phone reveals at 1.5s instead of 4s
+          (skipDelayS resolved at the top of CinematicGreeting via
+          useNarrowViewport). Same UX intent, persona-tuned. */}
       {props.onSkip && (
         <motion.button
           type="button"
           onClick={handleSkipOnce}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          transition={{ delay: 4, duration: 0.4 }}
+          transition={{ delay: skipDelayS, duration: 0.4 }}
           className="absolute bottom-6 right-6 rounded-md px-2 py-1 text-[11px] text-muted/60 transition hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           aria-label="Skip introduction"
         >
@@ -249,6 +354,9 @@ function FullCinematic({
   heroLine,
   subtitle,
   supportLine,
+  outputPreview,
+  heroAlign = "center",
+  cursorIntoSlot = false,
   exiting,
 }: CinematicGreetingProps & { exiting: boolean }) {
   const t = FULL_TIMELINE;
@@ -373,8 +481,92 @@ function FullCinematic({
           The stack uses a larger gap (10) after the hero and a
           tighter inner gap (3) between subtitle and support line,
           so subtitle + support read as ONE coupled statement — not
-          three equal-weight lines. */}
+          three equal-weight lines.
+
+          Phase 27-v2.1 — when `outputPreview` is passed (anon
+          variant), an output preview line renders ABOVE the hero,
+          aligned with it. The output's placeholder substring pulses
+          + dashed-underlines as a "fillable slot" — telegraphs the
+          lesson task without spoiling personal payoff. heroAlign
+          controls whether the output+hero pair is left-aligned
+          (anon, "one shot") or center-aligned (authed, default,
+          unchanged). */}
       <div className="relative z-10 flex flex-col items-center gap-10">
+        <div
+          className={`flex flex-col gap-3 ${heroAlign === "left" ? "items-start" : "items-center"}`}
+        >
+          {/* Output preview beat (anon variant only) — renders the
+              template string with the placeholder substring pulsing
+              at ~0.9s opacity cycle + dashed-underlined at accent
+              color. Reads as a fillable slot (Figma ghost-text /
+              FCP empty-clip semiotic). Fades in around the same
+              time as the hero (heroType.enter) so the eye moves
+              naturally from output to hero. */}
+          {outputPreview && (
+            <motion.div
+              className="relative font-mono text-[28px] leading-tight tracking-tight text-ink/90"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{
+                duration: 0.6,
+                delay: t.heroType.enter / 1000,
+                ease: HOUSE_EASE,
+              }}
+            >
+              {(() => {
+                const tpl = outputPreview.template;
+                const ph = outputPreview.placeholder;
+                const idx = tpl.indexOf(ph);
+                if (idx === -1) {
+                  // Defensive: placeholder not in template — render as-is.
+                  return <span>{tpl}</span>;
+                }
+                const before = tpl.slice(0, idx);
+                const after = tpl.slice(idx + ph.length);
+                return (
+                  <>
+                    <span>{before}</span>
+                    <motion.span
+                      className="relative inline-block border-b border-dashed border-accent/70 px-0.5 text-accent"
+                      animate={{ opacity: [0.6, 1.0, 0.6] }}
+                      transition={{
+                        duration: 0.9,
+                        repeat: Infinity,
+                        ease: "easeInOut",
+                        // start the pulse only after the line itself has faded in
+                        delay: t.heroType.enter / 1000 + 0.6,
+                      }}
+                    >
+                      {ph}
+                      {/* cursorIntoSlot — 200ms cursor materialization
+                          inside the placeholder slot near the cinematic's
+                          tail, before exit blur. Telegraphs "this slot
+                          accepts focus" — the handoff made visible. */}
+                      {cursorIntoSlot && (
+                        <motion.span
+                          className="absolute -right-[2px] top-[10%] inline-block h-[80%] w-[2px] bg-accent"
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          transition={{
+                            // Enter ~1s before exit blur (~13.7s) so the
+                            // cursor materialization reads as "the cinema
+                            // is handing this slot to you" before the
+                            // chrome dissolves. 200ms fade-in, then holds
+                            // at opacity 1 until the parent's exit blur
+                            // dissolves the whole cinematic.
+                            duration: 0.2,
+                            delay: (t.exitBlur.enter - 1000) / 1000,
+                          }}
+                          aria-hidden="true"
+                        />
+                      )}
+                    </motion.span>
+                    <span>{after}</span>
+                  </>
+                );
+              })()}
+            </motion.div>
+          )}
         <motion.div
           className="relative"
           initial={{ opacity: 0 }}
@@ -388,7 +580,7 @@ function FullCinematic({
             text={heroLine}
             startDelayMs={t.heroType.enter}
             charIntervalMs={140}
-            className="select-none whitespace-nowrap font-display text-[84px] font-[600] leading-[1] tracking-[-0.02em] text-ink"
+            className="select-none whitespace-nowrap font-display text-[clamp(48px,12vw,84px)] font-[600] leading-[1] tracking-[-0.02em] text-ink"
             showCursor={false}
             wrapInline
           />
@@ -417,7 +609,7 @@ function FullCinematic({
 
           {/* Ring pulse chime — anchored to the hero text's own
               relative container so its center coincides exactly with
-              the visual center of "Hi, {firstName}!" The previous
+              the visual center of "Hello, {firstName}!" The previous
               implementation positioned the ring at the viewport
               center (left-1/2 top-1/2), which fought the hero cluster's
               flex-centered + gapped stack and read as off-center. A
@@ -440,6 +632,8 @@ function FullCinematic({
             delayMs={t.ringPulse.enter}
           />
         </motion.div>
+        </div>
+        {/* /Phase 27-v2.1 output-preview + hero alignment block */}
 
         {/* Subtitle + support line form a coupled pair (gap-3), inside
             the outer gap-10 stack so they sit together as one
@@ -541,7 +735,7 @@ function MinimalCinematic({
           text={heroLine}
           startDelayMs={t.heroType.enter}
           charIntervalMs={115}
-          className="select-none whitespace-nowrap font-display text-[64px] font-[600] leading-[1] tracking-[-0.015em] text-ink"
+          className="select-none whitespace-nowrap font-display text-[clamp(40px,9vw,64px)] font-[600] leading-[1] tracking-[-0.015em] text-ink"
           showCursor={false}
           wrapInline
         />
@@ -684,16 +878,29 @@ function TypewriterLine({
   const [cursorVisible, setCursorVisible] = useState(showCursor);
 
   useEffect(() => {
+    // Phase 27-v2.2 audit fix (fresh-eyes P1-C + bug-hunter P2):
+    // pre-fix, the inner `return () => clearInterval(id)` was inside the
+    // setTimeout callback and got discarded — setTimeout ignores return
+    // values. The useEffect cleanup only cleared the start timeout; the
+    // interval kept ticking after unmount, calling setRevealed on a dead
+    // component until i >= text.length. Lift `id` to outer scope so the
+    // useEffect cleanup can clear both.
+    let id: number | null = null;
     const start = window.setTimeout(() => {
       let i = 0;
-      const id = window.setInterval(() => {
+      id = window.setInterval(() => {
         i += 1;
         setRevealed(i);
-        if (i >= text.length) window.clearInterval(id);
+        if (i >= text.length && id !== null) {
+          window.clearInterval(id);
+          id = null;
+        }
       }, charIntervalMs);
-      return () => window.clearInterval(id);
     }, startDelayMs);
-    return () => window.clearTimeout(start);
+    return () => {
+      window.clearTimeout(start);
+      if (id !== null) window.clearInterval(id);
+    };
   }, [text, startDelayMs, charIntervalMs]);
 
   useEffect(() => {

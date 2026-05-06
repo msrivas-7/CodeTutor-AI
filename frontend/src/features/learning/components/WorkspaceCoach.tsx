@@ -6,6 +6,8 @@ import {
   markOnboardingDone,
   usePreferencesStore,
 } from "../../../state/preferencesStore";
+import { useFirstRunStore } from "../../firstRun/useFirstRunStore";
+import { usePhoneFormFactor } from "../../../util/layoutPrefs";
 import { HOUSE_EASE } from "../../../components/cinema/easing";
 
 interface CoachStep {
@@ -68,17 +70,43 @@ export interface WorkspaceCoachRefs {
 interface WorkspaceCoachProps {
   refs: WorkspaceCoachRefs;
   onComplete: () => void;
+  /**
+   * Phase 27-v2 Day 6: skip the markOnboardingDone() PATCH on anon
+   * mounts. The default (true) preserves the authed /learn/...
+   * behavior — coach dismissal PATCHes user_preferences so the next
+   * lesson visit doesn't re-fire the tour. The anon path has no
+   * userId; PATCHing /api/user/preferences would 401. Anon caller
+   * passes false and tracks coach dismissal in local state, then
+   * propagates the truth into the sessionStorage stash so the
+   * post-signup handoff can flip the persistent flag at /api/anon-
+   * handoff time. Same pattern useFirstRunChoreography.onSeed uses.
+   */
+  persistDone?: boolean;
 }
 
 function isDone(): boolean {
   return usePreferencesStore.getState().workspaceCoachDone;
 }
 
-function markDone(): void {
-  markOnboardingDone("workspaceCoachDone");
+function maybeMarkDone(persistDone: boolean): void {
+  if (persistDone) {
+    markOnboardingDone("workspaceCoachDone");
+    return;
+  }
+  // Phase 27-v2.1 — anon path: flip the local preferencesStore flag
+  // WITHOUT the PATCH /api/user/preferences. This is what unblocks
+  // LessonPage's choreography enable gate (which reads
+  // workspaceCoachDone) on the trial path. Without the local flip,
+  // the gate would stay false on anon and the scripted walkthrough
+  // would never fire after the coach dismissed.
+  usePreferencesStore.setState({ workspaceCoachDone: true });
 }
 
-export function WorkspaceCoach({ refs, onComplete }: WorkspaceCoachProps) {
+export function WorkspaceCoach({
+  refs,
+  onComplete,
+  persistDone = true,
+}: WorkspaceCoachProps) {
   const [step, setStep] = useState(0);
   const [targetRect, setTargetRect] = useState<DOMRect | null>(null);
   const keys = useShortcutLabels();
@@ -97,6 +125,38 @@ export function WorkspaceCoach({ refs, onComplete }: WorkspaceCoachProps) {
     };
   }, []);
 
+  // Phase 27-v2.2 Fix 3 — phone short-circuit. The 6-step coach assumes a
+  // ≥1024px desktop layout (instructions left, editor center, tutor right
+  // — all visible simultaneously). On a 390px phone CoachBubble can't
+  // anchor next to a spotlight without overflowing, the 28px Skip-tour
+  // button is below the 44pt HIG touch-target minimum, and the museum-
+  // tour pacing eats ~30s of Maya's 90s patience budget. The scripted
+  // walkthrough that fires after the coach already orients her ("Hey
+  // there — let me run it for you") so the coach is redundant on phone.
+  // Skip-via-mark-done: same flow as natural completion. choreography's
+  // enable-gate flips because workspaceCoachDone is the gate
+  // (preferencesStore.setState fires whether persistDone or not, per
+  // maybeMarkDone above). Authed and direct-signup desktop paths keep
+  // the coach (Alex on a laptop is the audience there).
+  // Phase 27-v2.2 audit fix B1 (bug-hunter): gate the phone short-circuit
+  // on `cinematicShowing` being false. Pre-fix, the coach mounts at
+  // COACH_AUTO_OPEN_MS=600ms while the 14.2s cinematic is still on screen
+  // — flipping `workspaceCoachDone` synchronously triggered the
+  // choreography enable-gate ON, the scripted "Hey Maya, let me run it"
+  // ran to completion under the still-visible cinematic, and Maya saw
+  // the iris reveal open onto a tutor that was already mid-monologue.
+  // Same `cinematicShowing` gate the keydown handler at line 232 uses.
+  const phone = usePhoneFormFactor();
+  const cinematicShowingForSkip = useFirstRunStore((s) => s.cinematicShowing);
+  const phoneSkippedRef = useRef(false);
+  useEffect(() => {
+    if (!phone || phoneSkippedRef.current) return;
+    if (cinematicShowingForSkip) return;
+    phoneSkippedRef.current = true;
+    maybeMarkDone(persistDone);
+    onComplete();
+  }, [phone, cinematicShowingForSkip, persistDone, onComplete]);
+
   useEffect(() => {
     // Skip steps whose target is missing OR has zero size. The
     // zero-size case happens after the Cinema Kit Continuity Pass
@@ -113,7 +173,7 @@ export function WorkspaceCoach({ refs, onComplete }: WorkspaceCoachProps) {
       // at stale coordinates for a frame while the cascade resolves.
       setTargetRect(null);
       if (step < STEPS.length - 1) setStep((s) => s + 1);
-      else { markDone(); onComplete(); }
+      else { maybeMarkDone(persistDone); onComplete(); }
       return;
     }
     // Spotlight target can drift if anything scrolls (panels, window) or the
@@ -132,7 +192,7 @@ export function WorkspaceCoach({ refs, onComplete }: WorkspaceCoachProps) {
         if (r.width <= 0 || r.height <= 0) {
           setTargetRect(null);
           if (step < STEPS.length - 1) setStep((s) => s + 1);
-          else { markDone(); onComplete(); }
+          else { maybeMarkDone(persistDone); onComplete(); }
           return;
         }
         setTargetRect(r);
@@ -149,30 +209,43 @@ export function WorkspaceCoach({ refs, onComplete }: WorkspaceCoachProps) {
       window.removeEventListener("resize", update);
       window.removeEventListener("scroll", update, { capture: true } as EventListenerOptions);
     };
-  }, [targetEl, step, onComplete, STEPS.length]);
+  }, [targetEl, step, onComplete, persistDone, STEPS.length]);
 
   const advance = useCallback(() => {
     if (step >= STEPS.length - 1) {
-      markDone();
+      maybeMarkDone(persistDone);
       onComplete();
     } else {
       setStep((s) => s + 1);
     }
-  }, [step, onComplete, STEPS.length]);
+  }, [step, onComplete, persistDone, STEPS.length]);
 
   const dismiss = useCallback(() => {
-    markDone();
+    maybeMarkDone(persistDone);
     onComplete();
-  }, [onComplete]);
+  }, [onComplete, persistDone]);
 
   // A6: Esc dismisses the coach — matches the Modal + WelcomeOverlay pattern.
+  //
+  // Phase 27-v2.1 audit pass 1 fix #4: gate the Esc handler on
+  // `cinematicShowing` being false. On /try/ the coach mounts ~600 ms
+  // after lesson load (COACH_AUTO_OPEN_MS), but the CinematicGreeting
+  // is still on top until ~14 s. The coach's anchor refs ARE
+  // populated under the cinematic (the lesson chrome is laid out
+  // beneath the overlay), so targetRect resolves and the keydown
+  // listener registers. Without this gate, a single Esc keystroke
+  // during the cinematic dismissed BOTH surfaces (cinematic via its
+  // own handler, coach via this listener) — Maya then never saw the
+  // 6-step orientation tour.
+  const cinematicShowing = useFirstRunStore((s) => s.cinematicShowing);
   useEffect(() => {
+    if (cinematicShowing) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") dismiss();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [dismiss]);
+  }, [dismiss, cinematicShowing]);
 
   if (!targetRect || !currentStep) return null;
 

@@ -1,4 +1,4 @@
-import { sumPlatformCostTodayGlobal } from "../db/usageLedger.js";
+import { sumPlatformCostTodayAllSources } from "../db/usageLedger.js";
 import { getEffectiveDailyUsdCap } from "./ai/effectiveCaps.js";
 import { sendEmail, EmailNotConfiguredError } from "./email/acsClient.js";
 import { config } from "../config.js";
@@ -102,7 +102,11 @@ export async function watchBudgetOnce(): Promise<{
   }
   let spend = 0;
   try {
-    spend = await sumPlatformCostTodayGlobal(utcStartOfToday());
+    // Phase 27 §3d: must include anon spend so the alert ladder mirrors
+    // the resolver's L4 hard-cap check. Diverging here would mean anon
+    // burn $14 of a $15 cap with zero operator email, then the resolver
+    // flips to usd_cap_hit 503s with no warning.
+    spend = await sumPlatformCostTodayAllSources(utcStartOfToday());
   } catch (err) {
     // DB read failed — log but never throw out of the interval, would
     // kill the watcher silently. Next tick retries.

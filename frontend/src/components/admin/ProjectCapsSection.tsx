@@ -48,6 +48,10 @@ const KEY_LABEL: Record<SystemConfigKey, string> = {
   aci_warm_high_watermark: "ACI warm high watermark",
   aci_warm_low_watermark: "ACI warm low watermark",
   aci_warm_max_pool_size: "ACI warm max pool size",
+  // Phase 27-v2.2 Fix 7c — anon trial path kill switch. Reads
+  // positively ("Enabled") to match the parent state of the trial:
+  // operator wants this ON in normal operation.
+  anon_lesson_enabled: "Anon trial path enabled",
 };
 
 // Inline help for each row — surfaced as a one-line description so the
@@ -67,6 +71,8 @@ const KEY_DESCRIPTION: Partial<Record<SystemConfigKey, string>> = {
     "Concurrent ACI sessions allowed past the local cap of 14. 0 = effectively off (overflow returns 503). Higher values let an HN-spike route many sessions through ACI before the daily cap intervenes.",
   aci_warm_pool_enabled:
     "Pre-spawn 1–2 ACI containers when local capacity is close to its cap so the next overflow user gets a sub-second handoff (vs. 5–15s cold start). Off by default — turn on if cold-start latency complaints surface. Hard-capped at 2 idle containers, ~$2.54/day worst-case idle cost; cost-cap kill switch is the absolute backstop.",
+  anon_lesson_enabled:
+    "Master gate for /api/anon/run, /api/anon/ai/ask/stream, and /api/anon-handoff. When off, NEW requests return 503 ANON_LESSON_DISABLED on the next request (60s system_config cache TTL after flip). In-flight tutor SSE streams continue until their 25s upstream deadline. The /try/lesson/... frontend route stays mounted but every API hit fails. Use during abuse spikes, paused-trial windows, or when triaging a platform-key issue.",
 };
 
 const KEY_BOUNDS: Record<
@@ -88,10 +94,15 @@ const KEY_BOUNDS: Record<
   aci_warm_high_watermark: { type: "number", min: 0, max: 14, step: "1" },
   aci_warm_low_watermark: { type: "number", min: 0, max: 14, step: "1" },
   aci_warm_max_pool_size: { type: "number", min: 0, max: 10, step: "1" },
+  anon_lesson_enabled: { type: "boolean" },
 };
 
 const PHRASE_DISABLE = "I understand this stops free AI for everyone";
 const PHRASE_REDUCE_GLOBAL = "I understand this may exhaust free tier today";
+// Phase 27-v2.2 Fix 7c — phrase guard for the anon trial kill switch.
+// Mirrors the server-side PHRASE_DISABLE_ANON_LESSON in admin.ts.
+const PHRASE_DISABLE_ANON =
+  "I understand this stops the anon trial path for everyone";
 
 function fmtValue(v: boolean | number): string {
   if (typeof v === "boolean") return v ? "Enabled" : "Disabled";
@@ -294,11 +305,17 @@ function EditForm({ configKey, entry, onCancel, onSaved }: EditFormProps) {
     typeof entry.value === "number" &&
     entry.value > 0 &&
     draft < entry.value * 0.25;
+  // Phase 27-v2.2 Fix 7c — require phrase only when DISABLING the anon
+  // trial path (true → false). Re-enabling is one-click.
+  const requiresAnonDisablePhrase =
+    configKey === "anon_lesson_enabled" && draft === false;
   const requiredPhrase = requiresDisablePhrase
     ? PHRASE_DISABLE
     : requiresReductionPhrase
       ? PHRASE_REDUCE_GLOBAL
-      : null;
+      : requiresAnonDisablePhrase
+        ? PHRASE_DISABLE_ANON
+        : null;
 
   // Bounds + reason validity.
   let outOfBounds = false;
@@ -322,9 +339,11 @@ function EditForm({ configKey, entry, onCancel, onSaved }: EditFormProps) {
         reason: string;
         confirmDisable?: string;
         confirmReduction?: string;
+        confirmAnonDisable?: string;
       } = { value: draft, reason: reason.trim() };
       if (requiresDisablePhrase) body.confirmDisable = PHRASE_DISABLE;
       if (requiresReductionPhrase) body.confirmReduction = PHRASE_REDUCE_GLOBAL;
+      if (requiresAnonDisablePhrase) body.confirmAnonDisable = PHRASE_DISABLE_ANON;
       await api.adminSetSystemConfig(configKey, body);
       await onSaved();
     } catch (e) {

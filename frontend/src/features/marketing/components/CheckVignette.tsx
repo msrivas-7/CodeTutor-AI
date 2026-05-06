@@ -11,17 +11,18 @@ import { HOUSE_EASE } from "../../../components/cinema/easing";
 //   t=1.6   mastery ring strokes in (stroke-dashoffset 0 → 100%)
 //   t=2.4   subtle glow pulses on the ring once
 //
-// Story arc: the hero asked "Why does this fail on 'racecar '?" This
-// vignette runs the SAME input on the fixed implementation, returning
-// TRUE. The marketing page reads as one continuous story: stuck →
-// tutor asks → solved.
+// Story arc: the hero asked "Why does this fail when points is 100?"
+// This vignette runs the FIXED line — `str(points)` converts the int
+// to a string so `+` can concatenate cleanly — and prints the
+// expected greeting. The marketing page reads as one continuous
+// story: stuck → tutor asks → solved.
 //
 // The mastery ring is a stripped-down version of the SharePage's
 // MasteryRing primitive — same geometry + stroke-dasharray reveal,
 // scoped to a smaller size. Reduced-motion renders the final state.
 
-const CALL_INPUT = "'racecar '";
-const OUTPUT_LINE = "→ true";
+const CALL_ARG = "message";
+const OUTPUT_LINE = "→ Maya earned 100 points!";
 
 export function CheckVignette() {
   const reduce = useReducedMotion();
@@ -53,14 +54,15 @@ export function CheckVignette() {
   return (
     <div ref={ref} className="grid grid-cols-1 gap-5 sm:grid-cols-[1fr_auto] sm:items-center sm:gap-6">
       {/* Code + output column. Same JetBrains Mono palette as the
-          ReadVignette — visual continuity across beats. The fixed
-          line has `s.trim()` highlighted to point at what changed. */}
+          ReadVignette — visual continuity across beats. The line shows
+          the print() call that runs cleanly once str(points) is in
+          place above. */}
       <div className="space-y-2">
         <div className="flex items-center gap-3">
           <div className="flex-1 rounded-lg border border-border-soft/70 bg-bg/60 px-3 py-2 font-mono text-[13.5px] leading-[1.6] text-ink/90 sm:text-[14.5px]">
-            <span style={{ color: "rgb(192 132 252)" }}>isPalindrome</span>
+            <span style={{ color: "rgb(192 132 252)" }}>print</span>
             <span style={{ color: "rgba(148 163 184 / 0.85)" }}>(</span>
-            <span style={{ color: "rgba(52 211 153 / 0.9)" }}>{CALL_INPUT}</span>
+            <span style={{ color: "rgba(230 236 245 / 0.92)" }}>{CALL_ARG}</span>
             <span style={{ color: "rgba(148 163 184 / 0.85)" }}>)</span>
           </div>
           <RunButton stage={stage} />
@@ -83,7 +85,7 @@ export function CheckVignette() {
           </span>
           <span style={{ color: "rgb(52 211 153)" }}>{OUTPUT_LINE}</span>
           <span className="text-faint text-[12px] italic sm:text-[12.5px]">
-            with whitespace handled
+            with the type fixed
           </span>
         </motion.div>
       </div>

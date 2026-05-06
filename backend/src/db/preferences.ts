@@ -28,6 +28,13 @@ export interface UserPreferences {
   // sent to people who created the account). Settings panel exposes a
   // toggle, the unsubscribe link in the email flips this to false.
   emailOptIn: boolean;
+  // Phase 27: hide the streak system entirely for this user. Defaults
+  // FALSE; users who toggle it on stop seeing StreakChip in the
+  // toolbar, the streak section on the lesson-complete panel, the
+  // streak count on share pages, and the daily streak nudge email.
+  // Streak data on user_streak is preserved — toggling back to FALSE
+  // resumes display from the persisted value.
+  disableStreaks: boolean;
   updatedAt: string;
 }
 
@@ -42,6 +49,7 @@ const DEFAULT_PREFS: UserPreferences = {
   hasOpenaiKey: false,
   lastWelcomeBackAt: null,
   emailOptIn: true,
+  disableStreaks: false,
   updatedAt: new Date(0).toISOString(),
 };
 
@@ -60,6 +68,7 @@ export const PrefsRowSchema = z.object({
   has_openai_key: z.boolean(),
   last_welcome_back_at: z.date().nullable(),
   email_opt_in: z.boolean(),
+  disable_streaks: z.boolean(),
   updated_at: z.date(),
 });
 
@@ -85,6 +94,7 @@ function rowToPrefs(raw: unknown): UserPreferences {
       ? r.last_welcome_back_at.toISOString()
       : null,
     emailOptIn: r.email_opt_in,
+    disableStreaks: r.disable_streaks,
     updatedAt: r.updated_at.toISOString(),
   };
 }
@@ -100,6 +110,7 @@ export async function getPreferences(userId: string): Promise<UserPreferences> {
              (openai_api_key_cipher IS NOT NULL) AS has_openai_key,
              last_welcome_back_at,
              email_opt_in,
+             disable_streaks,
              updated_at
         FROM public.user_preferences
        WHERE user_id = ${userId}
@@ -123,6 +134,9 @@ export interface PreferencesPatch {
   // flag explicitly. Settings UI sends the toggle; the unsubscribe route
   // sets it directly to false (bypasses this patch path).
   emailOptIn?: boolean;
+  // Phase 27: disable the streak system for this user. undefined = no-op;
+  // true/false set the flag explicitly. Settings UI exposes a toggle.
+  disableStreaks?: boolean;
 }
 
 export async function upsertPreferences(
@@ -148,7 +162,7 @@ export async function upsertPreferences(
       INSERT INTO public.user_preferences (
         user_id, persona, openai_model, theme, welcome_done,
         workspace_coach_done, editor_coach_done, ui_layout, last_welcome_back_at,
-        email_opt_in
+        email_opt_in, disable_streaks
       )
       VALUES (
         ${userId},
@@ -160,7 +174,8 @@ export async function upsertPreferences(
         ${patch.editorCoachDone ?? false},
         ${tx.json((patch.uiLayout ?? {}) as JSONValue)},
         ${lastWelcomeBackAt ?? null},
-        ${patch.emailOptIn ?? DEFAULT_PREFS.emailOptIn}
+        ${patch.emailOptIn ?? DEFAULT_PREFS.emailOptIn},
+        ${patch.disableStreaks ?? DEFAULT_PREFS.disableStreaks}
       )
       ON CONFLICT (user_id) DO UPDATE SET
         persona              = COALESCE(${patch.persona ?? null}, public.user_preferences.persona),
@@ -172,12 +187,14 @@ export async function upsertPreferences(
         ui_layout            = CASE WHEN ${patch.uiLayout !== undefined} THEN ${tx.json((patch.uiLayout ?? {}) as JSONValue)} ELSE public.user_preferences.ui_layout END,
         last_welcome_back_at = CASE WHEN ${lastWelcomeBackAt !== undefined} THEN ${lastWelcomeBackAt ?? null} ELSE public.user_preferences.last_welcome_back_at END,
         email_opt_in         = COALESCE(${patch.emailOptIn ?? null}, public.user_preferences.email_opt_in),
+        disable_streaks      = COALESCE(${patch.disableStreaks ?? null}, public.user_preferences.disable_streaks),
         updated_at           = now()
       RETURNING persona, openai_model, theme, welcome_done, workspace_coach_done,
                 editor_coach_done, ui_layout,
                 (openai_api_key_cipher IS NOT NULL) AS has_openai_key,
                 last_welcome_back_at,
                 email_opt_in,
+                disable_streaks,
                 updated_at
     `;
   });

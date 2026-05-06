@@ -52,9 +52,28 @@ interface GuidedTutorPanelProps {
   // break the flow; simplest fix is to take the affordance away for
   // the duration of the cinematic.
   clearHidden?: boolean;
+  /**
+   * Phase 27-v2.1 — when "anon", routes the AI stream to
+   * `/api/anon/ai/ask/stream` (subject to the L_anon per-IP cap)
+   * instead of the authed `/api/ai/ask/stream`. Default "authed"
+   * preserves all existing behavior.
+   */
+  mode?: "authed" | "anon";
+  /**
+   * Phase 27-v2.1 audit pass 1 fix #5: invoked when the anon path
+   * hits the L_anon per-IP cap (server returns 429 with body
+   * ANON_EXHAUSTED). The wrapper opens SignupWallDialog reason="exhausted".
+   * Only meaningful when mode === "anon".
+   */
+  onAnonExhausted?: () => void;
+  /**
+   * Phase 27-v2.2 audit fix E1: invoked when the anon kill switch is
+   * on (server 503 ANON_LESSON_DISABLED). Opens reason="trial-paused".
+   */
+  onAnonTrialPaused?: () => void;
 }
 
-export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, priorConcepts, activePracticeExercise, onCollapse, onOpenSettings, resetNonce, inputLocked, clearHidden }: GuidedTutorPanelProps) {
+export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, priorConcepts, activePracticeExercise, onCollapse, onOpenSettings, resetNonce, inputLocked, clearHidden, mode = "authed", onAnonExhausted, onAnonTrialPaused }: GuidedTutorPanelProps) {
   const incrementHint = useProgressStore((s) => s.incrementHint);
   // Derive the hint cap from the DB-backed hint_count (not local component
   // state) so the limit survives navigation + reload. Local state rewinds on
@@ -83,7 +102,10 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
     sessionUsage,
   } = useAIStore();
   const hasKey = usePreferencesStore((s) => s.hasOpenaiKey);
-  const { status: aiStatus } = useAIStatus();
+  // Phase 27-v2.1 — anon skips this fetch; the panel's chip + setup-warning
+  // surfaces are conditionally rendered for authed only (anon has no BYOK
+  // surface, no platform quota counter — its limit is server-side L_anon).
+  const { status: aiStatus } = useAIStatus({ skip: mode === "anon" });
 
   // Phase 21A: saved tutor messages, scoped to this lesson and (if in
   // practice mode) this specific practice exercise. Editor scope is null;
@@ -99,7 +121,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
     loading: savedLoading,
     save: saveTutorMessage,
     unsave: unsaveTutorMessage,
-  } = useSavedTutorMessages(savedScope);
+  } = useSavedTutorMessages(savedScope, mode);
 
   const { activeFile } = useProjectStore();
   const lastRun = useRunStore((s) => s.result);
@@ -129,7 +151,14 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
   // out to subscribers in-process. The 30s TTL reconciles drift on the next
   // natural poll.
 
-  const configured = onPlatform || (hasKey && !!selectedModel);
+  // Phase 27-v2.1: anon panel is always configured. The
+  // /api/anon/ai/ask/stream endpoint accepts unauthenticated callers
+  // (subject to L_anon per-IP cap); there's no BYOK / selectedModel
+  // surface to gate on. Without this, TutorSetupWarning would render
+  // "Add your OpenAI API key…" on Maya's trial path — a hard break
+  // for the persona we're trying to land. Mirrors the gate inside
+  // useTutorAsk where submitAsk treats anon as configured.
+  const configured = mode === "anon" || onPlatform || (hasKey && !!selectedModel);
 
   useEffect(() => {
     if (!resetNonce) return;
@@ -147,10 +176,22 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
   }, [focusComposerNonce]);
 
   const { submitAsk, cancelAsk } = useTutorAsk({
+    // Phase 27-v2.1 — anon mode routes the AI stream to the unauthed
+    // /api/anon/ai/ask/stream surface (subject to L_anon per-IP cap),
+    // skips the /api/user/ai-status fetch, and treats the caller as
+    // configured (no BYOK / selectedModel gate). Default omitted =
+    // useTutorAsk falls through to authed endpoint with status fetch.
+    endpoint: mode === "anon" ? "/api/anon/ai/ask/stream" : undefined,
+    mode,
+    onAnonExhausted,
+    onAnonTrialPaused,
     onAskComplete: ({ ok }) => {
       if (pendingHintRef.current) {
         pendingHintRef.current = false;
-        if (ok) incrementHint(lessonMeta.courseId, lessonMeta.id);
+        // Phase 27-v2.1 — anon doesn't write hint counts to /api/user/*.
+        // The hint UI still increments locally (cosmetic) but the
+        // server-side counter is suppressed.
+        if (ok && mode === "authed") incrementHint(lessonMeta.courseId, lessonMeta.id);
       }
     },
     buildBody: ({ question, files, diffSinceLastTurn, historyForSend, selection }) => ({
@@ -394,23 +435,38 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
                             setPendingAsk(prompts[idx]);
                           }}
                           disabled={asking || inputLocked}
-                          aria-label={`${hintLevel === 0 ? "Hint" : hintLevel === 1 ? "Stronger hint" : "Show approach"} — level ${hintLevel + 1} of 3`}
-                          title={`Hint ${hintLevel + 1} of 3 — gentler first, stronger on each tap`}
+                          aria-label={
+                            hintLevel === 0
+                              ? "Nudge me — a gentle hint without the answer"
+                              : hintLevel === 1
+                                ? "I need more — a stronger pointer"
+                                : "Walk me through it — a step-by-step approach"
+                          }
+                          title={
+                            hintLevel === 0
+                              ? "A gentle nudge — no spoilers"
+                              : hintLevel === 1
+                                ? "A stronger pointer toward the solution"
+                                : "A walk-through of the approach"
+                          }
                           className="flex items-center gap-1 rounded-full border border-warn/40 bg-warn/10 px-2 py-[2px] text-[10px] font-medium text-warnInk transition hover:bg-warn/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-warn disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           <span aria-hidden="true">💡</span>
-                          <span>{hintLevel === 0 ? "Hint" : hintLevel === 1 ? "Stronger hint" : "Show approach"}</span>
-                          <span className="rounded-full bg-warn/25 px-1 text-[9px] font-bold tabular-nums">
-                            {hintLevel + 1}/3
+                          <span>
+                            {hintLevel === 0
+                              ? "Nudge me"
+                              : hintLevel === 1
+                                ? "I need more"
+                                : "Walk me through it"}
                           </span>
                         </button>
                       ) : (
                         <span
                           className="flex items-center gap-1 rounded-full border border-border bg-elevated/60 px-2 py-[2px] text-[10px] font-medium text-faint"
-                          title="You've used all three hint levels. Keep exploring — or ask a specific follow-up question."
+                          title="That's all the nudges. Try asking a specific follow-up question instead."
                         >
                           <span aria-hidden="true">💡</span>
-                          <span>All hints used</span>
+                          <span>Out of nudges</span>
                         </span>
                       )}
                       <ActionChips onAsk={setPendingAsk} disabled={asking || inputLocked} />

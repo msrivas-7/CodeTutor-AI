@@ -12,17 +12,17 @@ import { HOUSE_EASE } from "../../../components/cinema/easing";
 // into view, so the beat doesn't replay on every scroll back.
 
 const LESSON_LINES: readonly string[] = [
-  "A palindrome reads the same forward and backward.",
-  "Most checks compare the string to its reverse.",
-  "But there's a quieter trap: trailing whitespace.",
-  "We'll catch it before the tests do.",
+  "Python's `+` does two jobs at once.",
+  "It joins strings and it adds numbers.",
+  "Mix the two and Python refuses to bridge — TypeError.",
+  "The fix is small: turn the number into a string.",
 ];
 
 const CODE_LINES: readonly string[] = [
-  "function isPalindrome(s) {",
-  "  const cleaned = s.trim().toLowerCase();",
-  "  return cleaned === cleaned.split('').reverse().join('');",
-  "}",
+  'name = "Maya"',
+  "points = 100",
+  'message = name + " earned " + str(points) + " points!"',
+  "print(message)",
 ];
 
 export function ReadVignette() {
@@ -83,7 +83,11 @@ interface Seg {
   kind: "kw" | "id" | "str" | "punct" | "fn";
 }
 
-const KEYWORDS = new Set(["function", "const", "return", "let", "var", "if", "else"]);
+const KEYWORDS = new Set([
+  "def", "return", "if", "else", "elif", "for", "while", "in", "is",
+  "not", "and", "or", "import", "from", "as", "class", "True", "False",
+  "None", "lambda", "pass",
+]);
 
 function tokenize(line: string): Seg[] {
   const out: Seg[] = [];

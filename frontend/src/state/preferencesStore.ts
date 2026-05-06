@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { api, type UserPreferences, type UserPreferencesPatch } from "../api/client";
 import { currentGen } from "../auth/generation";
+import { hasAuthSession } from "../auth/hasAuthSession";
 import { invalidateAIStatus } from "./useAIStatus";
 
 // Phase 18b: single source of truth for every per-user preference that used
@@ -44,6 +45,11 @@ interface PreferencesState {
   // Phase 22D: streak-nudge email opt-in. Defaults TRUE on new accounts;
   // Settings panel toggle + email's one-click unsubscribe both flip it.
   emailOptIn: boolean;
+  // Phase 27: disable the streak system entirely for this user. Defaults
+  // FALSE. When TRUE, every streak-related UI surface (toolbar chip,
+  // lesson-complete celebration, share-page count, daily nudge email)
+  // is suppressed. Streak data is preserved server-side.
+  disableStreaks: boolean;
   // Phase 25: account-freeze flag. When true, the authed shell renders
   // a generic "contact support" banner. Server enforces by 403 on
   // session creation; this UI signal is purely informational. The
@@ -77,6 +83,7 @@ const DEFAULTS: Omit<
   hasOpenaiKey: false,
   lastWelcomeBackAt: null,
   emailOptIn: true,
+  disableStreaks: false,
   accountFrozen: false,
 };
 
@@ -92,6 +99,7 @@ function applyServer(prefs: UserPreferences): Partial<PreferencesState> {
     hasOpenaiKey: prefs.hasOpenaiKey,
     lastWelcomeBackAt: prefs.lastWelcomeBackAt,
     emailOptIn: prefs.emailOptIn,
+    disableStreaks: prefs.disableStreaks,
     accountFrozen: prefs.accountFrozen ?? false,
     hydrated: true,
   };
@@ -146,6 +154,8 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
     if (body.lastWelcomeBackAt !== undefined)
       optimistic.lastWelcomeBackAt = body.lastWelcomeBackAt;
     if (body.emailOptIn !== undefined) optimistic.emailOptIn = body.emailOptIn;
+    if (body.disableStreaks !== undefined)
+      optimistic.disableStreaks = body.disableStreaks;
     set(optimistic);
 
     try {
@@ -163,6 +173,7 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
         uiLayout: prior.uiLayout,
         lastWelcomeBackAt: prior.lastWelcomeBackAt,
         emailOptIn: prior.emailOptIn,
+        disableStreaks: prior.disableStreaks,
       });
       throw err;
     }
@@ -232,6 +243,18 @@ export async function setEmailOptIn(optIn: boolean): Promise<void> {
   await usePreferencesStore.getState().patch({ emailOptIn: optIn });
 }
 
+// Phase 27: streak system opt-out. Same optimistic-with-rollback pattern.
+// Defaults to false on new accounts; flipping to true hides every streak
+// surface (toolbar chip, lesson-complete celebration, share-page count)
+// and suppresses the daily streak email.
+export function useDisableStreaks(): boolean {
+  return usePreferencesStore((s) => s.disableStreaks);
+}
+
+export async function setDisableStreaks(disabled: boolean): Promise<void> {
+  await usePreferencesStore.getState().patch({ disableStreaks: disabled });
+}
+
 export function useUiLayoutValue<T>(path: string, fallback: T): T {
   return usePreferencesStore((s) => {
     const v = s.uiLayout[path];
@@ -256,6 +279,17 @@ export function setUiLayoutValue(path: string, value: unknown): void {
   if (uiLayoutFlushTimer) clearTimeout(uiLayoutFlushTimer);
   uiLayoutFlushTimer = setTimeout(() => {
     uiLayoutFlushTimer = null;
+    // Phase 27-v2.1: skip the server PATCH when there's no auth session.
+    // Anon callers (LessonPage mode="anon" → useLessonLayout →
+    // usePersistedNumber → setUiLayoutValue) used to fire this PATCH on
+    // every splitter drag; the request 401d, handle401() called
+    // supabase.auth.signOut(), and the SIGNED_OUT listener reset
+    // preferencesStore back to DEFAULTS — wiping workspaceCoachDone
+    // mid-lesson and re-mounting the WorkspaceCoach + restarting the
+    // scripted choreography. The local optimistic state above is
+    // sufficient for the anon path; uiLayout has nowhere to persist
+    // without a user row anyway.
+    if (!hasAuthSession()) return;
     const { uiLayout } = usePreferencesStore.getState();
     void api.patchPreferences({ uiLayout }).catch((err) => {
       console.error(
