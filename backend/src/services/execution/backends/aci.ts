@@ -482,18 +482,19 @@ export class AciExecutionBackend implements ExecutionBackend {
           // The other LocalDocker hardening (C1/C3/C4/C5) is preserved
           // by the runner image itself rather than the ACI spec:
           //  • runAsUser=1100, runAsNonRoot — `USER runner` (UID/GID
-          //    1100) baked into runner-image/Dockerfile:80
+          //    1100) baked into runner-image/Dockerfile.
           //  • readOnlyRootFilesystem — emptyDir mounts at /tmp and
           //    /workspace are the only intended write paths; the rest
-          //    of the rootfs is image content (no installer/setuid
-          //    binaries; learner code runs as UID 1100 with no write
-          //    perms outside those mounts).
+          //    of the rootfs is image content (learner code runs as
+          //    UID 1100 with no write perms outside those mounts).
           //  • allowPrivilegeEscalation/capabilities.drop ALL — ACI's
           //    container runtime applies its own restricted capability
           //    set by default; we can't tighten further. Combined with
-          //    privileged=false + non-root + no setuid binaries in the
-          //    image, the no-new-privs equivalent is structural: there
-          //    is nothing in the image to escalate against.
+          //    privileged=false + non-root + the build-time setuid
+          //    strip in the runner image (find / -xdev … chmod a-s),
+          //    the no-new-privs equivalent is structural: there is
+          //    NOTHING in the image to escalate against. Verified by
+          //    e2e/security-suite/scenarios/S2_privileges.spec.ts S2f.
           securityContext: {
             privileged: false,
           },

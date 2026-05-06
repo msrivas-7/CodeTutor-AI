@@ -48,7 +48,37 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && pip3 install --break-system-packages --no-cache-dir "pytest==${PYTEST_VERSION}" \
     && npm install -g --no-audit --no-fund tsx@${TSX_VERSION} \
     && npm cache clean --force \
-    && rm -rf /var/lib/apt/lists/* /root/.cache
+    && rm -rf /var/lib/apt/lists/* /root/.cache \
+ && find / -xdev -type f \( -perm -4000 -o -perm -2000 \) -exec chmod a-s {} +
+# ↑ Phase 24B-resize: strip setuid + setgid bits from every system binary.
+#
+# WHY: ACI's container runtime does NOT support `no-new-privileges` in
+# the spec (only the `privileged` flag is honored — see services/
+# execution/backends/aci.ts). LocalDocker has full SecurityOpt
+# `no-new-privileges:true`, so a setuid binary there cannot escalate.
+# But on the ACI overflow path, no-new-privs is structurally absent.
+#
+# Removing the setuid/setgid bits at image build time gives the
+# EQUIVALENT guarantee structurally: there is nothing in the image to
+# escalate against, so a kernel CVE in setuid handling cannot help an
+# attacker. The non-root user (UID 1100, set via `USER runner` below)
+# can still invoke these binaries — they just won't run with elevated
+# privileges. Affected binaries (debian:bookworm-slim defaults):
+#   /usr/bin/{su,mount,umount,passwd,chsh,chfn,gpasswd,newgrp,chage,
+#             expiry}
+#   /usr/sbin/unix_chkpwd
+#
+# SAFETY: none of these are used by the runner's normal execution path:
+#   - Language interpreters (python3, node, ruby) don't shell out to them
+#   - Compilers (gcc, g++, rustc, javac, go) don't shell out to them
+#   - The runner agent (Node.mjs) doesn't shell out to them
+#   - Standard library functions don't depend on them
+# So a learner running `import os; os.geteuid()` etc. is unaffected.
+#
+# This preserves the C5 (no-new-privs) guarantee on BOTH backends —
+# LocalDocker via the SecurityOpt + ACI via the structural strip.
+# Verified by security-suite/scenarios/S2_privileges.spec.ts S2d and
+# the new S2f invariant check.
 
 # Non-root runtime user. UID/GID 1100 is unlikely to collide with host users.
 RUN groupadd --system --gid 1100 runner \

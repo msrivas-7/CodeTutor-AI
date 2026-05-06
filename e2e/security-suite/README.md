@@ -37,8 +37,9 @@ npx playwright test --config=security-suite/playwright.config.ts S4_resources
 | S1e | C2 network=none (host gateway) | `scenarios/S1_egress.spec.ts` |
 | S2a | C1 non-root UID 1100 | `scenarios/S2_privileges.spec.ts` |
 | S2b | C3 capabilities dropped (CAP_SYS_ADMIN → mount) | `scenarios/S2_privileges.spec.ts` |
-| S2d | C5 no-new-privileges | `scenarios/S2_privileges.spec.ts` |
+| S2d | C5 no-new-privileges (kernel-level) | `scenarios/S2_privileges.spec.ts` |
 | S2e | C3 capabilities dropped (user namespace) | `scenarios/S2_privileges.spec.ts` |
+| S2f | C5 no-new-privileges (structural — image-strip) | `scenarios/S2_privileges.spec.ts` |
 | S3a | C4 read-only rootfs | `scenarios/S3_filesystem.spec.ts` |
 | S3b | C10 tmpfs 64 MB | `scenarios/S3_filesystem.spec.ts` |
 | S3c | C10 tmpfs nosuid | `scenarios/S3_filesystem.spec.ts` |
