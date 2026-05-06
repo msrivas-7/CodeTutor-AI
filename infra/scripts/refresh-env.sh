@@ -143,6 +143,14 @@ fetch_optional() {
   echo "SESSION_CREATE_RATE_LIMIT_MAX=30"
   echo "MUTATION_RATE_LIMIT_MAX=120"
   echo "AI_RATE_LIMIT_MAX=60"
+  # Phase 24B-resize: session caps from KV so the operator can rotate
+  # them without a code change when resizing the VM SKU. Both optional
+  # — empty values mean config.ts defaults apply (maxPerUser=2,
+  # maxGlobal=5 on B2s, was 14 on B2ms). Set MAX-SESSIONS-GLOBAL in
+  # KV when resizing up; this wire-through lets the new value land
+  # via `refresh-env.sh` + force-recreate, no redeploy needed.
+  echo "MAX_SESSIONS_PER_USER=$(fetch_optional MAX-SESSIONS-PER-USER)"
+  echo "MAX_SESSIONS_GLOBAL=$(fetch_optional MAX-SESSIONS-GLOBAL)"
   echo "VM_FQDN=${VM_FQDN}"
   echo "ADMIN_EMAIL=${ADMIN_EMAIL}"
 } > "$TMP"
