@@ -73,11 +73,22 @@ let cached: AciOperationalConfig = {
   dailyUsdCap: config.aci.dailyUsdCap,
   maxOverflow: config.aci.maxOverflow,
   warmPoolEnabled: config.aci.warmPoolEnabled,
-  // Defaults match the original constants in aciWarmPoolService.ts.
-  // config.aci.warmPool* will overlay if env-set; system_config takes
-  // precedence after the first DB refresh.
-  warmHighWatermark: config.aci.warmHighWatermark ?? 12,
-  warmLowWatermark: config.aci.warmLowWatermark ?? 10,
+  // Phase 24B-resize: defaults scale with maxGlobal so a SKU resize
+  // doesn't silently break warm-pool behavior. Pre-fix the constants
+  // were 12/10 — fine for B2ms (cap 14) but unreachable on B2s (cap
+  // 5), where localActive can never hit 12 and the pool would never
+  // pre-warm. New shape: high = cap-1 (pre-warm at one slot from
+  // full), low = cap/2 (drain when half-empty).
+  // For B2s (cap 5):  high=4, low=2
+  // For B2ms (cap 14): high=13, low=7 (slightly different from old
+  //                    12/10 but still sensible — more aggressive
+  //                    pre-warm, gentler drain)
+  // config.aci.warmPool* env values still overlay; system_config DB
+  // override takes precedence after the first DB refresh.
+  warmHighWatermark:
+    config.aci.warmHighWatermark ?? Math.max(1, config.session.maxGlobal - 1),
+  warmLowWatermark:
+    config.aci.warmLowWatermark ?? Math.max(1, Math.floor(config.session.maxGlobal / 2)),
   warmMaxPoolSize: config.aci.warmMaxPoolSize ?? 2,
 };
 
@@ -156,11 +167,13 @@ async function refreshOnce(): Promise<void> {
         warmHighWatermark:
           typeof highRow?.value === "number"
             ? highRow.value
-            : config.aci.warmHighWatermark ?? 12,
+            : config.aci.warmHighWatermark ??
+              Math.max(1, config.session.maxGlobal - 1),
         warmLowWatermark:
           typeof lowRow?.value === "number"
             ? lowRow.value
-            : config.aci.warmLowWatermark ?? 10,
+            : config.aci.warmLowWatermark ??
+              Math.max(1, Math.floor(config.session.maxGlobal / 2)),
         warmMaxPoolSize:
           typeof maxRow?.value === "number"
             ? maxRow.value

@@ -91,8 +91,12 @@ const KEY_BOUNDS: Record<
   aci_daily_usd_cap: { type: "number", min: 0, max: 100, step: "1" },
   aci_max_overflow: { type: "number", min: 0, max: 50, step: "1" },
   aci_warm_pool_enabled: { type: "boolean" },
-  aci_warm_high_watermark: { type: "number", min: 0, max: 14, step: "1" },
-  aci_warm_low_watermark: { type: "number", min: 0, max: 14, step: "1" },
+  // Phase 24B-resize: bounds tracked the local-cap default (5 on B2s,
+  // 14 on B2ms). Frontend client-side bound is for UX hint only — the
+  // load-bearing bound is server-side at admin.ts (= config.session.
+  // maxGlobal). Bump back to 14 here when resizing up to B2ms.
+  aci_warm_high_watermark: { type: "number", min: 0, max: 5, step: "1" },
+  aci_warm_low_watermark: { type: "number", min: 0, max: 5, step: "1" },
   aci_warm_max_pool_size: { type: "number", min: 0, max: 10, step: "1" },
   anon_lesson_enabled: { type: "boolean" },
 };

@@ -124,11 +124,13 @@ const KEY_BOUNDS: Record<
   // (a) accidentally setting the pool higher than `aci_max_overflow`
   // (would never spawn that many), or (b) inverting low/high (caught
   // at read time below by HybridBackend's effectiveCap math). Hard
-  // upper-bound 14 on watermarks because that's the local-cap default;
-  // anything higher means the pool tries to ramp but local never gets
-  // there.
-  aci_warm_high_watermark: { type: "number", min: 0, max: 14 },
-  aci_warm_low_watermark: { type: "number", min: 0, max: 14 },
+  // upper-bound = config.session.maxGlobal because anything past the
+  // local cap means the pool would never ramp (localActive can never
+  // hit it). Phase 24B-resize: was 14 (B2ms-era constant); now scales
+  // with the actual local cap so a B2s deploy doesn't accept 14 then
+  // silently no-op.
+  aci_warm_high_watermark: { type: "number", min: 0, max: config.session.maxGlobal },
+  aci_warm_low_watermark: { type: "number", min: 0, max: config.session.maxGlobal },
   aci_warm_max_pool_size: { type: "number", min: 0, max: 10 },
   // Phase 27-v2.2 Fix 7c — anon trial path kill switch. False
   // disables /api/anon/* (returns 503 ANON_LESSON_DISABLED) without
