@@ -16,10 +16,26 @@
 // the cinematic's job is to walk the learner from "computer says
 // `Hello, YOUR_NAME!`" to "computer says hi to me, by name."
 
-export const GREET = (name: string): string =>
-  `Hey ${name} — good to meet you. That little program on your screen? ` +
-  `It's a Python program that prints a greeting — but it has a placeholder. ` +
-  `Let me run it for you and you'll see what I mean.`;
+// Phase 27-v2.2 audit fix (product-owner P2-2): anon path passes
+// firstName="there" by design — so the prior `Hey there` opener was
+// the customer-service-email beat. The PRAISE turn at the end IS
+// personalized (resolvePraiseName extracts from the typed code), so
+// the arc was generic-open / intimate-close. Detect the placeholder
+// name and skip the salutation entirely on anon — the rest of the
+// scripted opener carries the same warmth without the awkward "there"
+// stand-in. Authed path keeps `Hey ${firstName}` since it has a real
+// name to use.
+export const GREET = (name: string): string => {
+  const opener =
+    name === "there"
+      ? "Good to meet you."
+      : `Hey ${name} — good to meet you.`;
+  return (
+    `${opener} That little program on your screen? ` +
+    `It's a Python program that prints a greeting — but it has a placeholder. ` +
+    `Let me run it for you and you'll see what I mean.`
+  );
+};
 
 export const CELEBRATE_RUN = (): string =>
   "There — `Hello, YOUR_NAME!` just printed. That's the placeholder. " +

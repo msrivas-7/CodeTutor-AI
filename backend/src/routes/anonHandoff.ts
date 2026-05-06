@@ -60,10 +60,12 @@ const handoffBody = z.object({
     .max(40)
     .regex(/^[^"'<>]*$/) // No quote/angle-bracket smuggling.
     .nullable(),
-  // Honest record of orientation surfaces that fired on anon. Day 6
-  // will mount WorkspaceCoach on anon and start passing
-  // workspaceCoachDone:true; pre-Day-6 stash writers MUST pass
-  // false to avoid silently skipping a feature Maya never saw.
+  // Honest record of orientation surfaces that fired on anon.
+  // AnonLessonPage stash writes set workspaceCoachDone via
+  // `hasCoachSeenAnon()` so the post-handoff prefs reflect what the
+  // tab actually saw — phone short-circuit, desktop dismiss, or
+  // skipped (the v2.2 phone short-circuit gates on cinematicShowing
+  // so the flip happens AFTER the cinematic exits).
   flags: z.object({
     welcomeDone: z.boolean(),
     workspaceCoachDone: z.boolean(),
@@ -143,9 +145,11 @@ export function createAnonHandoffRouter(): Router {
     });
 
     // Preferences: flip welcome_done + workspace_coach_done per
-    // the honest flags from the stash. workspace_coach_done is
-    // false today (Day 6 mounts the coach on anon); after Day 6,
-    // the stash carries true and post-signup coach is suppressed.
+    // the honest flags from the stash. AnonLessonPage stamps
+    // workspace_coach_done via hasCoachSeenAnon() — true if Maya
+    // saw the coach (or it phone-short-circuited), false if she
+    // never reached it. Either way the post-signup preferences
+    // reflect what her tab actually showed.
     await upsertPreferences(userId, {
       welcomeDone: body.flags.welcomeDone,
       workspaceCoachDone: body.flags.workspaceCoachDone,

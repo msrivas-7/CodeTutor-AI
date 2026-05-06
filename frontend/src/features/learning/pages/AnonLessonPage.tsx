@@ -220,7 +220,14 @@ export default function AnonLessonPage() {
           mode="full"
           firstName="there"
           heroLine="Your turn."
-          subtitle="Make it say your name."
+          // Phase 27-v2.2 audit fix (product-owner P2-1): the prior
+          // subtitle "Make it say your name." re-stated what the
+          // pulsing `Hello, ____!` slot already telegraphs. Three
+          // signals (hero, slot, subtitle) for one beat read as
+          // instruction-overload. Subtitle now carries the product
+          // thesis (the loop name), matching authed cinematic's
+          // "every lesson works like this" framing.
+          subtitle="Every lesson is like this — code, run, see it answer."
           outputPreview={{
             // Phase 27-v2.2 Fix 2: was `Hello, YOUR_NAME!`. The cinematic
             // displayed `Hello, YOUR_NAME!` and the lesson auto-Run a few

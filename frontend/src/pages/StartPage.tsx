@@ -68,14 +68,26 @@ export default function StartPage() {
     const stash = readAnonStash();
     if (!stash) return; // No stash → existing flow runs.
     let cancelled = false;
-    api
-      .postAnonHandoff({
+    // Phase 27-v2.2 audit fix (bug-hunter P2): timeout the handoff.
+    // Pre-fix, /api/anon-handoff with a hung connection (slow proxy,
+    // backgrounded mobile tab, dead-air CDN) left Maya stuck on the
+    // "Carrying your work over…" loading shell indefinitely with no
+    // recovery path. 8s is generous for a single-row UPSERT roundtrip
+    // and well below user patience.
+    const timeoutMs = 8_000;
+    const timeoutPromise = new Promise<never>((_resolve, reject) =>
+      setTimeout(() => reject(new Error("handoff_timeout")), timeoutMs),
+    );
+    Promise.race([
+      api.postAnonHandoff({
         courseId: stash.courseId,
         lessonId: stash.lessonId,
         code: stash.code,
         name: stash.name,
         flags: stash.flags,
-      })
+      }),
+      timeoutPromise,
+    ])
       .then(() => {
         if (cancelled) return;
         clearAnonStash();
@@ -230,9 +242,20 @@ export default function StartPage() {
   // "your work is being carried over" promise the celebration block
   // + wall just made.
   if (handoffPhase === "needed") {
+    // Phase 27-v2.2 audit fix (product-owner P2-3): the loading shell
+    // is the first thing Maya sees as a signed-up user. The wall's
+    // promise ("Your code, your name, and the lesson you just
+    // finished come with you") deserves a continuation here, not a
+    // bare label. Two-line shell: action ("Carrying…") + named
+    // continuity ("your code, your name, lesson 1").
     return (
       <div className="flex h-full items-center justify-center bg-bg text-muted">
-        <div className="text-[13px]">Carrying your work over…</div>
+        <div className="flex flex-col items-center gap-1 text-center">
+          <div className="text-[13px] text-ink">Carrying your work over…</div>
+          <div className="text-[11px] text-faint">
+            Your code, your name, and lesson 1 are coming with you.
+          </div>
+        </div>
       </div>
     );
   }
