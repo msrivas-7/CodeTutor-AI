@@ -150,7 +150,7 @@ test.describe("anon→authed handoff (Phase 27-v2 Day 5b)", () => {
     expect(stashAfter).toBeNull();
   });
 
-  test("handoff failure (5xx) falls through to welcomeDone-gated routing", async ({
+  test("handoff failure (5xx) redirects to lesson 1 (no /welcome cinematic replay)", async ({
     page,
   }) => {
     // Same setup as above, but mock the handoff to fail.
@@ -180,34 +180,30 @@ test.describe("anon→authed handoff (Phase 27-v2 Day 5b)", () => {
 
     await page.goto("/start");
 
-    // On failure, StartPage falls through to its existing
-    // welcomeDone gate. The auth fixture's test user already has
-    // welcomeDone=true from prior test runs (HydrationGate pulls
-    // server state), so we end up on /start's card grid, NOT
-    // /welcome. Assertion strategy: WAIT for a post-fall-through
-    // surface to render (the StartPage dashboard's "Open Editor" /
-    // "Guided Course" card grid). That assertion can ONLY pass if
-    // we exited the loading shell — proving the flow recovered
-    // from 5xx instead of hanging. (A vacuous toHaveCount(0) on
-    // the shell text would pass at the pre-mount frame too;
-    // requiring positive evidence of the post-shell render closes
-    // that hole.)
-    // StartPage renders BOTH "Open Editor" and "Guided Course" as h2
-    // headings inside button cards. The regex matches both, so use
-    // .first() to disambiguate — we only need positive evidence that
-    // StartPage rendered, not which specific tile.
-    await expect(
-      page.getByRole("heading", { name: /Open Editor|Guided Course/i }).first(),
-    ).toBeVisible({ timeout: 10_000 });
-    // Belt-and-suspenders: the loading shell text isn't visible
-    // anymore. Now that we know we're past it, this assertion
-    // actually verifies disappearance, not pre-mount absence.
+    // Phase 27-v2.2 audit fix B2: handoff failure must NOT fall
+    // through to the welcomeDone gate (which would redirect to
+    // /welcome → cinematic replay — the doubled-cinematic
+    // anti-experience the v1 audit BLOCK SHIP'd on). The catch
+    // branch in StartPage instead patches local prefs
+    // (welcomeDone=true, workspaceCoachDone=true) and navigates
+    // directly to lesson 1. Stash stays in sessionStorage so a
+    // refresh can retry the handoff; the server PATCH catches up
+    // on next sign-in regardless.
+    await expect(page).toHaveURL(
+      /\/learn\/course\/python-fundamentals\/lesson\/hello-world/,
+      { timeout: 15_000 },
+    );
+    // Lesson page actually mounted — h1 carries the lesson title.
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText(
+      /Hello, World!/i,
+      { timeout: 15_000 },
+    );
+    // The loading shell unmounted — we exited the handoff phase.
     await expect(
       page.getByText(/Carrying your work over/i),
     ).toHaveCount(0);
-
-    // Stash stays in sessionStorage on failure — same-tab refresh
-    // re-attempts. This is the documented fail-mode in StartPage.
+    // Stash stays on failure — same-tab refresh re-attempts. The
+    // server PATCH catches up on next sign-in.
     const stashAfter = await page.evaluate(() =>
       window.sessionStorage.getItem("codetutor.anonRun"),
     );
