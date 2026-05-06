@@ -106,6 +106,22 @@ services:
       FREE_TIER_LIFETIME_USD_PER_USER: "${FREE_TIER_LIFETIME_USD_PER_USER:-1.00}"
       FREE_TIER_DAILY_USD_CAP: "${FREE_TIER_DAILY_USD_CAP:-15.00}"
       PLATFORM_OPENAI_API_KEY: "${PLATFORM_OPENAI_API_KEY:-}"
+      # Phase 24B — ACI hybrid burst overflow. Master toggle + the four
+      # AZURE_/ACI_ infra refs the HybridBackend factory needs to spawn
+      # container groups when local capacity (B2ms = 14 sessions) hits
+      # the ceiling. All sourced from Key Vault via refresh-env.sh in
+      # prod; empty in dev so the factory cleanly short-circuits to
+      # local-only (logs `aci_overflow_off, reason: missing_config`).
+      # The runtime kill switch lives in system_config.aci_overflow_enabled
+      # — flippable from the admin Project tab without redeploy.
+      ENABLE_ACI_OVERFLOW: "${ENABLE_ACI_OVERFLOW:-0}"
+      AZURE_SUBSCRIPTION_ID: "${AZURE_SUBSCRIPTION_ID:-}"
+      AZURE_RG: "${AZURE_RG:-}"
+      AZURE_LOCATION: "${AZURE_LOCATION:-}"
+      ACI_SUBNET_ID: "${ACI_SUBNET_ID:-}"
+      ACI_RUNNER_IMAGE: "${ACI_RUNNER_IMAGE:-}"
+      ACI_DAILY_USD_CAP: "${ACI_DAILY_USD_CAP:-}"
+      ACI_MAX_OVERFLOW: "${ACI_MAX_OVERFLOW:-}"
       # Phase 22A: backend-originated email via Azure Communication Services.
       # Used for budget alerts (50/80/100% of daily $ cap) and Phase 22D's
       # streak-nudge retention email. All three are optional — empty values
