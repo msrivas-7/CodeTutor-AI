@@ -28,17 +28,24 @@ services:
       # CORS_ORIGIN line in refresh-env's .env file is shadowed by this.
       CORS_ORIGIN: "https://codetutor.msrivas.com"
     # Cap the blast radius of a runaway Node process or OOM'ing dep. Without
-    # this, one bad request can eat all 4 GB and take Caddy + socket-proxy
+    # this, one bad request can eat all RAM and take Caddy + socket-proxy
     # down with it. Per-learner runner containers are already capped
     # (RUNNER_MEMORY_BYTES / NanoCpus / PidsLimit in LocalDockerBackend);
     # these limits cover the backend itself.
+    #
+    # Phase 24B-resize: dropped 1536M → 1024M alongside B2ms→B2s VM
+    # downsize. With B2s = 4 GB total, 1.5 GB to backend would leave only
+    # ~1.5 GB for runners after OS+Docker+proxy overhead — too tight for
+    # 5 concurrent sessions with compile spikes. 1 GB hard limit gives
+    # the backend plenty of room for normal load (Node typically sits
+    # 200-400 MB) while leaving 2.1 GB available for runners.
     deploy:
       resources:
         limits:
           cpus: "1.0"
-          memory: 1536M
+          memory: 1024M
         reservations:
-          memory: 512M
+          memory: 384M
 
   # socket-proxy is defined in docker-compose.yml; this block merges limits
   # onto it only in prod. It's a ~5 MB haproxy — 64 MB is already 10x headroom.

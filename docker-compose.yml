@@ -108,8 +108,8 @@ services:
       PLATFORM_OPENAI_API_KEY: "${PLATFORM_OPENAI_API_KEY:-}"
       # Phase 24B — ACI hybrid burst overflow. Master toggle + the four
       # AZURE_/ACI_ infra refs the HybridBackend factory needs to spawn
-      # container groups when local capacity (B2ms = 14 sessions) hits
-      # the ceiling. All sourced from Key Vault via refresh-env.sh in
+      # container groups when local capacity (B2s = 5 sessions, B2ms =
+      # 14) hits the ceiling. All sourced from Key Vault via refresh-env.sh in
       # prod; empty in dev so the factory cleanly short-circuits to
       # local-only (logs `aci_overflow_off, reason: missing_config`).
       # The runtime kill switch lives in system_config.aci_overflow_enabled

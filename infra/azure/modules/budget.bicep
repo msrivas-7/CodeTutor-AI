@@ -9,10 +9,12 @@
 // to the operator's inbox at 50/80/100% of the monthly cap.
 //
 // Budgets are RG-scoped resources at this deployment scope. The cap
-// is sized at $80/month — ~25% above the expected ~$64/month run rate
-// post-22A (B2ms VM ~$60 + Azure Monitor ~$2.50 + Storage/Network ~$1.50
-// + headroom). Hitting 100% means actual spend reached $80 — time to
-// investigate, not panic.
+// is sized at $80/month — ~25% above the expected ~$34/month run rate
+// post-24B-resize (B2s VM ~$30 + Azure Monitor ~$2.50 + Storage/Network
+// ~$1.50 + headroom). Hitting 100% means actual spend reached $80 —
+// time to investigate, not panic. Note: the main.bicep override sets
+// monthlyCapUsd=400 to absorb the ACI overflow envelope; this default
+// only applies if the module is consumed standalone.
 
 @description('Resource ID of the action group whose email receiver fires on threshold crossings.')
 param actionGroupId string

@@ -65,13 +65,18 @@ export const config = {
     // bounds total exposure. Both emit 429 with Retry-After so the frontend
     // can show a friendly message.
     //
-    // Phase 23: maxGlobal lowered 20 → 14 to match the actual physical RAM
-    // ceiling on B2ms (8 GB host ÷ ~512 MB-per-runner = ~16, leave headroom
-    // for OS + backend container + page cache). Original 20 was wishful and
-    // would let cap-rejection thrash before the OOM killer woke up. Raise
-    // proportionally when upgrading SKU (B4ms → 28, B8ms → 60, etc.).
+    // Phase 23: maxGlobal lowered 20 → 14 (B2ms 8 GB) to match physical RAM.
+    // Phase 24B-resize: lowered 14 → 5 for B2s (4 GB host). Math:
+    //   4 GB - ~600 MB OS - 1 GB backend container - ~150 MB Docker daemon
+    //   - ~150 MB socket-proxy + Caddy ≈ 2.1 GB available for runners
+    //   2.1 GB ÷ ~350 MB peak per runner (256 MB hard cap + compile spikes
+    //   for rust/java) ≈ 6 sessions; cap at 5 for safety headroom.
+    // ACI overflow (Phase 24B) absorbs the 6th+ session via burst spawn —
+    // no UX regression vs the old 14 since per-IP usage rarely exceeded
+    // 4-5 concurrent sessions before launch traffic. Raise proportionally
+    // when upgrading SKU (B2s → 5, B2ms → 14, B4ms → 28, B8ms → 60).
     maxPerUser: num(process.env.MAX_SESSIONS_PER_USER, 2),
-    maxGlobal: num(process.env.MAX_SESSIONS_GLOBAL, 14),
+    maxGlobal: num(process.env.MAX_SESSIONS_GLOBAL, 5),
   },
 
   // Phase 20-P3: semaphore on concurrent `docker exec` calls. Each exec
@@ -331,7 +336,8 @@ export const config = {
   metricsToken: process.env.METRICS_TOKEN,
 
   // Phase 24B: ACI hybrid burst overflow. When the local Docker session
-  // count hits `session.maxGlobal` (14), new sessions spill over to Azure
+  // count hits `session.maxGlobal` (5 on B2s, 14 on B2ms), new sessions
+  // spill over to Azure
   // Container Instances. Sessions stay routed locally up to that ceiling
   // — ACI only spawns containers that would otherwise have 503'd, so a
   // quiet day adds $0 in ACI cost. Each ACI session bills at ~$0.053/hr

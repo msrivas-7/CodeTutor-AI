@@ -66,11 +66,13 @@ resource memAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = 
 
 // Phase 22A audit re-add: vm-cpu-high at 85% over 10min. Originally
 // dropped post-22A.4 because B2s baseline was 1.7% avg / 4.4% peak. SRE
-// audit flagged the regret: with launch-day traffic on B2ms (2 vCPU)
-// and runner workloads, sustained CPU pressure becomes a real failure
-// mode and we'd otherwise diagnose latency from user complaints. The
-// 85% threshold is high enough to dodge baseline noise, low enough to
-// catch genuine saturation. Severity 2: degraded, not down.
+// audit flagged the regret: with launch-day traffic on a 2-vCPU SKU
+// (B2s/B2ms) and runner workloads, sustained CPU pressure becomes a
+// real failure mode and we'd otherwise diagnose latency from user
+// complaints. The 85% threshold is high enough to dodge baseline noise,
+// low enough to catch genuine saturation. Severity 2: degraded, not
+// down. Phase 24B-resize: back on B2s — the alert matters even more,
+// since ACI overflow kicks in on session-count not CPU pressure.
 resource cpuAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
   name: 'codetutor-vm-cpu-high'
   location: location
@@ -224,7 +226,7 @@ resource heartbeatAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-previ
 // so this module still deploys cleanly in environments without ACS.
 // Phase 22A audit re-add: vm-disk-warning at 70% over 30min. Originally
 // dropped post-22A.4 as redundant with the 80% disk-high. QA audit
-// flagged the regret: B2ms doubled RAM but disk is unchanged (32GB OS
+// flagged the regret: VM disk is unchanged across SKU resizes (32GB OS
 // disk). Postgres logs / container logs / daily_usage ledger / share
 // artifacts all live there. Heartbeat doesn't help — the VM stays
 // reachable while disk fills to 100%. The 70% lead indicator gives

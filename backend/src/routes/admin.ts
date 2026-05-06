@@ -106,7 +106,8 @@ const KEY_BOUNDS: Record<
   //   Bound 0–100 so a typo can't let a runaway spike burn $1000.
   //   Practical operator range is 0–50; 100 is the hard ceiling.
   // - aci_max_overflow: how many concurrent ACI sessions allowed past
-  //   the local cap of 14. Bound 0–50 (P0-2 audit fix; was 100). 0 =
+  //   the local cap (5 on B2s, 14 on B2ms). Bound 0–50 (P0-2 audit fix;
+  //   was 100). 0 =
   //   "off without disabling" (overflow returns 503 immediately).
   //   The 50 ceiling reflects realistic burst sizing — past that the
   //   cost cap fires anyway, AND a 50-spawn fan-out costs ~$2.65/hr

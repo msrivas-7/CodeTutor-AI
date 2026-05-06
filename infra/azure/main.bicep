@@ -30,11 +30,17 @@ param adminPublicKey string
 param sshSourceIp string
 
 @description('VM SKU. B2s (2 vCPU / 4 GB) is needed so first-boot docker builds of the backend image do not OOM; runtime-only would fit on B1s.')
-param vmSize string = 'Standard_B2ms'
+param vmSize string = 'Standard_B2s'
 
 // Phase 22A: bumped B2s → B2ms (2 vCPU, 8 GB RAM) for launch-tier
 // memory headroom. B2s's 4 GB couldn't safely support MAX_SESSIONS_GLOBAL=20
 // × 512 MB runner containers. ~$30 → ~$60/mo.
+//
+// Phase 24B-resize (2026-05-05): reverted B2ms → B2s. Pre-launch DAU is
+// effectively zero, so paying $60/mo for 8 GB of headroom we never touch
+// is wasted fixed cost. The ACI hybrid burst overflow (Phase 24B) absorbs
+// any unexpected spike past the local cap of 5 sessions, so we get the
+// safety net without the always-on RAM bill. Net: ~$60/mo → ~$30/mo.
 @description('OS disk size in GB.')
 param osDiskSizeGB int = 32
 
@@ -197,7 +203,7 @@ module alerts 'modules/alerts.bicep' = {
 // thresholds would all fire on a busy month — making the budget alert
 // indistinguishable from a runaway-spend signal. New cap of $400/mo
 // covers:
-//   - VM (B2ms) ~$60
+//   - VM (B2s) ~$30
 //   - Azure Monitor + LA ~$5
 //   - Storage / Network ~$2
 //   - ACI overflow envelope: 30 days × $20 daily-cap = $600 ceiling,

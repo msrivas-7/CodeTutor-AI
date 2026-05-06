@@ -46,8 +46,9 @@ let backend: ExecutionBackend | null = null;
 
 /**
  * Phase 24B: absolute global session cap. With ACI overflow off this stays
- * at config.session.maxGlobal (14). With ACI on, the backend factory
- * returns `maxGlobal + aci.maxOverflow` (50 by default). The 503 in
+ * at config.session.maxGlobal (5 on B2s, 14 on B2ms). With ACI on, the
+ * backend factory returns `maxGlobal + aci.maxOverflow` (default = 41 on
+ * B2s, was 50 on B2ms). The 503 in
  * startSession trips on this; the local-vs-ACI routing decision is made
  * inside the HybridBackend wrapper using `maxGlobal` as the threshold.
  *

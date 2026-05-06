@@ -68,7 +68,7 @@ const KEY_DESCRIPTION: Partial<Record<SystemConfigKey, string>> = {
   aci_daily_usd_cap:
     "Cost-cap kill switch. When today's ACI spend ≥ this value, overflow disables for the rest of the UTC day. Resets at midnight UTC. Each ACI session bills at $0.053/hr.",
   aci_max_overflow:
-    "Concurrent ACI sessions allowed past the local cap of 14. 0 = effectively off (overflow returns 503). Higher values let an HN-spike route many sessions through ACI before the daily cap intervenes.",
+    "Concurrent ACI sessions allowed past the local cap (5 on B2s, 14 on B2ms). 0 = effectively off (overflow returns 503). Higher values let an HN-spike route many sessions through ACI before the daily cap intervenes.",
   aci_warm_pool_enabled:
     "Pre-spawn 1–2 ACI containers when local capacity is close to its cap so the next overflow user gets a sub-second handoff (vs. 5–15s cold start). Off by default — turn on if cold-start latency complaints surface. Hard-capped at 2 idle containers, ~$2.54/day worst-case idle cost; cost-cap kill switch is the absolute backstop.",
   anon_lesson_enabled:

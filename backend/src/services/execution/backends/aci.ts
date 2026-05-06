@@ -1,6 +1,7 @@
 // Phase 24B: ACI hybrid burst overflow.
 //
-// When the local Docker session count hits config.session.maxGlobal (14),
+// When the local Docker session count hits config.session.maxGlobal (5 on
+// B2s, 14 on B2ms — see config.ts for the SKU/cap pairing),
 // new sessions spill over into Azure Container Instances. This backend
 // implements the same ExecutionBackend interface as LocalDocker, but drives
 // the runner over HTTP via the in-runner sidecar agent (see
