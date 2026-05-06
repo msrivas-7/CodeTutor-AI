@@ -534,11 +534,16 @@ test.describe("marketing CTA → anonymous lesson (Phase 27 §3a sub-commit 3)",
     await page
       .getByRole("link", { name: /or try a lesson — no signup/i })
       .click();
-    await expect(page).toHaveURL(new RegExp(ALLOWED_PATH.replace(/\//g, "\\/")));
-    // And the page actually mounted, not an error fallback.
+    await expect(page).toHaveURL(new RegExp(ALLOWED_PATH.replace(/\//g, "\\/")), {
+      timeout: 15_000,
+    });
+    // And the page actually mounted, not an error fallback. Bumped from
+    // 10s to 20s — passes locally in 5–7s, but CI under cumulative load
+    // (this test runs ~test #62 in the suite) was hitting the 10s
+    // ceiling on the marketing → /try/ navigation + lesson hydration.
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(
       /Hello, World!/i,
-      { timeout: 10_000 },
+      { timeout: 20_000 },
     );
   });
 });

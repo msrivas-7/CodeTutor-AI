@@ -241,9 +241,19 @@ export async function teardownTestUsers(): Promise<void> {
     console.warn("[auth teardown] listAllUsers failed:", msg);
     return;
   }
-  const toDelete = users.filter(
-    (u) => typeof u.email === "string" && u.email.startsWith("e2e-w"),
-  );
+  // Scope the teardown filter to THIS shard's user namespace when
+  // E2E_USER_SUFFIX is set — without it, shard 1's teardown would
+  // delete shard 2's still-running test users (the workflow's matrix
+  // shards run on distinct ubuntu-latest runners but share one
+  // Supabase project). Email format from `workerEmail` above:
+  // `e2e-w{idx}-{suffix}@codetutor.test`. Local runs (no suffix env)
+  // keep the broader cleanup so a crashed run still gets swept.
+  const suffix = process.env.E2E_USER_SUFFIX;
+  const toDelete = users.filter((u) => {
+    if (typeof u.email !== "string" || !u.email.startsWith("e2e-w")) return false;
+    if (!suffix) return true;
+    return u.email.includes(`-${suffix}@`);
+  });
   if (toDelete.length === 0) return;
   const results = await Promise.allSettled(
     toDelete.map((u) => admin.auth.admin.deleteUser(u.id)),

@@ -32,9 +32,20 @@ jobs:
   e2e:
     name: Playwright (chromium)
     runs-on: ubuntu-latest
+    # Sharding splits the spec set across N parallel jobs (each its
+    # own ubuntu-latest runner with its own docker-compose stack), so
+    # we get effective N×2 = 8 parallelism without saturating a single
+    # runner. Larger runners aren't free on the Free plan even for
+    # public repos, so this is the right shape for our cost ceiling.
+    # Each shard's wall-clock should land ~10-12 min instead of the
+    # 25-min ceiling 2 workers were pushing.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     # Bumped from 15 → 25 in Phase 22C: full e2e sweep grew past the 15-min
-    # ceiling once the marketing specs landed (~200 tests, 2 CI workers).
-    # Headroom for 22D's email-unsubscribe spec + 22F curriculum tests.
+    # ceiling once the marketing specs landed. Sharding (Phase 27-v2.2)
+    # means each shard runs ~1/4 of the suite, so 25 stays generous.
     timeout-minutes: 25
     # Phase 18d: cloud-only Supabase model. These feed both docker compose
     # (which reads process env for ${VAR} interpolation in docker-compose.yml)
@@ -54,6 +65,12 @@ jobs:
       # METRICS_TOKEN in .env to the same value, or leave it blank (in
       # which case the spec's token branch skips).
       METRICS_TOKEN: e2e-test-metrics-token
+      # Per-shard test-user email namespace — see e2e/fixtures/auth.ts
+      # `workerEmail`. Without this, shard 1's `e2e-w0-${pid}@…` could
+      # collide with shard 2's worker 0 if they happen to roll the
+      # same suffix. Pinning to the matrix shard guarantees each
+      # shard's auth-teardown scope is its own.
+      E2E_USER_SUFFIX: shard-${{ matrix.shard }}
       # Phase 20-P3: Playwright cycles test pages faster than `pagehide`-driven
       # session cleanup reaches the backend, so prod-tight caps (2/user) block
       # the next test for the full sweeper interval (~45 s) and manifest as
@@ -96,7 +113,12 @@ jobs:
 
       - name: Run Playwright tests
         working-directory: e2e
-        run: npx playwright test
+        # --shard partitions specs across the matrix — each runner
+        # picks up ~1/4 of the suite and runs it in parallel with the
+        # other shards. Each shard has its own docker-compose stack +
+        # 2 Playwright workers, so the effective parallelism is 8
+        # without any single runner being starved.
+        run: npx playwright test --shard=${{ matrix.shard }}/4
 
       - name: Dump docker-compose logs on failure
         if: failure()
@@ -106,7 +128,10 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: playwright-report
+          # Shard-scoped artifact name — actions/upload-artifact@v4
+          # rejects duplicate names across matrix jobs, so each shard
+          # uploads its own report blob.
+          name: playwright-report-shard-${{ matrix.shard }}
           path: e2e/playwright-report
           retention-days: 14
           if-no-files-found: ignore
@@ -115,7 +140,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: playwright-traces
+          name: playwright-traces-shard-${{ matrix.shard }}
           path: e2e/test-results
           retention-days: 14
           if-no-files-found: ignore
