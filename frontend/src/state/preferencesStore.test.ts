@@ -9,6 +9,17 @@ vi.mock("../api/client", () => ({
   api: { getPreferences, patchPreferences },
 }));
 
+// Phase 27-v2.1 audit pass 1 fix #5 added a `hasAuthSession()` short-
+// circuit inside setUiLayoutValue's debounced flush — anon callers
+// (LessonPage mode="anon") must NOT PATCH /api/user/preferences (it
+// 401s and cascades into supabase.auth.signOut, wiping the
+// preferencesStore mid-lesson). Unit tests run with no auth session,
+// so without this mock the debounce flush short-circuits and the
+// patch spy never fires. Force-true to test the authed path.
+vi.mock("../auth/hasAuthSession", () => ({
+  hasAuthSession: () => true,
+}));
+
 import { usePreferencesStore, setTheme, setPersona, setUiLayoutValue } from "./preferencesStore";
 
 function defaultServer() {

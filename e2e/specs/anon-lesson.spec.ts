@@ -60,10 +60,11 @@ test.describe("anonymous lesson 1 (Phase 27 §3a)", () => {
       { timeout: 10_000 },
     );
 
-    // The "Try it — no signup" badge replaces the StreakChip in the
-    // header center on anon. If it disappears, the page may have
+    // The "Lesson 1 · Python" chip replaces the StreakChip in the
+    // header center on anon (Phase 27-v2.2 audit E3 — was "Try it — no
+    // signup" promo badge). If it disappears, the page may have
     // accidentally shifted into the authed lesson surface.
-    await expect(page.getByText(/Try it — no signup/i)).toBeVisible();
+    await expect(page.getByText(/Lesson 1 · Python/i)).toBeVisible();
 
     // Run button appears once Monaco mounts. LessonPage's Run button
     // carries the same "▶ Run" glyph + role=button as the authed page.
@@ -100,9 +101,11 @@ test.describe("anonymous lesson 1 (Phase 27 §3a)", () => {
     await expect(dialog).toBeVisible();
     await expect(dialog.getByText(/Sign up to save\?/i)).toBeVisible();
 
-    // CTA links to /signup; "Not yet" dismisses.
+    // CTA links to /signup; "Not yet" dismisses. Phase 27-v2.2 audit
+    // F1: CTA copy changed from "Sign up for free" to "Sign up — start
+    // free" to leave room for a future paid tier.
     await expect(
-      dialog.getByRole("link", { name: /sign up for free/i }),
+      dialog.getByRole("link", { name: /sign up — start free/i }),
     ).toHaveAttribute("href", "/signup");
 
     // Esc dismisses (parity with every other modal in the product).
@@ -186,9 +189,9 @@ test.describe("first-run cinematic on /try/ (Phase 27-v2 Day 2)", () => {
     // Esc dismisses the cinematic immediately (handleSkipOnce path).
     await page.keyboard.press("Escape");
 
-    // After Esc, the lesson workspace is visible. The "Try it — no signup"
-    // badge in the LessonPage(mode="anon") header is the canary.
-    await expect(page.getByText(/Try it — no signup/i)).toBeVisible({
+    // After Esc, the lesson workspace is visible. The "Lesson 1 · Python"
+    // chip in the LessonPage(mode="anon") header is the canary.
+    await expect(page.getByText(/Lesson 1 · Python/i)).toBeVisible({
       timeout: 5_000,
     });
 
@@ -232,7 +235,7 @@ test.describe("first-run cinematic on /try/ (Phase 27-v2 Day 2)", () => {
 
     // After dismiss the coach is gone; lesson chrome is unobstructed.
     await expect(page.getByText(/Lesson Instructions/i)).toHaveCount(0);
-    await expect(page.getByText(/Try it — no signup/i)).toBeVisible();
+    await expect(page.getByText(/Lesson 1 · Python/i)).toBeVisible();
 
     // Same-tab reload — coach should NOT replay. The wrapper
     // subscribes to preferencesStore.workspaceCoachDone changes
@@ -281,9 +284,9 @@ test.describe("first-run cinematic on /try/ (Phase 27-v2 Day 2)", () => {
     // The "Lesson Instructions" coach-step title text is also a strong
     // canary — if it appears anywhere, the coach mounted.
     await expect(page.getByText(/Lesson Instructions/i)).toHaveCount(0);
-    // And the lesson chrome is fully usable (the trial badge is the
-    // "we got past the cinematic + coach" canary).
-    await expect(page.getByText(/Try it — no signup/i)).toBeVisible();
+    // And the lesson chrome is fully usable (the curriculum chip is
+    // the "we got past the cinematic + coach" canary).
+    await expect(page.getByText(/Lesson 1 · Python/i)).toBeVisible();
     await ctx.close();
   });
 
@@ -397,10 +400,10 @@ test.describe("first-run cinematic on /try/ (Phase 27-v2 Day 2)", () => {
     // direct coverage. 18s budget is the timeline + exit + safety.
     //
     // Ordering matters: assert the Skip button disappears FIRST with
-    // the 18s timeout. The "Try it — no signup" header badge sits in
+    // the 18s timeout. The "Lesson 1 · Python" header chip sits in
     // the DOM behind the cinematic overlay (z-[60] fixed inset-0 does
-    // NOT make the badge invisible to Playwright's toBeVisible — it
-    // only obstructs clicks). If we asserted the badge first, that
+    // NOT make the chip invisible to Playwright's toBeVisible — it
+    // only obstructs clicks). If we asserted the chip first, that
     // assertion passes immediately on lesson load (~2-3s) and the
     // following Skip-count check would then retry only against the
     // global expect.timeout (10s in playwright.config.ts) — too short
@@ -409,7 +412,7 @@ test.describe("first-run cinematic on /try/ (Phase 27-v2 Day 2)", () => {
     await expect(page.getByRole("button", { name: /skip/i })).toHaveCount(0, {
       timeout: 18_000,
     });
-    await expect(page.getByText(/Try it — no signup/i)).toBeVisible();
+    await expect(page.getByText(/Lesson 1 · Python/i)).toBeVisible();
   });
 });
 

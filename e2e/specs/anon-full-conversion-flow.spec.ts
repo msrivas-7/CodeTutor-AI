@@ -113,8 +113,9 @@ test.describe("Phase 27-v2.1 — anon stash + signup link contract", () => {
     // Use the header pill to reach the wall fast (no Run/Check needed).
     await page.getByRole("button", { name: /sign up to save/i }).click();
     await expect(page.getByRole("alertdialog")).toBeVisible();
-    // The CTA link inside the wall.
-    const cta = page.getByRole("link", { name: /sign up for free/i });
+    // The CTA link inside the wall. Phase 27-v2.2 audit F1: copy
+    // changed "Sign up for free" → "Sign up — start free".
+    const cta = page.getByRole("link", { name: /sign up — start free/i });
     await expect(cta).toBeVisible();
     await expect(cta).toHaveAttribute("href", "/signup");
   });
