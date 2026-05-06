@@ -206,6 +206,14 @@ export function CinematicGreeting(props: CinematicGreetingProps) {
 
   // onComplete fires after the full timeline regardless of mode.
   useEffect(() => {
+    // Phase 27-v2.2 audit fix (bug-hunter P2): the inner setTimeout
+    // for onCompleteRef had no cleanup. If the consumer unmounted
+    // CinematicGreeting during the 300ms exit window, the inner
+    // timeout still fired, calling onComplete on a dead tree. Both
+    // anon (markCinematicSeen + setShowCinematic(false)) and authed
+    // (router nav) handle post-unmount calls today, but it's a
+    // setState-after-unmount path waiting for the next refactor.
+    let inner: number | null = null;
     const t = window.setTimeout(() => {
       if (terminalFiredRef.current) return;
       terminalFiredRef.current = true;
@@ -223,9 +231,12 @@ export function CinematicGreeting(props: CinematicGreetingProps) {
       }
       // Allow the exit blur / fade to breathe before unmounting.
       const exitMs = props.mode === "full" ? 300 : 400;
-      window.setTimeout(() => onCompleteRef.current(), exitMs);
+      inner = window.setTimeout(() => onCompleteRef.current(), exitMs);
     }, total);
-    return () => window.clearTimeout(t);
+    return () => {
+      window.clearTimeout(t);
+      if (inner !== null) window.clearTimeout(inner);
+    };
   }, [total, props.mode]);
 
   // Every terminal dismiss path — Esc key, Skip button, onComplete
@@ -569,7 +580,7 @@ function FullCinematic({
             text={heroLine}
             startDelayMs={t.heroType.enter}
             charIntervalMs={140}
-            className="select-none whitespace-nowrap font-display text-[84px] font-[600] leading-[1] tracking-[-0.02em] text-ink"
+            className="select-none whitespace-nowrap font-display text-[clamp(48px,12vw,84px)] font-[600] leading-[1] tracking-[-0.02em] text-ink"
             showCursor={false}
             wrapInline
           />
@@ -724,7 +735,7 @@ function MinimalCinematic({
           text={heroLine}
           startDelayMs={t.heroType.enter}
           charIntervalMs={115}
-          className="select-none whitespace-nowrap font-display text-[64px] font-[600] leading-[1] tracking-[-0.015em] text-ink"
+          className="select-none whitespace-nowrap font-display text-[clamp(40px,9vw,64px)] font-[600] leading-[1] tracking-[-0.015em] text-ink"
           showCursor={false}
           wrapInline
         />
@@ -867,16 +878,29 @@ function TypewriterLine({
   const [cursorVisible, setCursorVisible] = useState(showCursor);
 
   useEffect(() => {
+    // Phase 27-v2.2 audit fix (fresh-eyes P1-C + bug-hunter P2):
+    // pre-fix, the inner `return () => clearInterval(id)` was inside the
+    // setTimeout callback and got discarded — setTimeout ignores return
+    // values. The useEffect cleanup only cleared the start timeout; the
+    // interval kept ticking after unmount, calling setRevealed on a dead
+    // component until i >= text.length. Lift `id` to outer scope so the
+    // useEffect cleanup can clear both.
+    let id: number | null = null;
     const start = window.setTimeout(() => {
       let i = 0;
-      const id = window.setInterval(() => {
+      id = window.setInterval(() => {
         i += 1;
         setRevealed(i);
-        if (i >= text.length) window.clearInterval(id);
+        if (i >= text.length && id !== null) {
+          window.clearInterval(id);
+          id = null;
+        }
       }, charIntervalMs);
-      return () => window.clearInterval(id);
     }, startDelayMs);
-    return () => window.clearTimeout(start);
+    return () => {
+      window.clearTimeout(start);
+      if (id !== null) window.clearInterval(id);
+    };
   }, [text, startDelayMs, charIntervalMs]);
 
   useEffect(() => {

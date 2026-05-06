@@ -158,7 +158,12 @@ export default function LessonPage({
   // useSessionLifecycle below already gates on `!user` internally
   // (line 55 of that file: `if (authLoading || !user) return;`), so
   // calling it on anon is a safe no-op — no /api/session POST fires.
-  const learnerId = mode === "authed" ? user!.id : null;
+  // Phase 27-v2.2 audit fix (fresh-eyes P2-B): defensive against a
+  // future caller that mounts LessonPage outside RequireAuth without
+  // passing mode="anon". The `user!.id` non-null assertion would
+  // crash; downstream hooks already gate on null per the comment
+  // above the lessonLoader call.
+  const learnerId = mode === "authed" ? (user?.id ?? null) : null;
   useSessionLifecycle();
 
   const lessonProgressMap = useProgressStore((s) => s.lessonProgress);
@@ -488,6 +493,7 @@ export default function LessonPage({
       canRun: runner.canRun,
       hasRun: runner.hasRun,
       hasEdited: runner.hasEdited,
+      editCount: runner.editCount,
       running: runner.running,
       handleRun: runner.handleRun,
     },

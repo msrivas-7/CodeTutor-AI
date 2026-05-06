@@ -51,6 +51,11 @@ interface UseFirstRunChoreographyArgs {
     canRun: boolean;
     hasRun: boolean;
     hasEdited: boolean;
+    /** Phase 27-v2.2 audit fix: monotonic edit counter so the activity
+     *  observer below can detect SUBSEQUENT edits (hasEdited stays true
+     *  once flipped, which made it useless as an idle-reset signal
+     *  after the first character). */
+    editCount: number;
     running: boolean;
     handleRun: () => void | Promise<void>;
   };
@@ -202,7 +207,18 @@ export function useFirstRunChoreography({
     // land into a chat with existing history — the scripted greeting
     // would then render below prior Q&A, which breaks the "first
     // moment" framing the whole cinematic is built for.
-    useAIStore.getState().clearConversation();
+    //
+    // Phase 27-v2.2 audit fix (staff-qa P2 + bug-hunter latent): only
+    // clear when the choreography is fresh (step === "idle"). If the
+    // mount effect re-runs because `enabled` flickered false→true
+    // mid-session (unlikely but possible — layout.showCoach flap, hot
+    // reload, parent re-mount), clearing again would blow away tutor
+    // history Maya already accumulated. start() is idempotent in
+    // useFirstRunStore, so re-running it is safe; clearConversation()
+    // is the destructive op that needed the gate.
+    if (useFirstRunStore.getState().step === "idle") {
+      useAIStore.getState().clearConversation();
+    }
     start();
     armWatchdog();
     return () => {
@@ -213,16 +229,17 @@ export function useFirstRunChoreography({
   }, [enabled, start, reset, armWatchdog]);
 
   // Activity observer — any forward-progress signal resets the idle
-  // watchdog. step covers scripted-tutor advances; runner.hasEdited
-  // covers Maya typing in Monaco BEFORE her first run (the most common
-  // "engaged-but-slow" path that the old wall-clock watchdog
-  // miscounted as idle); runner.hasRun covers Maya clicking Run
-  // (or the auto-click). Skipped/disabled exits short-circuit so a
+  // watchdog. step covers scripted-tutor advances; runner.editCount
+  // covers Maya typing in Monaco (every character bumps the counter,
+  // so subsequent edits AFTER hasEdited flipped true also re-arm the
+  // watchdog — closes staff-qa P2: "second 4m 59s window doesn't
+  // re-arm because hasEdited stays sticky"); runner.hasRun covers
+  // Maya clicking Run. Skipped/disabled exits short-circuit so a
   // post-skip transition doesn't re-arm the timer.
   useEffect(() => {
     if (!enabled || skipped) return;
     armWatchdog();
-  }, [enabled, skipped, step, runner.hasEdited, runner.hasRun, armWatchdog]);
+  }, [enabled, skipped, step, runner.editCount, runner.hasRun, armWatchdog]);
 
   // The step runner. Cleanly separated so each effect handles exactly
   // one transition and the dependencies only pull the pieces that

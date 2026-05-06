@@ -59,6 +59,14 @@ export function useLessonRunner({
 
   const [hasRun, setHasRun] = useState(false);
   const [hasEdited, setHasEdited] = useState(false);
+  // Phase 27-v2.2 audit fix (staff-qa P2 + bug-hunter latent): a
+  // monotonic counter of edits, exposed so observers can detect
+  // SUBSEQUENT edits (not just the first). hasEdited stays true once
+  // it flips, which made it useless as a forward-progress signal for
+  // the idle watchdog after the first character. editCount changes
+  // on every projectFiles update, so any consumer that reads it as
+  // an effect dep gets a fresh value per edit.
+  const [editCount, setEditCount] = useState(0);
 
   const handleRun = useCallback(async () => {
     if (running || !courseId || !lessonId || !lesson) return;
@@ -134,7 +142,10 @@ export function useLessonRunner({
   }, [handleRun]);
 
   useEffect(() => {
-    if (initializedRef.current) setHasEdited(true);
+    if (initializedRef.current) {
+      setHasEdited(true);
+      setEditCount((n) => n + 1);
+    }
   }, [projectFiles, initializedRef]);
 
   const handleExplainError = useCallback(() => {
@@ -160,6 +171,7 @@ export function useLessonRunner({
     handleExplainError,
     hasRun,
     hasEdited,
+    editCount,
     canRun,
     hasStderr,
     lastResult,
