@@ -66,6 +66,40 @@ const ANON_ALLOWED_LESSON = {
   lessonId: "hello-world",
 } as const;
 
+// Phase 27-v2.2 audit fix C3 (staff-security): canonical lessonContext
+// pinned server-side. Pre-fix, the request body carried unbounded
+// client-supplied strings (`lessonObjectives[]`, `studentProgressSummary`,
+// `lessonTitle`, `completionRules.expected/pattern`) interpolated raw
+// into the system prompt. An attacker keeping a valid courseId/lessonId
+// tuple could stuff `studentProgressSummary` with prompt-override text
+// and the LLM would produce arbitrary output within the 512-token cap —
+// converting the trial into an LLM faucet. We now ignore everything
+// the client sends except courseId/lessonId; the body schema accepts
+// the rest only for backwards-compatible parsing, but the values are
+// discarded server-side. Source: lesson.json at
+// frontend/public/courses/python-fundamentals/lessons/hello-world.
+const ANON_PINNED_LESSON_CONTEXT = {
+  courseId: "python-fundamentals",
+  lessonId: "hello-world",
+  lessonTitle: "Hello, World!",
+  language: "python" as const,
+  lessonObjectives: [
+    "Run a Python program",
+    "Use the print() function",
+    "Understand strings and quotes",
+  ],
+  teachesConceptTags: ["print", "strings", "syntax"],
+  usesConceptTags: [] as string[],
+  priorConcepts: [] as string[],
+  completionRules: [
+    { type: "expected_stdout" as const, expected: "Hello, " },
+    { type: "forbidden_in_stdout" as const, pattern: "YOUR_NAME" },
+  ],
+  studentProgressSummary: "first attempt",
+  lessonOrder: 1,
+  totalLessons: undefined as number | undefined,
+};
+
 // File-shape validation mirrored from authed AI route. Only Python is
 // expected on this surface; the languageSchema gate at the executor
 // already rejects everything else.
@@ -332,14 +366,21 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
         .json({ error: parsed.error.issues.map((i) => i.message).join("; ") });
     }
     // Lesson-context allowlist: only hello-world is anon-accessible.
-    const ctx = parsed.data.lessonContext;
+    // Phase 27-v2.2 audit fix C3: only the (courseId, lessonId) tuple
+    // from the client is consulted. Everything else flows from the
+    // server-pinned ANON_PINNED_LESSON_CONTEXT — see the constant for
+    // why. Discarding parsed.data.lessonContext.* (other than the
+    // allowlist tuple) closes the prompt-injection vector flagged by
+    // the security lane.
+    const clientCtx = parsed.data.lessonContext;
     if (
-      ctx.courseId !== ANON_ALLOWED_LESSON.courseId ||
-      ctx.lessonId !== ANON_ALLOWED_LESSON.lessonId
+      clientCtx.courseId !== ANON_ALLOWED_LESSON.courseId ||
+      clientCtx.lessonId !== ANON_ALLOWED_LESSON.lessonId
     ) {
       aiPlatformAbuseSignals.inc({ signal: "anon_lesson_not_allowed" });
       return res.status(403).json({ error: "LESSON_NOT_ALLOWED_ANON" });
     }
+    const ctx = ANON_PINNED_LESSON_CONTEXT;
     // Platform model allowlist: anon never overrides the curated list.
     if (!isPlatformAllowedModel(parsed.data.model)) {
       aiPlatformRequests.inc({ outcome: "model_rejected", route: "ask_stream" });
