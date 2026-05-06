@@ -6,8 +6,7 @@ import { FilmGrain } from "../../components/cinema/FilmGrain";
 import { CinematicLighting } from "../../components/cinema/CinematicLighting";
 import { RingPulse } from "../../components/cinema/RingPulse";
 import { useFirstRunStore } from "./useFirstRunStore";
-import { useNarrowViewport } from "../../util/layoutPrefs";
-import { PHONE_MAX_PX } from "../../components/NarrowViewportGate";
+import { usePhoneFormFactor } from "../../util/layoutPrefs";
 
 // The product's opening credits. Two modes:
 //
@@ -160,7 +159,7 @@ export function CinematicGreeting(props: CinematicGreetingProps) {
   // we admit you can leave). Phone reveals at 1.5s, which still
   // hides Skip during the radial-glow rise (Beat 1, 0–1.4s) so the
   // skip-affordance doesn't telegraph "skippable" at frame zero.
-  const isPhone = useNarrowViewport(PHONE_MAX_PX);
+  const isPhone = usePhoneFormFactor();
   const skipDelayS = isPhone ? 1.5 : 4;
   const [exiting, setExiting] = useState(false);
   // Single terminal-handler guard: once either onComplete or onSkip

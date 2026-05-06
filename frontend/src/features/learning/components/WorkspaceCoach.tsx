@@ -7,8 +7,7 @@ import {
   usePreferencesStore,
 } from "../../../state/preferencesStore";
 import { useFirstRunStore } from "../../firstRun/useFirstRunStore";
-import { useNarrowViewport } from "../../../util/layoutPrefs";
-import { PHONE_MAX_PX } from "../../../components/NarrowViewportGate";
+import { usePhoneFormFactor } from "../../../util/layoutPrefs";
 import { HOUSE_EASE } from "../../../components/cinema/easing";
 
 interface CoachStep {
@@ -139,14 +138,24 @@ export function WorkspaceCoach({
   // (preferencesStore.setState fires whether persistDone or not, per
   // maybeMarkDone above). Authed and direct-signup desktop paths keep
   // the coach (Alex on a laptop is the audience there).
-  const phone = useNarrowViewport(PHONE_MAX_PX);
+  // Phase 27-v2.2 audit fix B1 (bug-hunter): gate the phone short-circuit
+  // on `cinematicShowing` being false. Pre-fix, the coach mounts at
+  // COACH_AUTO_OPEN_MS=600ms while the 14.2s cinematic is still on screen
+  // — flipping `workspaceCoachDone` synchronously triggered the
+  // choreography enable-gate ON, the scripted "Hey Maya, let me run it"
+  // ran to completion under the still-visible cinematic, and Maya saw
+  // the iris reveal open onto a tutor that was already mid-monologue.
+  // Same `cinematicShowing` gate the keydown handler at line 232 uses.
+  const phone = usePhoneFormFactor();
+  const cinematicShowingForSkip = useFirstRunStore((s) => s.cinematicShowing);
   const phoneSkippedRef = useRef(false);
   useEffect(() => {
     if (!phone || phoneSkippedRef.current) return;
+    if (cinematicShowingForSkip) return;
     phoneSkippedRef.current = true;
     maybeMarkDone(persistDone);
     onComplete();
-  }, [phone, persistDone, onComplete]);
+  }, [phone, cinematicShowingForSkip, persistDone, onComplete]);
 
   useEffect(() => {
     // Skip steps whose target is missing OR has zero size. The

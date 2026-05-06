@@ -27,6 +27,35 @@ export function useNarrowViewport(maxPx: number = 1024): boolean {
   return narrow;
 }
 
+// Phase 27-v2.2 audit fix D1 (staff-qa): "phone-class form factor"
+// detection that survives orientation. The width-only `useNarrowViewport`
+// check returns false on iPhone 13 landscape (844×390) — Maya rotates
+// her phone to read code more easily, the WorkspaceCoach phone-skip and
+// CinematicGreeting earlier-Skip mitigations evaporate exactly when the
+// form-factor pressure is highest. Match: portrait ≤639 px wide OR
+// landscape ≤480 px tall on tablet-and-narrower (≤1024 px wide).
+const PHONE_FORM_FACTOR_MQ =
+  "(max-width: 639px), (max-height: 480px) and (max-width: 1024px)";
+
+export function usePhoneFormFactor(): boolean {
+  const [phone, setPhone] = useState(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return false;
+    }
+    return window.matchMedia(PHONE_FORM_FACTOR_MQ).matches;
+  });
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return;
+    }
+    const mq = window.matchMedia(PHONE_FORM_FACTOR_MQ);
+    const onChange = (e: MediaQueryListEvent) => setPhone(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  return phone;
+}
+
 // Phase 18b: layout prefs (panel widths, collapsed flags) live in the
 // user_preferences.ui_layout jsonb bucket instead of localStorage. The two
 // useXxx hooks below mirror the pre-18b signatures so consuming pages
