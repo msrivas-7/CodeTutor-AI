@@ -70,6 +70,26 @@ const ANON_ALLOWED_LESSON = {
   lessonId: "hello-world",
 } as const;
 
+// Phase 24B-resize: anon /run sessions are ephemeral and never registered
+// with sessionManager (one-shot, destroyed in the same request's finally).
+// But they DO consume HybridBackend.localActive — the routing decision
+// against the local cap is "any session in flight," authed or not. The
+// admin dashboard's Sessions tile reads from sessionManager only, so
+// without these counters anon traffic is invisible there: a 4-anon /
+// 0-authed state would render as `0/5` while real localActive=4.
+//
+// Tracked here (route-local) rather than on the handle because the
+// HybridBackend doesn't know an anon session from an authed one — both
+// arrive via createSession(spec). Increment after createSession resolves
+// (so a failed spawn doesn't inflate the gauge); decrement in the same
+// finally that destroys the handle. dispatch on handle.__kind to split
+// local vs ACI accurately.
+let anonLocalActive = 0;
+let anonAciActive = 0;
+export function getAnonSessionCounts() {
+  return { local: anonLocalActive, aci: anonAciActive };
+}
+
 // Phase 27-v2.2 audit fix C3 (staff-security): canonical lessonContext
 // pinned server-side. Pre-fix, the request body carried unbounded
 // client-supplied strings (`lessonObjectives[]`, `studentProgressSummary`,
@@ -330,6 +350,8 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
     let handle: Awaited<ReturnType<typeof backend.createSession>> | null = null;
     try {
       handle = await backend.createSession(spec);
+      if (handle.__kind === "aci") anonAciActive += 1;
+      else anonLocalActive += 1;
       await backend.writeFiles(handle, files);
       const started = Date.now();
       const result = await runProject(backend, { handle, language, stdin });
@@ -351,6 +373,8 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
             `[anon] session destroy failed: ${(err as Error).message}`,
           );
         }
+        if (handle.__kind === "aci") anonAciActive -= 1;
+        else anonLocalActive -= 1;
       }
     }
   });

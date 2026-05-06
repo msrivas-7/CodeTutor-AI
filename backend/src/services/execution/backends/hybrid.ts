@@ -174,6 +174,10 @@ export class HybridBackend implements ExecutionBackend {
     return this.localActive;
   }
 
+  getAciActive(): number {
+    return this.aciActive;
+  }
+
   /**
    * Phase 24B: dynamic absolute cap, evaluated on every startSession call.
    *   - ACI on + overflow allowed   → localCap + aciCap

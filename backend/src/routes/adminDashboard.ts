@@ -31,14 +31,26 @@ import {
   listSessions,
 } from "../services/session/sessionManager.js";
 import { _renderQueueDepth } from "../services/share/renderQueue.js";
+import { getAnonSessionCounts } from "./anon.js";
 
 export const adminDashboardRouter = Router();
 
 interface DashboardSnapshot {
   generatedAt: string;
   sessions: {
+    /** Total local active = authed (sessionManager) + anon (route counter). */
     local: number;
+    /** Authed-only local count, sourced from sessionManager. */
+    localAuthed: number;
+    /** Anon ephemeral local sessions in flight on /api/anon/run. */
+    localAnon: number;
+    /** Total ACI active = authed + anon. */
     aci: number;
+    /** Authed-only ACI count. */
+    aciAuthed: number;
+    /** Anon ephemeral ACI sessions in flight (when overflow routes anon). */
+    aciAnon: number;
+    /** local + aci. */
     total: number;
     capLocal: number;
     capAbsolute: number;
@@ -98,12 +110,21 @@ function utcStartOfToday(): Date {
 
 async function buildSnapshot(): Promise<DashboardSnapshot> {
   const records = listSessions();
-  const localCount = records.filter(
+  const localAuthed = records.filter(
     (r) => (r.handle as { __kind?: string } | null)?.__kind !== "aci",
   ).length;
-  const aciCount = records.filter(
+  const aciAuthed = records.filter(
     (r) => (r.handle as { __kind?: string } | null)?.__kind === "aci",
   ).length;
+  // Phase 24B-resize: anon sessions never enter sessionManager (one-shot,
+  // destroyed in the route's finally), so adding them here is the only
+  // way the dashboard widget reflects real local-cap pressure. The anon
+  // counters in routes/anon.ts increment after createSession resolves and
+  // decrement in the same finally that destroys — drift would mean a
+  // route bug, not a sessionManager bug.
+  const anonCounts = getAnonSessionCounts();
+  const localCount = localAuthed + anonCounts.local;
+  const aciCount = aciAuthed + anonCounts.aci;
 
   const aciStatus = aciCostTracker.getStatus();
   let aciCfg: ReturnType<typeof getAciOperationalConfig> | null = null;
@@ -160,8 +181,12 @@ async function buildSnapshot(): Promise<DashboardSnapshot> {
     generatedAt: new Date().toISOString(),
     sessions: {
       local: localCount,
+      localAuthed,
+      localAnon: anonCounts.local,
       aci: aciCount,
-      total: records.length,
+      aciAuthed,
+      aciAnon: anonCounts.aci,
+      total: localCount + aciCount,
       capLocal: config.session.maxGlobal,
       capAbsolute: config.session.maxGlobal + (aciCfg?.maxOverflow ?? config.aci.maxOverflow),
       counterDrift: backendCounterDrift(),

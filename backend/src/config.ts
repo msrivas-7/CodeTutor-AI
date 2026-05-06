@@ -359,9 +359,10 @@ export const config = {
     enabled: process.env.ENABLE_ACI_OVERFLOW !== "0",
     dailyUsdCap: num(process.env.ACI_DAILY_USD_CAP, 20),
     // Hard cap on concurrent ACI sessions. Combined with local maxGlobal
-    // (14), absolute total = local + maxOverflow = 50 by default. A new
-    // session arriving past that returns 503 instead of spawning yet
-    // another ACI container — a backstop for the cost cap.
+    // (5 on B2s, 14 on B2ms), absolute total = local + maxOverflow = 41
+    // (B2s) / 50 (B2ms) by default. A new session arriving past that
+    // returns 503 instead of spawning yet another ACI container — a
+    // backstop for the cost cap.
     maxOverflow: num(process.env.ACI_MAX_OVERFLOW, 36),
     // Cold-start budget. ACI typically completes "Pending → Running" in
     // 5–15s; 30s gives headroom for image pulls + IP allocation. Past

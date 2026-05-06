@@ -419,6 +419,7 @@ function fmtMs(ms: number | null): string {
 function SessionsTile({ snap }: { snap: AdminDashboardSnapshot }) {
   const totalCap = snap.sessions.capAbsolute;
   const pct = totalCap > 0 ? (snap.sessions.total / totalCap) * 100 : 0;
+  const { localAuthed, localAnon, aciAuthed, aciAnon } = snap.sessions;
   return (
     <Tile title="Sessions">
       <div className="flex items-baseline gap-2">
@@ -432,9 +433,19 @@ function SessionsTile({ snap }: { snap: AdminDashboardSnapshot }) {
         <div>
           <span className="text-ink">{snap.sessions.local}</span> local
           <span className="text-[10px]"> (cap {snap.sessions.capLocal})</span>
+          {localAnon > 0 ? (
+            <div className="mt-0.5 text-[10px] text-muted/80">
+              {localAuthed} authed · {localAnon} anon
+            </div>
+          ) : null}
         </div>
         <div>
           <span className="text-ink">{snap.sessions.aci}</span> ACI
+          {aciAnon > 0 ? (
+            <div className="mt-0.5 text-[10px] text-muted/80">
+              {aciAuthed} authed · {aciAnon} anon
+            </div>
+          ) : null}
         </div>
       </div>
     </Tile>

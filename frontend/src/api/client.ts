@@ -544,8 +544,18 @@ export interface AdminAnonSummary {
 export interface AdminDashboardSnapshot {
   generatedAt: string;
   sessions: {
+    /** Total local active = authed + anon. */
     local: number;
+    /** Authed-only local (from sessionManager). */
+    localAuthed: number;
+    /** Anon ephemeral local sessions in flight. */
+    localAnon: number;
+    /** Total ACI active = authed + anon. */
     aci: number;
+    /** Authed-only ACI. */
+    aciAuthed: number;
+    /** Anon ACI in flight when overflow routes anon. */
+    aciAnon: number;
     total: number;
     capLocal: number;
     capAbsolute: number;
