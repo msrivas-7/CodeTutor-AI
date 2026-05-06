@@ -122,6 +122,15 @@ services:
       ACI_RUNNER_IMAGE: "${ACI_RUNNER_IMAGE:-}"
       ACI_DAILY_USD_CAP: "${ACI_DAILY_USD_CAP:-}"
       ACI_MAX_OVERFLOW: "${ACI_MAX_OVERFLOW:-}"
+      # Phase 24B-cold-start: vars that exist in .env but were missing
+      # from this passthrough — silently fell back to config.ts defaults
+      # (30s cold-start, 5757 sidecar port, warm pool off). Surfaced when
+      # 30s wasn't enough for first-spawn-into-fresh-subnet (image pull
+      # + IP allocation + NSG resolution) and the KV bump never reached
+      # the backend.
+      ACI_COLD_START_TIMEOUT_MS: "${ACI_COLD_START_TIMEOUT_MS:-}"
+      ACI_SIDECAR_PORT: "${ACI_SIDECAR_PORT:-}"
+      ACI_WARM_POOL_ENABLED: "${ACI_WARM_POOL_ENABLED:-}"
       # Phase 22A: backend-originated email via Azure Communication Services.
       # Used for budget alerts (50/80/100% of daily $ cap) and Phase 22D's
       # streak-nudge retention email. All three are optional — empty values
