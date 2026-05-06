@@ -128,20 +128,31 @@ export default function AnonLessonPage() {
     return unsub;
   }, []);
 
-  // Phase 27-v2.2 Fix 6 — funnel telemetry: anon_page_view fires once
-  // per /try/ mount. Backend hashes the IP and writes a row to
-  // phase27_funnel_events. Fire-and-forget — telemetry never breaks
-  // the UX. The matching wall_opened / signup_completed /
-  // lesson2_reached events fire from the wall callbacks below, the
-  // SignupPage's onSuccess (when stash present), and StartPage's
-  // handoff success branch respectively.
+  // Phase 27-v2.2 Fix 6 — funnel telemetry: anon_page_view fires at
+  // most once per browser session per /try/ visit. Backend hashes the
+  // IP and writes a row to phase27_funnel_events. Fire-and-forget —
+  // telemetry never breaks the UX.
+  //
+  // Phase 27-v2.2 audit fix A2 (staff-pm + staff-ux convergence):
+  // sessionStorage dedup so a refresh / back-button / same-tab nav
+  // back to /try/ doesn't inflate the page-view count and depress
+  // the apparent wall→signup conversion ratio. ip-hash-side dedup
+  // would be perfect but requires server-side cooperation; this
+  // client-side guard catches the common case (one Maya, one tab)
+  // for free. StrictMode dev double-mount is also covered.
   useEffect(() => {
     if (!allowed) return;
+    if (typeof window === "undefined") return;
+    try {
+      if (window.sessionStorage.getItem("codetutor.anonPageViewLogged") === "1") {
+        return;
+      }
+      window.sessionStorage.setItem("codetutor.anonPageViewLogged", "1");
+    } catch {
+      // sessionStorage can throw in private-mode Safari etc — fall
+      // through and fire (worse to undercount than to dedup).
+    }
     api.postFunnelEvent("anon_page_view");
-    // Empty deps — fire once per mount. Same-tab navigation back to
-    // /try/ remounts the component which fires again, which is the
-    // intended counting semantic ("how many times did Maya land on
-    // the trial path").
   }, [allowed]);
 
   // Allowlist guard — any other (courseId, lessonId) redirects home.
