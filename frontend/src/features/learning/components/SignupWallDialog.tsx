@@ -59,7 +59,12 @@ const COPY_BY_REASON: Record<SignupWallReason, { title: string; body: string; ct
     title: "Sign up to save?",
     body:
       "Takes 10 seconds. From the moment you sign up, your code and progress save automatically — so you never lose a line of work again.",
-    cta: "Sign up for free",
+    // Phase 27-v2.2 audit fix F1 (business-leader): "Sign up for free"
+    // claims free-forever framing and forecloses the future paid tier
+    // — every paid-tier introduction would renegotiate an implied
+    // promise. "Start free" leaves room for an upgrade ladder
+    // without breaking the implicit contract.
+    cta: "Sign up — start free",
   },
   // Phase 27-v2 Day 5a: next-lesson reason now honestly promises the
   // carry-over Day 3c writes (sessionStorage stash) and Day 4 redeems
@@ -84,9 +89,14 @@ const COPY_BY_REASON: Record<SignupWallReason, { title: string; body: string; ct
   },
   exhausted: {
     title: "You're getting it.",
+    // Phase 27-v2.2 audit fix F1: same free-tier-framing concern as
+    // save.cta — "free account" + "daily quota" plant free-forever
+    // expectations. Reframe the upgrade as unlocking the full quota
+    // (which IS what signup does — anon=8/day, authed=30/day) without
+    // committing to a price ceiling.
     body:
-      "You've used your free tutor questions for today. Make a free account for a higher daily quota — and your work saves from then on.",
-    cta: "Sign up for free",
+      "You've used your free tutor questions for today. Create an account to unlock the full daily quota — your work saves from then on.",
+    cta: "Sign up — start free",
   },
   // Phase 27-v2.2 Fix 1 — anon share lever. Maya's emotional intent at
   // this moment is "text this to my group chat" — the wall promises
@@ -96,8 +106,13 @@ const COPY_BY_REASON: Record<SignupWallReason, { title: string; body: string; ct
   // wall is the conversion ask, not the pitch.
   share: {
     title: "Sign up to share your first program",
+    // Phase 27-v2.2 audit fix F2 (business-leader): tighten the body to
+    // name the social object Maya is actually about to perform — "your
+    // friend gets a link" / "your name on it" speaks to peer-pressure
+    // energy at the celebration moment. Generic "share image" was an
+    // implementation noun, not Maya's mental model.
     body:
-      "Takes 10 seconds. Your code, your name, and the share image come with you.",
+      "Your friend gets a link to your first program — your name on it. Sign up takes 10 seconds.",
     cta: "Sign up & share",
   },
   // Phase 27-v2.2 audit fix E1: trial paused (operator-flipped kill
