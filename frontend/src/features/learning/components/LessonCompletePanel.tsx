@@ -396,18 +396,23 @@ export function LessonCompletePanel({
               <button
                 onClick={onDismiss}
                 className="flex-1 rounded-lg border border-border px-4 py-2 text-xs font-medium text-muted transition hover:bg-elevated hover:text-ink"
-                // Phase 27-v2.1 medium-lock: anon dismiss is "Done for now"
-                // — names the choice as completion, not escape (per the
-                // director's lens: the curtain falls, the lobby opens).
-                // Authed dismiss stays "Keep practicing" since they have
-                // a real lesson 2 they can navigate to anytime.
+                // Phase 27-v2.1 medium-lock: anon dismiss preserves
+                // agency by labeling the conversion ask honestly.
+                // Phase 27-v2.2 audit fix E4 (product-owner): the prior
+                // "Done for now" label promised completion ("I'm done")
+                // but the click opens the wall titled "Lesson 2 is
+                // queued up" — clicked-stop, got-go. "See lesson 2"
+                // names the actual outcome so the wall reads as the
+                // promised destination, not a surprise. Authed dismiss
+                // stays "Keep practicing" since they have a real
+                // lesson 2 they can navigate to anytime.
                 aria-label={
                   mode === "anon"
-                    ? "Done for now — opens the signup wall"
+                    ? "See lesson 2 — opens the signup wall"
                     : "Close celebration and stay on this lesson"
                 }
               >
-                {mode === "anon" ? "Done for now" : "Keep practicing"}
+                {mode === "anon" ? "See lesson 2" : "Keep practicing"}
               </button>
               {onNext && (
                 <button
