@@ -45,10 +45,13 @@ describe("content schemas", () => {
     expect(functionTestSchema.parse(sample)).toEqual(sample);
   });
 
-  it("completionRuleSchema accepts all four variants", () => {
+  it("completionRuleSchema accepts all six variants", () => {
     expectTypeOf<CompletionRuleSchemaInferred>().toMatchTypeOf<CompletionRule>();
     expect(
       completionRuleSchema.parse({ type: "expected_stdout", expected: "hi" }),
+    ).toBeTruthy();
+    expect(
+      completionRuleSchema.parse({ type: "forbidden_in_stdout", pattern: "YOUR_NAME" }),
     ).toBeTruthy();
     expect(
       completionRuleSchema.parse({ type: "required_file_contains", pattern: "def " }),
@@ -60,6 +63,46 @@ describe("content schemas", () => {
       }),
     ).toBeTruthy();
     expect(completionRuleSchema.parse({ type: "custom_validator" })).toBeTruthy();
+    // Phase A — A1 retrieval_check
+    expect(
+      completionRuleSchema.parse({
+        type: "retrieval_check",
+        question: "What does this print?",
+        choices: ["Hello, Maya!", "Hello, !", "Error"],
+        correctIndex: 0,
+        explanation: "The variable name is set to 'Maya'.",
+      }),
+    ).toBeTruthy();
+  });
+
+  it("retrieval_check requires 2-4 choices and explanation is optional", () => {
+    // 1 choice — too few
+    expect(() =>
+      completionRuleSchema.parse({
+        type: "retrieval_check",
+        question: "?",
+        choices: ["only"],
+        correctIndex: 0,
+      }),
+    ).toThrow();
+    // 5 choices — too many
+    expect(() =>
+      completionRuleSchema.parse({
+        type: "retrieval_check",
+        question: "?",
+        choices: ["a", "b", "c", "d", "e"],
+        correctIndex: 0,
+      }),
+    ).toThrow();
+    // 2 choices, no explanation — accepted
+    expect(
+      completionRuleSchema.parse({
+        type: "retrieval_check",
+        question: "?",
+        choices: ["a", "b"],
+        correctIndex: 1,
+      }),
+    ).toBeTruthy();
   });
 
   it("completionRuleSchema rejects unknown type", () => {

@@ -52,6 +52,16 @@ export const completionRuleSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("custom_validator"),
   }),
+  // Phase A — A1 (funnel-edge pedagogy): learner-driven retrieval check
+  // gating completion. See parallel comment in
+  // frontend/src/features/learning/content/schema.ts.
+  z.object({
+    type: z.literal("retrieval_check"),
+    question: z.string().min(1),
+    choices: z.array(z.string().min(1)).min(2).max(4),
+    correctIndex: z.number().int().min(0),
+    explanation: z.string().optional(),
+  }),
 ]);
 
 export type FunctionTestSpec = z.infer<typeof functionTestSchema>;

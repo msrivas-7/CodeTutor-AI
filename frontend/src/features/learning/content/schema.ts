@@ -62,12 +62,36 @@ export const customValidatorRuleSchema = z.object({
   type: z.literal("custom_validator"),
 });
 
+// Phase A — A1 (funnel-edge pedagogy): a learner-driven retrieval check
+// that fires AFTER the other completion rules pass but BEFORE the
+// celebration panel mounts. Not auto-evaluated against stdout — the
+// learner picks an answer, the validator gates `showComplete` on
+// the correct choice. Without this, a learner can paste their way past
+// `expected_stdout` and the funnel measures clicks, not learning.
+//
+// The rule is OPTIONAL on every lesson (existing lessons without it
+// behave exactly as before — the rule's absence is "no gate"). Lesson 1
+// of python-fundamentals adds one in Wave 1; other lessons can adopt
+// the pattern as authored.
+export const retrievalCheckRuleSchema = z.object({
+  type: z.literal("retrieval_check"),
+  question: nonEmptyString,
+  // 2–4 multiple-choice answers. Single-choice; one is correct.
+  choices: z.array(nonEmptyString).min(2).max(4),
+  // 0-indexed position of the correct choice within `choices`.
+  correctIndex: z.number().int().min(0),
+  // Optional explanation shown after a wrong answer. Omitted = no
+  // explanation, just "try again."
+  explanation: z.string().optional(),
+});
+
 export const completionRuleSchema = z.discriminatedUnion("type", [
   expectedStdoutRuleSchema,
   forbiddenInStdoutRuleSchema,
   requiredFileContainsRuleSchema,
   functionTestsRuleSchema,
   customValidatorRuleSchema,
+  retrievalCheckRuleSchema,
 ]);
 
 export const practiceExerciseSchema = z.object({
@@ -96,6 +120,13 @@ export const lessonMetaSchema = z.object({
   recap: z.string().optional(),
   practicePrompts: z.array(z.string()).optional(),
   practiceExercises: z.array(practiceExerciseSchema).optional(),
+  // Phase A — A7 (founder identity): the "post-credits" beat shown on
+  // LessonCompletePanel. Soft, optional, lesson-author-controlled.
+  // Phrasing convention: "In the next lesson, you'll …" — NEVER
+  // "Tomorrow you'll…" (lets the user decide cadence). Falls back to
+  // the next lesson's first objective if unset; renders nothing on the
+  // last lesson of a course.
+  nextLessonHint: z.string().optional(),
 });
 
 export const courseSchema = z.object({
