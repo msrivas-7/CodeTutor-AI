@@ -34,6 +34,7 @@ import { z } from "zod";
 import { config } from "../config.js";
 import { isAnonLessonEnabled } from "../services/share/killSwitches.js";
 import { anonLaptopInviteRouter } from "./anonLaptopInvite.js";
+import { anonShareRouter } from "./anonShare.js";
 import { runProject } from "../services/execution/router.js";
 import { languageSchema } from "../services/execution/commands.js";
 import type { ExecutionBackend, RuntimeSpec } from "../services/execution/backends/index.js";
@@ -698,6 +699,14 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
   // Granular `anon_laptop_invite_disabled` is checked inside the route
   // handler.
   router.use(anonLaptopInviteRouter);
+
+  // Phase A — A3 (anon-share unlock): per-IP-hashed share creation.
+  // Same kill-switch-chain inheritance as the laptop-link route. The
+  // granular kill is `share_create_disabled` (Phase 21C), checked
+  // inside the route handler — so an operator can drain anon-share
+  // abuse via the same switch that already drains authed-share abuse,
+  // without nuking the entire trial path.
+  router.use(anonShareRouter);
 
   return router;
 }

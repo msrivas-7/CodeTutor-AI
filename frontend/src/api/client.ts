@@ -929,6 +929,32 @@ export const api = {
     }
     return (await res.json()) as { code: string; name: string | null };
   },
+
+  // Phase A — A3 (anon-share unlock): create a share artifact for an
+  // anon learner (no userId). The server returns a public `/s/:token`
+  // URL that anyone can open without signup — the K-factor lever the
+  // pre-A3 wall path was eating. Body shape mirrors the authed POST
+  // /api/shares except courseId/lessonId are literals (server allowlist
+  // hard-locks anon to lesson 1).
+  createAnonShare: async (body: {
+    courseId: "python-fundamentals";
+    lessonId: "hello-world";
+    mastery: "strong" | "okay" | "shaky";
+    timeSpentMs: number;
+    attemptCount: number;
+    codeSnippet: string;
+    displayName: string | null;
+  }): Promise<{ shareToken: string; url: string }> => {
+    const res = await fetch(`${API_BASE}/api/anon/shares`, {
+      method: "POST",
+      headers: { ...JSON_HEADERS, ...CSRF_HEADER },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      await throwApiError(res, "/api/anon/shares");
+    }
+    return (await res.json()) as { shareToken: string; url: string };
+  },
   executeTests: async (
     sessionId: string,
     language: Language,

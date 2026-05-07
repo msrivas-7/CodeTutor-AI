@@ -4,6 +4,7 @@ import LessonPage from "./LessonPage";
 import { CinematicGreeting } from "../../firstRun/CinematicGreeting";
 import { SignupWallDialog, type SignupWallReason } from "../components/SignupWallDialog";
 import { PhoneGraduationDialog } from "../components/PhoneGraduationDialog";
+import { AnonShareDialog } from "../components/AnonShareDialog";
 import { useProjectStore } from "../../../state/projectStore";
 import { usePreferencesStore } from "../../../state/preferencesStore";
 import { api } from "../../../api/client";
@@ -106,6 +107,15 @@ export default function AnonLessonPage() {
     name: string | null;
   }>({ open: false, code: "", name: null });
 
+  // Phase A — A3 (anon-share unlock): the dialog renders the public
+  // /s/:token URL the server returned. Closing it opens the wall
+  // (reason="share") so the conversion ask still lands AFTER the
+  // share artifact lives.
+  const [anonShare, setAnonShare] = useState<{
+    open: boolean;
+    url: string;
+  }>({ open: false, url: "" });
+
   // Bridge sessionStorage anon-coach flag → preferencesStore SYNCHRONOUSLY
   // on first render. WorkspaceCoach inside LessonPage(mode="anon") flips
   // workspaceCoachDone locally on dismissal (no PATCH); we mirror that
@@ -189,15 +199,51 @@ export default function AnonLessonPage() {
   // per-IP daily cap). Same wall surface as save/next-lesson, different
   // framing — SignupWallDialog has copy for reason="exhausted".
   const onAnonExhausted = () => openWall("exhausted");
-  // Phase 27-v2.2 Fix 1 — anon share lever. The LessonCompletePanel
-  // "Your first one — Share it" card on /try/ no longer hides; click
-  // pivots to the wall (reason="share") instead of opening the
-  // auth-required ShareDialog (which would 401-cascade). Same medium-
-  // lock pattern as save/next-lesson — wall is dismissable, lesson
-  // chrome stays interactive, no re-trap loop. Note: the share gate
-  // in LessonPage still hides on practice-mode for both authed and
-  // anon — this callback only fires for non-practice celebrations.
-  const onAnonShare = () => openWall("share");
+  // Phase A — A3 (anon-share unlock): create a real public artifact
+  // BEFORE the wall opens. The share button on the celebration was
+  // pivoting straight to the wall (reason="share") — so every share
+  // click ate the K-factor moment at peak intent. Now the click
+  // creates a `/s/:token` row, the AnonShareDialog renders the URL
+  // (copy, native share, done), and the wall fires AFTER the dialog
+  // dismisses so the conversion ask still lands.
+  //
+  // Failure modes (rate-limit, kill switch, 503): fall back to the
+  // wall path silently — same medium-lock as before, no regression.
+  // Note: the share gate in LessonPage still hides on practice mode
+  // for both authed and anon — this callback only fires for non-
+  // practice celebrations.
+  const onAnonShare = () => {
+    const files = useProjectStore.getState().snapshot();
+    const main = files.find((f) => f.path === "main.py") ?? files[0];
+    const code = main?.content ?? "";
+    if (!code.trim()) {
+      // No code typed — shouldn't happen post-celebration, but if it
+      // does, fall back to the wall instead of sending a 400.
+      openWall("share");
+      return;
+    }
+    api
+      .createAnonShare({
+        courseId: ANON_ALLOWED.courseId,
+        lessonId: ANON_ALLOWED.lessonId,
+        mastery: "strong",
+        timeSpentMs: 0,
+        attemptCount: 0,
+        codeSnippet: code,
+        displayName: extractNameFromCode(code),
+      })
+      .then(({ url }) => {
+        setAnonShare({ open: true, url });
+        api.postFunnelEvent("anon_wall_opened", "share");
+      })
+      .catch(() => {
+        // Rate-limit / kill-switch / network: silent fallback to wall
+        // so the funnel still has a conversion lever. Console-error
+        // the boundary in dev devtools but don't surface to the user
+        // — wall reframes the moment as "sign up to keep going".
+        openWall("share");
+      });
+  };
   // Phase 27-v2.2 audit fix E1: kill-switch flipped path. The tutor
   // ask returns 503 ANON_LESSON_DISABLED; instead of leaving Maya
   // staring at "Request failed", route to the wall with the trial-
@@ -293,6 +339,17 @@ export default function AnonLessonPage() {
           name={graduation.name}
           onDismiss={() => setGraduation((g) => ({ ...g, open: false }))}
           onFallbackToWall={() => openWall("next-lesson")}
+        />
+      )}
+      {anonShare.open && (
+        <AnonShareDialog
+          url={anonShare.url}
+          onDismiss={() => {
+            // Close the dialog AND open the wall in the same beat
+            // so the conversion ask lands after the artifact reveal.
+            setAnonShare((s) => ({ ...s, open: false }));
+            openWall("share");
+          }}
         />
       )}
     </>

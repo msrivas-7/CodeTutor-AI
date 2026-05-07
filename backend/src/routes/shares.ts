@@ -8,9 +8,8 @@ import {
   insertSharedCompletion,
   bumpShareView,
   revokeShareByOwner,
-  setShareOgImagePath,
-  setShareOgStoryImagePath,
 } from "../db/sharedCompletions.js";
+import { kickOffRenders } from "../services/share/kickOffRenders.js";
 import { listLessonProgress } from "../db/lessonProgress.js";
 import {
   sanitizeDisplayName,
@@ -567,62 +566,6 @@ sharesAuthedRouter.post("/:token/rerender", async (req, res, next) => {
     next(err);
   }
 });
-
-// Shared helper used by POST / and POST /:token/rerender. Fires both
-// render pipelines concurrently under the renderQueue semaphore. Each
-// pipeline catches its own errors so a failure in one (Satori chokes
-// on a particular layout) doesn't block the other.
-function kickOffRenders(artifactProps: {
-  lessonTitle: string;
-  lessonOrder: number;
-  courseTitle: string;
-  courseTotalLessons: number;
-  mastery: "strong" | "okay" | "shaky";
-  timeSpentMs: number;
-  attemptCount: number;
-  codeSnippet: string;
-  displayName: string | null;
-  shareToken: string;
-}): void {
-  void (async () => {
-    try {
-      await withRenderSlot(async () => {
-        const png = await renderOgPng(artifactProps);
-        const objectPath = await uploadOgPng(artifactProps.shareToken, png);
-        await setShareOgImagePath(artifactProps.shareToken, objectPath);
-      });
-    } catch (e) {
-      console.error(
-        JSON.stringify({
-          level: "error",
-          t: new Date().toISOString(),
-          evt: "share_og_render_failed",
-          shareToken: artifactProps.shareToken,
-          msg: e instanceof Error ? e.message : String(e),
-        }),
-      );
-    }
-  })();
-  void (async () => {
-    try {
-      await withRenderSlot(async () => {
-        const png = await renderOgStoryPng(artifactProps);
-        const objectPath = await uploadStoryPng(artifactProps.shareToken, png);
-        await setShareOgStoryImagePath(artifactProps.shareToken, objectPath);
-      });
-    } catch (e) {
-      console.error(
-        JSON.stringify({
-          level: "error",
-          t: new Date().toISOString(),
-          evt: "share_story_render_failed",
-          shareToken: artifactProps.shareToken,
-          msg: e instanceof Error ? e.message : String(e),
-        }),
-      );
-    }
-  })();
-}
 
 sharesAuthedRouter.delete("/:token", async (req, res, next) => {
   try {
