@@ -344,7 +344,11 @@ export default function LessonPage({
     }
   }, [retrievalKey]);
 
-  const layout = useLessonLayout({ lessonReady: !!loader.lesson && !loader.loading });
+  const layout = useLessonLayout({
+    lessonReady: !!loader.lesson && !loader.loading,
+    courseId,
+    lessonId,
+  });
   const runner = useLessonRunner({
     lesson: loader.lesson,
     courseId,

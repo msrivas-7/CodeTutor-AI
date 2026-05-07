@@ -59,6 +59,14 @@ export const KNOWN_KEYS = [
   // — no redeploy. Pulled forward from Phase 28 so the operator
   // doesn't need to ssh in to drain abuse.
   "anon_lesson_enabled",
+  // Phase A — A2: granular kill switch for the phone-graduation
+  // magic-link handoff. Setting this TRUE causes POST /api/anon/laptop-
+  // link to 503 cleanly (PhoneGraduationDialog falls back to the
+  // existing SignupWallDialog flow). Separate from anon_lesson_enabled
+  // so an operator can drain magic-link abuse — token enumeration,
+  // email-enumeration, mail-relay misuse — without nuking the entire
+  // /try/ surface. Default FALSE (handoff enabled).
+  "anon_laptop_invite_disabled",
 ] as const;
 export type SystemConfigKey = (typeof KNOWN_KEYS)[number];
 

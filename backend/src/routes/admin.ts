@@ -137,6 +137,13 @@ const KEY_BOUNDS: Record<
   // a redeploy. Boolean; env (ENABLE_ANON_LESSON) is the boot-time
   // default + DB-unreachable fallback.
   anon_lesson_enabled: { type: "boolean" },
+  // Phase A — A2 (device contract): granular kill switch for the
+  // phone-graduation magic-link handoff (POST /api/anon/laptop-link).
+  // Setting TRUE 503's the route; PhoneGraduationDialog falls back
+  // to the wall flow. Separate from anon_lesson_enabled so the
+  // operator can drain magic-link abuse (token enumeration, mail-
+  // relay misuse) without nuking the entire trial path.
+  anon_laptop_invite_disabled: { type: "boolean" },
 };
 
 // Env defaults exposed in GET /api/admin/system-config so the UI can
@@ -175,6 +182,10 @@ function envDefaultFor(key: SystemConfigKey): boolean | number {
       return config.aci.warmMaxPoolSize ?? 2;
     case "anon_lesson_enabled":
       return config.anonLessonEnabled;
+    case "anon_laptop_invite_disabled":
+      // Default off — the handoff is part of the device-contract
+      // promise, only flipped when active abuse demands draining it.
+      return false;
   }
 }
 

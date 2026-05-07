@@ -37,9 +37,18 @@ export interface UseLessonLayoutArgs {
   // hook stays inert until a lesson is present so we don't show the coach
   // over a blank skeleton.
   lessonReady: boolean;
+  // Phase A — A2 (device contract): the auto-collapse-tutor heuristic
+  // doesn't fit lesson 1 on a narrow screen. Lesson 1's whole job is
+  // the scripted tutor walkthrough — collapsing it hides the
+  // experience the cinematic just promised. Pass the (course, lesson)
+  // tuple so the hook can override: on lesson 1 + narrow, the TUTOR
+  // stays open and the INSTRUCTIONS collapse instead. Other lessons
+  // keep the existing auto-collapse-tutor behavior.
+  courseId?: string | null;
+  lessonId?: string | null;
 }
 
-export function useLessonLayout({ lessonReady }: UseLessonLayoutArgs) {
+export function useLessonLayout({ lessonReady, courseId, lessonId }: UseLessonLayoutArgs) {
   const [outputH, setOutputH] = usePersistedNumber(LS_OUT_H, LESSON_LAYOUT_DEFAULTS.out);
   const [instrW, setInstrW] = usePersistedNumber(LS_INSTR_W, LESSON_LAYOUT_DEFAULTS.instr);
   const [tutorW, setTutorW] = usePersistedNumber(LS_TUTOR_W, LESSON_LAYOUT_DEFAULTS.tutor);
@@ -49,14 +58,35 @@ export function useLessonLayout({ lessonReady }: UseLessonLayoutArgs) {
   // A20: below 1024 px three columns starve the editor. Auto-collapse the
   // tutor rail once on mount — instructions + editor stay visible. Users
   // can still expand the tutor manually if they want it.
+  //
+  // Phase A — A2 device-contract override: lesson 1 (python-fundamentals
+  // / hello-world) is the cinematic + scripted-tutor lesson. Collapsing
+  // the tutor on narrow would silently hide the very thing the
+  // cinematic just promised. On lesson 1 + narrow, flip the auto-
+  // collapse: keep the tutor OPEN, collapse INSTRUCTIONS instead (the
+  // prose lives in the tutor's first scripted turns anyway). Runs once
+  // per mount, same as the legacy heuristic.
   const narrow = useNarrowViewport(1024);
   const autoCollapsedRef = useRef(false);
+  const isLessonOneNarrow =
+    narrow &&
+    courseId === "python-fundamentals" &&
+    lessonId === "hello-world";
   useEffect(() => {
-    if (narrow && !autoCollapsedRef.current) {
-      autoCollapsedRef.current = true;
+    if (!narrow || autoCollapsedRef.current) return;
+    autoCollapsedRef.current = true;
+    // Note: these setters propagate to localStorage via
+    // useLocalStorageFlag — same persistence shape as the legacy
+    // auto-collapse heuristic. A learner who manually re-expands the
+    // collapsed panel after the auto-fire keeps that override on
+    // subsequent visits within the same screen-class.
+    if (isLessonOneNarrow) {
+      setTutorCollapsed(false);
+      setInstrCollapsed(true);
+    } else {
       setTutorCollapsed(true);
     }
-  }, [narrow, setTutorCollapsed]);
+  }, [narrow, isLessonOneNarrow, setTutorCollapsed, setInstrCollapsed]);
 
   const [showSettings, setShowSettings] = useState(false);
   const [resetMenuOpen, setResetMenuOpen] = useState(false);
