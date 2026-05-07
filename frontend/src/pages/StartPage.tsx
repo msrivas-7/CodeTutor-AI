@@ -12,8 +12,32 @@ import { listPublicCourses, loadAllLessonMetas } from "../features/learning/cont
 import { ResumeLearningCard } from "../features/learning/components/ResumeLearningCard";
 import { StreakChip } from "../features/learning/components/StreakChip";
 import type { Course, CourseProgress, LessonMeta } from "../features/learning/types";
-import { clearAnonStash, readAnonStash } from "../features/anon/anonStash";
+import { clearAnonStash, readAnonStash, writeAnonStash } from "../features/anon/anonStash";
+import { PENDING_INVITE_KEY } from "../features/anon/InviteCapture";
 import { api } from "../api/client";
+
+// Phase A — A2 (device contract): module-level cache to dedupe magic-link
+// redemption across React 18 StrictMode's intentional double-mount in dev.
+// The redeem call is single-use atomic on the server; without dedupe, the
+// first mount's call returns 200 (and the row is consumed) while the
+// second mount's call returns 410 INVITE_USED — clobbering the success
+// path. Module-level Map keyed by token: both mounts call the same Promise,
+// both .then receive the same response, the stash gets written twice (a
+// no-op overwrite), and the handoff endpoint is itself idempotent (upserts
+// lesson_progress). Bonus: a rapid back-button → forward sequence within
+// the same tab also benefits from cache reuse.
+const REDEMPTION_CACHE = new Map<
+  string,
+  Promise<{ code: string; name: string | null }>
+>();
+function redeemOnce(token: string) {
+  let p = REDEMPTION_CACHE.get(token);
+  if (!p) {
+    p = api.redeemAnonLaptopInvite(token);
+    REDEMPTION_CACHE.set(token, p);
+  }
+  return p;
+}
 
 interface ResumeTarget {
   course: Course;
@@ -61,8 +85,164 @@ export default function StartPage() {
   const [handoffPhase, setHandoffPhase] = useState<
     "needed" | "ok" | "failed"
   >(() => {
-    return readAnonStash() ? "needed" : "ok";
+    // Phase A — A2: a pending laptop-invite token is also "handoff
+    // needed" — the InviteCapture wrapper has stashed it in
+    // sessionStorage; we must redeem it BEFORE letting the existing
+    // welcomeDone gate bounce the user to /welcome (otherwise the
+    // freshly-signed-up laptop learner replays the cinematic and
+    // loses the lesson-1 carry-over). The pre-existing readAnonStash
+    // path covers anon→authed signup; the new branch covers
+    // phone→laptop graduation.
+    if (readAnonStash()) return "needed";
+    if (
+      typeof window !== "undefined" &&
+      window.sessionStorage.getItem(PENDING_INVITE_KEY)
+    ) {
+      return "needed";
+    }
+    return "ok";
   });
+
+  // Phase A — A2: invite redemption. Runs on mount when a token sits
+  // in sessionStorage (placed there by InviteCapture). The redeem call
+  // goes through `redeemOnce` (a module-level Promise cache keyed by
+  // token), so React 18 StrictMode's intentional double-mount in dev
+  // doesn't fire two redeem requests against a single-use server-side
+  // token (the second would 410 INVITE_USED and strand the user).
+  // Both mounts await the SAME Promise; both .then receive the same
+  // response; both attempt the stash write + handoff (idempotent on
+  // the server); both nav to lesson 2 (replace: true → second is a
+  // no-op).
+  //
+  // The redeem .then drives postAnonHandoff inline (same shape as the
+  // existing handoff effect below: timeout-raced call, optimistic
+  // preferences-store patch, telemetry, nav). The two effects handle
+  // disjoint cases:
+  //  - this effect (token-in-sessionStorage): magic-link redemption →
+  //    stash → handoff → nav.
+  //  - existing effect (stash-but-no-token): pre-existing stash from
+  //    the anon signup path → handoff → nav.
+  // A single mount fires AT MOST ONE of the two paths; the other
+  // bails at its synchronous early-out.
+  //
+  // Unauthed path: when an unauthenticated user opens the magic link,
+  // RequireAuth redirects to /login BEFORE this page mounts (StartPage
+  // is gated by AuthedLayout). So the redeem effect only fires once
+  // the user is authed. The token survives the auth round-trip via
+  // sessionStorage (InviteCapture stripped it from the URL on the
+  // unauthed first visit, before RequireAuth's redirect). After
+  // signup the user lands here authed, the token is still in
+  // sessionStorage, this effect fires for the first time with a
+  // valid session, and the chain completes.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const token = window.sessionStorage.getItem(PENDING_INVITE_KEY);
+    if (!token) return;
+    let cancelled = false;
+
+    function clearPending() {
+      try {
+        window.sessionStorage.removeItem(PENDING_INVITE_KEY);
+      } catch {
+        // Private-mode failure — fail-soft.
+      }
+    }
+
+    redeemOnce(token)
+      .then(async (res) => {
+        // Write the stash UNCONDITIONALLY (do NOT gate on `cancelled`)
+        // — the server has consumed the token; we must persist what
+        // we got so a follow-up mount or refresh can finish the
+        // chain. The cancel flag below only suppresses navigation
+        // and the inline handoff call (those are React-lifecycle-
+        // tied operations).
+        clearPending();
+        const flags = {
+          // The phone learner already saw the cinematic + coach on
+          // /try/. A returning laptop user shouldn't replay either.
+          welcomeDone: true,
+          workspaceCoachDone: true,
+        };
+        writeAnonStash({
+          completedAt: new Date().toISOString(),
+          courseId: "python-fundamentals",
+          lessonId: "hello-world",
+          code: res.code,
+          name: res.name,
+          flags,
+        });
+
+        if (cancelled) return;
+
+        // Bridge the redeem into the handoff. If the handoff fails,
+        // fall through to lesson 1 (same medium-lock as the anon-
+        // signup handoff failure path) so the user is never stranded
+        // on the loading shell.
+        const timeoutMs = 8_000;
+        const timeoutPromise = new Promise<never>((_resolve, reject) =>
+          setTimeout(() => reject(new Error("handoff_timeout")), timeoutMs),
+        );
+        try {
+          await Promise.race([
+            api.postAnonHandoff({
+              courseId: "python-fundamentals",
+              lessonId: "hello-world",
+              code: res.code,
+              name: res.name,
+              flags,
+            }),
+            timeoutPromise,
+          ]);
+          if (cancelled) return;
+          clearAnonStash();
+          usePreferencesStore.setState({
+            welcomeDone: flags.welcomeDone,
+            workspaceCoachDone: flags.workspaceCoachDone,
+          });
+          api.postFunnelEvent("anon_lesson2_reached");
+          nav("/learn/course/python-fundamentals/lesson/variables", {
+            replace: true,
+          });
+        } catch (err) {
+          if (cancelled) return;
+          // For ALL handoff failure modes — 401, timeout, 5xx — fall
+          // back to lesson 1 with optimistic preferences-store patch.
+          // Patching `welcomeDone: true` is essential — without it,
+          // the StartPage `<Navigate to="/welcome" replace />` below
+          // fires (welcomeDone=false bounces there) and Maya replays
+          // the cinematic she just saw on /try/. The v1 audit
+          // BLOCK SHIP'd on exactly that doubled-cinematic anti-
+          // experience, so we patch unconditionally here. Worse case
+          // on a 401 (already-signed-in race condition): Maya re-
+          // completes lesson 1 — much smaller surface than the
+          // cinematic replay. Note: we read err.status defensively
+          // to catch the 401 case but treat all failures uniformly
+          // for the preferences patch + nav.
+          void (err as { status?: number })?.status;
+          usePreferencesStore.setState({
+            welcomeDone: true,
+            workspaceCoachDone: true,
+          });
+          setHandoffPhase("failed");
+          nav("/learn/course/python-fundamentals/lesson/hello-world", {
+            replace: true,
+          });
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        // Token was invalid / expired / already used. Clear the
+        // sessionStorage entry so future visits don't keep retrying,
+        // and unblock the loading shell — the user just sees the
+        // dashboard rather than a graduation continuation.
+        clearPending();
+        if (!readAnonStash()) setHandoffPhase("ok");
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const stash = readAnonStash();

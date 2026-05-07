@@ -3,9 +3,11 @@ import { Navigate, useParams } from "react-router-dom";
 import LessonPage from "./LessonPage";
 import { CinematicGreeting } from "../../firstRun/CinematicGreeting";
 import { SignupWallDialog, type SignupWallReason } from "../components/SignupWallDialog";
+import { PhoneGraduationDialog } from "../components/PhoneGraduationDialog";
 import { useProjectStore } from "../../../state/projectStore";
 import { usePreferencesStore } from "../../../state/preferencesStore";
 import { api } from "../../../api/client";
+import { usePhoneFormFactor } from "../../../util/layoutPrefs";
 import {
   extractNameFromCode,
   hasCinematicSeen,
@@ -89,6 +91,20 @@ export default function AnonLessonPage() {
     open: false,
     reason: "save",
   });
+
+  // Phase A — A2 (device contract): on phone form-factor, the Next-Lesson
+  // CTA opens the warm graduation handoff dialog INSTEAD of the wall —
+  // the honest answer to "lesson 2 needs more screen" is "let's get
+  // you to a laptop", not "sign up." Save / exhausted / share / trial-
+  // paused all stay on the wall path on phone (those are conversion
+  // asks, not continuity bridges). On desktop, every path stays on
+  // the wall — the device-contract dialog is phone-only.
+  const isPhone = usePhoneFormFactor();
+  const [graduation, setGraduation] = useState<{
+    open: boolean;
+    code: string;
+    name: string | null;
+  }>({ open: false, code: "", name: null });
 
   // Bridge sessionStorage anon-coach flag → preferencesStore SYNCHRONOUSLY
   // on first render. WorkspaceCoach inside LessonPage(mode="anon") flips
@@ -195,12 +211,13 @@ export default function AnonLessonPage() {
     const files = useProjectStore.getState().snapshot();
     const main = files.find((f) => f.path === "main.py") ?? files[0];
     const code = main?.content ?? "";
+    const parsedName = extractNameFromCode(code);
     writeAnonStash({
       completedAt: new Date().toISOString(),
       courseId: ANON_ALLOWED.courseId,
       lessonId: ANON_ALLOWED.lessonId,
       code,
-      name: extractNameFromCode(code),
+      name: parsedName,
       // workspaceCoachDone reflects the local truth: coach was either
       // dismissed in this tab or skipped because hasCoachSeenAnon was
       // already true on mount. Either way, the post-signup handoff
@@ -210,6 +227,16 @@ export default function AnonLessonPage() {
         workspaceCoachDone: hasCoachSeenAnon(),
       },
     });
+    if (isPhone) {
+      // Phase A — A2 device contract: phone learners see the
+      // graduation handoff dialog instead of the wall. Dismissing the
+      // dialog WITHOUT a successful send falls back to the wall via
+      // PhoneGraduationDialog's onFallbackToWall callback so the
+      // funnel still has a conversion lever.
+      setGraduation({ open: true, code, name: parsedName });
+      api.postFunnelEvent("anon_wall_opened", "next-lesson");
+      return;
+    }
     openWall("next-lesson");
   };
 
@@ -260,6 +287,14 @@ export default function AnonLessonPage() {
         reason={wall.reason}
         onDismiss={() => setWall({ open: false, reason: wall.reason })}
       />
+      {graduation.open && (
+        <PhoneGraduationDialog
+          code={graduation.code}
+          name={graduation.name}
+          onDismiss={() => setGraduation((g) => ({ ...g, open: false }))}
+          onFallbackToWall={() => openWall("next-lesson")}
+        />
+      )}
     </>
   );
 }

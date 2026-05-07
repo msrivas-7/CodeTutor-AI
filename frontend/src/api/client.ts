@@ -884,6 +884,51 @@ export const api = {
     }
     return (await res.json()) as RunResult;
   },
+
+  // Phase A — A2 (device contract): magic-link graduation handoff.
+  // Returns the URL on success so the dialog can also render a QR that
+  // an out-of-band laptop camera can scan without waiting for email
+  // delivery. The backend never returns the raw email or token-source
+  // beyond what the caller already supplied — see `anonLaptopInvite.ts`.
+  createAnonLaptopInvite: async (body: {
+    email: string;
+    code: string;
+    name: string | null;
+  }): Promise<{ ok: true; url: string; warn?: "EMAIL_SEND_FAILED" }> => {
+    const res = await fetch(`${API_BASE}/api/anon/laptop-link`, {
+      method: "POST",
+      headers: { ...JSON_HEADERS, ...CSRF_HEADER },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      // Pass structured error codes through so the dialog can map
+      // them to user-facing copy: "rate-limited", "trial paused", etc.
+      await throwApiError(res, "/api/anon/laptop-link");
+    }
+    return (await res.json()) as {
+      ok: true;
+      url: string;
+      warn?: "EMAIL_SEND_FAILED";
+    };
+  },
+
+  // Companion redemption call. Used by /start?invite=<token> to fetch
+  // the lesson-1 code + name and re-stash them before forwarding to
+  // signup. Single-use server-side — a second call with the same
+  // token returns 410 INVITE_USED.
+  redeemAnonLaptopInvite: async (
+    token: string,
+  ): Promise<{ code: string; name: string | null }> => {
+    const res = await fetch(`${API_BASE}/api/anon/laptop-link/redeem`, {
+      method: "POST",
+      headers: { ...JSON_HEADERS, ...CSRF_HEADER },
+      body: JSON.stringify({ token }),
+    });
+    if (!res.ok) {
+      await throwApiError(res, "/api/anon/laptop-link/redeem");
+    }
+    return (await res.json()) as { code: string; name: string | null };
+  },
   executeTests: async (
     sessionId: string,
     language: Language,

@@ -33,6 +33,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { config } from "../config.js";
 import { isAnonLessonEnabled } from "../services/share/killSwitches.js";
+import { anonLaptopInviteRouter } from "./anonLaptopInvite.js";
 import { runProject } from "../services/execution/router.js";
 import { languageSchema } from "../services/execution/commands.js";
 import type { ExecutionBackend, RuntimeSpec } from "../services/execution/backends/index.js";
@@ -689,6 +690,14 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
       unregisterAbortController(registryEntry);
     }
   });
+
+  // Phase A — A2 (device contract): magic-link graduation handoff. The
+  // route lives inside createAnonRouter so it inherits the
+  // anon_lesson_enabled kill switch (above) — when anon is fully
+  // disabled the laptop-link route 503s for the same reason as /run.
+  // Granular `anon_laptop_invite_disabled` is checked inside the route
+  // handler.
+  router.use(anonLaptopInviteRouter);
 
   return router;
 }

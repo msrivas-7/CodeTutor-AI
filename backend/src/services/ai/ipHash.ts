@@ -28,3 +28,24 @@ const HASH_LABEL = "codetutor-anon-ai-v1";
 export function hashClientIp(ip: string): string {
   return createHash("sha256").update(`${HASH_LABEL}:${ip}`).digest("hex");
 }
+
+// Phase A — A2 (device contract): static label for hashing emails on
+// the magic-link handoff path. NEVER share a label with the IP path —
+// distinct labels prevent `H(ip) == H(email)` collisions across columns
+// even if both are stored in the same DB. Emails are normalized
+// (trim + lowercase) before hashing so "Maya@x.com" and " maya@x.com "
+// share a row for the per-email-per-24h cap.
+const EMAIL_HASH_LABEL = "codetutor-anon-laptop-invite-email-v1";
+
+/**
+ * Returns a stable hex digest derived from a learner-supplied email.
+ * Suitable for storage in `anon_laptop_invites.email_hash`. The raw
+ * email NEVER lands on disk; the hash is the index for the per-email
+ * rate cap (1 send / 24h) and is the only enumerable token an attacker
+ * who steals a DB dump would have. Trim + lowercase before hashing so
+ * casing variants don't bypass the cap.
+ */
+export function hashEmail(email: string): string {
+  const normalized = email.trim().toLowerCase();
+  return createHash("sha256").update(`${EMAIL_HASH_LABEL}:${normalized}`).digest("hex");
+}

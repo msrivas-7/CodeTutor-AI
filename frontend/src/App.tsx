@@ -3,6 +3,7 @@ import { lazy, Suspense } from "react";
 import { StorageQuotaBanner } from "./components/StorageQuotaBanner";
 import { FrozenAccountBanner } from "./components/FrozenAccountBanner";
 import { GlobalShortcuts } from "./components/GlobalShortcuts";
+import { InviteCapture } from "./features/anon/InviteCapture";
 import { RequireAuth } from "./auth/RequireAuth";
 import { RequireAdmin } from "./auth/RequireAdmin";
 import { HydrationGate } from "./auth/HydrationGate";
@@ -92,6 +93,7 @@ export default function App() {
     <Suspense fallback={<Loading />}>
       <StorageQuotaBanner />
       <GlobalShortcuts />
+      <InviteCapture />
       <Routes>
         {/* Phase 22C: `/` is the public marketing page for everyone.
             No auth gate; logged-in users see the same page with a

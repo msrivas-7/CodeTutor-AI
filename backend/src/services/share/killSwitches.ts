@@ -22,7 +22,8 @@ async function readBool(
     | "share_public_disabled"
     | "share_create_disabled"
     | "share_render_disabled"
-    | "anon_lesson_enabled",
+    | "anon_lesson_enabled"
+    | "anon_laptop_invite_disabled",
   envFallback: boolean,
 ): Promise<boolean> {
   try {
@@ -40,6 +41,11 @@ async function readBool(
     // staff-security + staff-sre convergence.) Fail CLOSED on the
     // anon switch: assume the trial is disabled until the DB recovers.
     if (key === "anon_lesson_enabled") return false;
+    // Phase A — A2: anon_laptop_invite_disabled defaults FALSE (handoff
+    // enabled). DB outage → fall through to envFallback (false) → invite
+    // path stays open. The handoff is a graceful-fallback feature: a
+    // failure here just falls back to the existing wall flow, which is
+    // the conservative behavior during a DB outage.
     return envFallback;
   }
 }
@@ -64,4 +70,15 @@ export function isShareRenderDisabled(): Promise<boolean> {
 // fallback. Same pattern as the share kill switches.
 export function isAnonLessonEnabled(): Promise<boolean> {
   return readBool("anon_lesson_enabled", config.anonLessonEnabled);
+}
+
+// Phase A — A2: granular kill for the magic-link graduation handoff.
+// When TRUE, POST /api/anon/laptop-link returns 503 cleanly and the
+// PhoneGraduationDialog falls back to the existing wall flow.
+// Separate from anon_lesson_enabled so an operator can drain magic-
+// link abuse (token enumeration, mail-relay misuse) without nuking
+// the rest of the trial path. Env-fallback is FALSE (handoff
+// enabled) — the handoff is a graceful-fallback feature.
+export function isAnonLaptopInviteDisabled(): Promise<boolean> {
+  return readBool("anon_laptop_invite_disabled", false);
 }
