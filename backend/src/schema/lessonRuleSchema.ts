@@ -32,10 +32,11 @@ export const completionRuleSchema = z.discriminatedUnion("type", [
     type: z.literal("expected_stdout"),
     expected: z.string(),
   }),
-  // Phase 27-v2 Day 3a: paired with expected_stdout to reject the
-  // unedited lesson 1 starter (`Hello, YOUR_NAME!` contains the
-  // forbidden substring). See parallel comment in
-  // frontend/src/features/learning/content/schema.ts.
+  // Paired with expected_stdout to reject "lazy-pass" outputs (e.g.
+  // lesson 1 forbids "Hello, World!" — the literal example shown in the
+  // starter comment — so the learner has to type something of their own
+  // to clear the lenient `expected_stdout: "Hello, "` substring rule).
+  // See parallel comment in frontend/src/features/learning/content/schema.ts.
   z.object({
     type: z.literal("forbidden_in_stdout"),
     pattern: z.string(),
@@ -54,7 +55,13 @@ export const completionRuleSchema = z.discriminatedUnion("type", [
   }),
   // Phase A — A1 (funnel-edge pedagogy): learner-driven retrieval check
   // gating completion. See parallel comment in
-  // frontend/src/features/learning/content/schema.ts.
+  // frontend/src/features/learning/content/schema.ts. The cross-field
+  // correctIndex < choices.length check is enforced on the frontend
+  // schema via .refine; mirroring it here would lift this variant out
+  // of ZodObject (Zod's discriminatedUnion accepts ZodEffects in v3+,
+  // but keeping the structural symmetry simple). Backend's role is
+  // shape acceptance — content-lint + the frontend schema reject the
+  // out-of-range case before any lesson.json reaches a learner.
   z.object({
     type: z.literal("retrieval_check"),
     question: z.string().min(1),

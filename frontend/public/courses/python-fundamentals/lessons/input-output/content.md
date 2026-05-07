@@ -6,6 +6,7 @@ So far you've only printed hard-coded values. Now you'll make your program inter
 
 - How to read text input with `input()`
 - How to convert strings to numbers with `int()` and `float()`
+- A cleaner way to format output with **f-strings**
 - How to combine input and output in a useful program
 
 ## Instructions
@@ -37,6 +38,15 @@ Common conversions:
 - `int("42")` → `42` (whole number)
 - `float("3.14")` → `3.14` (decimal)
 - `str(42)` → `"42"` (back to text)
+
+**f-strings** are a cleaner way to do what `+` and `str()` did in the last lesson. Put `f` before the opening quote and drop variables straight into the string with `{}`:
+
+```python
+print("Age: " + str(age))     # the long way (lesson 2)
+print(f"Age: {age}")          # the f-string way (same output)
+```
+
+You don't have to call `str()` — f-strings convert numbers, booleans, floats automatically.
 
 ## Hints
 

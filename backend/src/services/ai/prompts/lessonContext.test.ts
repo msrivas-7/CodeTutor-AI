@@ -105,6 +105,24 @@ describe("buildLessonContextBlock", () => {
     expect(block).toMatch(/pass custom validation/);
   });
 
+  it("renders retrieval_check rule with do-not-reveal warning to the tutor", () => {
+    const ctx: LessonContext = {
+      ...full,
+      completionRules: [
+        {
+          type: "retrieval_check",
+          question: "What does print() do?",
+          choices: ["Nothing", "Shows text", "Math"],
+          correctIndex: 1,
+        },
+      ],
+    };
+    const block = buildLessonContextBlock(ctx);
+    expect(block).toMatch(/comprehension question/);
+    expect(block).toMatch(/do NOT reveal the answer/);
+    expect(block).not.toMatch(/pass custom validation/);
+  });
+
   it("joins multiple rules with '; and '", () => {
     const ctx: LessonContext = {
       ...full,

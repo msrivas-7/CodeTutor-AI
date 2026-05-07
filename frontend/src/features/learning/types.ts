@@ -149,5 +149,13 @@ export interface ValidationResult {
   passed: boolean;
   feedback: string[];
   nextHints?: string[];
+  // Phase A — A1: did every non-retrieval-check rule pass? Used by
+  // LessonPage to decide whether to mount the RetrievalCheckPanel
+  // (mounts only when stdout/file/test rules are clean — otherwise
+  // the user is still debugging code and the question would be a
+  // confusing context switch). Defaults to the same value as `passed`
+  // on lessons without a retrieval rule (so consumers that don't
+  // care about the distinction get expected behavior).
+  passedExceptRetrieval: boolean;
 }
 

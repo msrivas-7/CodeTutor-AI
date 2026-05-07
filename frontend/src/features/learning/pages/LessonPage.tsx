@@ -23,6 +23,7 @@ import { NarrowViewportGate } from "../../../components/NarrowViewportGate";
 import { SkipToContent } from "../../../components/SkipToContent";
 import { Modal } from "../../../components/Modal";
 import { LessonCompletePanel } from "../components/LessonCompletePanel";
+import { RetrievalCheckPanel } from "../components/RetrievalCheckPanel";
 import { WorkspaceCoach } from "../components/WorkspaceCoach";
 import { useSessionLifecycle } from "../../../hooks/useSessionLifecycle";
 import { useAuthStore } from "../../../auth/authStore";
@@ -279,13 +280,13 @@ export default function LessonPage({
     learnerId,
     practiceMode,
     practiceIndex,
-    // First-run cinematic relies on the authored starter code being
-    // present verbatim (the scripted "replace YOUR_NAME with your
-    // name" beat). Skip the resume-from-savedCode branch when
-    // landing here via the cinematic hand-off, or when the visitor
-    // is an anon /try/ user (no learnerId, nothing to resume from
-    // anyway, but force keeps any in-memory project-store state
-    // from leaking across mounts).
+    // First-run cinematic relies on the authored starter being present
+    // verbatim — Phase A — A1's empty-shell starter is what the scripted
+    // greet/run/celebrate beats are written against. Skip the
+    // resume-from-savedCode branch when landing via the cinematic
+    // hand-off, or when the visitor is an anon /try/ user (no
+    // learnerId, nothing to resume from anyway; the force flag also
+    // prevents in-memory project-store state from leaking across mounts).
     forceStarter: isFirstRun || mode === "anon",
   });
 
@@ -312,6 +313,36 @@ export default function LessonPage({
   useEffect(() => {
     if (chatCtxKey) switchChatContext(chatCtxKey);
   }, [chatCtxKey, switchChatContext]);
+
+  // Phase A — A1: retrieval-check gate. Lesson-author defines the
+  // question in lesson.json (`{type: "retrieval_check", question, choices,
+  // correctIndex, explanation?}`). The validator's "rule passed" contract
+  // reads this flag through `extra.retrievalAnswered`; LessonPage owns
+  // the source of truth + persists "answered correctly once" per
+  // (course, lesson) to localStorage so a returning learner doesn't
+  // re-prove it. Hydrate on mount keyed by (courseId, lessonId).
+  const retrievalKey =
+    courseId && lessonId
+      ? `ui:lesson:retrievalPassed:${courseId}:${lessonId}`
+      : null;
+  const [retrievalAnswered, setRetrievalAnswered] = useState<boolean>(() => {
+    if (!retrievalKey || typeof window === "undefined") return false;
+    try {
+      return window.localStorage.getItem(retrievalKey) === "1";
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    // Re-hydrate when we navigate between lessons (component is reused
+    // across route changes, so the lazy initializer above runs only once).
+    if (!retrievalKey || typeof window === "undefined") return;
+    try {
+      setRetrievalAnswered(window.localStorage.getItem(retrievalKey) === "1");
+    } catch {
+      setRetrievalAnswered(false);
+    }
+  }, [retrievalKey]);
 
   const layout = useLessonLayout({ lessonReady: !!loader.lesson && !loader.loading });
   const runner = useLessonRunner({
@@ -345,6 +376,7 @@ export default function LessonPage({
       runner.setHasRun(false);
     },
     mode,
+    retrievalAnswered,
   });
 
   // Run-success ring + Check sonar removed per user direction —
@@ -1099,7 +1131,13 @@ export default function LessonPage({
                       sonar on this button was extra. */}
                   <button
                     ref={layout.checkBtnRef}
-                    onClick={validator.handleCheck}
+                    onClick={() => {
+                      // Drop the click event — handleCheck now accepts
+                      // an optional override for the Phase A retrieval
+                      // gate path; passing the MouseEvent through would
+                      // mis-type as the override object.
+                      void validator.handleCheck();
+                    }}
                     disabled={runner.running || validator.runningTests || checkButtonLocked}
                     className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-xs font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-violet ${
                       !runner.running && !validator.runningTests && !checkButtonLocked
@@ -1400,6 +1438,49 @@ export default function LessonPage({
           Lesson not found
         </div>
       )}
+
+      {/* Phase A — A1: retrieval-check gate. Mounts when every other
+          completion rule is green but the retrieval rule still blocks
+          completion. The correct-answer callback persists to localStorage
+          and re-runs handleCheck so the validator's pass/showComplete
+          path fires on the next tick — the celebration mounts naturally
+          via the existing path, not via a new branch. */}
+      {!validator.showComplete
+        && lesson
+        && validator.validation
+        && validator.validation.passedExceptRetrieval
+        && !validator.validation.passed
+        && !retrievalAnswered
+        && (() => {
+          const rule = lesson.completionRules.find((r) => r.type === "retrieval_check");
+          if (!rule || !rule.question || !rule.choices || rule.correctIndex === undefined) {
+            return null;
+          }
+          return (
+            <RetrievalCheckPanel
+              question={rule.question}
+              choices={rule.choices}
+              correctIndex={rule.correctIndex}
+              explanation={rule.explanation}
+              onCorrect={() => {
+                if (retrievalKey && typeof window !== "undefined") {
+                  try {
+                    window.localStorage.setItem(retrievalKey, "1");
+                  } catch {
+                    // private-mode storage denial — in-memory state still
+                    // unlocks the lesson for this session, just not the next.
+                  }
+                }
+                setRetrievalAnswered(true);
+                // Pass the new value as an override — the captured
+                // closure of handleCheck still sees retrievalAnswered=false
+                // until the next render, so without the override the
+                // re-validation would fail and celebration would never mount.
+                void validator.handleCheck({ retrievalAnswered: true });
+              }}
+            />
+          );
+        })()}
 
       {validator.showComplete && lesson && (
         <LessonCompletePanel

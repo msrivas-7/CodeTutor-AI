@@ -12,10 +12,20 @@
 //   - Backtick inline code refs so `TutorResponseView` renders them as
 //     monospace tokens, matching how real tutor turns format code.
 //
-// Phase 27 — lesson 1 personalized. Starter has a `YOUR_NAME` placeholder;
-// the cinematic's job is to walk the learner from "computer says
-// `Hello, YOUR_NAME!`" to "computer says hi to me, by name."
-
+// Phase A — A1 (funnel-edge pedagogy): lesson 1 starter is now an
+// empty shell — the only thing in the file is a comment hinting
+// `print("Hello, …!")`. The cinematic's job is to walk the learner
+// from "the screen is empty — you have to type something" to
+// "computer says hi to me, by name." Concretely:
+//   1. GREET (scripted) — set the scene.
+//   2. Auto-Run fires the empty file → produces no stdout.
+//   3. CELEBRATE_RUN narrates the empty output and hands over.
+//   4. Learner types a print() line and runs.
+//   5. Success heuristic checks stdout includes "Hello, " AND is not
+//      the literal example "Hello, World!" — same contract as the
+//      lesson's expected_stdout + forbidden_in_stdout pair, so the
+//      cinematic and the validator agree on what "done" means.
+//
 // Phase 27-v2.2 audit fix (product-owner P2-2): anon path passes
 // firstName="there" by design — so the prior `Hey there` opener was
 // the customer-service-email beat. The PRAISE turn at the end IS
@@ -31,16 +41,17 @@ export const GREET = (name: string): string => {
       ? "Good to meet you."
       : `Hey ${name} — good to meet you.`;
   return (
-    `${opener} That little program on your screen? ` +
-    `It's a Python program that prints a greeting — but it has a placeholder. ` +
-    `Let me run it for you and you'll see what I mean.`
+    `${opener} That little file on your screen? ` +
+    `It's where you write code. Right now it's empty — just hint comments. ` +
+    `Let me run it for you so you can see what "running" actually does.`
   );
 };
 
 export const CELEBRATE_RUN = (): string =>
-  "There — `Hello, YOUR_NAME!` just printed. That's the placeholder. " +
-  "Your turn now. In the first line of code, replace `YOUR_NAME` with your actual " +
-  "name (keep the quotes!), then click Run again. See your computer say hi to you, by name.";
+  "And… nothing happened. That's right — the file has no real code yet, " +
+  "just `#` comments (Python ignores those). Your turn: type a `print(\"Hello, …!\")` " +
+  "line under the comments, swap in your own name, and click Run. " +
+  "You'll see your computer say hi to you, by name.";
 
 export const PRAISE_EDIT_RUN_AND_SEED = (name: string): string =>
   `Perfect, ${name} — your computer just said hi to you, by name. ` +
@@ -53,9 +64,9 @@ export const PRAISE_EDIT_RUN_AND_SEED = (name: string): string =>
 // cinematic stall — just shift the narration to "you drive" and wait
 // for the user's click instead of auto-pressing Run.
 export const GREET_USER_DRIVEN = (name: string): string =>
-  `Hey ${name} — good to meet you. That little program on your screen? ` +
-  `It's a Python program that prints a greeting — but it has a placeholder. ` +
-  `Click the green Run button when you're ready — I'll wait.`;
+  `Hey ${name} — good to meet you. That little file on your screen? ` +
+  `It's empty — just hint comments. Type a `+
+  `\`print("Hello, …!")\` line and click the green Run button when you're ready.`;
 
 // Soft-correction turns fired when the learner's edit produces the
 // wrong output on their first try. Each is keyed to a specific kind
@@ -68,13 +79,17 @@ export const GREET_USER_DRIVEN = (name: string): string =>
 // looking at their code right now, not at the panel — long
 // explanations break the loop.
 
-export const WRONG_EDIT_PLACEHOLDER = (): string =>
-  "Almost — you still have `YOUR_NAME` in there. Replace it with your actual " +
-  "name (keep the quotes around it), then run again.";
+// Lesson 1's lenient `expected_stdout: "Hello, "` is paired with a
+// `forbidden_in_stdout: "Hello, World!"` to reject literal copies of
+// the starter's example. This soft-correction matches that contract
+// so the cinematic catches the lazy-pass before the validator does.
+export const WRONG_EDIT_LITERAL_EXAMPLE = (): string =>
+  "Almost — that's the literal example I gave you, not your name. " +
+  "Swap `World` for what people actually call you (keep the quotes), then run again.";
 
 export const WRONG_EDIT_EMPTY = (): string =>
-  "Hmm — nothing printed. Make sure you still have a " +
-  "`print(...)` call in the file. Tweak and run again.";
+  "Hmm — nothing printed. Make sure you've added a " +
+  "`print(\"Hello, …!\")` line outside the comments. Tweak and run again.";
 
 export const WRONG_EDIT_ERROR = (): string =>
   "Something errored out — have a look at the red text in the output panel. " +
@@ -83,14 +98,14 @@ export const WRONG_EDIT_ERROR = (): string =>
 
 export const WRONG_EDIT_GENERIC = (): string =>
   "Close, but the output should look like `Hello, YourName!`. " +
-  "On the first line, change `name = \"YOUR_NAME\"` so the quotes wrap your " +
-  "real name, then run again.";
+  "Add a line like `print(\"Hello, Maya!\")` (with your actual name " +
+  "in the quotes), then run again.";
 
 // Second-attempt rescue. The learner has guessed twice and the
 // output still doesn't match; give them the answer directly so
 // they don't end up stranded watching a cinematic that never
 // advances. Same spirit as a real tutor walking you through it.
 export const STRONGER_HINT = (): string =>
-  "Here it is line-for-line — change the first line to " +
-  "`name = \"Your Name\"` (with your actual name in the quotes), " +
+  "Here it is line-for-line — type " +
+  "`print(\"Hello, Your Name!\")` (with your actual name in the quotes), " +
   "then click Run.";

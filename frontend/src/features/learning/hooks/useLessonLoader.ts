@@ -46,9 +46,10 @@ export interface UseLessonLoaderArgs {
   onResetPerLessonState?: () => void;
   // When true, skip the resume-from-savedCode branch and always hydrate
   // the editor with the authored starterFiles. Used by the first-run
-  // cinematic handoff (?firstRun=1) so the scripted "replace YOUR_NAME"
-  // beat always has the authored `name = "YOUR_NAME"` line to target,
-  // regardless of what the learner left in the buffer on a prior visit.
+  // cinematic handoff (?firstRun=1) so the scripted choreography always
+  // operates on the authored starter (Phase A — A1: an empty shell with
+  // hint comments) rather than whatever the learner left in the buffer
+  // on a prior visit.
   forceStarter?: boolean;
 }
 
@@ -226,8 +227,10 @@ export function useLessonLoader({
     // the same first-run cinematic case where the AUTHORED starter
     // must be visible. Without forceDefaults, projectCache would
     // re-hydrate the user's previously-edited buffer for this context
-    // and the scripted "replace YOUR_NAME with your name" beat
-    // would land against text the user already changed.
+    // and the scripted choreography would mis-narrate against text
+    // the learner already changed (Phase A — A1: starter is comment-
+    // only, so a stale buffer would also defeat the empty-shell
+    // teaching shape).
     //
     // Phase 22F2 prep: openTabs now includes EVERY starter file, not
     // just the entry point. Multi-file lessons (e.g. modules-and-imports)

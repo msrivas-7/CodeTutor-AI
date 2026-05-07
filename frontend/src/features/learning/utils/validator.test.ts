@@ -103,12 +103,15 @@ describe("validateLesson", () => {
   });
 
   it("rejects unedited lesson 1 starter under expected_stdout + forbidden_in_stdout pair", () => {
-    // Phase 27-v2 Day 3a — the lesson 1 contract. Stdout from the
-    // unedited starter is `Hello, YOUR_NAME!\n`; it contains the
-    // expected substring "Hello, " but ALSO contains the forbidden
-    // "YOUR_NAME" sentinel. Both rules must fire on the same run for
-    // the lesson to feel honest — Maya can't share a "I did it!"
-    // celebration whose stdout still has the placeholder name.
+    // Generic invariant for the expected_stdout + forbidden_in_stdout
+    // pairing: stdout that contains BOTH the required substring and a
+    // forbidden token must fail. This test still uses the historical
+    // YOUR_NAME shape — Phase A — A1 swapped lesson 1's actual
+    // forbidden token to "Hello, World!", but the invariant under
+    // test (both rules fire together; either failing fails the
+    // lesson) is the same and is exercised here in the simpler shape.
+    // The lesson-1-specific contract lives in the lesson.json + the
+    // backend-pinned ANON_PINNED_LESSON_CONTEXT.
     const unedited = { ...okRun, stdout: "Hello, YOUR_NAME!\n" };
     const rules: CompletionRule[] = [
       { type: "expected_stdout", expected: "Hello, " },
@@ -407,6 +410,107 @@ describe("validateLesson", () => {
       ];
       const result = validateLesson(okRun, files, rules);
       expect(result.passed).toBe(false);
+    });
+  });
+
+  describe("retrieval_check (Phase A — A1)", () => {
+    const retrievalRule: CompletionRule = {
+      type: "retrieval_check",
+      question: "What does print() show?",
+      choices: ["Nothing", "The text in quotes", "The variable name"],
+      correctIndex: 1,
+    };
+
+    it("fails when the learner has not yet answered the retrieval check", () => {
+      const result = validateLesson(okRun, files, [retrievalRule]);
+      expect(result.passed).toBe(false);
+      // passedExceptRetrieval is the "everything else is green" signal that
+      // the LessonPage uses to decide whether to mount the panel.
+      expect(result.passedExceptRetrieval).toBe(true);
+    });
+
+    it("fails with retrievalAnswered explicitly false (same as undefined)", () => {
+      const result = validateLesson(okRun, files, [retrievalRule], {
+        retrievalAnswered: false,
+      });
+      expect(result.passed).toBe(false);
+      expect(result.passedExceptRetrieval).toBe(true);
+    });
+
+    it("passes when retrievalAnswered=true and there are no other rules", () => {
+      const result = validateLesson(okRun, files, [retrievalRule], {
+        retrievalAnswered: true,
+      });
+      expect(result.passed).toBe(true);
+      expect(result.passedExceptRetrieval).toBe(true);
+    });
+
+    it("requires every other rule to also pass — retrieval alone isn't enough", () => {
+      const rules: CompletionRule[] = [
+        // expected_stdout will fail (output is "Hello, World!" not "Goodbye"),
+        // so even with retrieval answered the lesson stays incomplete.
+        { type: "expected_stdout", expected: "Goodbye" },
+        retrievalRule,
+      ];
+      const result = validateLesson(okRun, files, rules, { retrievalAnswered: true });
+      expect(result.passed).toBe(false);
+      // Crucially: passedExceptRetrieval is also false here, because the
+      // STDOUT rule failed — the panel must NOT mount when the learner is
+      // still debugging code.
+      expect(result.passedExceptRetrieval).toBe(false);
+    });
+
+    it("passedExceptRetrieval=true only when stdout/file rules pass and retrieval is the only blocker", () => {
+      const rules: CompletionRule[] = [
+        { type: "expected_stdout", expected: "Hello, " },
+        { type: "forbidden_in_stdout", pattern: "Goodbye" },
+        retrievalRule,
+      ];
+      const result = validateLesson(okRun, files, rules, { retrievalAnswered: false });
+      expect(result.passed).toBe(false);
+      expect(result.passedExceptRetrieval).toBe(true);
+    });
+
+    it("passes the whole lesson when stdout + retrieval are both green", () => {
+      const rules: CompletionRule[] = [
+        { type: "expected_stdout", expected: "Hello, " },
+        retrievalRule,
+      ];
+      const result = validateLesson(okRun, files, rules, { retrievalAnswered: true });
+      expect(result.passed).toBe(true);
+      expect(result.passedExceptRetrieval).toBe(true);
+    });
+
+    it("emits learner-facing feedback that mentions the question (not the code)", () => {
+      const result = validateLesson(okRun, files, [retrievalRule]);
+      // The retrieval-check feedback should not contain a `nextHint` that
+      // tells the learner to "edit your code" — the question is its own UI.
+      expect(result.nextHints ?? []).not.toContain(
+        expect.stringMatching(/edit|code/i),
+      );
+    });
+  });
+
+  describe("passedExceptRetrieval invariant", () => {
+    // Without a retrieval rule in the set, passedExceptRetrieval should
+    // mirror passed exactly. Consumers that don't care about the
+    // distinction (everything except LessonPage) read it as "passed".
+    it("equals `passed` on a no-rules lesson (auto-pass)", () => {
+      const r = validateLesson(okRun, files, []);
+      expect(r.passed).toBe(true);
+      expect(r.passedExceptRetrieval).toBe(true);
+    });
+
+    it("equals `passed` (true) when stdout passes and there's no retrieval rule", () => {
+      const r = validateLesson(okRun, files, [{ type: "expected_stdout", expected: "Hello, " }]);
+      expect(r.passed).toBe(true);
+      expect(r.passedExceptRetrieval).toBe(true);
+    });
+
+    it("equals `passed` (false) when stdout fails and there's no retrieval rule", () => {
+      const r = validateLesson(errorRun, files, [{ type: "expected_stdout", expected: "Hello, " }]);
+      expect(r.passed).toBe(false);
+      expect(r.passedExceptRetrieval).toBe(false);
     });
   });
 });

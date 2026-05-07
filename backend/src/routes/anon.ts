@@ -117,7 +117,28 @@ const ANON_PINNED_LESSON_CONTEXT = {
   priorConcepts: [] as string[],
   completionRules: [
     { type: "expected_stdout" as const, expected: "Hello, " },
-    { type: "forbidden_in_stdout" as const, pattern: "YOUR_NAME" },
+    // Phase A — A1: lesson 1 starter is now an empty shell — there's no
+    // placeholder identifier left to forbid. The forbidden token here
+    // rejects a literal copy of the example call shown in the starter
+    // comment, so the learner has to type SOMETHING of their own to pass.
+    { type: "forbidden_in_stdout" as const, pattern: "Hello, World!" },
+    // Phase A — A1: must mirror lesson.json for this lesson — otherwise the
+    // server-pinned context the tutor reads diverges from what the validator
+    // checks, and the gate is invisible to the AI's situation block.
+    {
+      type: "retrieval_check" as const,
+      question:
+        'When this code runs:\n\n    print("Hello, World!")\n\nWhat shows up on the screen?',
+      choices: [
+        'print("Hello, World!")',
+        "Hello, World!",
+        '"Hello, World!"',
+        "Nothing — the quotes hide the text",
+      ],
+      correctIndex: 1,
+      explanation:
+        "print() shows the text BETWEEN the quotes. The quotes themselves don't appear in the output — they just tell the computer where the text starts and ends.",
+    },
   ],
   studentProgressSummary: "first attempt",
   lessonOrder: 1,

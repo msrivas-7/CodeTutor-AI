@@ -10,7 +10,7 @@ import {
   GREET_USER_DRIVEN,
   CELEBRATE_RUN,
   PRAISE_EDIT_RUN_AND_SEED,
-  WRONG_EDIT_PLACEHOLDER,
+  WRONG_EDIT_LITERAL_EXAMPLE,
   WRONG_EDIT_EMPTY,
   WRONG_EDIT_ERROR,
   WRONG_EDIT_GENERIC,
@@ -78,13 +78,13 @@ interface UseFirstRunChoreographyArgs {
    */
   onSeed?: "authed-mark-prefs" | "anon-stash";
   /**
-   * Phase 27-v2 Day 3b option (d): on anon path, the praise turn
-   * extracts the user's typed name from main.py at praise time and
-   * personalizes the celebration ("Perfect, Maya — your computer
-   * just said hi to you, by name."). Caller passes a getter that
-   * reads the current code and returns the parsed name (or null if
-   * the user kept YOUR_NAME or removed the assignment). Authed path
-   * leaves this undefined; choreography uses the user_metadata
+   * On anon path, the praise turn extracts the user's typed name
+   * from main.py and personalizes the celebration ("Perfect, Maya —
+   * your computer just said hi to you, by name."). Caller passes a
+   * getter that reads the current code and returns the parsed name
+   * (or null if no name could be extracted — e.g. the learner ran
+   * the empty-shell starter without typing a print() line). Authed
+   * path leaves this undefined; choreography uses the user_metadata
    * firstName like before.
    */
   resolvePraiseName?: () => string | null;
@@ -102,8 +102,9 @@ const PRE_GREET_BEAT_MS = 1_000;
 // with the learner's eye before the output panel starts animating.
 const POST_GREET_BEAT_MS = 1_000;
 // Pause after the Run output lands before the celebrateRun message
-// starts typing. Gives the learner a beat to read `Hello, YOUR_NAME!`
-// in the output panel before the tutor speaks again.
+// starts typing. Gives the learner a beat to register that the file
+// produced no output (Phase A — A1 starter is comment-only) before
+// the tutor speaks again.
 const POST_RUN_BEAT_MS = 2_000;
 // Phase 27-v2.2 post-Fix-7 user-bug fix — idle watchdog (was wall-clock).
 // Originally a hard 5-min cap from mount: catch a wedge that left
@@ -334,9 +335,10 @@ export function useFirstRunChoreography({
         }
 
         if (step === "celebrateRun") {
-          // Breathing room so the output panel's `Hello, YOUR_NAME!`
-          // lands and reads before the next scripted turn overwrites
-          // the attention with new typing.
+          // Breathing room so the output panel's "(no output)" line
+          // (or the empty stdout — the starter is comment-only on
+          // Phase A — A1) lands and reads before the next scripted
+          // turn overwrites the attention with new typing.
           await new Promise((r) => setTimeout(r, POST_RUN_BEAT_MS));
           if (cancelled) return;
           const stream = pushScriptedAssistant(CELEBRATE_RUN());
@@ -351,11 +353,13 @@ export function useFirstRunChoreography({
           // Pick correction copy keyed to what actually went wrong.
           // Detection precedence matches severity: a run that errored
           // needs an error message first, an empty stdout means the
-          // print call got lost, an output that still contains
-          // `YOUR_NAME` means they ran without replacing the
-          // placeholder. The generic fallback covers "typed something
-          // random." attempts >= 2 short-circuits the specific copy
-          // and drops the answer — we never leave the learner stranded.
+          // learner hasn't typed a print() yet, an output that's the
+          // literal example "Hello, World!" means they copied the
+          // starter comment verbatim (the validator's
+          // forbidden_in_stdout will reject it too — same contract).
+          // The generic fallback covers "typed something random."
+          // attempts >= 2 short-circuits the specific copy and drops
+          // the answer — we never leave the learner stranded.
           const attempts = useFirstRunStore.getState().wrongEditAttempts;
           const lastResult = useRunStore.getState().result;
           let copy: string;
@@ -365,8 +369,8 @@ export function useFirstRunChoreography({
             copy = WRONG_EDIT_ERROR();
           } else if (!lastResult?.stdout || lastResult.stdout.trim().length === 0) {
             copy = WRONG_EDIT_EMPTY();
-          } else if (lastResult.stdout.includes("YOUR_NAME")) {
-            copy = WRONG_EDIT_PLACEHOLDER();
+          } else if (lastResult.stdout.includes("Hello, World!")) {
+            copy = WRONG_EDIT_LITERAL_EXAMPLE();
           } else {
             copy = WRONG_EDIT_GENERIC();
           }
@@ -475,16 +479,16 @@ export function useFirstRunChoreography({
   // Without this, the auto-run's result (from the awaitRun step) is
   // still sitting in runStore when awaitEdit begins — and since
   // `runner.hasRun` is true from that auto-run, the observer below
-  // would evaluate the STALE "Hello, YOUR_NAME!" stdout the instant the
-  // learner types a single character (hasEdited flips true). That
-  // fired `correctEdit` immediately, with a "capital W" nudge
-  // referring to text the user hadn't actually produced yet. Seeding
-  // here means the observer only fires on runs that happen AFTER
-  // awaitEdit began — i.e., on the learner's own run, not the
-  // auto-run from one step earlier. The same seed also handles the
-  // user-typed-during-celebrateRun edge case: when awaitEdit enters
-  // with hasEdited already true, the ref matches the current result
-  // and the observer correctly waits for an actual run.
+  // would evaluate the STALE auto-run stdout the instant the learner
+  // types a single character (hasEdited flips true). That fired
+  // `correctEdit` immediately, with a nudge referring to text the
+  // user hadn't actually produced yet. Seeding here means the observer
+  // only fires on runs that happen AFTER awaitEdit began — i.e., on
+  // the learner's own run, not the auto-run from one step earlier.
+  // The same seed also handles the user-typed-during-celebrateRun
+  // edge case: when awaitEdit enters with hasEdited already true,
+  // the ref matches the current result and the observer correctly
+  // waits for an actual run.
   useEffect(() => {
     if (step === "awaitEdit") {
       lastEvaluatedResultRef.current = useRunStore.getState().result;
@@ -499,14 +503,16 @@ export function useFirstRunChoreography({
     if (!lastResult) return;
     if (lastEvaluatedResultRef.current === lastResult) return;
     lastEvaluatedResultRef.current = lastResult;
-    // Phase 27 personalized lesson 1: success = exit clean, output
-    // contains "Hello, " (the greeting structure), AND no `YOUR_NAME`
-    // placeholder still in stdout (i.e., they actually replaced it).
+    // Phase A — A1: success = exit clean, output has the greeting
+    // structure ("Hello, "), AND is not the literal example
+    // ("Hello, World!") that the starter comment showed. Same
+    // contract as the lesson's expected_stdout + forbidden_in_stdout
+    // pair so the cinematic and the validator agree on "done."
     const stdout = lastResult.stdout ?? "";
     const stdoutOk =
       lastResult.exitCode === 0 &&
       stdout.includes("Hello, ") &&
-      !stdout.includes("YOUR_NAME");
+      !stdout.includes("Hello, World!");
     if (stdoutOk) {
       setStep("praiseEditRun");
       return;

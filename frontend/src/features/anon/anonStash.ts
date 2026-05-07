@@ -225,11 +225,19 @@ export function markChoreographyDoneAnon(): void {
 }
 
 /**
- * Parse `name = "Maya"` (or single-quote, or whitespace variants) out
- * of the user's main.py. Returns the literal between the quotes if
- * exactly one match is found and it's not the unedited "YOUR_NAME"
- * sentinel; null otherwise. Used by AnonLessonPage at lesson
- * completion to populate the `name` field of the stash.
+ * Parse the learner's name out of their main.py. Returns the literal
+ * between the quotes if a match is found and it's not a known
+ * placeholder sentinel; null otherwise. Used by AnonLessonPage at
+ * lesson completion to populate the `name` field of the stash, and
+ * by useFirstRunChoreography to personalize the praise turn.
+ *
+ * Two patterns are supported, in priority order:
+ *   1. Phase A — A1 starter shape: `print("Hello, NAME!")` (the new
+ *      empty-shell starter pushes the learner directly to a print
+ *      call — no intermediate variable).
+ *   2. Pre-Phase-A starter shape: `name = "NAME"` (kept for learners
+ *      who happen to introduce a variable first, and as a fallback
+ *      for any other lesson that follows the variable convention).
  *
  * Why server-side too? It isn't — this parser runs purely on the
  * client at stash-time. The handoff endpoint trusts whatever name
@@ -238,13 +246,51 @@ export function markChoreographyDoneAnon(): void {
  * `Hey there` shows on lesson 2 instead of `Hey Maya` — bounded.
  */
 export function extractNameFromCode(code: string): string | null {
-  // Anchored to `name = "..."` or `name = '...'`. We only consider the
-  // first assignment — if the user reassigns later, that's beyond
-  // first-run scope.
-  const match = /\bname\s*=\s*['"]([^'"]{1,40})['"]/.exec(code);
-  if (!match) return null;
-  const candidate = match[1]!.trim();
-  if (!candidate) return null;
-  if (candidate.toUpperCase() === "YOUR_NAME") return null;
-  return candidate;
+  // Strip Python line comments before matching — the lesson 1 starter
+  // comments out a `print("Hello, Maya!")` example, and a naive regex
+  // would find that example before the learner's actual code. Splitting
+  // on lines and keeping only the part before the first `#` is enough
+  // here (we don't need to handle # inside strings — the lesson 1
+  // teaching shape doesn't use that).
+  const stripped = code
+    .split("\n")
+    .map((line) => {
+      const hash = line.indexOf("#");
+      return hash >= 0 ? line.slice(0, hash) : line;
+    })
+    .join("\n");
+
+  // Try the Phase A starter shape first — `print("Hello, X!")`.
+  // Whitespace variants and either quote style. Captures everything
+  // between "Hello, " and "!" (1–40 chars, no newlines/quotes).
+  const printMatch =
+    /\bprint\s*\(\s*['"]\s*Hello,\s*([^'"\n!]{1,40})\s*!\s*['"]/.exec(stripped);
+  if (printMatch) {
+    const candidate = printMatch[1]!.trim();
+    if (candidate && !isPlaceholderName(candidate)) return candidate;
+  }
+
+  // Fall back to the variable-assignment shape — `name = "X"`. We only
+  // consider the first assignment — if the user reassigns later,
+  // that's beyond first-run scope.
+  const varMatch = /\bname\s*=\s*['"]([^'"]{1,40})['"]/.exec(stripped);
+  if (varMatch) {
+    const candidate = varMatch[1]!.trim();
+    if (candidate && !isPlaceholderName(candidate)) return candidate;
+  }
+
+  return null;
+}
+
+// Names that signal "the learner did not actually personalize." YOUR_NAME
+// is the historical placeholder sentinel from the pre-Phase-A starter.
+// World is rejected because the lesson's `forbidden_in_stdout` rule
+// would also reject it — keeping the praise-turn extractor and the
+// validator in sync. Maya is the placeholder name shown in the new
+// starter's comment example, but a learner whose actual name is Maya
+// is reasonably common; we trust it through and accept the rare case
+// where a copy-the-example learner gets a personalized "Perfect, Maya."
+function isPlaceholderName(candidate: string): boolean {
+  const upper = candidate.toUpperCase();
+  return upper === "YOUR_NAME" || upper === "WORLD";
 }

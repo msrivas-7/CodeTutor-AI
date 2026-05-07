@@ -79,6 +79,15 @@ export interface UseLessonValidatorArgs {
    * trap door.
    */
   mode?: "authed" | "anon";
+  /**
+   * Phase A — A1: gates the `retrieval_check` rule (when present in
+   * the lesson). LessonPage owns the source of truth; this hook just
+   * reflects it into validateLesson(). When the flag flips false→true,
+   * the next handleCheck() call (typically fired immediately by the
+   * RetrievalCheckPanel correct-answer callback) will see the new
+   * value and the lesson can complete. Defaults to false.
+   */
+  retrievalAnswered?: boolean;
 }
 
 export function useLessonValidator({
@@ -99,6 +108,7 @@ export function useLessonValidator({
   setTutorCollapsed,
   onResetRunnerFlags,
   mode = "authed",
+  retrievalAnswered = false,
 }: UseLessonValidatorArgs) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [validation, setValidation] = useState<ValidationResult | null>(null);
@@ -204,8 +214,17 @@ export function useLessonValidator({
     }
   }, [sessionId, sessionPhase, runningTests, courseId, lessonId, lesson, functionTests, mode]);
 
-  const handleCheck = useCallback(async () => {
+  const handleCheck = useCallback(async (overrides?: { retrievalAnswered?: boolean }) => {
+    // Phase A — A1: callers (specifically the RetrievalCheckPanel
+    // correct-answer callback) need to re-run validation with a value
+    // they JUST set, before React has re-rendered. The hook closure
+    // captures `retrievalAnswered` at callback-creation time, so reading
+    // the prop directly here would yield the stale `false`. The override
+    // bridges that gap — we use it if provided, else fall back to the
+    // closure-captured value (the normal Check-button path).
     if (!lesson || !courseId || !lessonId) return;
+    const effectiveRetrievalAnswered =
+      overrides?.retrievalAnswered ?? retrievalAnswered;
     const files = useProjectStore.getState().snapshot();
     const result = useRunStore.getState().result;
 
@@ -283,6 +302,7 @@ export function useLessonValidator({
     const v = validateLesson(result, files, lesson.completionRules, {
       testReport: latestReport,
       language: lesson.language,
+      retrievalAnswered: effectiveRetrievalAnswered,
     });
     setValidation(v);
     setHasChecked(true);
@@ -374,7 +394,7 @@ export function useLessonValidator({
         setShowComplete(true);
       }, CINEMA_DURATIONS.sonarHold);
     }
-  }, [lesson, courseId, lessonId, completeLesson, learnerId, totalLessons, validation, practiceMode, practiceIndex, completePracticeExercise, sessionId, functionTests, testReport, lastFailedName]);
+  }, [lesson, courseId, lessonId, completeLesson, learnerId, totalLessons, validation, practiceMode, practiceIndex, completePracticeExercise, sessionId, functionTests, testReport, lastFailedName, retrievalAnswered]);
 
   const applyPracticeStarter = useCallback((exerciseIndex: number) => {
     if (!lesson?.practiceExercises || !courseId || !lessonId) return;

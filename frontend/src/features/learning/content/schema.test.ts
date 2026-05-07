@@ -75,6 +75,27 @@ describe("content schemas", () => {
     ).toBeTruthy();
   });
 
+  it("retrieval_check rejects out-of-range correctIndex", () => {
+    // correctIndex past the choices array — unsatisfiable lesson.
+    expect(() =>
+      completionRuleSchema.parse({
+        type: "retrieval_check",
+        question: "?",
+        choices: ["a", "b", "c"],
+        correctIndex: 3,
+      }),
+    ).toThrow();
+    // Boundary: last valid index is choices.length - 1.
+    expect(
+      completionRuleSchema.parse({
+        type: "retrieval_check",
+        question: "?",
+        choices: ["a", "b", "c"],
+        correctIndex: 2,
+      }),
+    ).toBeTruthy();
+  });
+
   it("retrieval_check requires 2-4 choices and explanation is optional", () => {
     // 1 choice — too few
     expect(() =>
@@ -145,5 +166,36 @@ describe("content schemas", () => {
     expect(() =>
       completionRuleSchema.parse({ type: "function_tests", tests: [] }),
     ).toThrow();
+  });
+
+  it("practiceExerciseSchema rejects retrieval_check inside an exercise (no panel renders for exercise scope)", () => {
+    expect(() =>
+      practiceExerciseSchema.parse({
+        id: "p1",
+        title: "Practice",
+        prompt: "Try this",
+        goal: "Goal",
+        completionRules: [
+          { type: "expected_stdout", expected: "ok" },
+          {
+            type: "retrieval_check",
+            question: "?",
+            choices: ["a", "b"],
+            correctIndex: 0,
+          },
+        ],
+      }),
+    ).toThrow();
+
+    // Sanity: the same exercise without retrieval_check parses fine.
+    expect(
+      practiceExerciseSchema.parse({
+        id: "p1",
+        title: "Practice",
+        prompt: "Try this",
+        goal: "Goal",
+        completionRules: [{ type: "expected_stdout", expected: "ok" }],
+      }),
+    ).toBeTruthy();
   });
 });

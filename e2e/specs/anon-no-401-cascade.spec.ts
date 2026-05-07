@@ -34,6 +34,13 @@ test.describe("Phase 27-v2.1 — no 401 cascade on anon path", () => {
       window.sessionStorage.setItem("codetutor.anonCinematicSeen", "1");
       window.sessionStorage.setItem("codetutor.anonCoachSeen", "1");
       window.sessionStorage.setItem("codetutor.anonChoreographyDone", "1");
+      // Phase A — A1: pre-seed retrieval-check pass so Check goes
+      // straight to celebration (this spec tests the 401 cascade, not
+      // the retrieval gate).
+      window.localStorage.setItem(
+        "ui:lesson:retrievalPassed:python-fundamentals:hello-world",
+        "1",
+      );
     });
 
     // Collect every 4xx response. The 401 cascade is the load-bearing

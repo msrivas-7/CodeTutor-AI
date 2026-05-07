@@ -171,12 +171,24 @@ test.describe("lesson-end feedback chip", () => {
   });
 
   async function completeHelloWorld(page: Parameters<typeof waitForMonacoReady>[0]) {
+    // Phase A — A1: pre-seed retrieval-pass so the celebration mounts on
+    // Check (this spec exercises lesson-end feedback chip, not the
+    // retrieval gate). The dedicated gate spec lives elsewhere.
+    await page.addInitScript(() => {
+      window.localStorage.setItem(
+        "ui:lesson:retrievalPassed:python-fundamentals:hello-world",
+        "1",
+      );
+    });
     await page.goto(`/learn/course/${COURSE_ID}/lesson/hello-world`);
     await waitForMonacoReady(page);
     await expect(S.lessonRunButton(page)).toBeEnabled({ timeout: 30_000 });
     await setMonacoValue(page, readLessonSolution(COURSE_ID, "hello-world"));
     await S.lessonRunButton(page).click();
-    await expect(S.outputPanel(page)).toContainText(/Hello, World!/, { timeout: 20_000 });
+    // Phase A — A1: lesson 1's authored solution greets a person by name
+    // ("Hello, Alice!") — matches the new completion contract
+    // (expected_stdout: "Hello, " + forbidden_in_stdout: "Hello, World!").
+    await expect(S.outputPanel(page)).toContainText(/Hello, Alice!/, { timeout: 20_000 });
     await S.checkMyWorkButton(page).click();
     await expectLessonComplete(page);
   }

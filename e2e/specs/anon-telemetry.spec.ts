@@ -87,6 +87,13 @@ test.describe("Phase 27-v2.2 Fix 6 — funnel telemetry", () => {
       window.sessionStorage.setItem("codetutor.anonCinematicSeen", "1");
       window.sessionStorage.setItem("codetutor.anonCoachSeen", "1");
       window.sessionStorage.setItem("codetutor.anonChoreographyDone", "1");
+      // Phase A — A1: pre-seed retrieval-pass so Check goes straight
+      // to celebration (this spec verifies telemetry events, not the
+      // retrieval gate behavior).
+      window.localStorage.setItem(
+        "ui:lesson:retrievalPassed:python-fundamentals:hello-world",
+        "1",
+      );
     });
   });
 

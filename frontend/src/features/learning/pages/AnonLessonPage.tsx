@@ -229,14 +229,13 @@ export default function AnonLessonPage() {
           // "every lesson works like this" framing.
           subtitle="Every lesson is like this — code, run, see it answer."
           outputPreview={{
-            // Phase 27-v2.2 Fix 2: was `Hello, YOUR_NAME!`. The cinematic
-            // displayed `Hello, YOUR_NAME!` and the lesson auto-Run a few
-            // seconds later printed the same exact string — the "Run
-            // prints the thing" reveal landed as a re-run of a clip
-            // Maya just watched. Plain blanks are the "fillable slot"
-            // signal without telegraphing the lesson output. The
-            // literal `YOUR_NAME` token stays in the lesson starter and
-            // the auto-Run, where it serves as the reveal.
+            // Plain blanks ("Hello, ____!") signal "fillable slot"
+            // without telegraphing what the lesson auto-Run will
+            // produce. Phase A — A1: the starter is comment-only and
+            // the auto-Run prints nothing — so the fillable-slot
+            // metaphor here pre-stages the empty-state the learner
+            // will see, then asks them to type the print() line that
+            // fills it.
             template: "Hello, ____!",
             placeholder: "____",
           }}
