@@ -26,6 +26,7 @@ const { db } = await import("../db/client.js");
 const { anonLaptopInviteRouter } = await import("./anonLaptopInvite.js");
 const { errorHandler } = await import("../middleware/errorHandler.js");
 const { sendEmail } = await import("../services/email/acsClient.js");
+const { hashEmail } = await import("../services/ai/ipHash.js");
 
 let srv: Server;
 let base: string;
@@ -195,6 +196,86 @@ describe("POST /api/anon/laptop-link", () => {
     expect(r2.status).toBe(429);
     const body = await r2.json();
     expect(body.scope).toBe("email");
+  });
+
+  // Review finding (PR #9, P1): the caps used to be read-then-write
+  // across separate statements, so a concurrent burst all observed the
+  // same pre-insert count, all passed, and all inserted — sending far
+  // more mail than the advertised caps from an unauthenticated route.
+  // reserveAndCreateInvite now does check+insert in one advisory-locked
+  // transaction. These two tests fire genuinely parallel requests; they
+  // fail against the old sequential implementation.
+  // Generous timeout: the advisory lock makes these requests serialize
+  // by design, and each one round-trips to a remote Supabase — the
+  // default 5s isn't enough for 6–8 sequential trips.
+  it("per-email cap holds under concurrent bursts (no double-send)", { timeout: 60_000 }, async () => {
+    if (!dbReachable) return;
+    const email = `burst-${randomUUID()}@example.test`;
+    const results = await Promise.all(
+      Array.from({ length: 6 }, (_, i) =>
+        postCreate(validBody({ email }), `10.0.2.${i + 1}`),
+      ),
+    );
+    const ok = results.filter((r) => r.status === 200);
+    const limited = results.filter((r) => r.status === 429);
+    for (const r of ok) {
+      tokens.push(new URL((await r.json()).url).searchParams.get("invite")!);
+    }
+    // Exactly one send may win; every other must be refused.
+    expect(ok.length).toBe(1);
+    expect(limited.length).toBe(5);
+
+    // The row count is the ground truth the email volume follows.
+    const emailHash = hashEmail(email);
+    const rows = await db()<{ n: number }[]>`
+      SELECT COUNT(*)::int AS n
+        FROM public.anon_laptop_invites
+       WHERE email_hash = ${emailHash}
+    `;
+    expect(rows[0]!.n).toBe(1);
+  });
+
+  it("per-IP cap holds under concurrent bursts", { timeout: 60_000 }, async () => {
+    if (!dbReachable) return;
+    const ip = "10.0.3.77";
+    const results = await Promise.all(
+      Array.from({ length: 8 }, () =>
+        postCreate(
+          validBody({ email: `ipburst-${randomUUID()}@example.test` }),
+          ip,
+        ),
+      ),
+    );
+    const ok = results.filter((r) => r.status === 200);
+    for (const r of ok) {
+      tokens.push(new URL((await r.json()).url).searchParams.get("invite")!);
+    }
+    // PER_IP_CAP is 3 — no more may slip through, whatever the timing.
+    expect(ok.length).toBe(3);
+    expect(results.filter((r) => r.status === 429).length).toBe(5);
+  });
+
+  // Review finding (PR #9, P2): Zod's .max() counts UTF-16 code units
+  // but the DB CHECK is octet_length — so multibyte code in the 2–4k
+  // character range passed validation and then died on the insert,
+  // surfacing as a 500 instead of a bounded 400.
+  it("rejects over-4096-BYTE code with 400, not a 500 from the DB CHECK", async () => {
+    if (!dbReachable) return;
+    // 1500 × 3-byte chars = 4500 bytes, but only 1500 JS length units.
+    const multibyte = "あ".repeat(1500);
+    expect(multibyte.length).toBeLessThan(4096);
+    expect(Buffer.byteLength(multibyte, "utf8")).toBeGreaterThan(4096);
+    const r = await postCreate(validBody({ code: multibyte }));
+    expect(r.status).toBe(400);
+    expect((await r.json()).error).toBe("INVALID_BODY");
+  });
+
+  it("accepts multibyte code that fits inside the byte budget", async () => {
+    if (!dbReachable) return;
+    const multibyte = "あ".repeat(100); // 300 bytes
+    const r = await postCreate(validBody({ code: multibyte }));
+    expect(r.status).toBe(200);
+    tokens.push(new URL((await r.json()).url).searchParams.get("invite")!);
   });
 });
 

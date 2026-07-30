@@ -183,6 +183,121 @@ export async function markAnonLaptopInviteRedeemed(
   return rows.length > 0;
 }
 
+export type InviteQuotaScope = "ip" | "email";
+
+export interface ReserveInviteResult {
+  ok: boolean;
+  /** Set when ok=false — which cap rejected the request. */
+  scope?: InviteQuotaScope;
+  /** Set when ok=true. */
+  invite?: AnonLaptopInvite;
+}
+
+/**
+ * Atomically enforce both daily caps and create the invite.
+ *
+ * The pre-review shape was count → check → count → check → insert across
+ * five separate statements. Concurrent requests for the same IP (or the
+ * same email) each observed the same pre-insert counts, all passed the
+ * check, and all inserted — so a burst could send far more than the
+ * advertised 3-per-IP / 1-per-email, turning an unauthenticated endpoint
+ * into a mail-spam amplifier.
+ *
+ * Fix mirrors the established pattern in usageLedger's
+ * `countPlatformQuestionsOnIpTodayLocked`: do the whole read-decide-write
+ * inside one transaction guarded by `pg_advisory_xact_lock`, so
+ * same-key requests serialize and each sees its predecessor's row.
+ *
+ * Two locks are taken (ip, then email) in a FIXED order. Ordering is what
+ * prevents deadlock: two requests that share an IP but differ in email —
+ * or vice versa — would otherwise be able to grab the two locks in
+ * opposite orders and wait on each other. Distinct namespaces via
+ * `hashtext('inv:ip:'||…)` keep these from colliding with the AI ledger's
+ * advisory locks, which key on the bare ip_hash.
+ */
+export async function reserveAndCreateInvite(args: {
+  emailHash: string;
+  ipHash: string;
+  code: string;
+  name: string | null;
+  windowMs: number;
+  perIpCap: number;
+  perEmailCap: number;
+  ttlMs?: number;
+}): Promise<ReserveInviteResult> {
+  const sql = db();
+  const ttlMs = args.ttlMs ?? DEFAULT_TTL_MS;
+  return (await sql.begin(async (tx) => {
+    // Fixed lock order: ip then email. See doc comment.
+    await tx`SELECT pg_advisory_xact_lock(hashtext(${`inv:ip:${args.ipHash}`})::bigint)`;
+    await tx`SELECT pg_advisory_xact_lock(hashtext(${`inv:em:${args.emailHash}`})::bigint)`;
+
+    const ipRows = await tx<{ count: number }[]>`
+      SELECT COUNT(*)::int AS count
+        FROM public.anon_laptop_invites
+       WHERE ip_hash = ${args.ipHash}
+         AND created_at > NOW() - (${args.windowMs}::bigint || ' milliseconds')::interval
+    `;
+    if ((ipRows[0]?.count ?? 0) >= args.perIpCap) {
+      return { ok: false, scope: "ip" as const };
+    }
+
+    const emailRows = await tx<{ count: number }[]>`
+      SELECT COUNT(*)::int AS count
+        FROM public.anon_laptop_invites
+       WHERE email_hash = ${args.emailHash}
+         AND created_at > NOW() - (${args.windowMs}::bigint || ' milliseconds')::interval
+    `;
+    if ((emailRows[0]?.count ?? 0) >= args.perEmailCap) {
+      return { ok: false, scope: "email" as const };
+    }
+
+    // Token-collision retry stays inside the same transaction so the
+    // quota we just reserved can't be lost between check and insert.
+    // Each attempt runs in its own SAVEPOINT: a 23505 marks the whole
+    // transaction aborted in Postgres, so without one the retry would
+    // die with 25P02 ("current transaction is aborted") instead of
+    // trying a fresh token.
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const token = generateInviteToken();
+      try {
+        const rows = (await tx.savepoint(
+          async (sp) => await sp<InviteRow[]>`
+            INSERT INTO public.anon_laptop_invites (
+              token, email_hash, ip_hash, code, name, expires_at
+            )
+            VALUES (
+              ${token},
+              ${args.emailHash},
+              ${args.ipHash},
+              ${args.code},
+              ${args.name},
+              NOW() + (${ttlMs}::bigint || ' milliseconds')::interval
+            )
+            RETURNING id, token, email_hash, ip_hash, code, name,
+                      created_at, expires_at, redeemed_at
+          `,
+        )) as unknown as InviteRow[];
+        return { ok: true, invite: rowToInvite(rows[0]!) };
+      } catch (err) {
+        if (
+          err &&
+          typeof err === "object" &&
+          "code" in err &&
+          (err as { code: string }).code === "23505"
+        ) {
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw new HttpError(
+      500,
+      "anon laptop invite token generation: collision retry limit exhausted",
+    );
+  })) as ReserveInviteResult;
+}
+
 /**
  * Count rows for a given ip_hash created within the last `windowMs`.
  * Used by the route handler to enforce the per-IP cap (3 sends / 24h).

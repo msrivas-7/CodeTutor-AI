@@ -28,11 +28,9 @@ import { Router } from "express";
 import { z } from "zod";
 import { config } from "../config.js";
 import {
-  countRecentInvitesByEmail,
-  countRecentInvitesByIp,
   getAnonLaptopInviteByToken,
-  insertAnonLaptopInvite,
   markAnonLaptopInviteRedeemed,
+  reserveAndCreateInvite,
 } from "../db/anonLaptopInvites.js";
 import { isAnonLaptopInviteDisabled } from "../services/share/killSwitches.js";
 import { hashClientIp, hashEmail } from "../services/ai/ipHash.js";
@@ -75,9 +73,18 @@ const bodySchema = z
       .min(3)
       .max(254)
       .regex(/^[^\s@]+@[^\s@]+\.[^\s@]+$/, "must be email-shaped"),
-    // The lesson-1 code the learner just typed. Cap mirrors the DB
-    // CHECK constraint (octet_length(code) <= 4096).
-    code: z.string().min(1).max(4096),
+    // The lesson-1 code the learner just typed. The DB CHECK is
+    // `octet_length(code) <= 4096` — BYTES — so validating with Zod's
+    // `.max()` (UTF-16 code units) would let ~2k multibyte characters
+    // through here and then fail the insert with a constraint
+    // violation, surfacing as a 500 instead of a bounded 400. Measure
+    // the same way the constraint does.
+    code: z
+      .string()
+      .min(1)
+      .refine((s) => Buffer.byteLength(s, "utf8") <= 4096, {
+        message: "code must be at most 4096 bytes",
+      }),
     // Optional parsed-from-code name (extractNameFromCode result).
     name: z.string().min(1).max(80).optional().nullable(),
   })
@@ -105,35 +112,30 @@ anonLaptopInviteRouter.post("/laptop-link", async (req, res, next) => {
     const emailHash = hashEmail(email);
     const ipHash = hashClientIp(req.ip ?? "");
 
-    // Per-IP cap. Fail fast — saves a DB write + an ACS round-trip
-    // when a bot is hammering.
-    const ipRecent = await countRecentInvitesByIp(ipHash, ONE_DAY_MS);
-    if (ipRecent >= PER_IP_CAP) {
-      return res.status(429).json({
-        error: "ANON_LAPTOP_INVITE_RATE_LIMITED",
-        scope: "ip",
-        retryAfterHours: 24,
-      });
-    }
-
-    // Per-email cap. After IP because per-IP is the cheaper enumeration
-    // signal (a bot trying many emails from one IP).
-    const emailRecent = await countRecentInvitesByEmail(emailHash, ONE_DAY_MS);
-    if (emailRecent >= PER_EMAIL_CAP) {
-      return res.status(429).json({
-        error: "ANON_LAPTOP_INVITE_RATE_LIMITED",
-        scope: "email",
-        retryAfterHours: 24,
-      });
-    }
-
-    const invite = await insertAnonLaptopInvite({
+    // Both daily caps + the insert happen in ONE advisory-locked
+    // transaction. Doing them as separate reads let a concurrent burst
+    // for the same IP/email each observe the same pre-insert count,
+    // pass the check, and insert — blowing past the advertised
+    // 3-per-IP / 1-per-email and turning this unauthenticated route
+    // into a mail-spam amplifier. See reserveAndCreateInvite.
+    const reservation = await reserveAndCreateInvite({
       emailHash,
       ipHash,
       code,
       name: name ?? null,
+      windowMs: ONE_DAY_MS,
+      perIpCap: PER_IP_CAP,
+      perEmailCap: PER_EMAIL_CAP,
       ttlMs: ONE_DAY_MS,
     });
+    if (!reservation.ok || !reservation.invite) {
+      return res.status(429).json({
+        error: "ANON_LAPTOP_INVITE_RATE_LIMITED",
+        scope: reservation.scope ?? "ip",
+        retryAfterHours: 24,
+      });
+    }
+    const invite = reservation.invite;
 
     const baseUrl = config.corsOrigin.replace(/\/+$/, "");
     const url = `${baseUrl}/start?invite=${encodeURIComponent(invite.token)}`;

@@ -57,8 +57,13 @@ export function InviteCapture() {
     try {
       window.sessionStorage.setItem(PENDING_INVITE_KEY, token);
     } catch {
-      // Private-mode Safari etc. — fail soft. The redemption path
-      // checks for the key and just skips when it's absent.
+      // Storage-restricted context (private-mode Safari, blocked
+      // third-party storage). The URL is now the ONLY copy of a
+      // single-use token that was emailed to the learner — stripping
+      // it here would destroy the handoff with no way to recover it.
+      // Leave the param in place so StartPage's redemption path can
+      // still read it, and so a refresh keeps working.
+      return;
     }
     // Strip the param so a refresh doesn't replay the URL → side-
     // effect chain. sessionStorage is the single source of truth from

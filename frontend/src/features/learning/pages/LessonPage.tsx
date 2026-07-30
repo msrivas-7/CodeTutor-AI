@@ -329,17 +329,34 @@ export default function LessonPage({
   // question in lesson.json (`{type: "retrieval_check", question, choices,
   // correctIndex, explanation?}`). The validator's "rule passed" contract
   // reads this flag through `extra.retrievalAnswered`; LessonPage owns
-  // the source of truth + persists "answered correctly once" per
-  // (course, lesson) to localStorage so a returning learner doesn't
-  // re-prove it. Hydrate on mount keyed by (courseId, lessonId).
+  // the source of truth + persists "answered correctly once" so a
+  // returning learner doesn't re-prove it.
+  //
+  // The key is scoped to the LEARNER, not just (course, lesson). Keyed
+  // on the pair alone, one person answering the check on a shared
+  // browser would silently satisfy the gate for every later account and
+  // every anonymous visitor on that device — skipping the pedagogy beat
+  // A1 exists to enforce, and contaminating the Phase A Q2 exit metric
+  // ("lesson-2-reach learners passing a cold retrieval check ≥80%")
+  // with passes nobody earned.
+  //
+  // Anonymous learners have no stable identity, so they get
+  // sessionStorage instead of localStorage: the gate still doesn't
+  // re-ask within a visit, but it can't leak across people sharing a
+  // device, and the next anon visitor answers it honestly.
+  const retrievalScope = learnerId ?? "anon";
   const retrievalKey =
     courseId && lessonId
-      ? `ui:lesson:retrievalPassed:${courseId}:${lessonId}`
+      ? `ui:lesson:retrievalPassed:${retrievalScope}:${courseId}:${lessonId}`
       : null;
+  const retrievalStore = (): Storage | null => {
+    if (typeof window === "undefined") return null;
+    return learnerId ? window.localStorage : window.sessionStorage;
+  };
   const [retrievalAnswered, setRetrievalAnswered] = useState<boolean>(() => {
-    if (!retrievalKey || typeof window === "undefined") return false;
+    if (!retrievalKey) return false;
     try {
-      return window.localStorage.getItem(retrievalKey) === "1";
+      return retrievalStore()?.getItem(retrievalKey) === "1";
     } catch {
       return false;
     }
@@ -347,13 +364,16 @@ export default function LessonPage({
   useEffect(() => {
     // Re-hydrate when we navigate between lessons (component is reused
     // across route changes, so the lazy initializer above runs only once).
-    if (!retrievalKey || typeof window === "undefined") return;
+    // Also re-runs when the learner identity changes — signing in or out
+    // must not carry the previous person's pass over.
+    if (!retrievalKey) return;
     try {
-      setRetrievalAnswered(window.localStorage.getItem(retrievalKey) === "1");
+      setRetrievalAnswered(retrievalStore()?.getItem(retrievalKey) === "1");
     } catch {
       setRetrievalAnswered(false);
     }
-  }, [retrievalKey]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [retrievalKey, learnerId]);
 
   const layout = useLessonLayout({
     lessonReady: !!loader.lesson && !loader.loading,
@@ -1718,9 +1738,9 @@ export default function LessonPage({
               correctIndex={rule.correctIndex}
               explanation={rule.explanation}
               onCorrect={() => {
-                if (retrievalKey && typeof window !== "undefined") {
+                if (retrievalKey) {
                   try {
-                    window.localStorage.setItem(retrievalKey, "1");
+                    retrievalStore()?.setItem(retrievalKey, "1");
                   } catch {
                     // private-mode storage denial — in-memory state still
                     // unlocks the lesson for this session, just not the next.

@@ -30,6 +30,30 @@ const REDEMPTION_CACHE = new Map<
   string,
   Promise<{ code: string; name: string | null }>
 >();
+// Phase A — A2: read the pending invite token from sessionStorage,
+// falling back to the `?invite=` URL param.
+//
+// The fallback matters in storage-restricted contexts (private-mode
+// Safari, blocked third-party storage): InviteCapture can't persist the
+// token there, so it deliberately leaves the param in the URL rather
+// than stripping it. Without this fallback the only copy of a
+// single-use, emailed token would be discarded and the phone→laptop
+// handoff could never be redeemed.
+function readPendingInvite(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const stored = window.sessionStorage.getItem(PENDING_INVITE_KEY);
+    if (stored) return stored;
+  } catch {
+    // Storage blocked — fall through to the URL.
+  }
+  try {
+    return new URLSearchParams(window.location.search).get("invite");
+  } catch {
+    return null;
+  }
+}
+
 function redeemOnce(token: string) {
   let p = REDEMPTION_CACHE.get(token);
   if (!p) {
@@ -94,12 +118,7 @@ export default function StartPage() {
     // path covers anon→authed signup; the new branch covers
     // phone→laptop graduation.
     if (readAnonStash()) return "needed";
-    if (
-      typeof window !== "undefined" &&
-      window.sessionStorage.getItem(PENDING_INVITE_KEY)
-    ) {
-      return "needed";
-    }
+    if (readPendingInvite()) return "needed";
     return "ok";
   });
 
@@ -136,7 +155,7 @@ export default function StartPage() {
   // valid session, and the chain completes.
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const token = window.sessionStorage.getItem(PENDING_INVITE_KEY);
+    const token = readPendingInvite();
     if (!token) return;
     let cancelled = false;
 
@@ -145,6 +164,18 @@ export default function StartPage() {
         window.sessionStorage.removeItem(PENDING_INVITE_KEY);
       } catch {
         // Private-mode failure — fail-soft.
+      }
+      // Also strip `?invite=` when the token came from the URL (the
+      // storage-blocked path), so a refresh doesn't retry a token the
+      // server has already consumed and 410 the learner.
+      try {
+        const url = new URL(window.location.href);
+        if (url.searchParams.has("invite")) {
+          url.searchParams.delete("invite");
+          window.history.replaceState({}, "", url.toString());
+        }
+      } catch {
+        // Non-fatal — redemption already succeeded.
       }
     }
 

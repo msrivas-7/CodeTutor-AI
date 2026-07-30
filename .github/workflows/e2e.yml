@@ -65,12 +65,22 @@ jobs:
       # METRICS_TOKEN in .env to the same value, or leave it blank (in
       # which case the spec's token branch skips).
       METRICS_TOKEN: e2e-test-metrics-token
-      # Per-shard test-user email namespace — see e2e/fixtures/auth.ts
-      # `workerEmail`. Without this, shard 1's `e2e-w0-${pid}@…` could
-      # collide with shard 2's worker 0 if they happen to roll the
-      # same suffix. Pinning to the matrix shard guarantees each
-      # shard's auth-teardown scope is its own.
-      E2E_USER_SUFFIX: shard-${{ matrix.shard }}
+      # Per-shard AND per-run test-user email namespace — see
+      # e2e/fixtures/auth.ts `workerEmail`. Without the shard part,
+      # shard 1's `e2e-w0-${pid}@…` could collide with shard 2's
+      # worker 0 if they happen to roll the same suffix.
+      #
+      # `github.run_id` is what isolates CONCURRENT RUNS. The workflow's
+      # concurrency group is keyed on `github.ref`, so two open PRs are
+      # two different groups and their e2e jobs run at the same time —
+      # against the one shared dev Supabase project. With a
+      # shard-only suffix both runs derive identical emails, and the
+      # second one gets `AuthApiError: A user with this email address
+      # has already been registered`, plus cross-run mutation of the
+      # same user's preferences. That surfaced as scattered failures
+      # across a11y / auth / editor / cross-device / disable-streaks on
+      # both PRs at once.
+      E2E_USER_SUFFIX: shard-${{ matrix.shard }}-run${{ github.run_id }}
       # Phase 20-P3: Playwright cycles test pages faster than `pagehide`-driven
       # session cleanup reaches the backend, so prod-tight caps (2/user) block
       # the next test for the full sweeper interval (~45 s) and manifest as

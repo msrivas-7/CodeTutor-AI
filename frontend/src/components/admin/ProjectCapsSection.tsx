@@ -52,6 +52,9 @@ const KEY_LABEL: Record<SystemConfigKey, string> = {
   // positively ("Enabled") to match the parent state of the trial:
   // operator wants this ON in normal operation.
   anon_lesson_enabled: "Anon trial path enabled",
+  // Phase A — A2: reads as "Block X" like the share kill switches —
+  // toggle ON means the handoff is blocked.
+  anon_laptop_invite_disabled: "Block phone→laptop magic link",
   // Phase A — A5 operational floor.
   anon_daily_usd_cap: "Anon daily $ cap (global)",
   anon_daily_runs_per_ip: "Anon daily runs per IP",
@@ -78,6 +81,8 @@ const KEY_DESCRIPTION: Partial<Record<SystemConfigKey, string>> = {
     "Master gate for /api/anon/run, /api/anon/ai/ask/stream, and /api/anon-handoff. When off, NEW requests return 503 ANON_LESSON_DISABLED on the next request (60s system_config cache TTL after flip). In-flight tutor SSE streams continue until their 25s upstream deadline. The /try/lesson/... frontend route stays mounted but every API hit fails. Use during abuse spikes, paused-trial windows, or when triaging a platform-key issue.",
   anon_daily_usd_cap:
     "Anon-ONLY daily $ ceiling, independent of and tighter than the global Daily $ cap. When today's anon spend ≥ this value, anon AI 503s (PLATFORM_AI_PAUSED) until UTC midnight while authed free tier keeps its full budget. A viral anon spike can't starve signed-up learners.",
+  anon_laptop_invite_disabled:
+    "503s POST /api/anon/laptop-link. The phone-graduation dialog falls back to the signup wall, so the funnel keeps a conversion lever. Use to drain magic-link abuse (token enumeration, mail-relay misuse) without killing the whole trial path.",
   anon_daily_runs_per_ip:
     "Per-IP daily cap on /api/anon/run container spawns (the expensive anon op). Bursts are bounded by the 30/min limiter; this stops sustained abuse. Over-cap requests get 429 ANON_RUN_CAP_EXCEEDED until UTC midnight. 0 drains the run surface without killing the whole trial.",
 };
@@ -106,6 +111,7 @@ const KEY_BOUNDS: Record<
   aci_warm_low_watermark: { type: "number", min: 0, max: 5, step: "1" },
   aci_warm_max_pool_size: { type: "number", min: 0, max: 10, step: "1" },
   anon_lesson_enabled: { type: "boolean" },
+  anon_laptop_invite_disabled: { type: "boolean" },
   // Phase A — A5. Client-side bounds mirror admin.ts KEY_BOUNDS (the
   // server-side check is the load-bearing one).
   anon_daily_usd_cap: { type: "number", min: 0, max: 50, step: "0.01" },

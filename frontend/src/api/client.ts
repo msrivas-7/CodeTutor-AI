@@ -457,6 +457,8 @@ export type SystemConfigKey =
   // Phase 27-v2.2 Fix 7c — master kill switch for /api/anon/*. False
   // 503s the anon trial path on the next request (60s cache TTL).
   | "anon_lesson_enabled"
+  // Phase A — A2: granular kill for the phone-graduation magic link.
+  | "anon_laptop_invite_disabled"
   // Phase A — A5 operational floor: anon-only global daily $ ceiling
   // and per-IP daily container-spawn cap on /api/anon/run.
   | "anon_daily_usd_cap"
