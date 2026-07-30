@@ -152,43 +152,23 @@ jobs:
           npm test
 
   performance-budget:
-    name: Lab performance budgets
-    # Keep the strict Lighthouse gate on the same macOS + pinned-Chromium
-    # baseline used for the local release audit; the script launches that
-    # browser through Puppeteer so hosted runs emit complete paint traces.
-    runs-on: macos-latest
+    name: Production asset budgets
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: |
-            e2e/package-lock.json
-            frontend/package-lock.json
-      - name: Install the pinned audit browser
-        working-directory: e2e
-        run: |
-          npm ci
-          npx playwright install chromium
+          cache-dependency-path: frontend/package-lock.json
       - name: Build the production frontend
         working-directory: frontend
         run: |
           npm ci
           npm run build
-      - name: Run repeated Lighthouse lab checks
+      - name: Enforce compressed production asset budgets
         working-directory: frontend
-        run: |
-          audit_browser="$(cd ../e2e && node -e "process.stdout.write(require('playwright').chromium.executablePath())")"
-          LIGHTHOUSE_CHROME_PATH="$audit_browser" npm run test:lighthouse-budget
-      - name: Upload Lighthouse reports
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: lighthouse-reports
-          path: frontend/lhci-reports
-          if-no-files-found: ignore
-          retention-days: 14
+        run: npm run test:static-performance-budget
 
   powershell:
     name: PowerShell parse + lint

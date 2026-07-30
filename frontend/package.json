@@ -10,6 +10,7 @@
     "typecheck": "tsc -b --noEmit",
     "test": "vitest run",
     "test:lighthouse-budget": "node scripts/lighthouse-budget.mjs",
+    "test:static-performance-budget": "node scripts/static-performance-budget.mjs",
     "lint:content": "tsx scripts/content-lint.ts",
     "verify:solutions": "tsx scripts/verify-solutions.ts",
     "new:lesson": "tsx scripts/new-lesson.ts",
