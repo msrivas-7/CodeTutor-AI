@@ -53,6 +53,7 @@ export function LessonInstructionsPanel({
   const [showHints, setShowHints] = useState(false);
   const hints = extractHints(content);
   const mainContent = stripHintsSection(content);
+  const firstMove = firstOrderedInstruction(mainContent);
 
   const hasExamples = !!(functionTests && functionTests.length > 0 && onRunExamples);
   const [tab, setTab] = useState<"instructions" | "examples">("instructions");
@@ -151,6 +152,19 @@ export function LessonInstructionsPanel({
         {activeTab === "instructions" ? (
           <>
             {coachState && <CoachRail {...coachState} />}
+            {meta.order === 1 && !coachState?.lessonComplete && firstMove && (
+              <section
+                aria-label="Your first move"
+                className="mb-3 rounded-xl border border-accent/30 bg-accent/[0.07] px-3 py-2.5"
+              >
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-accent">
+                  Your first move
+                </p>
+                <p className="mt-1 text-sm leading-relaxed text-ink">
+                  {renderInline(firstMove)}
+                </p>
+              </section>
+            )}
             <div className="mb-3 flex flex-wrap gap-1.5">
               {meta.objectives.map((obj) => (
                 <span
@@ -262,15 +276,19 @@ function MarkdownContent({ text }: { text: string }) {
         </ul>
       );
     } else if (/^\d+\.\s/.test(line)) {
-      const items: string[] = [line.replace(/^\d+\.\s/, "")];
-      while (i + 1 < lines.length && /^\d+\.\s/.test(lines[i + 1])) {
-        i++;
-        items.push(lines[i].replace(/^\d+\.\s/, ""));
-      }
+      const ordered = readOrderedListBlock(lines, i);
+      i = ordered.endIndex;
       elements.push(
         <ol key={`ol-${i}`} className="my-1 list-decimal space-y-0.5 pl-5">
-          {items.map((item, j) => (
-            <li key={j} className="text-base sm:text-body">{renderInline(item)}</li>
+          {ordered.items.map((item, j) => (
+            <li key={j} className="text-base sm:text-body">
+              {renderInline(item.lead)}
+              {item.body.length > 0 && (
+                <div className="mt-1">
+                  <MarkdownContent text={item.body.join("\n")} />
+                </div>
+              )}
+            </li>
           ))}
         </ol>
       );
@@ -289,6 +307,53 @@ function MarkdownContent({ text }: { text: string }) {
 export interface FencedCodeBlock {
   code: string;
   endIndex: number;
+}
+
+export interface OrderedListBlock {
+  items: Array<{ lead: string; body: string[] }>;
+  endIndex: number;
+}
+
+/**
+ * Reads a complete ordered list, including blank lines and indented fenced
+ * code that belong to an item. Treating each numbered line independently
+ * caused the browser to render repeated "1." markers around lesson examples.
+ */
+export function readOrderedListBlock(
+  lines: string[],
+  startIndex: number,
+): OrderedListBlock {
+  const first = lines[startIndex]?.match(/^\d+\.\s+(.*)$/);
+  if (!first) return { items: [], endIndex: startIndex };
+
+  const items: OrderedListBlock["items"] = [{ lead: first[1], body: [] }];
+  let i = startIndex + 1;
+  while (i < lines.length) {
+    const numbered = lines[i].match(/^\d+\.\s+(.*)$/);
+    if (numbered) {
+      trimBlankEdges(items.at(-1)!.body);
+      items.push({ lead: numbered[1], body: [] });
+      i++;
+      continue;
+    }
+
+    const line = lines[i];
+    const isIndented = /^ {1,3}\S/.test(line);
+    const isBlank = line.trim() === "";
+    if (!isIndented && !isBlank) break;
+
+    // Up to three spaces are list indentation, not authored code indentation.
+    items.at(-1)!.body.push(isIndented ? line.replace(/^ {1,3}/, "") : line);
+    i++;
+  }
+
+  trimBlankEdges(items.at(-1)!.body);
+  return { items, endIndex: i - 1 };
+}
+
+function trimBlankEdges(lines: string[]) {
+  while (lines[0]?.trim() === "") lines.shift();
+  while (lines.at(-1)?.trim() === "") lines.pop();
 }
 
 /**
@@ -335,6 +400,11 @@ function renderInline(text: string): React.ReactNode {
       return bp;
     });
   });
+}
+
+function firstOrderedInstruction(content: string): string | null {
+  const match = content.match(/^1\.\s+(.+)$/m);
+  return match?.[1] ?? null;
 }
 
 function extractHints(content: string): string[] {

@@ -460,6 +460,9 @@ function FullCinematic({
             ease: "easeInOut",
           }}
         >
+          <span className="mb-2 block font-sans text-xs font-semibold uppercase leading-none tracking-[0.16em] text-faint">
+            Example code · Maya
+          </span>
           <TypewriterLine
             text={CODE_LINE}
             startDelayMs={t.codeType.enter}

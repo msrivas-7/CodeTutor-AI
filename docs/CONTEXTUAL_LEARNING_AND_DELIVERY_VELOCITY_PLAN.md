@@ -478,6 +478,16 @@ Exit:
 
 **Complexity:** one to two weeks.
 
+**Implementation status (2026-07-30):** locally complete on
+`dev/contextual-learning-roadmap`; draft-PR CI is the remaining release gate.
+The executable public-claims inventory is
+`frontend/src/productContract.ts`. Local evidence includes 385/385 frontend
+unit/contract tests, a production build, content lint, golden-solution
+verification, and 34/34 executed changed-surface Chromium tests, including the
+corrected iPhone-13 CTA check (the opt-in real-provider check was intentionally
+skipped). The fresh-browser journey is covered independently at desktop and
+390×844. Cinematic duration remains unchanged by explicit product decision.
+
 Deliver:
 
 - remove exact-answer scripted rescue;

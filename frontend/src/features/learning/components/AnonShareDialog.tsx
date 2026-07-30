@@ -2,9 +2,8 @@
 // `/try/` flow. The cinematic celebration's Share button used to pivot
 // straight to the SignupWallDialog (the wall blocked the K-factor at
 // peak intent). Now: click → POST /api/anon/shares → render this
-// dialog with the public `/s/:token` URL → on dismiss the wall STILL
-// fires with reason="share" so the conversion ask lands AFTER the
-// share artifact exists.
+// dialog with the public `/s/:token` URL. Dismissal returns to the
+// celebration; account creation is a separate, explicit action.
 //
 // Why a separate component (instead of reusing the authed ShareDialog
 // with a `mode="anon"` prop): the authed ShareDialog is ~585 lines
@@ -26,14 +25,13 @@ export interface AnonShareDialogProps {
    *  render is paused via kill switch). Not used for any state in this
    *  component today; reserved for future surface. */
   warn?: string | null;
-  /** Caller-provided dismiss callback. Fires on Esc / Done click /
-   *  outside-click. The caller (AnonLessonPage) opens the wall
-   *  with reason="share" AFTER this dialog closes — the wall is the
-   *  conversion ask; the dialog is the artifact reveal. */
+  /** Caller-provided dismiss callback. Fires on Esc / Done / backdrop. */
   onDismiss: () => void;
+  /** Deliberate conversion action; never called as a side effect of dismiss. */
+  onSaveProgress: () => void;
 }
 
-export function AnonShareDialog({ url, warn, onDismiss }: AnonShareDialogProps) {
+export function AnonShareDialog({ url, warn, onDismiss, onSaveProgress }: AnonShareDialogProps) {
   const [copied, setCopied] = useState(false);
   const token = url.split("/").filter(Boolean).at(-1) ?? "";
   const absoluteUrl =
@@ -131,6 +129,13 @@ export function AnonShareDialog({ url, warn, onDismiss }: AnonShareDialogProps) 
             Done
           </button>
         </div>
+        <button
+          type="button"
+          onClick={onSaveProgress}
+          className="mt-3 inline-flex min-h-11 w-full items-center justify-center rounded-md px-4 py-2 text-sm font-medium text-accent transition hover:bg-accent/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-panel"
+        >
+          Save this progress with a free account
+        </button>
     </Modal>
   );
 }

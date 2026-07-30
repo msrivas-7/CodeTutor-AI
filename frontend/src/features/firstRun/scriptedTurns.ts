@@ -98,14 +98,12 @@ export const WRONG_EDIT_ERROR = (): string =>
 
 export const WRONG_EDIT_GENERIC = (): string =>
   "Close, but the output should look like `Hello, YourName!`. " +
-  "Add a line like `print(\"Hello, Maya!\")` (with your actual name " +
-  "in the quotes), then run again.";
+  "Check that your line starts with `print(`, ends with `)`, and keeps the " +
+  "whole greeting inside quotes. Then run it again.";
 
-// Second-attempt rescue. The learner has guessed twice and the
-// output still doesn't match; give them the answer directly so
-// they don't end up stranded watching a cinematic that never
-// advances. Same spirit as a real tutor walking you through it.
+// Second-attempt rescue. It points to the structure and evidence without
+// supplying a pasteable solution: the learner still authors the greeting.
 export const STRONGER_HINT = (): string =>
-  "Here it is line-for-line — type " +
-  "`print(\"Hello, Your Name!\")` (with your actual name in the quotes), " +
-  "then click Run.";
+  "Let's check it piece by piece: use the lowercase word `print`, put one " +
+  "opening and one closing parenthesis around your greeting, and keep the " +
+  "greeting — including your own name — between matching quotes. Then click Run.";

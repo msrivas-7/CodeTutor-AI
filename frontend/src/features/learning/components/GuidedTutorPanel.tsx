@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useAIStore } from "../../../state/aiStore";
-import { usePreferencesStore } from "../../../state/preferencesStore";
+import {
+  usePreferencesStore,
+  type Persona,
+} from "../../../state/preferencesStore";
 import { useProjectStore } from "../../../state/projectStore";
 import { useRunStore } from "../../../state/runStore";
 import { useAIStatus } from "../../../state/useAIStatus";
@@ -102,6 +105,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
     sessionUsage,
   } = useAIStore();
   const hasKey = usePreferencesStore((s) => s.hasOpenaiKey);
+  const persona = usePreferencesStore((s) => s.persona);
   // Phase 27-v2.1 — anon skips this fetch; the panel's chip + setup-warning
   // surfaces are conditionally rendered for authed only (anon has no BYOK
   // surface, no platform quota counter — its limit is server-side L_anon).
@@ -208,7 +212,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
       diffSinceLastTurn,
       runsSinceLastTurn,
       editsSinceLastTurn,
-      persona: "beginner",
+      persona: resolveTutorPersona(mode, persona),
       selection,
       lessonContext: {
         courseId: lessonMeta.courseId,
@@ -582,4 +586,13 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
       </div>
     </div>
   );
+}
+
+/** Anonymous lesson 1 is intentionally beginner-framed; signed-in learning
+ * must honor the learner's persisted tutor preference. */
+export function resolveTutorPersona(
+  mode: "authed" | "anon",
+  persona: Persona,
+): Persona {
+  return mode === "anon" ? "beginner" : persona;
 }

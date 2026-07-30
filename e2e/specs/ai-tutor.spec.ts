@@ -105,6 +105,51 @@ test.describe("AI tutor", () => {
     ).toBeVisible({ timeout: 10_000 });
   });
 
+  test("authenticated guided tutor sends the learner's persisted persona", async ({ page }) => {
+    await loadProfile(page, "empty");
+    await seedApiKey(page, {
+      key: "sk-test-e2e-padding-12345",
+      model: "gpt-4o-mini",
+      persona: "advanced",
+    });
+
+    let sentPersona: unknown;
+    await page.route("**/api/ai/ask/stream", async (route) => {
+      const body = route.request().postDataJSON() as { persona?: unknown };
+      sentPersona = body.persona;
+      const sections = {
+        intent: "concept",
+        summary: "Persona contract received.",
+        explain: null,
+        example: null,
+        hint: null,
+        strongerHint: null,
+        diagnose: null,
+        nextStep: null,
+        pitfalls: null,
+        walkthrough: null,
+        checkQuestions: null,
+        citations: null,
+        comprehensionCheck: null,
+        stuckness: "low",
+      };
+      await route.fulfill({
+        status: 200,
+        contentType: "text/event-stream",
+        body: `data: ${JSON.stringify({ delta: "Persona contract received." })}\n\ndata: ${JSON.stringify({ done: true, raw: JSON.stringify(sections), sections })}\n\n`,
+      });
+    });
+
+    await page.goto(`/learn/course/${COURSE_ID}/lesson/hello-world`);
+    await waitForMonacoReady(page);
+    await configureTutorKey(page, "sk-test-e2e-padding-12345");
+    await S.tutorInput(page).fill("How should I think about this?");
+    await page.getByRole("button", { name: /^ask$/i }).click();
+
+    await expect.poll(() => sentPersona).toBe("advanced");
+    await expect(page.getByText(/Persona contract received/i).first()).toBeVisible();
+  });
+
   test("hint ladder: aria-label cycles Nudge me → I need more → Walk me through it", async ({ page }) => {
     await loadProfile(page, "first-lesson-editing");
     await seedApiKey(page, { key: "sk-test-e2e-padding-12345", model: "gpt-4o-mini" });

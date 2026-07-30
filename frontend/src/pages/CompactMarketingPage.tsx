@@ -4,6 +4,10 @@ import { MarketingFooter } from "../features/marketing/components/MarketingFoote
 import { SimpleMarketingNav } from "../features/marketing/components/SimpleMarketingNav";
 import { pickHeroCopy } from "../features/marketing/heroCopy";
 import { useMarketingAuth } from "../features/marketing/useMarketingAuth";
+import {
+  FIRST_LESSON_CONTRACT,
+  FIRST_LESSON_FINEPRINT,
+} from "../productContract";
 
 const HERO = pickHeroCopy();
 
@@ -28,8 +32,8 @@ const BEATS = [
 /** Mobile-first acquisition surface with no animation-runtime dependency. */
 export default function CompactMarketingPage() {
   const { isLoggedIn } = useMarketingAuth();
-  const primaryTo = isLoggedIn ? "/start" : "/signup";
-  const primaryLabel = isLoggedIn ? "Continue learning" : "Start your first lesson";
+  const primaryTo = isLoggedIn ? "/start" : FIRST_LESSON_CONTRACT.route;
+  const primaryLabel = isLoggedIn ? "Continue learning" : "Try your first lesson";
 
   return (
     <div className="marketing-page relative min-h-screen overflow-x-clip bg-gradient-to-br from-[#0a0e22] via-[#1d1758] to-[#1d5b9e] text-ink">
@@ -45,6 +49,9 @@ export default function CompactMarketingPage() {
           </p>
 
           <div className="mt-9 w-full overflow-hidden rounded-2xl border border-border/70 bg-panel/90 p-5 text-left shadow-[0_24px_70px_-28px_rgba(0,0,0,0.6)]">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-faint">
+              Example learner · Maya
+            </p>
             <pre className="overflow-hidden whitespace-pre-wrap font-mono text-[12.5px] leading-[1.65] text-ink"><code><span className="text-ink">name</span> <span className="text-faint">=</span> <span className="text-success">&quot;Maya&quot;</span>{"\n"}<span className="text-ink">points</span> <span className="text-faint">=</span> <span className="text-violet">100</span>{"\n"}<span className="text-ink">message</span> <span className="text-faint">=</span> ({"\n"}  <span className="text-ink">name</span> <span className="text-faint">+</span> <span className="text-success">&quot; earned &quot;</span>{"\n"}  <span className="text-faint">+</span> <span className="text-ink">points</span> <span className="text-faint">+</span> <span className="text-success">&quot; points!&quot;</span>{"\n"}){"\n"}<span className="text-violet">print</span>(message)</code></pre>
             <div className="mt-5 rounded-xl border border-accent/25 bg-accent/[0.06] px-4 py-3 text-sm italic text-accent">
               <span aria-hidden="true" className="pr-2 not-italic text-faint">&gt;</span>
@@ -61,10 +68,10 @@ export default function CompactMarketingPage() {
             </Link>
             {!isLoggedIn && (
               <Link
-                to="/try/lesson/python-fundamentals/hello-world"
+                to="/signup"
                 className="inline-flex min-h-11 items-center rounded-md px-2 text-sm text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
               >
-                Or try a lesson — no signup →
+                Create a free account
               </Link>
             )}
             <a
@@ -95,7 +102,7 @@ export default function CompactMarketingPage() {
           >
             {primaryLabel} <span aria-hidden="true" className="ml-2">→</span>
           </Link>
-          <p className="mt-3 text-xs text-faint">Free to start. No card. About 5 minutes for your first lesson.</p>
+          <p className="mt-3 text-xs text-faint">{FIRST_LESSON_FINEPRINT}</p>
         </section>
       </main>
 

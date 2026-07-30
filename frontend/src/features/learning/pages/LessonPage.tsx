@@ -754,7 +754,7 @@ export default function LessonPage({
           {runner.sessionPhase === "starting" && (
             <span className="flex items-center gap-1 text-[10px] text-muted">
               <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-muted" />
-              Starting session…
+              Getting your workspace ready…
             </span>
           )}
           {runner.sessionPhase === "reconnecting" && (

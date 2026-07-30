@@ -17,6 +17,9 @@ import { MarketingCta } from "../features/marketing/components/MarketingCta";
 import { MarketingFooter } from "../features/marketing/components/MarketingFooter";
 import { pickHeroCopy } from "../features/marketing/heroCopy";
 import { useMarketingAuth } from "../features/marketing/useMarketingAuth";
+import {
+  FIRST_LESSON_FINEPRINT,
+} from "../productContract";
 
 // Phase 22C — Cinematic Marketing Page.
 //
@@ -253,19 +256,15 @@ export default function MarketingPage() {
           className="mt-10 flex flex-col items-center gap-4 sm:flex-row sm:gap-6"
         >
           <MarketingCta size="hero" />
-          {/* Phase 27 §3a: no-friction entry point for the TikTok
-              audience — Maya can run lesson 1 without signing up.
-              Anchored to the same row as the primary CTA on desktop;
-              wraps below on mobile. Anon-only — a logged-in user
-              hitting / shouldn't be invited back into the trial path.
-              The persisted-session hint avoids an anonymous-link flash
-              for returning learners while full auth hydrates. */}
+          {/* The account-free product experience is the primary anonymous
+              action. Account creation remains available as a clearly
+              labelled secondary action. */}
           {!isLoggedIn ? (
             <Link
-              to="/try/lesson/python-fundamentals/hello-world"
+              to="/signup"
               className="inline-flex min-h-11 items-center rounded-md px-2 text-sm text-accent transition hover:bg-accent/5 hover:text-accent/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
             >
-              Or try a lesson — no signup →
+              Create a free account
             </Link>
           ) : null}
           <a
@@ -335,7 +334,7 @@ export default function MarketingPage() {
         <div className="flex flex-col items-center gap-6 text-center">
           <MarketingCta
             size="repeat"
-            fineprint="Free to start. No card. About 5 minutes for your first lesson."
+            fineprint={FIRST_LESSON_FINEPRINT}
           />
         </div>
       </section>

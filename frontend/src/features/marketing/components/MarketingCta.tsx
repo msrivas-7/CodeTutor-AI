@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { motion, useMotionValue, useReducedMotion, useSpring, useTransform } from "framer-motion";
 
 import { useMarketingAuth } from "../useMarketingAuth";
+import { FIRST_LESSON_CONTRACT } from "../../../productContract";
 
 // Phase 22C — primary CTA pill.
 //
@@ -14,7 +15,8 @@ import { useMarketingAuth } from "../useMarketingAuth";
 //     plus an internal glow that follows the cursor across the pill.
 //     Dialed to "you barely notice it" — the point is depth, not show.
 //
-// Auth-aware: anonymous visitors get "Start your first lesson →" → /signup;
+// Auth-aware: anonymous visitors get "Try your first lesson →" → the
+// account-free lesson;
 // returning logged-in visitors get "Continue learning →" → /start. Mirrors
 // the nav so a returning user clicking the giant CTA doesn't get bounced
 // to a signup form.
@@ -25,7 +27,7 @@ import { useMarketingAuth } from "../useMarketingAuth";
 const MotionLink = motion.create(Link);
 
 export interface MarketingCtaProps {
-  /** Override the destination. Defaults to /signup (anon) or /start (logged-in). */
+  /** Override the destination. Defaults to lesson 1 (anon) or /start (logged-in). */
   to?: string;
   /** Override the button label. */
   label?: string;
@@ -44,9 +46,9 @@ export function MarketingCta({
 }: MarketingCtaProps) {
   const reduce = useReducedMotion();
   const { isLoggedIn } = useMarketingAuth();
-  const effectiveTo = to ?? (isLoggedIn ? "/start" : "/signup");
+  const effectiveTo = to ?? (isLoggedIn ? "/start" : FIRST_LESSON_CONTRACT.route);
   const effectiveLabel =
-    label ?? (isLoggedIn ? "Continue learning" : "Start your first lesson");
+    label ?? (isLoggedIn ? "Continue learning" : "Try your first lesson");
 
   // Magnet motion values — reset to (0, 0) on leave; spring on enter
   // for a slow-settle curve.

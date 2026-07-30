@@ -284,6 +284,9 @@ export function MatchCutHero({ staticMotion = false }: { staticMotion?: boolean 
       {/* Code block — JetBrains Mono with token-style coloring per
           line. The longest line is deliberately short enough to remain
           readable at phone size without clipping or micro typography. */}
+      <p className="relative mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-faint">
+        Example learner · Maya
+      </p>
       <div className="relative font-mono text-[13px] leading-[1.7] sm:text-[15px] md:text-[16.5px]">
         {/* Pre-rendered line slots: as `typed` advances, each slot
             fills with its share of the prefix. Empty slots reserve

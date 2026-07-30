@@ -100,24 +100,13 @@ export default function AnonLessonPage() {
   }>({ open: false, code: "", name: null });
 
   // Phase A — A3 (anon-share unlock): the dialog renders the public
-  // /s/:token URL the server returned. Closing it opens the wall
-  // (reason="share") so the conversion ask still lands AFTER the
-  // share artifact lives.
+  // /s/:token URL the server returned. Closing it returns to the
+  // celebration; the wall opens only from the dialog's explicit save action.
   const [anonShare, setAnonShare] = useState<{
     open: boolean;
     url: string;
   }>({ open: false, url: "" });
   const anonShareTriggerRef = useRef<HTMLElement | null>(null);
-  const postShareWallTimerRef = useRef<number | null>(null);
-
-  useEffect(
-    () => () => {
-      if (postShareWallTimerRef.current !== null) {
-        window.clearTimeout(postShareWallTimerRef.current);
-      }
-    },
-    [],
-  );
 
   // Phase 27-v2.2 Fix 6 — funnel telemetry: anon_page_view fires at
   // most once per browser session per /try/ visit. Backend hashes the
@@ -168,9 +157,8 @@ export default function AnonLessonPage() {
   // BEFORE the wall opens. The share button on the celebration was
   // pivoting straight to the wall (reason="share") — so every share
   // click ate the K-factor moment at peak intent. Now the click
-  // creates a `/s/:token` row, the AnonShareDialog renders the URL
-  // (copy, native share, done), and the wall fires AFTER the dialog
-  // dismisses so the conversion ask still lands.
+    // creates a `/s/:token` row and the AnonShareDialog renders the URL
+    // (copy, native share, done). Signup remains an explicit choice.
   //
   // Failure modes (rate-limit, kill switch, 503): fall back to the
   // wall path silently — same medium-lock as before, no regression.
@@ -233,10 +221,8 @@ export default function AnonLessonPage() {
     });
     if (isPhone) {
       // Phase A — A2 device contract: phone learners see the
-      // graduation handoff dialog instead of the wall. Dismissing the
-      // dialog WITHOUT a successful send falls back to the wall via
-      // PhoneGraduationDialog's onFallbackToWall callback so the
-      // funnel still has a conversion lever.
+      // graduation handoff dialog instead of the wall. Its dismiss action
+      // returns to the completed lesson; signup is separately labelled.
       setGraduation({ open: true, code, name: parsedName });
       api.postFunnelEvent("anon_wall_opened", "next-lesson");
       return;
@@ -328,17 +314,15 @@ export default function AnonLessonPage() {
         <AnonShareDialog
           url={anonShare.url}
           onDismiss={() => {
-            // Let the share Modal unmount and restore focus to its trigger
-            // before mounting the conversion wall. A zero-delay task gives
-            // React and the Modal cleanup a deterministic commit boundary.
-            // requestAnimationFrame is intentionally avoided here: WebKit can
-            // defer animation frames in headless/background tabs, which used
-            // to leave users with neither dialog nor conversion prompt.
             setAnonShare((s) => ({ ...s, open: false }));
-            postShareWallTimerRef.current = window.setTimeout(() => {
-              postShareWallTimerRef.current = null;
-              openWall("share");
-            }, 0);
+            const restoreTarget = anonShareTriggerRef.current;
+            window.requestAnimationFrame(() => {
+              if (restoreTarget?.isConnected) restoreTarget.focus();
+            });
+          }}
+          onSaveProgress={() => {
+            setAnonShare((s) => ({ ...s, open: false }));
+            openWall("share");
           }}
         />
       )}
