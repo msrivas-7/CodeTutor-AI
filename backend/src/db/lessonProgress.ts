@@ -120,7 +120,20 @@ export interface LessonPatch {
 // read + ledger writes. This is a soft cache layered over the DB-level
 // idempotency in conceptLedger.writeConceptTags — the DB constraint is
 // the ultimate truth, this just saves the round trips.
+//
+// Bounded because entries are only removed on FAILURE (to allow a
+// retry); successful writes would otherwise accumulate one entry per
+// (user, lesson) forever and leak on a long-lived process. Since the
+// cache is a pure optimization over an idempotent DB write, dropping
+// the whole set at the ceiling is safe — worst case a few learners
+// re-issue one catalog read.
+const CONCEPT_WRITE_CACHE_MAX = 10_000;
 const completedConceptWriteCache = new Set<string>();
+
+function rememberConceptWrite(cache: Set<string>, key: string): void {
+  if (cache.size >= CONCEPT_WRITE_CACHE_MAX) cache.clear();
+  cache.add(key);
+}
 
 export async function upsertLessonProgress(
   userId: string,
@@ -189,7 +202,7 @@ export async function upsertLessonProgress(
   // the round trips on repeated calls for the same (user, lesson) tuple.
   const cacheKey = `${userId}/${courseId}/${lessonId}`;
   if (result.status === "completed" && !completedConceptWriteCache.has(cacheKey)) {
-    completedConceptWriteCache.add(cacheKey);
+    rememberConceptWrite(completedConceptWriteCache, cacheKey);
     void writeConceptTagsForCompletion(userId, courseId, lessonId, "lesson").catch((err) => {
       completedConceptWriteCache.delete(cacheKey);
       console.error(
@@ -214,7 +227,7 @@ export async function upsertLessonProgress(
     patch.practiceCompletedIds !== undefined &&
     !practiceConceptWriteCache.has(cacheKey)
   ) {
-    practiceConceptWriteCache.add(cacheKey);
+    rememberConceptWrite(practiceConceptWriteCache, cacheKey);
     void writeConceptTagsForCompletion(userId, courseId, lessonId, "practice").catch((err) => {
       practiceConceptWriteCache.delete(cacheKey);
       console.error(

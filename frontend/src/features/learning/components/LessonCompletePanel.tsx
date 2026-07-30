@@ -8,6 +8,25 @@ import { RingPulse } from "../../../components/cinema/RingPulse";
 import { invalidateStreak, useStreak } from "../../../state/useStreak";
 import { useDisableStreaks } from "../../../state/preferencesStore";
 
+/**
+ * Phase A — A7: resolve the post-credits ("next episode") line.
+ * Authored `nextLessonHint` wins; otherwise a soft tease built from the
+ * next lesson's title; null on the final lesson (CourseCompleteFlourish
+ * owns that ending) — a null result means render nothing.
+ *
+ * Deliberately carries no "Tomorrow"/streak framing: it names what comes
+ * next, never when the learner must show up. Exported for unit tests.
+ */
+export function resolvePostCredits(
+  nextLessonHint: string | undefined,
+  nextLessonTitle: string | null | undefined,
+): string | null {
+  const hint = nextLessonHint?.trim();
+  if (hint) return hint;
+  const title = nextLessonTitle?.trim();
+  return title ? `In the next lesson: ${title}.` : null;
+}
+
 interface LessonCompletePanelProps {
   lesson: LessonMeta;
   completedPracticeIds?: string[];
@@ -50,13 +69,7 @@ export function LessonCompletePanel({
   nextLessonTitle = null,
   mode = "authed",
 }: LessonCompletePanelProps) {
-  // Phase A — A7: post-credits line. Authored hint wins; otherwise a
-  // soft tease built from the next lesson's title. Deliberately no
-  // "Tomorrow"/streak framing (anti-streak posture) — it names what
-  // comes next, not when the learner must show up.
-  const postCredits =
-    lesson.nextLessonHint ??
-    (nextLessonTitle ? `In the next lesson: ${nextLessonTitle}.` : null);
+  const postCredits = resolvePostCredits(lesson.nextLessonHint, nextLessonTitle);
   const practiceExercises = lesson.practiceExercises ?? [];
   const practiceCount = practiceExercises.length;
   const practiceDone = practiceExercises.filter((ex) =>

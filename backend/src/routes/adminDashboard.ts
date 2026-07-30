@@ -87,6 +87,17 @@ interface DashboardSnapshot {
     renderActive: number;
     renderWaiting: number;
   };
+  /** Phase A — A5: projected monthly burn = fixed infra baseline (env
+   *  constant, operator-maintained) + AI platform spend extrapolated
+   *  from the trailing 7 days (authed + anon ledgers). ACI overflow
+   *  spend is NOT folded in (dormant; its own tile shows today's
+   *  number). Directional, not an invoice. */
+  burn: {
+    infraMonthlyUsd: number;
+    aiSpendLast7dUsd: number;
+    aiDailyAvgUsd: number;
+    projectedMonthlyUsd: number;
+  };
   health: {
     db: "ok" | "fail";
     platformAuth: "ok" | "failed";
@@ -151,17 +162,35 @@ async function buildSnapshot(): Promise<DashboardSnapshot> {
   let freeTierSpendAuthed = 0;
   let freeTierSpendAnon = 0;
   let freeTierCap = config.freeTier.dailyUsdCap;
+  // Phase A — A5: trailing-7-day AI spend for the burn projection.
+  // Same two ledger sums with a 7-day `since`; the created_at indexes
+  // that cover the today queries cover these too.
+  let aiSpend7dAuthed = 0;
+  let aiSpend7dAnon = 0;
   let dbOk: "ok" | "fail" = "ok";
   try {
     const since = utcStartOfToday();
-    [freeTierSpendAuthed, freeTierSpendAnon, freeTierCap] = await Promise.all([
+    const since7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    [
+      freeTierSpendAuthed,
+      freeTierSpendAnon,
+      freeTierCap,
+      aiSpend7dAuthed,
+      aiSpend7dAnon,
+    ] = await Promise.all([
       sumPlatformCostTodayGlobal(since),
       sumPlatformCostTodayAnonGlobal(since),
       getEffectiveDailyUsdCap().catch(() => config.freeTier.dailyUsdCap),
+      sumPlatformCostTodayGlobal(since7d),
+      sumPlatformCostTodayAnonGlobal(since7d),
     ]);
   } catch {
     dbOk = "fail";
   }
+  const aiSpend7d = aiSpend7dAuthed + aiSpend7dAnon;
+  const aiDailyAvg = aiSpend7d / 7;
+  // 30.44 = average Gregorian month length in days.
+  const projectedMonthly = config.infraMonthlyBaselineUsd + aiDailyAvg * 30.44;
   const freeTierSpend = freeTierSpendAuthed + freeTierSpendAnon;
   // Independent DB ping — the spend query above might short-circuit on
   // an empty ledger before hitting the DB at all (postgres-js lazy).
@@ -212,6 +241,12 @@ async function buildSnapshot(): Promise<DashboardSnapshot> {
       dockerExecQueued: queues.queued,
       renderActive: renderQ.active,
       renderWaiting: renderQ.waiting,
+    },
+    burn: {
+      infraMonthlyUsd: config.infraMonthlyBaselineUsd,
+      aiSpendLast7dUsd: Number(aiSpend7d.toFixed(4)),
+      aiDailyAvgUsd: Number(aiDailyAvg.toFixed(4)),
+      projectedMonthlyUsd: Number(projectedMonthly.toFixed(2)),
     },
     health: {
       db: dbOk,

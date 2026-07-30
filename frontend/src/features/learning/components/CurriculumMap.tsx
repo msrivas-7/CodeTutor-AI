@@ -26,7 +26,46 @@ export interface CurriculumMapProps {
   onOpenLesson: (courseId: string, lessonId: string) => void;
 }
 
-type NodeState = "completed" | "next" | "untouched";
+export type NodeState = "completed" | "next" | "untouched";
+
+export interface MapNode {
+  lesson: LessonMeta;
+  state: NodeState;
+  /** True when the PREVIOUS lesson is completed — colors the connector. */
+  prevCompleted: boolean;
+}
+
+/**
+ * Pure layout math for one course row: walk `course.lessonOrder`, resolve
+ * each id to its meta (dropping ids with no meta — a content-lint error,
+ * not a UI crash), and label each node.
+ *
+ * "next" is the FIRST uncompleted lesson in course order, matching the
+ * course page's next-up logic. A fully-completed course has no "next".
+ * Exported so the labelling is unit-testable without a DOM.
+ */
+export function buildCourseNodes(
+  course: Course,
+  lessons: LessonMeta[],
+  completedLessonIds: string[],
+): { nodes: MapNode[]; doneCount: number } {
+  const completed = new Set(completedLessonIds);
+  const byId = new Map(lessons.map((l) => [l.id, l]));
+  const ordered = course.lessonOrder
+    .map((id) => byId.get(id))
+    .filter((l): l is LessonMeta => !!l);
+  const nextIdx = ordered.findIndex((l) => !completed.has(l.id));
+  const nodes = ordered.map((lesson, i) => ({
+    lesson,
+    state: completed.has(lesson.id)
+      ? ("completed" as const)
+      : i === nextIdx
+        ? ("next" as const)
+        : ("untouched" as const),
+    prevCompleted: i > 0 && completed.has(ordered[i - 1].id),
+  }));
+  return { nodes, doneCount: nodes.filter((n) => n.state === "completed").length };
+}
 
 export function CurriculumMap({
   courses,
@@ -41,16 +80,11 @@ export function CurriculumMap({
       </h2>
       <div className="flex flex-col gap-3 rounded-xl border border-border bg-panel p-4">
         {courses.map(({ course, lessons }) => {
-          const completed = new Set(
+          const { nodes, doneCount } = buildCourseNodes(
+            course,
+            lessons,
             courseProgressMap[course.id]?.completedLessonIds ?? [],
           );
-          const ordered = course.lessonOrder
-            .map((id) => lessons.find((l) => l.id === id))
-            .filter((l): l is LessonMeta => !!l);
-          // "next" = first uncompleted lesson in order; everything after
-          // is untouched. Matches the course page's next-up logic.
-          const nextIdx = ordered.findIndex((l) => !completed.has(l.id));
-          const doneCount = ordered.filter((l) => completed.has(l.id)).length;
           return (
             <div key={course.id} className="flex flex-col gap-1.5">
               <div className="flex items-baseline justify-between gap-2">
@@ -58,24 +92,18 @@ export function CurriculumMap({
                   {course.title}
                 </span>
                 <span className="shrink-0 text-[10px] tabular-nums text-faint">
-                  {doneCount}/{ordered.length}
+                  {doneCount}/{nodes.length}
                 </span>
               </div>
               <div className="flex flex-wrap items-center gap-y-2">
-                {ordered.map((lesson, i) => {
-                  const state: NodeState = completed.has(lesson.id)
-                    ? "completed"
-                    : i === nextIdx
-                      ? "next"
-                      : "untouched";
+                {nodes.map(({ lesson, state, prevCompleted }, i) => {
                   return (
                     <div key={lesson.id} className="flex items-center">
                       {i > 0 && (
                         <span
                           aria-hidden="true"
                           className={`h-px w-3 sm:w-4 ${
-                            state === "completed" ||
-                            (i - 1 >= 0 && completed.has(ordered[i - 1].id))
+                            state === "completed" || prevCompleted
                               ? "bg-success/50"
                               : "bg-border"
                           }`}
