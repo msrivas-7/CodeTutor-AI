@@ -90,3 +90,19 @@ export async function getEffectiveFreeTierEnabled(): Promise<boolean> {
   if (project != null) return project;
   return config.freeTier.enabled;
 }
+
+// ---------------------------------------------------------------------------
+// Phase A — A5: anon-only operational-floor caps (no per-user layer —
+// anon has no user). Same two-layer precedence as L4/L9.
+// ---------------------------------------------------------------------------
+export async function getEffectiveAnonDailyUsdCap(): Promise<number> {
+  const project = await readProjectOverrideNumber("anon_daily_usd_cap");
+  if (project != null) return project;
+  return config.freeTier.anonDailyUsdCap;
+}
+
+export async function getEffectiveAnonDailyRunsPerIp(): Promise<number> {
+  const project = await readProjectOverrideNumber("anon_daily_runs_per_ip");
+  if (project != null) return project;
+  return config.freeTier.anonDailyRunsPerIp;
+}

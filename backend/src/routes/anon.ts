@@ -53,6 +53,8 @@ import {
   type CredentialNoneReason,
 } from "../services/ai/credential.js";
 import { writeAnonUsageRow } from "../db/usageLedger.js";
+import { incrementAnonRunCount } from "../db/anonRunCounts.js";
+import { getEffectiveAnonDailyRunsPerIp } from "../services/ai/effectiveCaps.js";
 import { hashClientIp } from "../services/ai/ipHash.js";
 import {
   registerAbortController,
@@ -361,6 +363,56 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
       return res.status(400).json({ error: parsed.error.message });
     }
     const { language, files, stdin } = parsed.data;
+
+    // Phase A — A5 (operational floor): per-IP daily spawn cap. The
+    // per-minute sessionCreateLimit above bounds bursts; this bounds
+    // sustained abuse (a patient IP could otherwise spawn ~43k
+    // containers per UTC day inside the per-minute budget). Same
+    // req.ip fail-loud guard as ask/stream — an empty req.ip means
+    // the trust-proxy chain is misconfigured and every caller would
+    // share one counter bucket.
+    if (!req.ip) {
+      console.error(
+        JSON.stringify({
+          level: "error",
+          evt: "anon_run_no_ip",
+          msg: "req.ip empty — trust-proxy chain misconfigured",
+        }),
+      );
+      return res.status(503).json({ error: "CLIENT_IDENTITY_UNKNOWN" });
+    }
+    try {
+      const runsToday = await incrementAnonRunCount(hashClientIp(req.ip));
+      const runCap = await getEffectiveAnonDailyRunsPerIp();
+      if (runsToday > runCap) {
+        aiPlatformAbuseSignals.inc({ signal: "anon_run_cap_exceeded" });
+        // Structured emit so KQL alerting can watch this independent
+        // of the in-process Prom counter (same C5 pattern as the
+        // lesson-allowlist signal above).
+        console.warn(
+          JSON.stringify({
+            level: "warn",
+            evt: "anon_abuse_signal",
+            signal: "anon_run_cap_exceeded",
+            runsToday,
+            runCap,
+          }),
+        );
+        return res.status(429).json({ error: "ANON_RUN_CAP_EXCEEDED" });
+      }
+    } catch (err) {
+      // Fail-open on counter errors: the per-minute limiter still
+      // bounds worst-case cost, and blocking every anon learner on a
+      // DB blip is the worse failure. Log so a sustained outage of
+      // the shield is visible.
+      console.error(
+        JSON.stringify({
+          level: "error",
+          evt: "anon_run_count_error",
+          msg: err instanceof Error ? err.message : String(err),
+        }),
+      );
+    }
 
     // Ephemeral runtime spec. RuntimeSpec is sessionId-only at this
     // layer (the language is passed to runProject below). We mint a

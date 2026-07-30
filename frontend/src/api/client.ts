@@ -456,7 +456,11 @@ export type SystemConfigKey =
   | "aci_warm_max_pool_size"
   // Phase 27-v2.2 Fix 7c — master kill switch for /api/anon/*. False
   // 503s the anon trial path on the next request (60s cache TTL).
-  | "anon_lesson_enabled";
+  | "anon_lesson_enabled"
+  // Phase A — A5 operational floor: anon-only global daily $ ceiling
+  // and per-IP daily container-spawn cap on /api/anon/run.
+  | "anon_daily_usd_cap"
+  | "anon_daily_runs_per_ip";
 
 export interface SystemConfigEntry {
   value: boolean | number;
@@ -585,6 +589,14 @@ export interface AdminDashboardSnapshot {
     dockerExecQueued: number;
     renderActive: number;
     renderWaiting: number;
+  };
+  /** Phase A — A5: projected monthly burn (fixed infra baseline + AI
+   *  spend extrapolated from the trailing 7 days). Directional. */
+  burn: {
+    infraMonthlyUsd: number;
+    aiSpendLast7dUsd: number;
+    aiDailyAvgUsd: number;
+    projectedMonthlyUsd: number;
   };
   health: {
     db: "ok" | "fail";

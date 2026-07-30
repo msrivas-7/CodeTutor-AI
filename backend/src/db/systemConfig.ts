@@ -67,6 +67,19 @@ export const KNOWN_KEYS = [
   // email-enumeration, mail-relay misuse — without nuking the entire
   // /try/ surface. Default FALSE (handoff enabled).
   "anon_laptop_invite_disabled",
+  // Phase A — A5 operational floor. Both numeric, admin-tunable at
+  // runtime; env vars (ANON_DAILY_USD_CAP / ANON_DAILY_RUNS_PER_IP)
+  // are the boot-time defaults + DB-unreachable fallback.
+  //   anon_daily_usd_cap      — anon-only global daily $ ceiling
+  //                             (independent of and tighter than the
+  //                             combined free_tier_daily_usd_cap);
+  //                             blow through it → anon AI 503s until
+  //                             UTC midnight.
+  //   anon_daily_runs_per_ip  — per-IP daily cap on POST /api/anon/run
+  //                             container spawns (sustained-DOS shield
+  //                             over the 30/min burst limiter).
+  "anon_daily_usd_cap",
+  "anon_daily_runs_per_ip",
 ] as const;
 export type SystemConfigKey = (typeof KNOWN_KEYS)[number];
 

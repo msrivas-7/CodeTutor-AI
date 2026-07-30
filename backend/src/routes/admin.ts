@@ -144,6 +144,17 @@ const KEY_BOUNDS: Record<
   // operator can drain magic-link abuse (token enumeration, mail-
   // relay misuse) without nuking the entire trial path.
   anon_laptop_invite_disabled: { type: "boolean" },
+  // Phase A — A5 operational floor.
+  // - anon_daily_usd_cap: anon-only global daily $ ceiling. Bound 0–50:
+  //   must stay meaningfully below free_tier_daily_usd_cap's practical
+  //   range (anon is a strict subset of total platform spend); a typo
+  //   past $50/day on the anonymous surface would defeat the point.
+  // - anon_daily_runs_per_ip: per-IP daily container-spawn cap on
+  //   /api/anon/run. Bound 0–5000: 0 = drain the run surface without
+  //   killing the whole trial path; 5000 ≈ the per-minute limiter's
+  //   ceiling anyway, so higher values would only mask a misconfig.
+  anon_daily_usd_cap: { type: "number", min: 0, max: 50 },
+  anon_daily_runs_per_ip: { type: "number", min: 0, max: 5000 },
 };
 
 // Env defaults exposed in GET /api/admin/system-config so the UI can
@@ -186,6 +197,10 @@ function envDefaultFor(key: SystemConfigKey): boolean | number {
       // Default off — the handoff is part of the device-contract
       // promise, only flipped when active abuse demands draining it.
       return false;
+    case "anon_daily_usd_cap":
+      return config.freeTier.anonDailyUsdCap;
+    case "anon_daily_runs_per_ip":
+      return config.freeTier.anonDailyRunsPerIp;
   }
 }
 

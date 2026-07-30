@@ -71,6 +71,10 @@ vi.mock("./effectiveCaps.js", () => ({
   getEffectiveLifetimeUsdCapPerUser: vi.fn(async () => 1.0),
   getEffectiveDailyUsdCap: vi.fn(async () => 2.0),
   getEffectiveFreeTierEnabled: vi.fn(async () => true),
+  // Phase A — A5: anon-only global $ ceiling. Default HIGHER than the
+  // combined L4 (2.0) above so pre-A5 tests keep tripping the combined
+  // cap first, exactly as they did before L4a existed.
+  getEffectiveAnonDailyUsdCap: vi.fn(async () => 5.0),
 }));
 
 const { getOpenAIKey } = await import("../../db/preferences.js");
@@ -106,6 +110,7 @@ beforeEach(() => {
   vi.mocked(caps.getEffectiveLifetimeUsdCapPerUser).mockReset().mockResolvedValue(1.0);
   vi.mocked(caps.getEffectiveDailyUsdCap).mockReset().mockResolvedValue(2.0);
   vi.mocked(caps.getEffectiveFreeTierEnabled).mockReset().mockResolvedValue(true);
+  vi.mocked(caps.getEffectiveAnonDailyUsdCap).mockReset().mockResolvedValue(5.0);
 });
 
 describe("resolveAICredential", () => {
@@ -428,6 +433,30 @@ describe("resolveAnonAICredential", () => {
     const c = await resolveAnonAICredential(IP_HASH);
     expect(c.source).toBe("none");
     if (c.source === "none") expect(c.reason).toBe("usd_cap_hit");
+  });
+
+  it("L4a anon-only $ cap: trips on anon spend alone even when combined L4 has headroom", async () => {
+    // Phase A — A5. Combined cap raised to 15 (headroom), anon-only
+    // cap at 5. Anon spend of 5.0 alone must trip — the whole point
+    // of L4a is that a viral anon spike shuts anon off long before
+    // the operator-wallet L4 fires, leaving authed budget intact.
+    vi.mocked(caps.getEffectiveDailyUsdCap).mockResolvedValueOnce(15.0);
+    vi.mocked(ledger.sumPlatformCostTodayGlobal).mockResolvedValueOnce(0);
+    vi.mocked(ledger.sumPlatformCostTodayAnonGlobal).mockResolvedValueOnce(5.0);
+    const c = await resolveAnonAICredential(IP_HASH);
+    expect(c.source).toBe("none");
+    if (c.source === "none") expect(c.reason).toBe("usd_cap_hit");
+  });
+
+  it("L4a boundary: anon spend just under the anon-only cap passes through", async () => {
+    // 4.99 < 5.00 → the request proceeds to L_anon and succeeds.
+    // Pins the >= comparison so a future > flip doesn't allow one
+    // extra request past the ceiling unnoticed.
+    vi.mocked(caps.getEffectiveDailyUsdCap).mockResolvedValueOnce(15.0);
+    vi.mocked(ledger.sumPlatformCostTodayGlobal).mockResolvedValueOnce(0);
+    vi.mocked(ledger.sumPlatformCostTodayAnonGlobal).mockResolvedValueOnce(4.99);
+    const c = await resolveAnonAICredential(IP_HASH);
+    expect(c.source).toBe("platform");
   });
 
   it("L_anon: returns anon_exhausted when this IP is at the per-IP daily cap", async () => {

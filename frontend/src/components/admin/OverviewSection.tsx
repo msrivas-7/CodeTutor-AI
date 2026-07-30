@@ -61,6 +61,7 @@ export function OverviewSection() {
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
             <SessionsTile snap={data} />
             <SpendTile snap={data} />
+            <BurnTile snap={data} />
             <HealthTile snap={data} />
             <QueuesTile snap={data} />
             <SpawnOutcomesTile snap={data} />
@@ -522,6 +523,45 @@ function SpendTile({ snap }: { snap: AdminDashboardSnapshot }) {
           </div>
           <div className="mt-1.5">
             <Bar pct={aciPct} tone={pctTone(aciPct)} />
+          </div>
+        </div>
+      </div>
+    </Tile>
+  );
+}
+
+// Phase A — A5: projected monthly burn. Fixed infra baseline (env
+// constant INFRA_MONTHLY_BASELINE_USD, operator-maintained) + AI spend
+// extrapolated from the trailing 7 days. Directional, not an invoice —
+// its job is making a July-2026-style credit blowout visible weeks
+// before the subscription gets disabled, not accounting precision.
+function BurnTile({ snap }: { snap: AdminDashboardSnapshot }) {
+  const b = snap.burn;
+  return (
+    <Tile title="Projected monthly burn">
+      <div className="flex flex-col gap-2">
+        <div className="text-2xl font-semibold text-ink">
+          ${b.projectedMonthlyUsd.toFixed(2)}
+          <span className="ml-1 text-[11px] font-normal text-muted">/mo</span>
+        </div>
+        <div className="flex flex-col gap-1 text-[11px]">
+          <div className="flex items-baseline justify-between">
+            <span className="text-muted">Azure infra (baseline)</span>
+            <span className="font-mono text-ink">
+              ${b.infraMonthlyUsd.toFixed(2)}
+            </span>
+          </div>
+          <div className="flex items-baseline justify-between">
+            <span className="text-muted">AI @ 7-day avg</span>
+            <span className="font-mono text-ink">
+              ${(b.aiDailyAvgUsd * 30.44).toFixed(2)}
+            </span>
+          </div>
+          <div className="flex items-baseline justify-between">
+            <span className="text-faint">AI last 7 days</span>
+            <span className="font-mono text-muted">
+              {fmtUsdSpend(b.aiSpendLast7dUsd)}
+            </span>
           </div>
         </div>
       </div>
