@@ -5,6 +5,7 @@
   "description": "End-to-end test harness for CodeTutor AI. Runs against a live docker-compose stack at localhost:5173 (frontend) / localhost:4000 (backend). OpenAI is mocked by default; set E2E_REAL_OPENAI=1 to run the opt-in real-API specs.",
   "scripts": {
     "test": "playwright test",
+    "test:cross-browser": "E2E_CROSS_BROWSER=1 playwright test specs/phase-aq-cross-browser.spec.ts --project=firefox --project=webkit",
     "test:ui": "playwright test --ui",
     "test:debug": "playwright test --debug",
     "test:real": "E2E_REAL_OPENAI=1 playwright test specs/real-api",

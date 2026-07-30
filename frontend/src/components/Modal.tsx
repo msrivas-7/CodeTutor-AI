@@ -2,6 +2,44 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 
+interface InertOwnership {
+  count: number;
+  inert: boolean;
+  ariaHidden: string | null;
+}
+
+// Several dialogs can legitimately stack (completion → share → signup wall).
+// Their effects may clean up in either order during route changes. Track shared
+// ownership so the last live modal restores the page's original state instead
+// of an upper layer restoring the lower layer's temporary `inert=true` snapshot.
+const inertOwnership = new Map<HTMLElement, InertOwnership>();
+
+function acquireInert(node: HTMLElement) {
+  const existing = inertOwnership.get(node);
+  if (existing) existing.count += 1;
+  else {
+    inertOwnership.set(node, {
+      count: 1,
+      inert: node.inert,
+      ariaHidden: node.getAttribute("aria-hidden"),
+    });
+  }
+  node.inert = true;
+  node.setAttribute("aria-hidden", "true");
+}
+
+function releaseInert(node: HTMLElement) {
+  const ownership = inertOwnership.get(node);
+  if (!ownership) return;
+  ownership.count -= 1;
+  if (ownership.count > 0) return;
+
+  node.inert = ownership.inert;
+  if (ownership.ariaHidden === null) node.removeAttribute("aria-hidden");
+  else node.setAttribute("aria-hidden", ownership.ariaHidden);
+  inertOwnership.delete(node);
+}
+
 interface ModalProps {
   onClose: () => void;
   children: ReactNode;
@@ -117,31 +155,19 @@ export function Modal({
       (node): node is HTMLElement =>
         node instanceof HTMLElement && node !== backdrop,
     );
-    const previous = siblings.map((node) => ({
-      node,
-      inert: node.inert,
-      ariaHidden: node.getAttribute("aria-hidden"),
-    }));
-
-    for (const node of siblings) {
-      node.inert = true;
-      node.setAttribute("aria-hidden", "true");
-    }
+    for (const node of siblings) acquireInert(node);
 
     return () => {
-      for (const state of previous) {
-        state.node.inert = state.inert;
-        if (state.ariaHidden === null) state.node.removeAttribute("aria-hidden");
-        else state.node.setAttribute("aria-hidden", state.ariaHidden);
-      }
+      for (const node of siblings) releaseInert(node);
     };
   }, []);
 
-  // Phase 20-P1: Tab focus trap. Modal.tsx focused first element on mount but
-  // Tab could escape to the page behind (Settings, Reset Lesson, language
-  // switch), which is both a WCAG failure and a confusing UX — the backdrop
-  // swallows clicks but not keystrokes. Wrap focus back to the first/last
-  // focusable inside the panel when the user Tabs past the edge.
+  // Phase 20-P1 / Phase A-Q: Tab focus trap. Own the complete Tab sequence,
+  // not only first/last wrapping. Safari/WebKit can skip button elements when
+  // the OS "keyboard navigation" preference is off; from a read-only input
+  // that can move focus out of the document before our old edge-only trap ever
+  // ran. A modal must remain fully keyboard-operable regardless of that host
+  // preference, so advance explicitly through its visible controls.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Tab") return;
@@ -162,26 +188,29 @@ export function Modal({
         panel.querySelectorAll<HTMLElement>(
           'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
         ),
-      ).filter((el) => !el.hasAttribute("disabled"));
+      ).filter(
+        (el) =>
+          !el.hasAttribute("disabled") &&
+          !el.hidden &&
+          !el.closest<HTMLElement>("[inert]") &&
+          el.getClientRects().length > 0,
+      );
       if (focusables.length === 0) {
         e.preventDefault();
         panel.focus();
         return;
       }
-      const first = focusables[0]!;
-      const last = focusables[focusables.length - 1]!;
       const active = document.activeElement as HTMLElement | null;
-      if (e.shiftKey) {
-        if (active === first || !panel.contains(active)) {
-          e.preventDefault();
-          last.focus();
-        }
-      } else {
-        if (active === last || !panel.contains(active)) {
-          e.preventDefault();
-          first.focus();
-        }
-      }
+      const activeIndex = active ? focusables.indexOf(active) : -1;
+      const nextIndex = e.shiftKey
+        ? activeIndex <= 0
+          ? focusables.length - 1
+          : activeIndex - 1
+        : activeIndex < 0 || activeIndex === focusables.length - 1
+          ? 0
+          : activeIndex + 1;
+      e.preventDefault();
+      focusables[nextIndex]!.focus({ preventScroll: true });
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

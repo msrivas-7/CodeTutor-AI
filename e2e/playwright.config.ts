@@ -20,6 +20,26 @@ process.env.E2E_USER_SUFFIX ??=
 const BASE_URL = process.env.E2E_BASE_URL ?? "http://localhost:5173";
 const API_URL = process.env.E2E_API_URL ?? "http://localhost:4000";
 const IS_CI = !!process.env.CI;
+const CROSS_BROWSER = process.env.E2E_CROSS_BROWSER === "1";
+
+const browserProjects = [
+  {
+    name: "chromium",
+    use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
+  },
+  ...(CROSS_BROWSER
+    ? [
+        {
+          name: "firefox",
+          use: { ...devices["Desktop Firefox"], viewport: { width: 1440, height: 900 } },
+        },
+        {
+          name: "webkit",
+          use: { ...devices["Desktop Safari"], viewport: { width: 1440, height: 900 } },
+        },
+      ]
+    : []),
+];
 
 export default defineConfig({
   testDir: "./specs",
@@ -67,10 +87,9 @@ export default defineConfig({
     },
   },
 
-  projects: [
-    {
-      name: "chromium",
-      use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
-    },
-  ],
+  // Chromium owns the exhaustive suite and pixel baselines. The release
+  // workflow opts into Firefox + WebKit for the focused Phase A-Q critical
+  // journey by setting E2E_CROSS_BROWSER=1. Keeping the opt-in explicit
+  // prevents ordinary local `npm test` runs from unexpectedly tripling.
+  projects: browserProjects,
 });
