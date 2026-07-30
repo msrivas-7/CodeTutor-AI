@@ -170,7 +170,15 @@ jobs:
         working-directory: frontend
         run: |
           npm install --global @lhci/cli@0.15.1
-          lhci autorun --config=./lighthouserc.cjs
+          # Retry collection only when Chrome fails to produce a report (for
+          # example a hosted-runner NO_FCP). Assertions are never retried, so a
+          # real budget regression cannot pass by selecting a favorable run.
+          lhci collect --config=./lighthouserc.cjs || {
+            echo "Lighthouse collection failed once; retrying collection."
+            lhci collect --config=./lighthouserc.cjs
+          }
+          lhci assert --config=./lighthouserc.cjs
+          lhci upload --config=./lighthouserc.cjs
       - name: Upload Lighthouse reports
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

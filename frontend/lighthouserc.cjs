@@ -6,7 +6,11 @@ module.exports = {
       url: ["http://localhost/", "http://localhost/why-not-chatgpt"],
       numberOfRuns: 3,
       settings: {
-        chromeFlags: "--headless --no-sandbox --disable-dev-shm-usage",
+        // GitHub hosted runners do not expose a reliable GPU device. Keeping
+        // software rendering enabled while disabling GPU acceleration avoids
+        // Chrome NO_FCP collection failures without changing the budgets.
+        chromeFlags:
+          "--headless --no-sandbox --disable-dev-shm-usage --disable-gpu",
         maxWaitForLoad: 90_000,
       },
     },
