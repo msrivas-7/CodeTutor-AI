@@ -37,10 +37,9 @@ test.describe("Phase 27-v2.1 — no 401 cascade on anon path", () => {
       // Phase A — A1: pre-seed retrieval-check pass so Check goes
       // straight to celebration (this spec tests the 401 cascade, not
       // the retrieval gate).
-      window.localStorage.setItem(
-        "ui:lesson:retrievalPassed:python-fundamentals:hello-world",
-        "1",
-      );
+      // Phase A: the retrieval pass is scoped to the learner and, for
+      // anon, lives in sessionStorage under the "anon" scope.
+      window.sessionStorage.setItem("ui:lesson:retrievalPassed:anon:python-fundamentals:hello-world", "1");
     });
 
     // Collect every 4xx response. The 401 cascade is the load-bearing

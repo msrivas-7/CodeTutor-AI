@@ -34,10 +34,9 @@ const SEED_FLAGS = `
   window.sessionStorage.setItem("codetutor.anonChoreographyDone", "1");
   // Phase A — A1: pre-seed retrieval-pass so Check goes straight to
   // celebration. The retrieval gate has its own dedicated spec.
-  window.localStorage.setItem(
-    "ui:lesson:retrievalPassed:python-fundamentals:hello-world",
-    "1",
-  );
+      // Phase A: the retrieval pass is scoped to the learner and, for
+      // anon, lives in sessionStorage under the "anon" scope.
+      window.sessionStorage.setItem("ui:lesson:retrievalPassed:anon:python-fundamentals:hello-world", "1");
 `;
 
 test.describe("Phase 27-v2.1 — SignupWallDialog reasons coverage", () => {

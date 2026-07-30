@@ -30,9 +30,10 @@ test.describe("Phase A — A1 retrieval-check gate", () => {
       window.sessionStorage.setItem("codetutor.anonCoachSeen", "1");
       window.sessionStorage.setItem("codetutor.anonChoreographyDone", "1");
       // Crucially DO NOT pre-seed retrievalPassed — that's exactly what
-      // these tests exercise.
-      window.localStorage.removeItem(
-        "ui:lesson:retrievalPassed:python-fundamentals:hello-world",
+      // these tests exercise. Phase A scopes the key to the learner and
+      // parks the anon variant in sessionStorage, so clear THAT one.
+      window.sessionStorage.removeItem(
+        "ui:lesson:retrievalPassed:anon:python-fundamentals:hello-world",
       );
     });
     // Mock /api/anon/run with a passing-but-not-canonical greeting so
@@ -149,17 +150,20 @@ test.describe("Phase A — A1 retrieval-check gate", () => {
         .first(),
     ).toBeVisible();
 
-    // localStorage persists the pass — a returning learner doesn't have
-    // to re-prove the retrieval check.
+    // The pass persists so the learner doesn't re-prove it. On the anon
+    // path that's sessionStorage under the "anon" scope — anonymous
+    // visitors have no stable identity, so a session boundary is the
+    // only isolation available and the next person on a shared device
+    // answers the check themselves.
     const stored = await page.evaluate(() =>
-      window.localStorage.getItem(
-        "ui:lesson:retrievalPassed:python-fundamentals:hello-world",
+      window.sessionStorage.getItem(
+        "ui:lesson:retrievalPassed:anon:python-fundamentals:hello-world",
       ),
     );
     expect(stored).toBe("1");
   });
 
-  test("returning learner with retrievalPassed=1 in localStorage skips the gate", async ({
+  test("returning learner with a persisted pass skips the gate", async ({
     page,
   }) => {
     // Override the beforeEach init-script with a fresh one that DOES
@@ -167,8 +171,8 @@ test.describe("Phase A — A1 retrieval-check gate", () => {
     // the second one runs after the first — the first did .removeItem,
     // the second .setItem wins.
     await page.addInitScript(() => {
-      window.localStorage.setItem(
-        "ui:lesson:retrievalPassed:python-fundamentals:hello-world",
+      window.sessionStorage.setItem(
+        "ui:lesson:retrievalPassed:anon:python-fundamentals:hello-world",
         "1",
       );
     });

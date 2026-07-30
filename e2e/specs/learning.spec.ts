@@ -7,6 +7,7 @@
 import { expect, test } from "../fixtures/auth";
 
 import { mockAllAI, mockTutorQueue } from "../fixtures/aiMocks";
+import { seedAuthedRetrievalPass } from "../fixtures/retrievalGate";
 import {
   getMonacoValue,
   setMonacoValue,
@@ -20,7 +21,7 @@ import { expectLessonComplete } from "../utils/assertions";
 const COURSE_ID = "python-fundamentals";
 
 test.describe("learning", () => {
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ page }, testInfo) => {
     await mockAllAI(page);
     await markOnboardingDone(page);
     // Phase A — A1: pre-seed the lesson-1 retrieval-check pass so the
@@ -29,12 +30,7 @@ test.describe("learning", () => {
     // the gate's actual behavior; this seeding lets the broader
     // learning chrome specs continue to assert the post-celebration
     // flow without each having to walk through a multiple-choice UI.
-    await page.addInitScript(() => {
-      window.localStorage.setItem(
-        "ui:lesson:retrievalPassed:python-fundamentals:hello-world",
-        "1",
-      );
-    });
+    await seedAuthedRetrievalPass(page, testInfo.workerIndex);
   });
 
   test("dashboard Continue jumps to next lesson (mid-course)", async ({ page }) => {
