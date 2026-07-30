@@ -33,7 +33,48 @@ test("does not trust a malformed forwarded host", () => {
   const request = new Request("https://safe.example/api/share/abc", {
     headers: { "x-forwarded-host": 'bad.example\"><script>alert(1)</script>' },
   });
-  assert.equal(resolveOrigin(request), "https://safe.example");
+  assert.equal(resolveOrigin(request), "https://codetutor.msrivas.com");
+});
+
+test("uses the SWA disguised host instead of the internal Functions URL", () => {
+  const request = new Request(
+    "https://internal-function.azurewebsites.net/api/share/abc",
+    {
+      headers: {
+        "disguised-host":
+          "gentle-flower-093ba7e0f-10.eastus2.7.azurestaticapps.net",
+        "x-appservice-proto": "https",
+      },
+    },
+  );
+  assert.equal(
+    resolveOrigin(request),
+    "https://gentle-flower-093ba7e0f-10.eastus2.7.azurestaticapps.net",
+  );
+});
+
+test("accepts an Azure original URL when no public host header is present", () => {
+  const request = new Request(
+    "https://internal-function.azurewebsites.net/api/share/abc",
+    {
+      headers: {
+        "x-ms-original-url":
+          "https://gentle-flower-093ba7e0f.azurestaticapps.net/api/share/abc",
+      },
+    },
+  );
+  assert.equal(
+    resolveOrigin(request),
+    "https://gentle-flower-093ba7e0f.azurestaticapps.net",
+  );
+});
+
+test("rejects a syntactically valid but untrusted host", () => {
+  const request = new Request(
+    "https://internal-function.azurewebsites.net/api/share/abc",
+    { headers: { host: "attacker.example" } },
+  );
+  assert.equal(resolveOrigin(request), "https://codetutor.msrivas.com");
 });
 
 test("rejects tokens outside the public 12-character alphabet before fetching", async () => {

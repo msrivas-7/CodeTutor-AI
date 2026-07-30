@@ -80,13 +80,78 @@ export function renderShareHtml(share, origin) {
 </html>`;
 }
 
-export function resolveOrigin(request) {
-  const forwarded = request.headers.get("x-forwarded-host");
-  const forwardedHost = forwarded?.split(",")[0].trim();
-  if (forwardedHost && /^[A-Za-z0-9.-]+(?::\d{1,5})?$/.test(forwardedHost)) {
-    return `https://${forwardedHost}`;
+function isPublicShareHost(hostname) {
+  const normalized = hostname.toLowerCase();
+  return (
+    normalized === "codetutor.msrivas.com" ||
+    normalized.endsWith(".azurestaticapps.net") ||
+    normalized === "localhost" ||
+    normalized === "127.0.0.1" ||
+    normalized === "[::1]"
+  );
+}
+
+function originFromHost(host, protocol = "https:") {
+  const candidate = host?.split(",")[0].trim();
+  if (!candidate || !/^[A-Za-z0-9.:[\]-]+(?::\d{1,5})?$/.test(candidate)) {
+    return null;
   }
-  return new URL(request.url).origin;
+  try {
+    const parsed = new URL(`${protocol}//${candidate}`);
+    return isPublicShareHost(parsed.hostname) ? parsed.origin : null;
+  } catch {
+    return null;
+  }
+}
+
+function originFromUrl(value) {
+  if (!value) return null;
+  try {
+    const parsed = new URL(value.split(",")[0].trim());
+    if (
+      (parsed.protocol === "https:" || parsed.protocol === "http:") &&
+      isPublicShareHost(parsed.hostname)
+    ) {
+      return parsed.origin;
+    }
+  } catch {
+    // Ignore malformed proxy metadata and continue to the next source.
+  }
+  return null;
+}
+
+export function resolveOrigin(request) {
+  // Azure Static Web Apps terminates the public request before invoking its
+  // managed Function. Depending on the hosting path, request.url can therefore
+  // contain an internal *.azurewebsites.net hostname. Prefer the original host
+  // metadata that the SWA/App Service proxy preserves. `disguised-host` is the
+  // header currently used by the SWA API proxy; the others cover standard and
+  // older Azure proxy paths. Every candidate is constrained to our custom
+  // domain, SWA-owned preview domains, or local development hosts so a spoofed
+  // Host header cannot poison canonical/share URLs.
+  const protocol =
+    request.headers.get("x-forwarded-proto")?.split(",")[0].trim() ||
+    request.headers.get("x-appservice-proto")?.split(",")[0].trim() ||
+    "https";
+  const safeProtocol = protocol === "http" ? "http:" : "https:";
+  const hostHeaders = [
+    "x-forwarded-host",
+    "disguised-host",
+    "x-original-host",
+    "x-ms-original-host",
+    "host",
+  ];
+  for (const header of hostHeaders) {
+    const origin = originFromHost(request.headers.get(header), safeProtocol);
+    if (origin) return origin;
+  }
+
+  for (const header of ["x-original-url", "x-ms-original-url"]) {
+    const origin = originFromUrl(request.headers.get(header));
+    if (origin) return origin;
+  }
+
+  return originFromUrl(request.url) ?? "https://codetutor.msrivas.com";
 }
 
 export async function handleSharePage(request) {
