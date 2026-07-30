@@ -28,6 +28,14 @@ function containsPattern(content: string, pattern: string): boolean {
 export interface ValidateExtraContext {
   testReport?: TestReport | null;
   language?: Language;
+  // Phase A — A1: when a lesson has a `retrieval_check` rule, this flag
+  // gates its pass. Source of truth lives in LessonPage state +
+  // localStorage; the validator just consumes it. `undefined` /
+  // `false` → the gate fails (lesson not yet complete). The completion
+  // panel mounts only when ALL rules pass — so a learner who solved
+  // the stdout but hasn't answered the retrieval check sees a
+  // RetrievalCheckPanel UI before the celebration.
+  retrievalAnswered?: boolean;
 }
 
 /**
@@ -51,12 +59,20 @@ export function validateLesson(
   extra: ValidateExtraContext = {},
 ): ValidationResult {
   if (!rules.length) {
-    return { passed: true, feedback: ["No validation rules — auto-pass."] };
+    return {
+      passed: true,
+      passedExceptRetrieval: true,
+      feedback: ["No validation rules — auto-pass."],
+    };
   }
 
   const feedback: string[] = [];
   const nextHints: string[] = [];
   let allPassed = true;
+  // Phase A — A1: track non-retrieval pass separately so LessonPage
+  // can decide when to mount the RetrievalCheckPanel (only when the
+  // executable rules are already green).
+  let allNonRetrievalPassed = true;
 
   for (const rule of rules) {
     switch (rule.type) {
@@ -64,12 +80,14 @@ export function validateLesson(
         if (!result) {
           feedback.push("Run your code first before checking.");
           allPassed = false;
+          allNonRetrievalPassed = false;
           break;
         }
         if (result.exitCode !== 0) {
           feedback.push("Your code has an error — fix it and run again.");
           nextHints.push("Check the output panel for error messages.");
           allPassed = false;
+          allNonRetrievalPassed = false;
           break;
         }
         const expected = (rule.expected ?? "").trim();
@@ -81,25 +99,28 @@ export function validateLesson(
           feedback.push(`Your code ran but produced no output. Make sure you're using ${printCall}.`);
           nextHints.push(`Add a ${printCall} statement to display your result.`);
           allPassed = false;
+          allNonRetrievalPassed = false;
         } else {
           feedback.push(`Expected "${expected}" in output, but got: "${actual.slice(0, 80)}"`);
           nextHints.push("Compare your output carefully — check spelling, spacing, and punctuation.");
           allPassed = false;
+          allNonRetrievalPassed = false;
         }
         break;
       }
       case "forbidden_in_stdout": {
-        // Phase 27-v2 Day 3a: paired with expected_stdout for lesson 1
-        // — rejects any stdout that still contains the placeholder
-        // sentinel (`YOUR_NAME` in lesson 1's case). Without this,
-        // the substring `expected_stdout: "Hello, "` happily passes
-        // the unedited starter's output `Hello, YOUR_NAME!` and the
-        // user can ship a "Sign up to keep going!" wall having done
-        // literally zero edits to the starter — trust break before
-        // the win moment ever lands.
+        // Paired with expected_stdout to reject "lazy-pass" outputs.
+        // Lesson authors set the pattern to whatever the learner would
+        // produce by accident or by literal copy-paste of an example
+        // (lesson 1: "Hello, World!" — the canonical first-program
+        // greeting that the lesson's starter comment shows as a model).
+        // Without this, the lenient `expected_stdout: "Hello, "`
+        // substring rule would accept any output starting with "Hello, "
+        // including the learner doing zero original work.
         if (!result) {
           feedback.push("Run your code first before checking.");
           allPassed = false;
+          allNonRetrievalPassed = false;
           break;
         }
         const forbidden = (rule.pattern ?? "").trim();
@@ -112,6 +133,7 @@ export function validateLesson(
             `Edit the code so the printed output no longer contains "${forbidden}".`,
           );
           allPassed = false;
+          allNonRetrievalPassed = false;
         } else {
           feedback.push(`Output doesn't contain "${forbidden}" — good.`);
         }
@@ -123,6 +145,7 @@ export function validateLesson(
         if (!file) {
           feedback.push(`File "${targetPath}" not found.`);
           allPassed = false;
+          allNonRetrievalPassed = false;
           break;
         }
         const pattern = rule.pattern ?? "";
@@ -132,6 +155,7 @@ export function validateLesson(
           feedback.push(`File "${targetPath}" is missing required code pattern.`);
           nextHints.push(`Make sure your code in ${targetPath} uses the required approach.`);
           allPassed = false;
+          allNonRetrievalPassed = false;
         }
         break;
       }
@@ -140,12 +164,14 @@ export function validateLesson(
         if (!report) {
           feedback.push("Run the examples first so we can check your function.");
           allPassed = false;
+          allNonRetrievalPassed = false;
           break;
         }
         if (report.harnessError) {
           feedback.push("Your code couldn't run — fix the error above, then try again.");
           nextHints.push("The tests need your code to run without errors before they can check it.");
           allPassed = false;
+          allNonRetrievalPassed = false;
           break;
         }
         const failed = report.results.filter((r) => !r.passed);
@@ -162,6 +188,7 @@ export function validateLesson(
           nextHints.push("Sketch 2–3 more inputs you'd expect it to handle, then trace them through your code.");
         }
         allPassed = false;
+        allNonRetrievalPassed = false;
         break;
       }
       case "custom_validator": {
@@ -170,10 +197,31 @@ export function validateLesson(
         // unsatisfied so the learner isn't marked complete.
         feedback.push("Custom validation isn't implemented yet — please report this lesson.");
         allPassed = false;
+        allNonRetrievalPassed = false;
+        break;
+      }
+      case "retrieval_check": {
+        // Phase A — A1: gated by `extra.retrievalAnswered` (sourced from
+        // LessonPage state + localStorage). The actual question UI is
+        // rendered by RetrievalCheckPanel — the validator just reflects
+        // whether the learner has passed it.
+        if (extra.retrievalAnswered === true) {
+          feedback.push("Retrieval check passed — you've got the concept.");
+        } else {
+          feedback.push("One quick check before you finish — answer the question that appears.");
+          // No nextHint here: the RetrievalCheckPanel is its own UI surface,
+          // not something the learner can "fix" by editing code.
+          allPassed = false;
+        }
         break;
       }
     }
   }
 
-  return { passed: allPassed, feedback, nextHints: nextHints.length > 0 ? nextHints : undefined };
+  return {
+    passed: allPassed,
+    passedExceptRetrieval: allNonRetrievalPassed,
+    feedback,
+    nextHints: nextHints.length > 0 ? nextHints : undefined,
+  };
 }

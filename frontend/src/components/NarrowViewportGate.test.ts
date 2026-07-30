@@ -5,6 +5,7 @@ import {
   TABLET_MAX_PX,
   dismissKey,
   readSize,
+  shouldSuppressForPath,
 } from "./NarrowViewportGate";
 
 // QA-M5: dismissal used to live in sessionStorage under a single key, so every
@@ -56,5 +57,37 @@ describe("readSize thresholds", () => {
     // also editing the string.
     expect(PHONE_MAX_PX).toBe(639);
     expect(TABLET_MAX_PX).toBe(1023);
+  });
+});
+
+describe("shouldSuppressForPath (Phase A — A2 device contract)", () => {
+  // The anon trial surface (/try/*) must never display the
+  // "you'll have a better time on a laptop" banner — phone is
+  // the discovery surface and the warm graduation handoff is the
+  // intended "open this on a laptop" beat.
+  it("suppresses on /try/lesson/...", () => {
+    expect(shouldSuppressForPath("/try/lesson/python-fundamentals/hello-world")).toBe(true);
+  });
+
+  it("suppresses on the bare /try root", () => {
+    expect(shouldSuppressForPath("/try")).toBe(true);
+    expect(shouldSuppressForPath("/try/")).toBe(true);
+  });
+
+  it("does NOT suppress on /learn/* (authed laptop-learning surface)", () => {
+    expect(shouldSuppressForPath("/learn")).toBe(false);
+    expect(shouldSuppressForPath("/learn/course/python-fundamentals/lesson/hello-world")).toBe(false);
+  });
+
+  it("does NOT suppress on the marketing root, signup, or editor page", () => {
+    expect(shouldSuppressForPath("/")).toBe(false);
+    expect(shouldSuppressForPath("/signup")).toBe(false);
+    expect(shouldSuppressForPath("/editor")).toBe(false);
+  });
+
+  it("does NOT match a path that merely contains /try/ in the middle (substring guard)", () => {
+    // Defensive: a future route that happens to have "/try/" deeper
+    // in its path shouldn't accidentally inherit the suppression.
+    expect(shouldSuppressForPath("/admin/try/something")).toBe(false);
   });
 });

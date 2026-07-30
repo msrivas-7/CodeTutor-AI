@@ -8,6 +8,25 @@ import { RingPulse } from "../../../components/cinema/RingPulse";
 import { invalidateStreak, useStreak } from "../../../state/useStreak";
 import { useDisableStreaks } from "../../../state/preferencesStore";
 
+/**
+ * Phase A — A7: resolve the post-credits ("next episode") line.
+ * Authored `nextLessonHint` wins; otherwise a soft tease built from the
+ * next lesson's title; null on the final lesson (CourseCompleteFlourish
+ * owns that ending) — a null result means render nothing.
+ *
+ * Deliberately carries no "Tomorrow"/streak framing: it names what comes
+ * next, never when the learner must show up. Exported for unit tests.
+ */
+export function resolvePostCredits(
+  nextLessonHint: string | undefined,
+  nextLessonTitle: string | null | undefined,
+): string | null {
+  const hint = nextLessonHint?.trim();
+  if (hint) return hint;
+  const title = nextLessonTitle?.trim();
+  return title ? `In the next lesson: ${title}.` : null;
+}
+
 interface LessonCompletePanelProps {
   lesson: LessonMeta;
   completedPracticeIds?: string[];
@@ -21,6 +40,13 @@ interface LessonCompletePanelProps {
   // is hidden rather than shown disabled. Sharing is celebratory; a
   // dimmed "Share" feels worse than no share at all.
   onShare?: () => void;
+  /**
+   * Phase A — A7: post-credits beat. The next lesson's title, used as
+   * the fallback tease when the lesson hasn't authored a
+   * nextLessonHint. Null/omitted on the course's final lesson —
+   * no tease, the CourseCompleteFlourish owns that ending.
+   */
+  nextLessonTitle?: string | null;
   /**
    * Phase 27-v2.1 — when "anon", suppresses the streak refetch + read
    * (would 401 on /api/user/streak), and the streak/practice-grid
@@ -40,8 +66,10 @@ export function LessonCompletePanel({
   onDismiss,
   onStartPractice,
   onShare,
+  nextLessonTitle = null,
   mode = "authed",
 }: LessonCompletePanelProps) {
+  const postCredits = resolvePostCredits(lesson.nextLessonHint, nextLessonTitle);
   const practiceExercises = lesson.practiceExercises ?? [];
   const practiceCount = practiceExercises.length;
   const practiceDone = practiceExercises.filter((ex) =>
@@ -362,6 +390,14 @@ export function LessonCompletePanel({
           </div>
         )}
 
+        {/* Phase A — A7: post-credits. Sits right above the CTA row so
+            the tease is the last thing read before choosing to
+            continue — the "next episode" card, not a nag. */}
+        {postCredits && (
+          <p className="mb-2 text-center text-[11px] italic leading-relaxed text-muted">
+            {postCredits}
+          </p>
+        )}
         {/* CTA priority swap: when mastery is shaky and practice is incomplete,
             Start Practice becomes primary and Next Lesson is secondary. */}
         <div className="flex items-center gap-2">

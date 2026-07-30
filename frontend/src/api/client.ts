@@ -456,7 +456,13 @@ export type SystemConfigKey =
   | "aci_warm_max_pool_size"
   // Phase 27-v2.2 Fix 7c — master kill switch for /api/anon/*. False
   // 503s the anon trial path on the next request (60s cache TTL).
-  | "anon_lesson_enabled";
+  | "anon_lesson_enabled"
+  // Phase A — A2: granular kill for the phone-graduation magic link.
+  | "anon_laptop_invite_disabled"
+  // Phase A — A5 operational floor: anon-only global daily $ ceiling
+  // and per-IP daily container-spawn cap on /api/anon/run.
+  | "anon_daily_usd_cap"
+  | "anon_daily_runs_per_ip";
 
 export interface SystemConfigEntry {
   value: boolean | number;
@@ -520,7 +526,12 @@ export interface AdminAnonSummary {
   /** Per-IP cap and combined L4 daily cap (for context). */
   perIpDailyCap: number;
   /** Cumulative abuse signals since process boot (Counter snapshot). */
-  abuseSignals: { anon_lesson_not_allowed: number; model_rejection: number };
+  abuseSignals: {
+    anon_lesson_not_allowed: number;
+    model_rejection: number;
+    /** Phase A — A4: fabricated-API tripwire hits (all tutor routes). */
+    tutor_suspect_api: number;
+  };
   /** Cumulative funnel events since the table started recording. Useful
    *  for "did the page get hit / wall open / signup happen" sanity. */
   funnelEvents: {
@@ -585,6 +596,14 @@ export interface AdminDashboardSnapshot {
     dockerExecQueued: number;
     renderActive: number;
     renderWaiting: number;
+  };
+  /** Phase A — A5: projected monthly burn (fixed infra baseline + AI
+   *  spend extrapolated from the trailing 7 days). Directional. */
+  burn: {
+    infraMonthlyUsd: number;
+    aiSpendLast7dUsd: number;
+    aiDailyAvgUsd: number;
+    projectedMonthlyUsd: number;
   };
   health: {
     db: "ok" | "fail";
@@ -883,6 +902,99 @@ export const api = {
       await throwApiError(res, "/api/anon/run");
     }
     return (await res.json()) as RunResult;
+  },
+
+  // Phase A — A2 (device contract): magic-link graduation handoff.
+  // Returns the URL on success so the dialog can also render a QR that
+  // an out-of-band laptop camera can scan without waiting for email
+  // delivery. The backend never returns the raw email or token-source
+  // beyond what the caller already supplied — see `anonLaptopInvite.ts`.
+  createAnonLaptopInvite: async (body: {
+    email: string;
+    code: string;
+    name: string | null;
+  }): Promise<{ ok: true; url: string; warn?: "EMAIL_SEND_FAILED" }> => {
+    const res = await fetch(`${API_BASE}/api/anon/laptop-link`, {
+      method: "POST",
+      headers: { ...JSON_HEADERS, ...CSRF_HEADER },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      // Pass structured error codes through so the dialog can map
+      // them to user-facing copy: "rate-limited", "trial paused", etc.
+      await throwApiError(res, "/api/anon/laptop-link");
+    }
+    return (await res.json()) as {
+      ok: true;
+      url: string;
+      warn?: "EMAIL_SEND_FAILED";
+    };
+  },
+
+  // Companion redemption call. Used by /start?invite=<token> to fetch
+  // the lesson-1 code + name and re-stash them before forwarding to
+  // signup. Single-use server-side — a second call with the same
+  // token returns 410 INVITE_USED.
+  redeemAnonLaptopInvite: async (
+    token: string,
+  ): Promise<{ code: string; name: string | null }> => {
+    const res = await fetch(`${API_BASE}/api/anon/laptop-link/redeem`, {
+      method: "POST",
+      headers: { ...JSON_HEADERS, ...CSRF_HEADER },
+      body: JSON.stringify({ token }),
+    });
+    if (!res.ok) {
+      await throwApiError(res, "/api/anon/laptop-link/redeem");
+    }
+    return (await res.json()) as { code: string; name: string | null };
+  },
+
+  // Phase A — A6 (memory v0): fire-and-forget concept-tag write for
+  // the anon path. AnonLessonPage calls this when LessonCompletePanel
+  // mounts — the server reads the lesson's tags from the catalog and
+  // writes ip_hash-keyed rows. Errors are silent at the call site;
+  // the authed-side ledger write at handoff time is the safety net.
+  postAnonConceptTag: async (body: {
+    courseId: "python-fundamentals";
+    lessonId: "hello-world";
+  }): Promise<void> => {
+    try {
+      await fetch(`${API_BASE}/api/anon/concept-tag`, {
+        method: "POST",
+        headers: { ...JSON_HEADERS, ...CSRF_HEADER },
+        body: JSON.stringify(body),
+        keepalive: true,
+      });
+    } catch {
+      // Network failure — fail-soft, the authed-side ledger write at
+      // handoff covers the gap.
+    }
+  },
+
+  // Phase A — A3 (anon-share unlock): create a share artifact for an
+  // anon learner (no userId). The server returns a public `/s/:token`
+  // URL that anyone can open without signup — the K-factor lever the
+  // pre-A3 wall path was eating. Body shape mirrors the authed POST
+  // /api/shares except courseId/lessonId are literals (server allowlist
+  // hard-locks anon to lesson 1).
+  createAnonShare: async (body: {
+    courseId: "python-fundamentals";
+    lessonId: "hello-world";
+    mastery: "strong" | "okay" | "shaky";
+    timeSpentMs: number;
+    attemptCount: number;
+    codeSnippet: string;
+    displayName: string | null;
+  }): Promise<{ shareToken: string; url: string }> => {
+    const res = await fetch(`${API_BASE}/api/anon/shares`, {
+      method: "POST",
+      headers: { ...JSON_HEADERS, ...CSRF_HEADER },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      await throwApiError(res, "/api/anon/shares");
+    }
+    return (await res.json()) as { shareToken: string; url: string };
   },
   executeTests: async (
     sessionId: string,

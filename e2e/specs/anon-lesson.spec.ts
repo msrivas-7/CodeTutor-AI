@@ -60,11 +60,11 @@ test.describe("anonymous lesson 1 (Phase 27 §3a)", () => {
       { timeout: 10_000 },
     );
 
-    // The "Lesson 1 · Python" chip replaces the StreakChip in the
+    // The "Lesson 1" chip replaces the StreakChip in the
     // header center on anon (Phase 27-v2.2 audit E3 — was "Try it — no
     // signup" promo badge). If it disappears, the page may have
     // accidentally shifted into the authed lesson surface.
-    await expect(page.getByText(/Lesson 1 · Python/i)).toBeVisible();
+    await expect(page.locator("header").getByText("Lesson 1", { exact: true })).toBeVisible();
 
     // Run button appears once Monaco mounts. LessonPage's Run button
     // carries the same "▶ Run" glyph + role=button as the authed page.
@@ -189,9 +189,9 @@ test.describe("first-run cinematic on /try/ (Phase 27-v2 Day 2)", () => {
     // Esc dismisses the cinematic immediately (handleSkipOnce path).
     await page.keyboard.press("Escape");
 
-    // After Esc, the lesson workspace is visible. The "Lesson 1 · Python"
+    // After Esc, the lesson workspace is visible. The "Lesson 1"
     // chip in the LessonPage(mode="anon") header is the canary.
-    await expect(page.getByText(/Lesson 1 · Python/i)).toBeVisible({
+    await expect(page.locator("header").getByText("Lesson 1", { exact: true })).toBeVisible({
       timeout: 5_000,
     });
 
@@ -235,7 +235,7 @@ test.describe("first-run cinematic on /try/ (Phase 27-v2 Day 2)", () => {
 
     // After dismiss the coach is gone; lesson chrome is unobstructed.
     await expect(page.getByText(/Lesson Instructions/i)).toHaveCount(0);
-    await expect(page.getByText(/Lesson 1 · Python/i)).toBeVisible();
+    await expect(page.locator("header").getByText("Lesson 1", { exact: true })).toBeVisible();
 
     // Same-tab reload — coach should NOT replay. The wrapper
     // subscribes to preferencesStore.workspaceCoachDone changes
@@ -284,38 +284,47 @@ test.describe("first-run cinematic on /try/ (Phase 27-v2 Day 2)", () => {
     // The "Lesson Instructions" coach-step title text is also a strong
     // canary — if it appears anywhere, the coach mounted.
     await expect(page.getByText(/Lesson Instructions/i)).toHaveCount(0);
-    // And the lesson chrome is fully usable (the curriculum chip is
-    // the "we got past the cinematic + coach" canary).
-    await expect(page.getByText(/Lesson 1 · Python/i)).toBeVisible();
+    // And the lesson chrome is fully usable. Phase A — A2p2 gives the
+    // anon phone path a 390px-native layout that drops the header chip
+    // (it overlapped the wordmark, and the lesson card below already
+    // carries "Lesson 1 · ~10 min"), so the Run button is the
+    // phone-appropriate "we got past the cinematic + coach" canary —
+    // it also proves the workspace is interactive, not just painted.
+    await expect(
+      page.getByRole("button", { name: /run/i }).first(),
+    ).toBeVisible({ timeout: 15_000 });
     await ctx.close();
   });
 
-  test("NarrowViewportGate banner suppressed during cinematic + walkthrough (Fix 4)", async ({
+  test("NarrowViewportGate banner NEVER shows on /try/ — before or after the flow (A2 part 1)", async ({
     browser,
   }) => {
-    // Phase 27-v2.2 Fix 4 — the "you'll have a better time on a laptop"
-    // banner is hidden while cinematic OR scripted choreography is in
-    // flight. It re-appears on the post-flow state (cinematic dismissed,
-    // walkthrough done). This test exercises both halves on a phone
-    // viewport where the banner would otherwise show.
+    // CONTRACT CHANGED in Phase A — A2 part 1 (ba49264). The old Fix 4
+    // rule was "hide during cinematic/choreography, re-show after". A2
+    // part 1 replaced it with a hard path-level suppression
+    // (shouldSuppressForPath): Maya must NEVER be told "you'll have a
+    // better time on a laptop" while she's still deciding whether the
+    // product is worth her time. Phone is the discovery surface; the
+    // warm graduation handoff after lesson 1 is where "open this on a
+    // laptop" belongs. Authed /learn/... keeps the banner.
+    //
+    // So both halves below now assert ABSENCE — the post-flow half is
+    // the one that changed, and it's the one that regressed silently
+    // because e2e wasn't re-run after A2 part 1.
     const phoneCtx = await browser.newContext({
       viewport: { width: 390, height: 844 },
       isMobile: true,
       hasTouch: true,
     });
 
-    // Half A — cold tab on phone, cinematic phase → banner hidden.
+    // Half A — cold tab on phone, cinematic phase → banner absent.
     {
       const page = await phoneCtx.newPage();
       await page.goto(ALLOWED_PATH);
-      // Wait briefly for the cinematic to mount its full chrome
-      // (cinematicShowing flag flips on mount of CinematicGreeting).
       await page.waitForTimeout(500);
-      // Banner is REMOVED from the DOM by the new early-return when
-      // cinematicShowing OR firstRunStep is mid-flight. Use
-      // toHaveCount(0) because Playwright's toBeVisible checks CSS
-      // display/opacity, not occlusion — z-stacking alone wouldn't
-      // satisfy the suppression contract.
+      // toHaveCount(0) rather than toBeVisible: Playwright's visibility
+      // check reads CSS display/opacity, not occlusion, so z-stacking
+      // alone wouldn't satisfy the suppression contract.
       await expect(page.getByText(/better time on a laptop/i)).toHaveCount(0);
       await expect(
         page.getByText(/Looking a little cramped/i),
@@ -323,8 +332,9 @@ test.describe("first-run cinematic on /try/ (Phase 27-v2 Day 2)", () => {
       await page.close();
     }
 
-    // Half B — post-flow state (all seen, choreography never fires
-    // because anonChoreographyDone is set) → banner SHOWS.
+    // Half B — post-flow state (cinematic + coach + choreography all
+    // done) → banner STILL absent, because the suppression is keyed on
+    // the /try/ path, not on flow state.
     {
       const page = await phoneCtx.newPage();
       await page.addInitScript(() => {
@@ -333,15 +343,15 @@ test.describe("first-run cinematic on /try/ (Phase 27-v2 Day 2)", () => {
         window.sessionStorage.setItem("codetutor.anonChoreographyDone", "1");
       });
       await page.goto(ALLOWED_PATH);
-      // Wait for lesson chrome to finish mounting.
       await expect(page.getByRole("heading", { level: 1 })).toBeVisible({
         timeout: 10_000,
       });
-      // Banner now SHOWS (firstRunStep === "idle", cinematicShowing=false).
-      // The banner's z-40 sits above the lesson chrome; toBeVisible passes.
+      // Settle past the window where the old contract re-showed it.
+      await page.waitForTimeout(1500);
+      await expect(page.getByText(/better time on a laptop/i)).toHaveCount(0);
       await expect(
-        page.getByText(/better time on a laptop/i),
-      ).toBeVisible({ timeout: 5_000 });
+        page.getByText(/Looking a little cramped/i),
+      ).toHaveCount(0);
       await page.close();
     }
 
@@ -400,7 +410,7 @@ test.describe("first-run cinematic on /try/ (Phase 27-v2 Day 2)", () => {
     // direct coverage. 18s budget is the timeline + exit + safety.
     //
     // Ordering matters: assert the Skip button disappears FIRST with
-    // the 18s timeout. The "Lesson 1 · Python" header chip sits in
+    // the 18s timeout. The "Lesson 1" header chip sits in
     // the DOM behind the cinematic overlay (z-[60] fixed inset-0 does
     // NOT make the chip invisible to Playwright's toBeVisible — it
     // only obstructs clicks). If we asserted the chip first, that
@@ -412,7 +422,7 @@ test.describe("first-run cinematic on /try/ (Phase 27-v2 Day 2)", () => {
     await expect(page.getByRole("button", { name: /skip/i })).toHaveCount(0, {
       timeout: 18_000,
     });
-    await expect(page.getByText(/Lesson 1 · Python/i)).toBeVisible();
+    await expect(page.locator("header").getByText("Lesson 1", { exact: true })).toBeVisible();
   });
 });
 
@@ -473,12 +483,12 @@ test.describe("Phase 27-v2.1 Part 3: pixel-equivalence chrome on /try/", () => {
     ).toBeVisible();
   });
 
-  test("anon header carries 'Lesson 1 · Python' chip AND 'Sign up to save' pill (not StreakChip / UserMenu)", async ({
+  test("anon header carries a 'Lesson 1' chip AND 'Sign up to save' pill (not StreakChip / UserMenu)", async ({
     page,
   }) => {
     // Phase 27-v2.2 audit fix E3 (product-owner): center chip changed
     // from "Try it — no signup" (which reframed the experience as a
-    // demo) to "Lesson 1 · Python" (curriculum-orienting, not status-
+    // demo) to "Lesson 1" (curriculum-orienting, not status-
     // promo language).
     await page.goto(ALLOWED_PATH);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible({
@@ -486,7 +496,7 @@ test.describe("Phase 27-v2.1 Part 3: pixel-equivalence chrome on /try/", () => {
     });
 
     // The two anon-only header surfaces.
-    await expect(page.getByText(/Lesson 1 · Python/i)).toBeVisible();
+    await expect(page.locator("header").getByText("Lesson 1", { exact: true })).toBeVisible();
     await expect(
       page.getByRole("button", { name: /sign up to save/i }),
     ).toBeVisible();

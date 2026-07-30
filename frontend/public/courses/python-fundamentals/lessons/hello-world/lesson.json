@@ -2,14 +2,14 @@
   "id": "hello-world",
   "courseId": "python-fundamentals",
   "title": "Hello, World!",
-  "description": "Write and run your first Python program.",
+  "description": "Write and run your first program.",
   "order": 1,
   "language": "python",
   "estimatedMinutes": 10,
   "objectives": [
-    "Run a Python program",
-    "Use the print() function",
-    "Understand strings and quotes"
+    "Run a program",
+    "Use the print() function to show text",
+    "Understand that strings go between quotes"
   ],
   "teachesConceptTags": [
     "print",
@@ -24,11 +24,24 @@
     },
     {
       "type": "forbidden_in_stdout",
-      "pattern": "YOUR_NAME"
+      "pattern": "Hello, World!"
+    },
+    {
+      "type": "retrieval_check",
+      "question": "When this code runs:\n\n    print(\"Hello, World!\")\n\nWhat shows up on the screen?",
+      "choices": [
+        "print(\"Hello, World!\")",
+        "Hello, World!",
+        "\"Hello, World!\"",
+        "Nothing — the quotes hide the text"
+      ],
+      "correctIndex": 1,
+      "explanation": "print() shows the text BETWEEN the quotes. The quotes themselves don't appear in the output — they just tell the computer where the text starts and ends."
     }
   ],
   "prerequisiteLessonIds": [],
-  "recap": "You wrote your first Python program using print(). Strings go inside quotes, and print() displays them on screen.",
+  "recap": "You wrote your first program using print(). Strings go inside quotes, and print() displays them on screen.",
+  "nextLessonHint": "In the next lesson, you'll teach the computer to introduce different people by name.",
   "practicePrompts": [
     "Can you print your name on one line and your favorite color on the next?",
     "Try printing a sentence that includes both single and double quotes."

@@ -9,21 +9,24 @@
   "objectives": [
     "Read input with input()",
     "Convert strings to numbers with int() and float()",
+    "Format output cleanly with f-strings",
     "Build a simple interactive program"
   ],
   "teachesConceptTags": [
     "input",
     "type-conversion",
     "int()",
-    "float()"
+    "float()",
+    "float",
+    "bool",
+    "f-strings"
   ],
   "usesConceptTags": [
     "variables",
     "print",
     "str",
     "int",
-    "float",
-    "f-strings"
+    "string-concat"
   ],
   "completionRules": [
     {
@@ -40,7 +43,8 @@
   "prerequisiteLessonIds": [
     "variables"
   ],
-  "recap": "input() reads text from the user (always as a string), and you can convert it with int() or float(). f-strings make formatting output easy.",
+  "recap": "input() reads text from the user (always as a string), and you can convert it with int() or float(). f-strings (f\"...\") are a cleaner way to do what + did in lesson 2 — they let you drop a variable directly into a string.",
+  "nextLessonHint": "In the next lesson, you'll make decisions in code with if and else.",
   "practicePrompts": [
     "Ask the user for their birth year and print how old they are.",
     "Can you format a price to always show exactly 2 decimal places?"

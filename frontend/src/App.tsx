@@ -3,6 +3,7 @@ import { lazy, Suspense } from "react";
 import { StorageQuotaBanner } from "./components/StorageQuotaBanner";
 import { FrozenAccountBanner } from "./components/FrozenAccountBanner";
 import { GlobalShortcuts } from "./components/GlobalShortcuts";
+import { InviteCapture } from "./features/anon/InviteCapture";
 import { RequireAuth } from "./auth/RequireAuth";
 import { RequireAdmin } from "./auth/RequireAdmin";
 import { HydrationGate } from "./auth/HydrationGate";
@@ -15,6 +16,7 @@ import { EmailLogSection } from "./components/admin/EmailLogSection";
 import { AuditLogSection } from "./components/admin/AuditLogSection";
 import { AnonSection } from "./components/admin/AnonSection";
 const MarketingPage = lazy(() => import("./pages/MarketingPage"));
+const WhyNotChatGPTPage = lazy(() => import("./pages/WhyNotChatGPTPage"));
 const StartPage = lazy(() => import("./pages/StartPage"));
 const EditorPage = lazy(() => import("./pages/EditorPage"));
 const LearningDashboardPage = lazy(() => import("./features/learning/pages/LearningDashboardPage"));
@@ -92,11 +94,17 @@ export default function App() {
     <Suspense fallback={<Loading />}>
       <StorageQuotaBanner />
       <GlobalShortcuts />
+      <InviteCapture />
       <Routes>
         {/* Phase 22C: `/` is the public marketing page for everyone.
             No auth gate; logged-in users see the same page with a
             nav-level "Dashboard" affordance instead of "Sign in". */}
         <Route path="/" element={<MarketingPage />} />
+
+        {/* Phase A — A7 (competitive-intel): public positioning page.
+            Answers the honest "why not just ChatGPT?" question in the
+            open, including where ChatGPT wins. */}
+        <Route path="/why-not-chatgpt" element={<WhyNotChatGPTPage />} />
 
         {/* Public auth routes — no layout wrapper, no RequireAuth. */}
         <Route path="/login" element={<LoginPage />} />

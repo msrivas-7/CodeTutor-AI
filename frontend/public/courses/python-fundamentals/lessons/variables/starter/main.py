@@ -1,10 +1,13 @@
-# Variables and Types
-# Fill in the missing variables and print statements.
+# Variables let you save a value once and use it later.
+#
+# Goal: print exactly these two lines:
+#     Name: Alice
+#     Age: 25
+#
+# Use + to glue strings together, and str() to turn the age (a number)
+# into text before you join it.
 
 name = "Alice"
-# TODO: Create a variable called 'age' with value 25
-# TODO: Create a variable called 'height' with value 1.68
-# TODO: Create a variable called 'is_student' with value True
+age = 25
 
-print(f"Name: {name}")
-# TODO: Print the remaining three lines using f-strings
+# Add two print() lines below.

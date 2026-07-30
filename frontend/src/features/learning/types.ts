@@ -57,11 +57,18 @@ export interface CompletionRule {
     | "forbidden_in_stdout"
     | "required_file_contains"
     | "custom_validator"
-    | "function_tests";
+    | "function_tests"
+    | "retrieval_check";
   expected?: string;
   file?: string;
   pattern?: string;
   tests?: FunctionTest[];
+  // Phase A — A1: retrieval_check variant fields. Optional on the
+  // interface because they only appear when type === "retrieval_check".
+  question?: string;
+  choices?: string[];
+  correctIndex?: number;
+  explanation?: string;
 }
 
 export interface PracticeExercise {
@@ -90,6 +97,10 @@ export interface LessonMeta {
   recap?: string;
   practicePrompts?: string[];
   practiceExercises?: PracticeExercise[];
+  // Phase A — A7: optional "post-credits" beat shown on
+  // LessonCompletePanel. Convention: "In the next lesson, you'll …"
+  // Falls back to next lesson's first objective if unset.
+  nextLessonHint?: string;
 }
 
 export interface Lesson extends LessonMeta {
@@ -138,5 +149,13 @@ export interface ValidationResult {
   passed: boolean;
   feedback: string[];
   nextHints?: string[];
+  // Phase A — A1: did every non-retrieval-check rule pass? Used by
+  // LessonPage to decide whether to mount the RetrievalCheckPanel
+  // (mounts only when stdout/file/test rules are clean — otherwise
+  // the user is still debugging code and the question would be a
+  // confusing context switch). Defaults to the same value as `passed`
+  // on lessons without a retrieval rule (so consumers that don't
+  // care about the distinction get expected behavior).
+  passedExceptRetrieval: boolean;
 }
 

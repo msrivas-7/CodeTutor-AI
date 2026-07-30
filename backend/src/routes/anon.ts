@@ -33,6 +33,9 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { config } from "../config.js";
 import { isAnonLessonEnabled } from "../services/share/killSwitches.js";
+import { anonLaptopInviteRouter } from "./anonLaptopInvite.js";
+import { anonShareRouter } from "./anonShare.js";
+import { anonConceptTagRouter } from "./anonConceptTag.js";
 import { runProject } from "../services/execution/router.js";
 import { languageSchema } from "../services/execution/commands.js";
 import type { ExecutionBackend, RuntimeSpec } from "../services/execution/backends/index.js";
@@ -50,7 +53,10 @@ import {
   type CredentialNoneReason,
 } from "../services/ai/credential.js";
 import { writeAnonUsageRow } from "../db/usageLedger.js";
+import { incrementAnonRunCount } from "../db/anonRunCounts.js";
+import { getEffectiveAnonDailyRunsPerIp } from "../services/ai/effectiveCaps.js";
 import { hashClientIp } from "../services/ai/ipHash.js";
+import { flagSuspectApis } from "../services/ai/suspectApi.js";
 import {
   registerAbortController,
   unregisterAbortController,
@@ -117,7 +123,28 @@ const ANON_PINNED_LESSON_CONTEXT = {
   priorConcepts: [] as string[],
   completionRules: [
     { type: "expected_stdout" as const, expected: "Hello, " },
-    { type: "forbidden_in_stdout" as const, pattern: "YOUR_NAME" },
+    // Phase A — A1: lesson 1 starter is now an empty shell — there's no
+    // placeholder identifier left to forbid. The forbidden token here
+    // rejects a literal copy of the example call shown in the starter
+    // comment, so the learner has to type SOMETHING of their own to pass.
+    { type: "forbidden_in_stdout" as const, pattern: "Hello, World!" },
+    // Phase A — A1: must mirror lesson.json for this lesson — otherwise the
+    // server-pinned context the tutor reads diverges from what the validator
+    // checks, and the gate is invisible to the AI's situation block.
+    {
+      type: "retrieval_check" as const,
+      question:
+        'When this code runs:\n\n    print("Hello, World!")\n\nWhat shows up on the screen?',
+      choices: [
+        'print("Hello, World!")',
+        "Hello, World!",
+        '"Hello, World!"',
+        "Nothing — the quotes hide the text",
+      ],
+      correctIndex: 1,
+      explanation:
+        "print() shows the text BETWEEN the quotes. The quotes themselves don't appear in the output — they just tell the computer where the text starts and ends.",
+    },
   ],
   studentProgressSummary: "first attempt",
   lessonOrder: 1,
@@ -337,6 +364,56 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
       return res.status(400).json({ error: parsed.error.message });
     }
     const { language, files, stdin } = parsed.data;
+
+    // Phase A — A5 (operational floor): per-IP daily spawn cap. The
+    // per-minute sessionCreateLimit above bounds bursts; this bounds
+    // sustained abuse (a patient IP could otherwise spawn ~43k
+    // containers per UTC day inside the per-minute budget). Same
+    // req.ip fail-loud guard as ask/stream — an empty req.ip means
+    // the trust-proxy chain is misconfigured and every caller would
+    // share one counter bucket.
+    if (!req.ip) {
+      console.error(
+        JSON.stringify({
+          level: "error",
+          evt: "anon_run_no_ip",
+          msg: "req.ip empty — trust-proxy chain misconfigured",
+        }),
+      );
+      return res.status(503).json({ error: "CLIENT_IDENTITY_UNKNOWN" });
+    }
+    try {
+      const runsToday = await incrementAnonRunCount(hashClientIp(req.ip));
+      const runCap = await getEffectiveAnonDailyRunsPerIp();
+      if (runsToday > runCap) {
+        aiPlatformAbuseSignals.inc({ signal: "anon_run_cap_exceeded" });
+        // Structured emit so KQL alerting can watch this independent
+        // of the in-process Prom counter (same C5 pattern as the
+        // lesson-allowlist signal above).
+        console.warn(
+          JSON.stringify({
+            level: "warn",
+            evt: "anon_abuse_signal",
+            signal: "anon_run_cap_exceeded",
+            runsToday,
+            runCap,
+          }),
+        );
+        return res.status(429).json({ error: "ANON_RUN_CAP_EXCEEDED" });
+      }
+    } catch (err) {
+      // Fail-open on counter errors: the per-minute limiter still
+      // bounds worst-case cost, and blocking every anon learner on a
+      // DB blip is the worse failure. Log so a sustained outage of
+      // the shield is visible.
+      console.error(
+        JSON.stringify({
+          level: "error",
+          evt: "anon_run_count_error",
+          msg: err instanceof Error ? err.message : String(err),
+        }),
+      );
+    }
 
     // Ephemeral runtime spec. RuntimeSpec is sessionId-only at this
     // layer (the language is passed to runProject below). We mint a
@@ -565,6 +642,17 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
               status: "finish",
               requestId,
             });
+            // Phase A — A4: fabricated-API tripwire. Fire-and-forget
+            // scan of the finished response; emits tutor_suspect_api
+            // (log + counter) on unrecognized call symbols. Never
+            // touches the stream.
+            flagSuspectApis({
+              responseText: raw,
+              userFiles: parsed.data.files,
+              userQuestion: parsed.data.question,
+              language: ctx.language === "python" ? "python" : "javascript",
+              route: "anon_ask_stream",
+            });
             if (closed) return;
             send({ done: true, raw, sections, usage });
             finish();
@@ -668,6 +756,27 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
       unregisterAbortController(registryEntry);
     }
   });
+
+  // Phase A — A2 (device contract): magic-link graduation handoff. The
+  // route lives inside createAnonRouter so it inherits the
+  // anon_lesson_enabled kill switch (above) — when anon is fully
+  // disabled the laptop-link route 503s for the same reason as /run.
+  // Granular `anon_laptop_invite_disabled` is checked inside the route
+  // handler.
+  router.use(anonLaptopInviteRouter);
+
+  // Phase A — A3 (anon-share unlock): per-IP-hashed share creation.
+  // Same kill-switch-chain inheritance as the laptop-link route. The
+  // granular kill is `share_create_disabled` (Phase 21C), checked
+  // inside the route handler — so an operator can drain anon-share
+  // abuse via the same switch that already drains authed-share abuse,
+  // without nuking the entire trial path.
+  router.use(anonShareRouter);
+
+  // Phase A — A6 (memory v0): write-only concept-tag ledger for the
+  // anon path. Same kill-switch + rate-limit inheritance as the rest
+  // of /api/anon/*. Idempotent at the DB layer.
+  router.use(anonConceptTagRouter);
 
   return router;
 }

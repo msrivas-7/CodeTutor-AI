@@ -12,7 +12,11 @@ import { HttpError } from "../middleware/errorHandler.js";
 export interface SharedCompletion {
   id: string;
   shareToken: string;
-  userId: string;
+  // Phase A — A3: nullable. Authed shares carry user_id; anon shares
+  // (created from /try/) carry ip_hash instead. The owner_ck DB CHECK
+  // enforces XOR (exactly one of the two is set per row).
+  userId: string | null;
+  ipHash: string | null;
   courseId: string;
   lessonId: string;
   lessonTitle: string;
@@ -34,7 +38,8 @@ export interface SharedCompletion {
 const SharedRowSchema = z.object({
   id: z.string().uuid(),
   share_token: z.string(),
-  user_id: z.string().uuid(),
+  user_id: z.string().uuid().nullable(),
+  ip_hash: z.string().nullable(),
   course_id: z.string(),
   lesson_id: z.string(),
   lesson_title: z.string(),
@@ -66,6 +71,7 @@ function rowToShared(raw: unknown): SharedCompletion {
     id: r.id,
     shareToken: r.share_token,
     userId: r.user_id,
+    ipHash: r.ip_hash,
     courseId: r.course_id,
     lessonId: r.lesson_id,
     lessonTitle: r.lesson_title,
@@ -112,8 +118,15 @@ export function generateShareToken(): string {
 // CRUD
 // ---------------------------------------------------------------------------
 
-export interface CreateSharedInput {
-  userId: string;
+// Phase A — A3: shares are now created from two surfaces — authed
+// `/api/shares` (userId) and anon `/api/anon/shares` (ipHash). The
+// CreateSharedInput XOR-types over those two ownership shapes; the
+// owner_ck DB CHECK enforces exactly one of them is set.
+type CreateSharedOwner =
+  | { userId: string; ipHash?: never }
+  | { userId?: never; ipHash: string };
+
+export type CreateSharedInput = CreateSharedOwner & {
   courseId: string;
   lessonId: string;
   lessonTitle: string;
@@ -125,7 +138,7 @@ export interface CreateSharedInput {
   attemptCount: number;
   codeSnippet: string;
   displayName: string | null;
-}
+};
 
 /**
  * Insert a new share row with a freshly-generated token. On the very
@@ -137,23 +150,28 @@ export async function insertSharedCompletion(
   input: CreateSharedInput,
 ): Promise<SharedCompletion> {
   const sql = db();
+  // Resolve ownership at the typed-union boundary so the SQL below
+  // doesn't need to branch — exactly one of the two columns is set,
+  // the other is null. owner_ck CHECK enforces this server-side too.
+  const userId: string | null = input.userId ?? null;
+  const ipHash: string | null = input.ipHash ?? null;
   for (let attempt = 0; attempt < 5; attempt++) {
     const token = generateShareToken();
     try {
       const rows = await sql`
         INSERT INTO public.shared_lesson_completions (
-          share_token, user_id, course_id, lesson_id,
+          share_token, user_id, ip_hash, course_id, lesson_id,
           lesson_title, lesson_order, course_title, course_total_lessons,
           mastery, time_spent_ms, attempt_count,
           code_snippet, display_name
         )
         VALUES (
-          ${token}, ${input.userId}, ${input.courseId}, ${input.lessonId},
+          ${token}, ${userId}, ${ipHash}, ${input.courseId}, ${input.lessonId},
           ${input.lessonTitle}, ${input.lessonOrder}, ${input.courseTitle}, ${input.courseTotalLessons},
           ${input.mastery}, ${input.timeSpentMs}, ${input.attemptCount},
           ${input.codeSnippet}, ${input.displayName}
         )
-        RETURNING id, share_token, user_id, course_id, lesson_id,
+        RETURNING id, share_token, user_id, ip_hash, course_id, lesson_id,
                   lesson_title, lesson_order, course_title, course_total_lessons,
                   mastery, time_spent_ms, attempt_count,
                   code_snippet, display_name, og_image_path,
@@ -212,7 +230,7 @@ export async function getSharedByToken(
 ): Promise<SharedCompletion | null> {
   const sql = db();
   const rows = await sql`
-    SELECT id, share_token, user_id, course_id, lesson_id,
+    SELECT id, share_token, user_id, ip_hash, course_id, lesson_id,
            lesson_title, lesson_order, course_title, course_total_lessons,
            mastery, time_spent_ms, attempt_count,
            code_snippet, display_name, og_image_path,
@@ -241,7 +259,7 @@ export async function findOwnerShareForLesson(
 ): Promise<SharedCompletion | null> {
   const sql = db();
   const rows = await sql`
-    SELECT id, share_token, user_id, course_id, lesson_id,
+    SELECT id, share_token, user_id, ip_hash, course_id, lesson_id,
            lesson_title, lesson_order, course_title, course_total_lessons,
            mastery, time_spent_ms, attempt_count,
            code_snippet, display_name, og_image_path,
@@ -378,6 +396,30 @@ export async function countActiveSharesAllTime(userId: string): Promise<number> 
       FROM public.shared_lesson_completions
      WHERE user_id = ${userId}
        AND revoked_at IS NULL
+  `;
+  return Number(rows[0]?.c ?? 0);
+}
+
+/**
+ * Phase A — A3: per-IP-hash anon-share rate-limit support. Counts anon
+ * shares (rows with user_id IS NULL) created from a given ip_hash within
+ * the last `windowMs`. The route enforces:
+ *   - 1 anon share per IP per hour (catches casual abuse)
+ *   - 5 anon shares per IP per day (catches bot loops)
+ * Both windows are checked separately by the route; this helper is
+ * window-agnostic to keep the policy in one place at the call site.
+ */
+export async function countAnonSharesByIpHash(
+  ipHash: string,
+  windowMs: number,
+): Promise<number> {
+  const sql = db();
+  const rows = await sql<Array<{ c: string }>>`
+    SELECT COUNT(*)::text AS c
+      FROM public.shared_lesson_completions
+     WHERE ip_hash = ${ipHash}
+       AND user_id IS NULL
+       AND created_at > NOW() - (${windowMs}::bigint || ' milliseconds')::interval
   `;
   return Number(rows[0]?.c ?? 0);
 }

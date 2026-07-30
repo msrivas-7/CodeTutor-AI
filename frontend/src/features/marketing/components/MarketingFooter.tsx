@@ -19,6 +19,18 @@ export function MarketingFooter() {
           </span>
         </div>
         <div className="flex items-center gap-1 text-[12px] text-faint">
+          {/* Phase A — A7: positioning page. Footer placement is
+              deliberate — it's an argument for the curious, not a nav
+              destination. */}
+          <Link
+            to="/why-not-chatgpt"
+            className="rounded px-2 py-1 transition hover:text-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+          >
+            Why not ChatGPT?
+          </Link>
+          <span aria-hidden="true" className="text-border">
+            ·
+          </span>
           <Link
             to="/login"
             className="rounded px-2 py-1 transition hover:text-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"

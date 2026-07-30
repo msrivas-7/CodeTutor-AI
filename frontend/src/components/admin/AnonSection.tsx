@@ -146,7 +146,12 @@ function FunnelTile({ snap }: { snap: AdminAnonSummary }) {
 
 function AbuseTile({ snap }: { snap: AdminAnonSummary }) {
   const a = snap.abuseSignals;
-  const total = a.anon_lesson_not_allowed + a.model_rejection;
+  // Must include every row rendered below. Omitting tutor_suspect_api
+  // made the tile print "No abuse signals since process boot" directly
+  // under a non-zero warning row — the operator would scan the summary
+  // line and miss the hallucination signal the row exists to surface.
+  const total =
+    a.anon_lesson_not_allowed + a.model_rejection + (a.tutor_suspect_api ?? 0);
   return (
     <Tile title="Abuse signals (since boot)">
       <div className="flex flex-col gap-1.5 text-[11px]">
@@ -162,15 +167,27 @@ function AbuseTile({ snap }: { snap: AdminAnonSummary }) {
           tone={a.model_rejection > 0 ? "warn" : "ok"}
           hint="model not on per-route allowlist"
         />
+        {/* Phase A — A4: not abuse but the same "non-zero ⇒ look" story —
+            the tutor named an API that isn't stdlib or in the user's
+            file. Symbols are in the tutor_suspect_api log lines. */}
+        <Row
+          label="tutor_suspect_api"
+          value={(a.tutor_suspect_api ?? 0).toLocaleString()}
+          tone={(a.tutor_suspect_api ?? 0) > 0 ? "warn" : "ok"}
+          hint="tutor named an unrecognized API"
+        />
       </div>
       {total === 0 ? (
         <div className="mt-2 text-[10px] leading-relaxed text-success/80">
-          No abuse signals since process boot.
+          No signals since process boot.
         </div>
       ) : (
         <div className="mt-2 text-[10px] leading-relaxed text-warn">
-          Non-zero signal — investigate. Each tick corresponds to a request
-          that should never reach this layer under the defense ladder.
+          Non-zero signal — investigate. The two abuse counters mark
+          requests that shouldn't reach this layer under the defense
+          ladder; <span className="font-mono">tutor_suspect_api</span> is a
+          quality signal — the flagged symbols are in the matching log
+          lines.
         </div>
       )}
     </Tile>

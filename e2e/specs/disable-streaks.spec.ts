@@ -125,9 +125,21 @@ test.describe("disable-streaks toggle (Phase 27 §4)", () => {
     // Toggle ON first via settings on the dashboard.
     await page.goto("/start");
     await S.openSettings(page, "account");
+    // The toggle fires a background PATCH /api/user/preferences. Wait for
+    // it to actually land before navigating: the lesson page hydrates
+    // preferences from the server on mount, so racing the write meant
+    // hydrating the pre-toggle value and seeing the chip we just hid.
+    const prefsSaved = page.waitForResponse(
+      (r) =>
+        r.url().includes("/api/user/preferences") &&
+        r.request().method() === "PATCH" &&
+        r.ok(),
+      { timeout: 15_000 },
+    );
     await page
       .getByRole("switch", { name: /toggle hide streaks/i })
       .click();
+    await prefsSaved;
     await page.keyboard.press("Escape");
 
     // Navigate to the lesson — chip should still be hidden in this

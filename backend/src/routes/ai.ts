@@ -17,6 +17,7 @@ import {
   type AICredential,
   type CredentialNoneReason,
 } from "../services/ai/credential.js";
+import { flagSuspectApis } from "../services/ai/suspectApi.js";
 import { AIProviderError } from "../services/ai/provider.js";
 import {
   isPlatformAllowedModel,
@@ -400,6 +401,14 @@ aiRouter.post("/ask", async (req, res, next) => {
       status: "finish",
       requestId,
     });
+    // Phase A — A4: fabricated-API tripwire (measure-only).
+    flagSuspectApis({
+      responseText: result.raw,
+      userFiles: parsed.data.files,
+      userQuestion: parsed.data.question,
+      language: parsed.data.language === "javascript" ? "javascript" : "python",
+      route: "ask",
+    });
     res.json(result);
   } catch (err) {
     // S-3: if OpenAI 401s on the platform key, trip the kill flag so every
@@ -567,6 +576,15 @@ aiRouter.post("/ask/stream", async (req, res) => {
             priceVersion,
             status: "finish",
             requestId,
+          });
+          // Phase A — A4: fabricated-API tripwire (measure-only).
+          flagSuspectApis({
+            responseText: raw,
+            userFiles: parsed.data.files,
+            userQuestion: parsed.data.question,
+            language:
+              parsed.data.language === "javascript" ? "javascript" : "python",
+            route: "ask_stream",
           });
           if (closed) return;
           send({ done: true, raw, sections, usage });

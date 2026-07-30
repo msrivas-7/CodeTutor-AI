@@ -225,6 +225,19 @@ export const config = {
     // tutor reply with one or two short sections; not enough for a
     // novel.
     anonMaxOutputTokens: num(process.env.ANON_MAX_OUTPUT_TOKENS, 512),
+    // Phase A — A5 (operational floor): anon-ONLY global daily $ cap,
+    // tighter than and independent of the combined L4 dailyUsdCap.
+    // Anon spend hitting this ceiling turns anon AI off until UTC
+    // midnight while authed free-tier traffic keeps its full L4
+    // budget — a viral anon spike can't starve signed-up learners.
+    // Live override via system_config `anon_daily_usd_cap`.
+    anonDailyUsdCap: Number(process.env.ANON_DAILY_USD_CAP ?? "5.00"),
+    // Phase A — A5: per-IP daily cap on POST /api/anon/run (container
+    // spawns). Bursts are already bounded by sessionCreateLimit
+    // (30/min/IP); this is the sustained-abuse ceiling. 100/day is
+    // ~10x an enthusiastic lesson-1 visitor's real usage. Live
+    // override via system_config `anon_daily_runs_per_ip`.
+    anonDailyRunsPerIp: num(process.env.ANON_DAILY_RUNS_PER_IP, 100),
   },
 
   // Phase 27-v2 quick fix #5: per-route kill switch for the anonymous
@@ -239,6 +252,15 @@ export const config = {
   // independent of free-tier enable — a deploy could keep authed
   // free-tier on while turning anon off.
   anonLessonEnabled: process.env.ENABLE_ANON_LESSON !== "0",
+
+  // Phase A — A5 (operational floor): fixed Azure infra baseline in
+  // $/month, surfaced by the admin dashboard's projected-burn tile.
+  // The backend can't (and shouldn't) query the Azure Cost API at
+  // runtime — this is a deliberate operator-maintained constant,
+  // updated when infra shape changes (July-2026 lean posture: VM $30 +
+  // probe $6 + alerts $7 + disk $5 + IP $4 ≈ $52). Display-only; no
+  // enforcement hangs off it.
+  infraMonthlyBaselineUsd: Number(process.env.INFRA_MONTHLY_BASELINE_USD ?? "52"),
 
   // Phase 22A: backend-originated email via Azure Communication Services.
   // Used for operational alerts (budgetWatcher 50/80/100%) and user-facing
@@ -531,6 +553,23 @@ export function assertConfigValid(): void {
     ) {
       throw new Error(
         `[config] ANON_MAX_OUTPUT_TOKENS must be a positive integer (got ${caps.anonMaxOutputTokens}).`,
+      );
+    }
+    // Phase A — A5: same fail-fast posture for the operational-floor
+    // caps. anonDailyUsdCap=0 would hard-disable anon AI (use the
+    // anon_lesson_enabled kill switch for that intent instead);
+    // anonDailyRunsPerIp=0 would 429 every anon run.
+    if (!Number.isFinite(caps.anonDailyUsdCap) || caps.anonDailyUsdCap <= 0) {
+      throw new Error(
+        `[config] ANON_DAILY_USD_CAP must be a positive number (got ${caps.anonDailyUsdCap}).`,
+      );
+    }
+    if (
+      !Number.isInteger(caps.anonDailyRunsPerIp) ||
+      caps.anonDailyRunsPerIp <= 0
+    ) {
+      throw new Error(
+        `[config] ANON_DAILY_RUNS_PER_IP must be a positive integer (got ${caps.anonDailyRunsPerIp}).`,
       );
     }
   }

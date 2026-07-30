@@ -28,6 +28,10 @@ export const adminAnonSummaryRouter = Router();
 interface AbuseSnapshot {
   anon_lesson_not_allowed: number;
   model_rejection: number;
+  // Phase A — A4: fabricated-API tripwire count (all tutor routes, not
+  // just anon — the counter is process-wide). Non-zero ⇒ read the
+  // tutor_suspect_api log lines for the flagged symbols.
+  tutor_suspect_api: number;
 }
 
 async function snapshotAbuseSignals(): Promise<AbuseSnapshot> {
@@ -41,19 +45,27 @@ async function snapshotAbuseSignals(): Promise<AbuseSnapshot> {
     };
     let anonNotAllowed = 0;
     let modelRejection = 0;
+    let suspectApi = 0;
     for (const v of json.values ?? []) {
       if (v.labels?.signal === "anon_lesson_not_allowed") {
         anonNotAllowed += v.value;
       } else if (v.labels?.signal === "model_rejection") {
         modelRejection += v.value;
+      } else if (v.labels?.signal === "tutor_suspect_api") {
+        suspectApi += v.value;
       }
     }
     return {
       anon_lesson_not_allowed: anonNotAllowed,
       model_rejection: modelRejection,
+      tutor_suspect_api: suspectApi,
     };
   } catch {
-    return { anon_lesson_not_allowed: 0, model_rejection: 0 };
+    return {
+      anon_lesson_not_allowed: 0,
+      model_rejection: 0,
+      tutor_suspect_api: 0,
+    };
   }
 }
 

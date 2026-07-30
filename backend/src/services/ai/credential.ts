@@ -35,6 +35,7 @@ import {
   sumPlatformCostTodayGlobal,
 } from "../../db/usageLedger.js";
 import {
+  getEffectiveAnonDailyUsdCap,
   getEffectiveDailyQuestionsCap,
   getEffectiveDailyUsdCap,
   getEffectiveDailyUsdCapPerUser,
@@ -422,6 +423,17 @@ export async function resolveAnonAICredential(
   const authedToday = await cachedGlobalToday(dayStart);
   const anonToday = await sumPlatformCostTodayAnonGlobal(dayStart);
   if (authedToday + anonToday >= dailyUsdCap) {
+    return none("usd_cap_hit", dayEnd);
+  }
+
+  // L4a (Phase A — A5): anon-ONLY global daily $ ceiling, tighter than
+  // the combined L4. A viral anon spike shuts off anon AI at this cap
+  // (until UTC midnight) while authed free-tier traffic keeps spending
+  // up to L4 — anon can never starve signed-up learners' budget.
+  // Reuses the usd_cap_hit reason → same PLATFORM_AI_PAUSED surface
+  // the anon frontend already handles.
+  const anonUsdCap = await getEffectiveAnonDailyUsdCap();
+  if (anonToday >= anonUsdCap) {
     return none("usd_cap_hit", dayEnd);
   }
 

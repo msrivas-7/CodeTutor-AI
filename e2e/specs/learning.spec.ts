@@ -7,6 +7,7 @@
 import { expect, test } from "../fixtures/auth";
 
 import { mockAllAI, mockTutorQueue } from "../fixtures/aiMocks";
+import { seedAuthedRetrievalPass } from "../fixtures/retrievalGate";
 import {
   getMonacoValue,
   setMonacoValue,
@@ -20,9 +21,16 @@ import { expectLessonComplete } from "../utils/assertions";
 const COURSE_ID = "python-fundamentals";
 
 test.describe("learning", () => {
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ page }, testInfo) => {
     await mockAllAI(page);
     await markOnboardingDone(page);
+    // Phase A — A1: pre-seed the lesson-1 retrieval-check pass so the
+    // celebration mounts on Check during the existing learning specs.
+    // The dedicated retrieval-gate spec lives elsewhere and tests
+    // the gate's actual behavior; this seeding lets the broader
+    // learning chrome specs continue to assert the post-celebration
+    // flow without each having to walk through a multiple-choice UI.
+    await seedAuthedRetrievalPass(page, testInfo.workerIndex);
   });
 
   test("dashboard Continue jumps to next lesson (mid-course)", async ({ page }) => {
@@ -65,10 +73,11 @@ test.describe("learning", () => {
     await waitForMonacoReady(page);
     await expect(S.lessonRunButton(page)).toBeEnabled({ timeout: 30_000 });
 
-    // Phase 27: starter is now `name = "YOUR_NAME"; print("Hello, " + name + "!")`
-    // — running it as-is technically satisfies the lenient `Hello, ` substring
-    // rule (output is `Hello, YOUR_NAME!`), so we deliberately overwrite with
-    // wrong code to exercise the failure path.
+    // Phase A — A1: starter is now an empty shell with comment-only
+    // hints — running it produces no stdout (the substring `Hello, `
+    // would NOT be found, hence Check fails on its own). Overwriting
+    // with `print("Goodbye!")` keeps the failure-path assertion
+    // intentional rather than relying on the empty-shell behavior.
     await setMonacoValue(page, 'print("Goodbye!")\n');
     await S.lessonRunButton(page).click();
     await expect(S.outputPanel(page)).toContainText(/Goodbye!/, { timeout: 20_000 });
@@ -89,7 +98,11 @@ test.describe("learning", () => {
 
     // expected_stdout validation needs a fresh run result, so Run before Check.
     await S.lessonRunButton(page).click();
-    await expect(S.outputPanel(page)).toContainText(/Hello, World!/, { timeout: 20_000 });
+    // Phase A — A1: the authored solution greets a person by name; the
+    // completion contract is now expected_stdout="Hello, " +
+    // forbidden_in_stdout="Hello, World!" — so the solution prints
+    // "Hello, Alice!" instead of the canonical "Hello, World!".
+    await expect(S.outputPanel(page)).toContainText(/Hello, Alice!/, { timeout: 20_000 });
     await S.checkMyWorkButton(page).click();
     await expectLessonComplete(page);
     await expect(
@@ -105,7 +118,7 @@ test.describe("learning", () => {
 
     await setMonacoValue(page, readLessonSolution(COURSE_ID, "hello-world"));
     await S.lessonRunButton(page).click();
-    await expect(S.outputPanel(page)).toContainText(/Hello, World!/, { timeout: 20_000 });
+    await expect(S.outputPanel(page)).toContainText(/Hello, Alice!/, { timeout: 20_000 });
     await S.checkMyWorkButton(page).click();
     await expectLessonComplete(page);
 

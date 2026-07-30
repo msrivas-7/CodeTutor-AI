@@ -12,6 +12,7 @@
 //      honest across the stack.
 
 import { expect, test } from "../fixtures/auth";
+import { seedAuthedRetrievalPass } from "../fixtures/retrievalGate";
 import { loadProfile, markOnboardingDone } from "../fixtures/profiles";
 import { request } from "@playwright/test";
 import { getWorkerUser } from "../fixtures/auth";
@@ -170,19 +171,29 @@ test.describe("lesson-end feedback chip", () => {
     await loadProfile(page, "empty");
   });
 
-  async function completeHelloWorld(page: Parameters<typeof waitForMonacoReady>[0]) {
+  async function completeHelloWorld(
+    page: Parameters<typeof waitForMonacoReady>[0],
+    workerIndex: number,
+  ) {
+    // Phase A — A1: pre-seed retrieval-pass so the celebration mounts on
+    // Check (this spec exercises lesson-end feedback chip, not the
+    // retrieval gate). The dedicated gate spec lives elsewhere.
+    await seedAuthedRetrievalPass(page, workerIndex);
     await page.goto(`/learn/course/${COURSE_ID}/lesson/hello-world`);
     await waitForMonacoReady(page);
     await expect(S.lessonRunButton(page)).toBeEnabled({ timeout: 30_000 });
     await setMonacoValue(page, readLessonSolution(COURSE_ID, "hello-world"));
     await S.lessonRunButton(page).click();
-    await expect(S.outputPanel(page)).toContainText(/Hello, World!/, { timeout: 20_000 });
+    // Phase A — A1: lesson 1's authored solution greets a person by name
+    // ("Hello, Alice!") — matches the new completion contract
+    // (expected_stdout: "Hello, " + forbidden_in_stdout: "Hello, World!").
+    await expect(S.outputPanel(page)).toContainText(/Hello, Alice!/, { timeout: 20_000 });
     await S.checkMyWorkButton(page).click();
     await expectLessonComplete(page);
   }
 
-  test("chip renders on LessonCompletePanel with three mood buttons", async ({ page }) => {
-    await completeHelloWorld(page);
+  test("chip renders on LessonCompletePanel with three mood buttons", async ({ page }, testInfo) => {
+    await completeHelloWorld(page, testInfo.workerIndex);
     const chip = page.getByTestId("lesson-feedback-chip");
     await expect(chip).toBeVisible();
     await expect(chip.getByText(/how was this lesson\?/i)).toBeVisible();
@@ -193,8 +204,8 @@ test.describe("lesson-end feedback chip", () => {
 
   test("😕 opens the modal pre-selecting Bug and seeding the body with the lesson title", async ({
     page,
-  }) => {
-    await completeHelloWorld(page);
+  }, testInfo) => {
+    await completeHelloWorld(page, testInfo.workerIndex);
     await page.getByTestId("lesson-feedback-bad").click();
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
@@ -210,8 +221,8 @@ test.describe("lesson-end feedback chip", () => {
     await expect(textarea).toHaveValue(/^Lesson: Hello, World/);
   });
 
-  test("😊 opens the modal pre-selecting Other (positive ≠ bug)", async ({ page }) => {
-    await completeHelloWorld(page);
+  test("😊 opens the modal pre-selecting Other (positive ≠ bug)", async ({ page }, testInfo) => {
+    await completeHelloWorld(page, testInfo.workerIndex);
     await page.getByTestId("lesson-feedback-good").click();
     const dialog = page.getByRole("dialog");
     await expect(dialog.getByRole("radio", { name: /other/i })).toHaveAttribute(
@@ -226,8 +237,8 @@ test.describe("lesson-end feedback chip", () => {
   // losing it when there's no note would defeat the purpose.
   test("mood click fires POST /api/feedback with body='' + mood + lessonId", async ({
     page,
-  }) => {
-    await completeHelloWorld(page);
+  }, testInfo) => {
+    await completeHelloWorld(page, testInfo.workerIndex);
     const [response] = await Promise.all([
       page.waitForResponse(
         (res) => res.url().endsWith("/api/feedback") && res.status() === 201,

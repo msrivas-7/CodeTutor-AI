@@ -17,6 +17,7 @@ import { loadProfile, markOnboardingDone } from "../fixtures/profiles";
 import { mockAllAI } from "../fixtures/aiMocks";
 import { setMonacoValue, waitForMonacoReady } from "../fixtures/monaco";
 import * as S from "../utils/selectors";
+import { seedAuthedRetrievalPass } from "../fixtures/retrievalGate";
 
 const COURSE_ID = "python-fundamentals";
 
@@ -56,13 +57,24 @@ rawTest.describe("cross-device persistence (Phase 18b)", () => {
   rawTest(
     "course progress persists across a fresh browser context for the same user",
     async ({ page, browser }, testInfo) => {
+      // Phase A — A1 added a retrieval-check gate to hello-world, so
+      // "Check My Work" now lands on a multiple-choice question instead
+      // of the celebration. This spec is about cross-device PROGRESS
+      // persistence, not the gate (which has its own spec), so seed the
+      // pass for this worker's user and keep the assertion focused.
+      await seedAuthedRetrievalPass(page, testInfo.workerIndex);
       // 1. Device A: complete lesson 1 (hello-world) by submitting the golden
       //    solution. The frontend fires a PATCH to /api/user/courses and
       //    /api/user/lessons on completion.
       await page.goto(`/learn/course/${COURSE_ID}/lesson/hello-world`);
       await waitForMonacoReady(page);
       await expect(S.lessonRunButton(page)).toBeEnabled({ timeout: 30_000 });
-      await setMonacoValue(page, 'print("Hello, World!")\n');
+      // Phase A — A1 added `forbidden_in_stdout: "Hello, World!"` to this
+      // lesson so a learner has to type something of their own rather
+      // than copy the example. The old golden solution printed exactly
+      // that string and now fails Check, so use a passing greeting that
+      // still satisfies `expected_stdout: "Hello, "`.
+      await setMonacoValue(page, 'print("Hello, Maya!")\n');
       await S.lessonRunButton(page).click();
       // Running alone doesn't mark the lesson complete — the learner must
       // click "Check My Work" to trigger the output-match verdict. Wait for

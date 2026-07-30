@@ -249,10 +249,22 @@ export async function teardownTestUsers(): Promise<void> {
   // `e2e-w{idx}-{suffix}@codetutor.test`. Local runs (no suffix env)
   // keep the broader cleanup so a crashed run still gets swept.
   const suffix = process.env.E2E_USER_SUFFIX;
+  // Stale sweep: the CI suffix now carries `github.run_id`, so no future
+  // run ever shares a namespace with this one. That's what makes
+  // concurrent runs safe, but it also means a run cancelled before
+  // teardown (the workflow uses cancel-in-progress) would leak its users
+  // forever, since no later run would match their suffix. Anything
+  // `e2e-w*` older than this threshold cannot belong to a live run — a
+  // full suite is minutes, not hours — so it's safe to reap regardless
+  // of suffix.
+  const STALE_MS = 6 * 60 * 60 * 1000;
+  const staleBefore = Date.now() - STALE_MS;
   const toDelete = users.filter((u) => {
     if (typeof u.email !== "string" || !u.email.startsWith("e2e-w")) return false;
     if (!suffix) return true;
-    return u.email.includes(`-${suffix}@`);
+    if (u.email.includes(`-${suffix}@`)) return true;
+    const createdMs = u.created_at ? Date.parse(u.created_at) : NaN;
+    return Number.isFinite(createdMs) && createdMs < staleBefore;
   });
   if (toDelete.length === 0) return;
   const results = await Promise.allSettled(

@@ -9,7 +9,8 @@
     "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "seed:dev-users": "tsx scripts/seed-dev-users.ts"
+    "seed:dev-users": "tsx scripts/seed-dev-users.ts",
+    "eval:tutor": "tsx scripts/eval-tutor.ts"
   },
   "dependencies": {
     "@azure/arm-containerinstance": "^9.1.0",
@@ -35,9 +36,11 @@
     "@types/cors": "^2.8.17",
     "@types/dockerode": "^3.3.31",
     "@types/express": "^4.17.21",
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^20.14.10",
     "@types/react": "^19.2.14",
     "dotenv": "^16.4.5",
+    "js-yaml": "^4.1.1",
     "tsx": "^4.16.2",
     "typescript": "^5.5.3",
     "vitest": "^3.2.4"

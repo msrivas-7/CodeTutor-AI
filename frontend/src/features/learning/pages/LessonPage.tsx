@@ -23,6 +23,7 @@ import { NarrowViewportGate } from "../../../components/NarrowViewportGate";
 import { SkipToContent } from "../../../components/SkipToContent";
 import { Modal } from "../../../components/Modal";
 import { LessonCompletePanel } from "../components/LessonCompletePanel";
+import { RetrievalCheckPanel } from "../components/RetrievalCheckPanel";
 import { WorkspaceCoach } from "../components/WorkspaceCoach";
 import { useSessionLifecycle } from "../../../hooks/useSessionLifecycle";
 import { useAuthStore } from "../../../auth/authStore";
@@ -33,7 +34,7 @@ import { useRunStore } from "../../../state/runStore";
 import { pickFirstFailure } from "../utils/validator";
 import { computeMastery, formatTimeSpent } from "../utils/mastery";
 import { useShortcutLabels } from "../../../util/platform";
-import { clamp, clampSide } from "../../../util/layoutPrefs";
+import { clamp, clampSide, usePhoneFormFactor } from "../../../util/layoutPrefs";
 import {
   LESSON_LAYOUT_BOUNDS,
   LESSON_LAYOUT_DEFAULTS,
@@ -129,6 +130,16 @@ interface LessonPageProps {
   onAnonExhausted?: () => void;
   onAnonShare?: () => void;
   onAnonTrialPaused?: () => void;
+  /**
+   * Phase A — A6 (memory v0): fired EXACTLY ONCE when the celebration
+   * mounts on the anon path. AnonLessonPage uses it to fire the
+   * fire-and-forget concept-tag write (writes ip_hash-keyed rows for
+   * the lesson's teaches/uses tags). Authed path is covered by
+   * `upsertLessonProgress`'s server-side hook; anon needs this
+   * client-trigger because there's no server-side completion write
+   * pre-signup.
+   */
+  onAnonComplete?: () => void;
 }
 
 export default function LessonPage({
@@ -140,6 +151,7 @@ export default function LessonPage({
   onAnonExhausted,
   onAnonShare,
   onAnonTrialPaused,
+  onAnonComplete,
 }: LessonPageProps = {}) {
   const params = useParams<{
     courseId: string;
@@ -279,13 +291,13 @@ export default function LessonPage({
     learnerId,
     practiceMode,
     practiceIndex,
-    // First-run cinematic relies on the authored starter code being
-    // present verbatim (the scripted "replace YOUR_NAME with your
-    // name" beat). Skip the resume-from-savedCode branch when
-    // landing here via the cinematic hand-off, or when the visitor
-    // is an anon /try/ user (no learnerId, nothing to resume from
-    // anyway, but force keeps any in-memory project-store state
-    // from leaking across mounts).
+    // First-run cinematic relies on the authored starter being present
+    // verbatim — Phase A — A1's empty-shell starter is what the scripted
+    // greet/run/celebrate beats are written against. Skip the
+    // resume-from-savedCode branch when landing via the cinematic
+    // hand-off, or when the visitor is an anon /try/ user (no
+    // learnerId, nothing to resume from anyway; the force flag also
+    // prevents in-memory project-store state from leaking across mounts).
     forceStarter: isFirstRun || mode === "anon",
   });
 
@@ -313,7 +325,61 @@ export default function LessonPage({
     if (chatCtxKey) switchChatContext(chatCtxKey);
   }, [chatCtxKey, switchChatContext]);
 
-  const layout = useLessonLayout({ lessonReady: !!loader.lesson && !loader.loading });
+  // Phase A — A1: retrieval-check gate. Lesson-author defines the
+  // question in lesson.json (`{type: "retrieval_check", question, choices,
+  // correctIndex, explanation?}`). The validator's "rule passed" contract
+  // reads this flag through `extra.retrievalAnswered`; LessonPage owns
+  // the source of truth + persists "answered correctly once" so a
+  // returning learner doesn't re-prove it.
+  //
+  // The key is scoped to the LEARNER, not just (course, lesson). Keyed
+  // on the pair alone, one person answering the check on a shared
+  // browser would silently satisfy the gate for every later account and
+  // every anonymous visitor on that device — skipping the pedagogy beat
+  // A1 exists to enforce, and contaminating the Phase A Q2 exit metric
+  // ("lesson-2-reach learners passing a cold retrieval check ≥80%")
+  // with passes nobody earned.
+  //
+  // Anonymous learners have no stable identity, so they get
+  // sessionStorage instead of localStorage: the gate still doesn't
+  // re-ask within a visit, but it can't leak across people sharing a
+  // device, and the next anon visitor answers it honestly.
+  const retrievalScope = learnerId ?? "anon";
+  const retrievalKey =
+    courseId && lessonId
+      ? `ui:lesson:retrievalPassed:${retrievalScope}:${courseId}:${lessonId}`
+      : null;
+  const retrievalStore = (): Storage | null => {
+    if (typeof window === "undefined") return null;
+    return learnerId ? window.localStorage : window.sessionStorage;
+  };
+  const [retrievalAnswered, setRetrievalAnswered] = useState<boolean>(() => {
+    if (!retrievalKey) return false;
+    try {
+      return retrievalStore()?.getItem(retrievalKey) === "1";
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    // Re-hydrate when we navigate between lessons (component is reused
+    // across route changes, so the lazy initializer above runs only once).
+    // Also re-runs when the learner identity changes — signing in or out
+    // must not carry the previous person's pass over.
+    if (!retrievalKey) return;
+    try {
+      setRetrievalAnswered(retrievalStore()?.getItem(retrievalKey) === "1");
+    } catch {
+      setRetrievalAnswered(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [retrievalKey, learnerId]);
+
+  const layout = useLessonLayout({
+    lessonReady: !!loader.lesson && !loader.loading,
+    courseId,
+    lessonId,
+  });
   const runner = useLessonRunner({
     lesson: loader.lesson,
     courseId,
@@ -345,7 +411,37 @@ export default function LessonPage({
       runner.setHasRun(false);
     },
     mode,
+    retrievalAnswered,
   });
+
+  // Phase A — A2 part 2 (device contract): phone lesson 1 is a
+  // 390px-native single-column screen, NOT a responsive squeeze of the
+  // desktop three-panel splitter layout. Applies to the ANON path only
+  // — the audit's "phone is discovery, laptop is learning" stance means
+  // authed learners on a phone still get the desktop workspace (they
+  // were told to graduate to a laptop; we don't polish a path we
+  // deliberately don't want them living in). All state machinery
+  // (loader / runner / validator / choreography / overlays) is shared
+  // with the desktop branch — only the workspace JSX arrangement
+  // differs, so the audited funnel behavior can't drift between form
+  // factors.
+  const phoneFormFactor = usePhoneFormFactor();
+  const isPhoneNative = mode === "anon" && phoneFormFactor;
+
+  // Phase A — A6: fire onAnonComplete once when the celebration
+  // mounts on the anon path. AnonLessonPage hooks this to fire a
+  // fire-and-forget POST /api/anon/concept-tag (ip_hash-keyed
+  // ledger write). One firing per mount is enough — the DB write
+  // is itself idempotent, but the network call is wasted on
+  // dismiss/re-mount cycles.
+  const anonCompleteFiredRef = useRef(false);
+  useEffect(() => {
+    if (mode !== "anon") return;
+    if (!validator.showComplete) return;
+    if (anonCompleteFiredRef.current) return;
+    anonCompleteFiredRef.current = true;
+    onAnonComplete?.();
+  }, [mode, validator.showComplete, onAnonComplete]);
 
   // Run-success ring + Check sonar removed per user direction —
   // the lesson-complete celebration is the win moment; per-press
@@ -673,17 +769,20 @@ export default function LessonPage({
             replaces (does not overlay) the StreakChip — anon has no
             streak to show and the auth-only chip would 401 on
             /api/user/streak. */}
-        <div className="pointer-events-none absolute left-1/2 -translate-x-1/2">
-          <div className="pointer-events-auto">
-            {mode === "anon" ? (
-              <span className="rounded-full bg-elevated/60 px-2 py-0.5 text-[10px] font-medium text-muted ring-1 ring-border">
-                Lesson 1 · Python
-              </span>
-            ) : (
+        {/* Phase A — A7: the anon centre chip is gone. It read
+            "Lesson 1 · Python"; stripping "Python" for the
+            language-agnostic copy pass left it saying exactly what the
+            breadcrumb above already says, so the header announced
+            "Lesson 1" twice — visually redundant and a duplicate stop
+            for screen readers. The breadcrumb keeps the orienting job.
+            Authed keeps its StreakChip in the centre slot. */}
+        {mode !== "anon" && (
+          <div className="pointer-events-none absolute left-1/2 -translate-x-1/2">
+            <div className="pointer-events-auto">
               <StreakChip />
-            )}
+            </div>
           </div>
-        </div>
+        )}
         <div className="ml-auto flex items-center gap-2">
           {runner.sessionPhase === "starting" && (
             <span className="flex items-center gap-1 text-[10px] text-muted">
@@ -863,6 +962,214 @@ export default function LessonPage({
             Setting your stage…
           </p>
         </div>
+      ) : lesson && isPhoneNative ? (
+        /* ---- Phone-native 390px lesson (Phase A — A2 part 2) ----
+           One vertical reading flow: mission → code → output → tutor,
+           with a fixed thumb-reach action bar. No splitters, no
+           collapse strips, no resize affordances — those are desktop
+           furniture. Sections get fixed viewport-relative heights so
+           the software keyboard doesn't reflow the whole column while
+           the learner types. Same refs (runBtnRef / checkBtnRef) as
+           desktop so the first-run choreography's button locks and
+           coach short-circuit behave identically. */
+        <motion.main
+          id="main-content"
+          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+          animate={{ opacity: validator.showComplete ? 0.2 : 1 }}
+          transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+        >
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+            {/* 1 — Mission. Natural reading order starts with WHY. */}
+            <section
+              aria-label="Lesson instructions"
+              className="h-[38vh] min-h-[200px] border-b border-border"
+            >
+              {practiceMode && lesson.practiceExercises ? (
+                <PracticeInstructionsView
+                  exercises={lesson.practiceExercises}
+                  currentIndex={practiceIndex}
+                  completedIds={lp?.practiceCompletedIds ?? []}
+                  validation={validator.practiceValidation}
+                  onSelectExercise={validator.handleSelectPracticeExercise}
+                  onExitPractice={validator.handleExitPractice}
+                  onNextExercise={validator.handleNextPracticeExercise}
+                  onResetPractice={validator.handleResetPracticeProgress}
+                  onCollapse={() => {}}
+                />
+              ) : (
+                <LessonInstructionsPanel
+                  meta={lesson}
+                  content={lesson.content}
+                  onCollapse={() => {}}
+                  coachState={coachState}
+                  functionTests={validator.functionTests}
+                  testReport={validator.testReport}
+                  runningTests={validator.runningTests}
+                  onRunExamples={
+                    validator.functionTests.length > 0
+                      ? validator.handleRunExamples
+                      : undefined
+                  }
+                  checkFailure={
+                    validator.hasChecked && !validator.validation?.passed
+                      ? pickFirstFailure(validator.testReport)
+                      : null
+                  }
+                  checkFailureStreak={validator.sameFailStreak}
+                  onAskTutorAboutFailure={validator.handleAskTutorAboutFailure}
+                />
+              )}
+            </section>
+            {/* 2 — Code. The active step is TYPING; the editor gets the
+                tallest stable band. */}
+            <section
+              aria-label="Code editor"
+              className="flex h-[34vh] min-h-[200px] flex-col border-b border-border"
+            >
+              {loader.resumed && (
+                <div className="flex items-center gap-2 border-b border-accent/20 bg-accent/5 px-3 py-1 text-[11px] text-accent">
+                  Your code was restored — resuming where you left off
+                </div>
+              )}
+              <EditorTabs mode="lesson" />
+              <div className="min-h-0 flex-1">
+                <Suspense
+                  fallback={
+                    <div className="p-4 text-sm text-muted">Loading editor…</div>
+                  }
+                >
+                  <MonacoPane />
+                </Suspense>
+              </div>
+            </section>
+            {/* 3 — Output. The payoff lands directly under the code. */}
+            <section
+              aria-label="Program output"
+              className="h-[20vh] min-h-[110px] border-b border-border"
+            >
+              <OutputPanel />
+            </section>
+            {/* 4 — Tutor. Always open on phone (A2 part 1's default-open
+                promise) — a full-width section, not a side drawer. */}
+            <section aria-label="AI tutor" className="h-[52vh] min-h-[280px]">
+              <GuidedTutorPanel
+                lessonMeta={lesson}
+                totalLessons={loader.totalLessons}
+                priorConcepts={loader.priorConcepts}
+                activePracticeExercise={
+                  practiceMode
+                    ? lesson.practiceExercises?.[practiceIndex] ?? null
+                    : null
+                }
+                progressSummary={
+                  lp
+                    ? `attempt ${lp.attemptCount}, ${lp.runCount} runs, ${lp.hintCount} hints used`
+                    : "first attempt"
+                }
+                onCollapse={() => {}}
+                onOpenSettings={() => layout.setShowSettings(true)}
+                resetNonce={validator.resetNonce}
+                inputLocked={tutorInputLocked}
+                clearHidden={tutorClearHidden}
+                mode={mode}
+                onAnonExhausted={onAnonExhausted}
+                onAnonTrialPaused={onAnonTrialPaused}
+              />
+            </section>
+          </div>
+          {/* Fixed action bar — 44pt touch targets in thumb reach,
+              padded past the home indicator. Validation feedback slides
+              in ABOVE the bar so a failed check never hides the retry
+              affordance. */}
+          <div className="shrink-0 border-t border-border bg-panel/95 backdrop-blur">
+            {!practiceMode
+              && validator.validation
+              && !validator.validation.passed
+              && validator.functionTests.length === 0 && (
+              <div
+                role="alert"
+                className="mx-3 mt-2 flex max-h-20 flex-col gap-0.5 overflow-y-auto rounded-lg bg-danger/10 px-3 py-1.5 text-xs font-medium text-danger"
+              >
+                <span>{validator.validation.feedback[0] ?? "Not quite."}</span>
+                {validator.validation.nextHints?.[0] && (
+                  <span className="text-[11px] font-normal opacity-80">
+                    {validator.validation.nextHints[0]}
+                  </span>
+                )}
+              </div>
+            )}
+            {runner.hasStderr && !runner.running && (
+              <div className="mx-3 mt-2">
+                <button
+                  onClick={runner.handleExplainError}
+                  className="flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-accent/15 text-xs font-medium text-accent ring-1 ring-accent/40 transition hover:bg-accent/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  aria-label="Ask the tutor what went wrong"
+                >
+                  What went wrong?
+                </button>
+              </div>
+            )}
+            <div className="flex items-center gap-2 px-3 pb-[max(env(safe-area-inset-bottom),0.625rem)] pt-2">
+              <motion.button
+                ref={layout.runBtnRef}
+                onClick={() => {
+                  runner.handleRun();
+                }}
+                whileTap={{ scale: 0.96 }}
+                transition={{
+                  duration: CINEMA_DURATIONS.tactileTap / 1000,
+                  ease: MATERIAL_EASE,
+                }}
+                disabled={!runner.canRun || runButtonLocked}
+                className={`flex h-11 flex-1 items-center justify-center gap-1.5 rounded-xl text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+                  runner.canRun && !runButtonLocked
+                    ? "bg-accent text-bg active:bg-accent/90"
+                    : "bg-elevated text-muted"
+                }`}
+                aria-label={runner.canRun ? "Run code" : "Run code — not ready"}
+              >
+                {runner.running ? (
+                  <>
+                    <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                    Running...
+                  </>
+                ) : (
+                  <>
+                    <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor">
+                      <polygon points="5 3 19 12 5 21 5 3" />
+                    </svg>
+                    Run
+                  </>
+                )}
+              </motion.button>
+              <button
+                ref={layout.checkBtnRef}
+                onClick={() => {
+                  void validator.handleCheck();
+                }}
+                disabled={runner.running || validator.runningTests || checkButtonLocked}
+                className={`flex h-11 flex-1 items-center justify-center gap-1.5 rounded-xl text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-violet ${
+                  !runner.running && !validator.runningTests && !checkButtonLocked
+                    ? "bg-violet/20 text-violet active:bg-violet/30"
+                    : "bg-elevated text-muted"
+                }`}
+                aria-label="Check my work against lesson requirements"
+              >
+                {validator.runningTests ? "Checking…" : "Check My Work"}
+              </button>
+              <button
+                type="button"
+                onClick={validator.handleReset}
+                disabled={runner.running}
+                title="Reset code to starter"
+                aria-label="Reset code to starter"
+                className="flex h-11 w-11 items-center justify-center rounded-xl text-base text-muted transition active:bg-elevated disabled:opacity-40"
+              >
+                <span aria-hidden="true">↺</span>
+              </button>
+            </div>
+          </div>
+        </motion.main>
       ) : lesson ? (
         <motion.main
           id="main-content"
@@ -1099,7 +1406,13 @@ export default function LessonPage({
                       sonar on this button was extra. */}
                   <button
                     ref={layout.checkBtnRef}
-                    onClick={validator.handleCheck}
+                    onClick={() => {
+                      // Drop the click event — handleCheck now accepts
+                      // an optional override for the Phase A retrieval
+                      // gate path; passing the MouseEvent through would
+                      // mis-type as the override object.
+                      void validator.handleCheck();
+                    }}
                     disabled={runner.running || validator.runningTests || checkButtonLocked}
                     className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-xs font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-violet ${
                       !runner.running && !validator.runningTests && !checkButtonLocked
@@ -1401,6 +1714,49 @@ export default function LessonPage({
         </div>
       )}
 
+      {/* Phase A — A1: retrieval-check gate. Mounts when every other
+          completion rule is green but the retrieval rule still blocks
+          completion. The correct-answer callback persists to localStorage
+          and re-runs handleCheck so the validator's pass/showComplete
+          path fires on the next tick — the celebration mounts naturally
+          via the existing path, not via a new branch. */}
+      {!validator.showComplete
+        && lesson
+        && validator.validation
+        && validator.validation.passedExceptRetrieval
+        && !validator.validation.passed
+        && !retrievalAnswered
+        && (() => {
+          const rule = lesson.completionRules.find((r) => r.type === "retrieval_check");
+          if (!rule || !rule.question || !rule.choices || rule.correctIndex === undefined) {
+            return null;
+          }
+          return (
+            <RetrievalCheckPanel
+              question={rule.question}
+              choices={rule.choices}
+              correctIndex={rule.correctIndex}
+              explanation={rule.explanation}
+              onCorrect={() => {
+                if (retrievalKey) {
+                  try {
+                    retrievalStore()?.setItem(retrievalKey, "1");
+                  } catch {
+                    // private-mode storage denial — in-memory state still
+                    // unlocks the lesson for this session, just not the next.
+                  }
+                }
+                setRetrievalAnswered(true);
+                // Pass the new value as an override — the captured
+                // closure of handleCheck still sees retrievalAnswered=false
+                // until the next render, so without the override the
+                // re-validation would fail and celebration would never mount.
+                void validator.handleCheck({ retrievalAnswered: true });
+              }}
+            />
+          );
+        })()}
+
       {validator.showComplete && lesson && (
         <LessonCompletePanel
           lesson={lesson}
@@ -1408,6 +1764,7 @@ export default function LessonPage({
           completedPracticeIds={lp?.practiceCompletedIds ?? []}
           mastery={computeMastery(lp, lesson)?.level ?? null}
           timeSpentMs={lp?.timeSpentMs}
+          nextLessonTitle={loader.nextLessonTitle}
           onDismiss={() => {
             validator.setShowComplete(false);
             // Phase 27-v2.1 medium-lock: on anon, dismissing the

@@ -1,24 +1,21 @@
 {
   "id": "variables",
   "courseId": "python-fundamentals",
-  "title": "Variables and Types",
-  "description": "Store data in variables and work with basic Python types.",
+  "title": "Variables and Strings",
+  "description": "Store values in variables and combine them with text.",
   "order": 2,
   "language": "python",
-  "estimatedMinutes": 15,
+  "estimatedMinutes": 12,
   "objectives": [
-    "Create and assign variables",
-    "Understand int, float, str, and bool types",
-    "Use f-strings for formatted output"
+    "Create variables with =",
+    "Combine strings with + (concatenation)",
+    "Convert numbers to text with str()"
   ],
   "teachesConceptTags": [
     "variables",
-    "types",
     "int",
-    "float",
     "str",
-    "bool",
-    "f-strings"
+    "string-concat"
   ],
   "usesConceptTags": [
     "print",
@@ -27,36 +24,37 @@
   "completionRules": [
     {
       "type": "expected_stdout",
-      "expected": "Name: Alice\nAge: 25\nHeight: 1.68 meters\nStudent: True"
+      "expected": "Name: Alice\nAge: 25"
     }
   ],
   "prerequisiteLessonIds": [
     "hello-world"
   ],
-  "recap": "Variables store values that you can reuse and update. Python figures out the type (int, float, str, bool) automatically.",
+  "recap": "Variables hold values you name and reuse. The + operator glues strings together. str() turns a number into text so you can combine it with words.",
+  "nextLessonHint": "In the next lesson, you'll ask the user a question and use what they type back.",
   "practicePrompts": [
-    "Create a variable for temperature in Celsius and convert it to Fahrenheit.",
+    "Create variables for a movie title and the year it came out, then print them on one line.",
     "Try swapping two variables without using a third variable."
   ],
   "practiceExercises": [
     {
-      "id": "celsius-to-f",
-      "title": "Celsius to Fahrenheit",
-      "prompt": "Store a temperature in Celsius (use 20), convert it to Fahrenheit using the formula F = C * 9/5 + 32, and print the result in the form `20C = 68.0F`.",
-      "goal": "Print the conversion using an f-string.",
-      "starterCode": "celsius = 20\n# Convert to Fahrenheit and print \"20C = 68.0F\"\n",
+      "id": "intro-line",
+      "title": "Introduction line",
+      "prompt": "Create a variable `name = \"Bob\"` and a variable `age = 30`. Print one line in this exact form: `Bob is 30 years old.`",
+      "goal": "Use + and str() to combine a name and an age in one sentence.",
+      "starterCode": "name = \"Bob\"\nage = 30\n# Print: Bob is 30 years old.\n",
       "completionRules": [
-        { "type": "expected_stdout", "expected": "20C = 68.0F" }
+        { "type": "expected_stdout", "expected": "Bob is 30 years old." }
       ],
       "hints": [
-        "Create a new variable `fahrenheit = celsius * 9/5 + 32`.",
-        "Use an f-string: print(f\"{celsius}C = {fahrenheit}F\")."
+        "Combine the pieces with +. age is a number, so use str(age) to make it text first.",
+        "Pattern: print(name + \" is \" + str(age) + \" years old.\")"
       ]
     },
     {
       "id": "swap-values",
       "title": "Swap two values",
-      "prompt": "Start with `a = 1` and `b = 2`. Swap the values so that `a` becomes 2 and `b` becomes 1, then print them in the form `a=2, b=1`.",
+      "prompt": "Start with `a = 1` and `b = 2`. Swap the values so that `a` becomes 2 and `b` becomes 1, then print one line that says `a=2, b=1`.",
       "goal": "Swap two variables and print the result.",
       "starterCode": "a = 1\nb = 2\n# Swap the values, then print: a=2, b=1\n",
       "completionRules": [
@@ -64,21 +62,23 @@
       ],
       "hints": [
         "Python lets you swap in one line: `a, b = b, a`.",
-        "Or use a temporary variable: tmp = a; a = b; b = tmp."
+        "Or use a temporary variable: tmp = a; a = b; b = tmp.",
+        "After swapping, build the output with +: print(\"a=\" + str(a) + \", b=\" + str(b))"
       ]
     },
     {
       "id": "profile-card",
       "title": "Profile card",
-      "prompt": "Create variables `name = \"Bob\"`, `age = 30`, and `is_member = True`. Print them on three separate lines in this format:\nName: Bob\nAge: 30\nMember: True",
-      "goal": "Use three variables with an f-string to format a profile.",
-      "starterCode": "name = \"Bob\"\nage = 30\nis_member = True\n# Print a three-line profile card\n",
+      "prompt": "Create variables `name = \"Maya\"` and `age = 22`. Print exactly two lines:\nName: Maya\nAge: 22",
+      "goal": "Print a two-line card using two variables and string concatenation.",
+      "starterCode": "name = \"Maya\"\nage = 22\n# Print Name: Maya on one line, Age: 22 on the next\n",
       "completionRules": [
-        { "type": "expected_stdout", "expected": "Name: Bob\nAge: 30\nMember: True" }
+        { "type": "expected_stdout", "expected": "Name: Maya\nAge: 22" }
       ],
       "hints": [
-        "Use three print() calls, one per line.",
-        "F-strings can embed any variable: f\"Name: {name}\"."
+        "Use two print() calls — one for each line.",
+        "First line: print(\"Name: \" + name)",
+        "Second line: the age is a number; wrap it in str() before joining with +."
       ]
     }
   ]

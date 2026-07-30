@@ -46,9 +46,10 @@ export interface UseLessonLoaderArgs {
   onResetPerLessonState?: () => void;
   // When true, skip the resume-from-savedCode branch and always hydrate
   // the editor with the authored starterFiles. Used by the first-run
-  // cinematic handoff (?firstRun=1) so the scripted "replace YOUR_NAME"
-  // beat always has the authored `name = "YOUR_NAME"` line to target,
-  // regardless of what the learner left in the buffer on a prior visit.
+  // cinematic handoff (?firstRun=1) so the scripted choreography always
+  // operates on the authored starter (Phase A — A1: an empty shell with
+  // hint comments) rather than whatever the learner left in the buffer
+  // on a prior visit.
   forceStarter?: boolean;
 }
 
@@ -66,6 +67,8 @@ export function useLessonLoader({
   const [courseTitle, setCourseTitle] = useState<string>("");
   const [totalLessons, setTotalLessons] = useState(10);
   const [lessonOrder, setLessonOrder] = useState<string[]>([]);
+  // Phase A — A7: next lesson's title for the post-credits beat.
+  const [nextLessonTitle, setNextLessonTitle] = useState<string | null>(null);
   const [priorConcepts, setPriorConcepts] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [resumed, setResumed] = useState(false);
@@ -149,6 +152,15 @@ export function useLessonLoader({
         setLessonOrder(course.lessonOrder);
         const metaMap = new Map(metas.map((m) => [m.id, m]));
         setPriorConcepts(conceptsAvailableBefore(course, metaMap, lessonId));
+        // Phase A — A7 (post-credits): the NEXT lesson's title, for the
+        // celebration's "In the next lesson…" beat when the lesson
+        // hasn't authored a nextLessonHint. Null on the final lesson.
+        const idx = course.lessonOrder.indexOf(lessonId);
+        const nextId =
+          idx >= 0 && idx < course.lessonOrder.length - 1
+            ? course.lessonOrder[idx + 1]
+            : null;
+        setNextLessonTitle(nextId ? metaMap.get(nextId)?.title ?? null : null);
         // Phase 27-v2.1: skip the per-learner startLesson PATCH on
         // anon mode (learnerId === null). Lesson content is fetched
         // and rendered identically; only the server-side "user has
@@ -226,8 +238,10 @@ export function useLessonLoader({
     // the same first-run cinematic case where the AUTHORED starter
     // must be visible. Without forceDefaults, projectCache would
     // re-hydrate the user's previously-edited buffer for this context
-    // and the scripted "replace YOUR_NAME with your name" beat
-    // would land against text the user already changed.
+    // and the scripted choreography would mis-narrate against text
+    // the learner already changed (Phase A — A1: starter is comment-
+    // only, so a stale buffer would also defeat the empty-shell
+    // teaching shape).
     //
     // Phase 22F2 prep: openTabs now includes EVERY starter file, not
     // just the entry point. Multi-file lessons (e.g. modules-and-imports)
@@ -343,6 +357,7 @@ export function useLessonLoader({
     courseTitle,
     totalLessons,
     lessonOrder,
+    nextLessonTitle,
     priorConcepts,
     loading,
     resumed,

@@ -123,7 +123,18 @@ export function useLessonRunner({
         }
       }
     } catch (err) {
-      setRunError((err as Error).message);
+      const msg = (err as Error).message;
+      // Phase A — A5: the anon daily run cap surfaces as a 429 with a
+      // machine code in the body; translate it for the run panel
+      // instead of printing raw JSON. Signup is the honest escape
+      // hatch — the authed path has its own (larger) budget.
+      if (mode === "anon" && msg.includes("ANON_RUN_CAP_EXCEEDED")) {
+        setRunError(
+          "You've hit today's free-trial run limit. Sign up to keep going — or come back tomorrow.",
+        );
+      } else {
+        setRunError(msg);
+      }
     } finally {
       setRunning(false);
     }

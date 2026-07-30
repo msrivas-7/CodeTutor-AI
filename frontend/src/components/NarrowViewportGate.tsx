@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { useFirstRunStore } from "../features/firstRun/useFirstRunStore";
 
 // Phase 20-P3 Bucket 3 (#5): soft "your screen is narrow" nudge.
@@ -33,6 +34,15 @@ export function readSize(widthPx?: number): Size {
   return "wide";
 }
 
+// Phase A — A2: paths where the gate is fully suppressed (no banner,
+// no apologetic copy). Today the only entry is `/try/` — Maya's anon
+// trial path. Authed `/learn/` and the editor page keep the banner.
+// Extracted as a pure helper so the suppression rule is unit-testable
+// without standing up a renderer.
+export function shouldSuppressForPath(pathname: string): boolean {
+  return pathname.startsWith("/try/") || pathname === "/try";
+}
+
 export function NarrowViewportGate() {
   const [size, setSize] = useState<Size>(() => readSize());
   const [dismissedSizes, setDismissedSizes] = useState<Set<Size>>(() => {
@@ -50,21 +60,34 @@ export function NarrowViewportGate() {
     return () => window.removeEventListener("resize", update);
   }, []);
 
+  // Phase A — A2 (device contract): hard-suppress on the anon `/try/*`
+  // surface — Maya should NEVER see "you'll have a better time on a
+  // laptop" before she has the trial product in her hands. Phone is
+  // the discovery surface; the warm graduation handoff (after lesson 1
+  // completion) is the right moment to introduce "open this on a
+  // laptop." Authed `/learn/.../` keeps the banner — that surface IS
+  // the laptop-learning surface, and the apologetic prompt is
+  // information the learner can use after committing.
+  const location = useLocation();
+  const suppressForPath = shouldSuppressForPath(location.pathname);
+
   // Phase 27-v2.2 Fix 4 — suppress during the first-run choreography
-  // flow on /try/ and /welcome → /learn/.../?firstRun=1. The banner
-  // takes a strip of screen real estate at top-2 z-40 — visually
-  // obscured behind the cinematic (z-60) and coach (z-50/51) but
-  // still consuming layout space when those overlays clear and
-  // the lesson chrome briefly transitions. While the cinematic is
-  // showing OR the scripted walkthrough is mid-flight (firstRunStep
-  // !== "idle" && !== "done"), the banner stays hidden. Re-shows
-  // on dashboard / non-first-run pages and after the walkthrough
-  // reaches "done". `cinematicShowing` is the flag CinematicGreeting
-  // toggles on mount/unmount (Phase 27-v2.1 audit fix #4).
+  // flow on /welcome → /learn/.../?firstRun=1. The banner takes a
+  // strip of screen real estate at top-2 z-40 — visually obscured
+  // behind the cinematic (z-60) and coach (z-50/51) but still
+  // consuming layout space when those overlays clear and the lesson
+  // chrome briefly transitions. While the cinematic is showing OR
+  // the scripted walkthrough is mid-flight (firstRunStep !== "idle"
+  // && !== "done"), the banner stays hidden. Re-shows on dashboard /
+  // non-first-run pages and after the walkthrough reaches "done".
+  // `cinematicShowing` is the flag CinematicGreeting toggles on
+  // mount/unmount (Phase 27-v2.1 audit fix #4).
   const cinematicShowing = useFirstRunStore((s) => s.cinematicShowing);
   const firstRunStep = useFirstRunStore((s) => s.step);
   const choreographyActive =
     firstRunStep !== "idle" && firstRunStep !== "done";
+
+  if (suppressForPath) return null;
   if (cinematicShowing || choreographyActive) return null;
   if (size === "wide" || dismissedSizes.has(size)) return null;
 

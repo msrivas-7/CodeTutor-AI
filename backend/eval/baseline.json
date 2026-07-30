@@ -1,0 +1,463 @@
+{
+  "timestamp": "2026-05-06T15:50:52.571Z",
+  "tutorModel": "gpt-4.1-nano",
+  "judgeModel": "gpt-4.1-mini",
+  "totalPrompts": 30,
+  "succeeded": 30,
+  "errored": 0,
+  "passRate": {
+    "hallucination": 1,
+    "socratic": 0.8,
+    "grounded": 0.9,
+    "all": 0.7666666666666667
+  },
+  "byIntent": {
+    "debug": {
+      "count": 6,
+      "passAll": 6,
+      "passRate": 1
+    },
+    "concept": {
+      "count": 6,
+      "passAll": 6,
+      "passRate": 1
+    },
+    "howto": {
+      "count": 6,
+      "passAll": 6,
+      "passRate": 1
+    },
+    "walkthrough": {
+      "count": 6,
+      "passAll": 3,
+      "passRate": 0.5
+    },
+    "checkin": {
+      "count": 6,
+      "passAll": 2,
+      "passRate": 0.3333333333333333
+    }
+  },
+  "perPrompt": [
+    {
+      "id": "g001",
+      "intent": "debug",
+      "hallucinationPass": true,
+      "socraticPass": true,
+      "groundedPass": true,
+      "allPass": true,
+      "judgeRaw": {
+        "hallucination": "Y",
+        "socratic": "Y",
+        "grounded": "Y"
+      },
+      "rawTutorResponse": "{\"intent\":\"debug\",\"summary\":\"The variable name is misspelled as nme when assigning.\",\"diagnose\":\"The issue is caused by a mismatch between the variable name used in assignment ('nme') and the one in print ('name').\",\"explain\":\"In Python, variables must be consistently named. Here, 'nme' is assigned but 'name' is printed, which causes an error because 'name' hasn't been defined yet.\",\"example\":\"Changing 'nme' to 'name' in the assignment will fix the error.\",\"walkthrough\":null,\"checkQuestions\":[\"Did you assign the variable 'name' before trying to print it?\",\"Is there a typo in your variable name?\",\"Have you run the code after making the assignment?\"] ,\"hint\":\"Make sure the variable name is consistent everywhere you use it.\",\"nextStep\":\"Change 'nme' to 'name' in the assignment line.\" ,\"strongerHint\":null,\"pitfalls\":\"Variable names are case-sensitive and must be used consistently.\",\"citations\":[{\"path\":\"main.py\",\"line\":3,\"column\":1,\"reason\":\"The variable 'name' is used in print but not defined.\"}],\"comprehensionCheck\":\"Can you explain why changing 'nme' to 'name' fixes the error?\" ,\"stuckness\":\"low\"}"
+    },
+    {
+      "id": "g002",
+      "intent": "debug",
+      "hallucinationPass": true,
+      "socraticPass": true,
+      "groundedPass": true,
+      "allPass": true,
+      "judgeRaw": {
+        "hallucination": "Y",
+        "socratic": "Y",
+        "grounded": "Y"
+      },
+      "rawTutorResponse": "{\"intent\":\"debug\",\"summary\":\"You're trying to concatenate a string and an integer, which causes the error.\",\"diagnose\":\"The error occurs because `age` is an integer, and Python can't directly concatenate an int with a string.\",\"explain\":\"In Python, you need to convert non-string types to strings before concatenating. Use the `str()` function to convert `age` to a string.\",\"example\":\"You would change `+ age` to `+ str(age)` to fix the error.\",\"walkthrough\":[{\"body\":\"The code is trying to concatenate a string with an integer, which isn't allowed in Python.\",\"path\":\"main.py\",\"line\":4}],\"checkQuestions\":[\"What type is the variable `age`?\",\"What does the error message mean?\",\"Have you tried converting `age` to a string?\"],\"hint\":\"Remember, in Python, you can't combine strings with non-strings directly. You need to convert the non-string to a string first.\",\"nextStep\":\"Change the line to `print(\\\"Name: \\\" + name + \\\" Age: \\\" + str(age))`.\",\"strongerHint\":\"Convert `age` to a string using `str(age)` before concatenating.\",\"pitfalls\":\"Remember not to just add the variable without converting; this will cause the same error.\",\"citations\":[{\"path\":\"main.py\",\"line\":4,\"column\":41,\"reason\":\"Concatenating string and int causes the error.\"}],\"comprehensionCheck\":\"Can you explain why converting `age` to a string fixes the error?\",\"stuckness\":\"medium\"}"
+    },
+    {
+      "id": "g003",
+      "intent": "debug",
+      "hallucinationPass": true,
+      "socraticPass": true,
+      "groundedPass": true,
+      "allPass": true,
+      "judgeRaw": {
+        "hallucination": "Y",
+        "socratic": "Y",
+        "grounded": "Y"
+      },
+      "rawTutorResponse": "{\"intent\":\"debug\",\"summary\":\"You have a reference error because of using `x` before declaring it with `let`.\",\"diagnose\":\"The error occurs because you are trying to use `x` in `console.log(x)` before it has been declared and initialized with `let`.\",\"explain\":\"In JavaScript, variables declared with `let` are hoisted but not initialized, so accessing them before their declaration results in a ReferenceError. This is different from `var`, which would be `undefined` if accessed before initialization.\",\"example\":\"In your code, `console.log(x);` runs before `let x = 5;`, causing the error.\",\"walkthrough\":[{\"body\":\"Your code attempts to log `x` before declaring and initializing `x`.\",\"path\":\"index.js\",\"line\":1},{\"body\":\"Since `x` is declared with `let`, it is hoisted but not initialized, leading to a reference error when accessed beforehand.\",\"path\":\"index.js\",\"line\":2},{\"body\":\"You need to declare `x` with `let` before using it in `console.log`.\",\"path\":\"index.js\",\"line\":3}],\"checkQuestions\":[\"What happens when you try to access a `let` variable before its declaration?\",\"Can you recall the difference between `var` and `let` in variable hoisting?\",\"What change can you make to your code to avoid this error?\"],\"hint\":\"Declare `x` with `let` before using it in `console.log`.\",\"nextStep\":\"Move the declaration `let x = 5;` above the `console.log(x);` statement.\",\"strongerHint\":\"Make sure you declare and initialize `x` before using it in the console.log, as `let` variables are not accessible before their declaration.\" ,\"pitfalls\":\"Remember that `let` and `const` are hoisted but not initialized, so they are in a temporal dead zone until their declaration is processed.\" ,\"citations\":[{\"path\":\"index.js\",\"line\":1,\"column\":1,\"reason\":\"Using `x` before it's declared causes the reference error.\"}],\"comprehensionCheck\":\"Why does JavaScript throw an error when you try to access a `let` variable before its declaration?\" ,\"stuckness\":\"high\"}"
+    },
+    {
+      "id": "g004",
+      "intent": "debug",
+      "hallucinationPass": true,
+      "socraticPass": true,
+      "groundedPass": true,
+      "allPass": true,
+      "judgeRaw": {
+        "hallucination": "Y",
+        "socratic": "Y",
+        "grounded": "Y"
+      },
+      "rawTutorResponse": "{\"intent\":\"debug\",\"summary\":\"Your code creates a string but doesn't display it.\",\"diagnose\":\"The string is constructed but not printed, so nothing appears in the output.\",\"explain\":\"In Python, to display something on the screen, you need to use the `print()` function. Simply creating or constructing a string doesn't show it automatically.\",\"example\":\"You have `\\\"Hello, \\\" + name + \\\"!\\\"` but you need to write `print(\\\"Hello, \\\" + name + \\\"!\\\")` to see the message.\",\"walkthrough\":[{\"body\":\"In your code, the line `\\\"Hello, \\\" + name + \\\"!\\\"` creates a greeting string but doesn't output it.\",\"path\":\"main.py\",\"line\":3}],\"checkQuestions\":[\"Did you include a `print()` statement before your string?\",\"Are you expecting the string to be printed automatically?\",\"Have you run the code after adding the `print()` statement?\"],\"hint\":\"Use the `print()` function to display messages in Python.\",\"nextStep\":\"Add `print()` around your greeting string to display it.\",\"strongerHint\":\"Make sure you write `print(\\\"Hello, \\\" + name + \\\"!\\\")` on a separate line or as part of your current line.\" ,\"pitfalls\":\"Remember, simply creating a string doesn't output it. You must explicitly print it with `print()`.\" ,\"citations\":[{\"path\":\"main.py\",\"line\":3,\"column\":null,\"reason\":\"The line constructs the greeting but doesn't output it.\"}],\"comprehensionCheck\":\"What function do you use in Python to display output on the screen?\" ,\"stuckness\":\"low\"}"
+    },
+    {
+      "id": "g005",
+      "intent": "debug",
+      "hallucinationPass": true,
+      "socraticPass": true,
+      "groundedPass": true,
+      "allPass": true,
+      "judgeRaw": {
+        "hallucination": "Y",
+        "socratic": "Y",
+        "grounded": "Y"
+      },
+      "rawTutorResponse": "{\"intent\":\"debug\",\"summary\":\"The error occurs because you're trying to change the value of a constant variable.\",\"diagnose\":\"You declared `count` with `const`, which makes it a constant, and then you're trying to reassign it with `count = count + 1;`, which is not allowed.\",\"explain\":\"In JavaScript, `const` variables cannot be reassigned after they are declared. If you want to change the value, you should declare `count` with `let` instead of `const`.\",\"example\":\"Replace `const count = 0;` with `let count = 0;`.\",\"walkthrough\":null,\"checkQuestions\":[\"What does `const` mean for a variable?\",\"Have you tried changing the declaration to `let`?\",\"What happens if you try to reassign a `const` variable?\"],\"hint\":\"Use `let` when you need to modify the variable later.\",\"nextStep\":\"Change `const` to `let` in the declaration of `count`.\" ,\"strongerHint\":\"Remember, variables declared with `const` cannot be reassigned, but variables declared with `let` can.\" ,\"pitfalls\":\"Using `const` for a variable you plan to change later will cause a TypeError.\" ,\"citations\":[{\"path\":\"index.js\",\"line\":1,\"column\":7,\"reason\":\"`count` is declared as a constant and later reassigned.\"}],\"comprehensionCheck\":\"Do you understand why `const` causes the error in this code?\" ,\"stuckness\":\"medium\"}"
+    },
+    {
+      "id": "g006",
+      "intent": "debug",
+      "hallucinationPass": true,
+      "socraticPass": true,
+      "groundedPass": true,
+      "allPass": true,
+      "judgeRaw": {
+        "hallucination": "Y",
+        "socratic": "Y",
+        "grounded": "Y"
+      },
+      "rawTutorResponse": "{\"intent\":\"debug\",\"summary\":\"Your loop doesn't update the value of i, causing an infinite loop.\",\"diagnose\":\"The condition i < 5 is always true because i never changes inside the loop.\",\"explain\":\"In a while loop, you need to change the variable that controls the condition to eventually break out of the loop. Otherwise, it runs forever.\",\"example\":\"You could add i += 1 inside the loop to increment i each time.\" ,\"walkthrough\":null,\"checkQuestions\":[\"Have you updated the value of i inside the loop?\",\"What will happen if you don't change i in each iteration?\",\"Does the condition i < 5 eventually become false?\"] ,\"hint\":\"Try adding a line inside the loop that increases i by 1 each time.\" ,\"nextStep\":\"Add i += 1 inside your while loop.\" ,\"strongerHint\":\"Make sure the increase happens during each iteration of the loop, so i eventually reaches 5 and the loop stops.\" ,\"pitfalls\":\"Remember to update your loop variable inside the loop, or you'll create an infinite loop.\" ,\"citations\":[{\"path\":\"main.py\",\"line\":3,\"column\":5,\"reason\":\"The loop doesn't change i, so it never reaches 5 and stops.\"}],\"comprehensionCheck\":\"What change did you make to prevent the infinite loop?\" ,\"stuckness\":\"high\"}"
+    },
+    {
+      "id": "g007",
+      "intent": "concept",
+      "hallucinationPass": true,
+      "socraticPass": true,
+      "groundedPass": true,
+      "allPass": true,
+      "judgeRaw": {
+        "hallucination": "Y",
+        "socratic": "Y",
+        "grounded": "Y"
+      },
+      "rawTutorResponse": "{\"intent\":\"concept\",\"summary\":\"A variable is a named storage space in your program for holding a value.\",\"diagnose\":null,\"explain\":\"In Python, a variable is like a label you attach to a piece of data, so you can easily refer to and manipulate it later. For example, `name = 'Maya'` creates a variable called `name` holding the string `'Maya'`.\",\"example\":\"In your code, `name` is a variable holding the value `'Maya'`.\",\"walkthrough\":null,\"checkQuestions\":null,\"hint\":null,\"nextStep\":null,\"strongerHint\":null,\"pitfalls\":\"Beginners often forget that variables need to be assigned a value before they can be used.\",\"citations\":[{\"path\":\"main.py\",\"line\":1,\"column\":0,\"reason\":\"This line creates and assigns a value to the variable `name`.\"},{\"path\":\"main.py\",\"line\":2,\"column\":0,\"reason\":\"This line uses the `name` variable to print a message.\"}],\"comprehensionCheck\":\"Can you explain in your own words what a variable does in a program?\",\"stuckness\":null}"
+    },
+    {
+      "id": "g008",
+      "intent": "concept",
+      "hallucinationPass": true,
+      "socraticPass": true,
+      "groundedPass": true,
+      "allPass": true,
+      "judgeRaw": {
+        "hallucination": "Y",
+        "socratic": "Y",
+        "grounded": "Y"
+      },
+      "rawTutorResponse": "{\"intent\":\"concept\",\"summary\":\"The 'return' statement sends a value back from a function to where it was called.\",\"diagnose\":null,\"explain\":\"In JavaScript, `return` ends a function and gives back a value to the caller. It allows the function to produce an output that can be used elsewhere in the code.\",\"example\":\"In your add function, `return a + b;` sends the sum of a and b back to the place where add() was called.\",\"walkthrough\":null,\"checkQuestions\":null,\"hint\":null,\"nextStep\":null,\"strongerHint\":null,\"pitfalls\":\"Remember, without `return`, a function won't give back a result that you can use outside of it.\",\"citations\":[{\"path\":\"index.js\",\"line\":2,\"column\":12,\"reason\":\"The return statement is used within the add function on line 2.\"}],\"comprehensionCheck\":\"Can you tell me what happens if you add a `return` statement inside a function?\" ,\"stuckness\":null}"
+    },
+    {
+      "id": "g009",
+      "intent": "concept",
+      "hallucinationPass": true,
+      "socraticPass": true,
+      "groundedPass": true,
+      "allPass": true,
+      "judgeRaw": {
+        "hallucination": "Y",
+        "socratic": "Y",
+        "grounded": "Y"
+      },
+      "rawTutorResponse": "{\"intent\":\"concept\",\"summary\":\"A list is a collection of items that can hold multiple values, while a string is a sequence of characters.\",\"diagnose\":null,\"explain\":\"A string is a sequence of characters used to represent text, while a list can contain multiple items of any type, including strings. Both are ordered, but lists are mutable, meaning you can change their contents, whereas strings are immutable.\",\"example\":\"In your code, `word = \\\"hello\\\"` is a string, and `items = [\\\"apple\\\", \\\"banana\\\"]` is a list of strings.\",\"walkthrough\":null,\"checkQuestions\":null,\"hint\":null,\"nextStep\":null,\"strongerHint\":null,\"pitfalls\":\"Remember that strings are immutable, so you can't change individual characters, but lists are mutable, so you can modify their contents.\",\"citations\":null,\"comprehensionCheck\":\"Can you think of a situation where a list would be more useful than a string?\" ,\"stuckness\":\"low\"}"
+    },
+    {
+      "id": "g010",
+      "intent": "concept",
+      "hallucinationPass": true,
+      "socraticPass": true,
+      "groundedPass": true,
+      "allPass": true,
+      "judgeRaw": {
+        "hallucination": "Y",
+        "socratic": "Y",
+        "grounded": "Y"
+      },
+      "rawTutorResponse": "{\"intent\":\"concept\",\"summary\":\"`push` is a method that adds an element to the end of an array.\",\"diagnose\":null,\"explain\":\"In JavaScript, `push` is a built-in array method used to add one or more elements to the end of an array. It modifies the original array and returns the new length of the array.\",\"example\":\"In your code, `nums.push(4)` adds the number 4 to the end of the `nums` array.\",\"walkthrough\":null,\"checkQuestions\":null,\"hint\":null,\"nextStep\":null,\"strongerHint\":null,\"pitfalls\":\"Remember that `push` changes the original array and returns its new length, not the array itself.\",\"citations\":[{\"path\":\"index.js\",\"line\":2,\"column\":0,\"reason\":\"- The code uses `push` to modify the array `nums`. This is a fundamental array method.\"}],\"comprehensionCheck\":\"Can you tell me what happens to the `nums` array after calling `push`?\",\"stuckness\":null}"
+    },
+    {
+      "id": "g011",
+      "intent": "concept",
+      "hallucinationPass": true,
+      "socraticPass": true,
+      "groundedPass": true,
+      "allPass": true,
+      "judgeRaw": {
+        "hallucination": "Y",
+        "socratic": "Y",
+        "grounded": "Y"
+      },
+      "rawTutorResponse": "{\"intent\":\"concept\",\"summary\":\"Using `elif` helps create clearer, mutually exclusive conditions, making your code more efficient and logical.\",\"diagnose\":null,\"explain\":\"The `elif` keyword is used to check multiple conditions sequentially, but only one block of code runs. If you used multiple `if` statements without `elif`, all relevant conditions would be checked, which can be less efficient and might lead to multiple blocks running if conditions overlap.\",\"example\":\"In your code, `elif` ensures that only one of 'kid', 'teen', or 'adult' is printed based on the `age` value.\",\"walkthrough\":null,\"checkQuestions\":[\"Can you explain what happens if multiple `if` statements are used instead of `elif`?\",\"Why might `elif` be more efficient than separate `if` statements in this context?\",\"What would happen if you replaced `elif` with `if` in your code?\"],\"hint\":\"Think about how the program flow proceeds when it encounters `if`, `elif`, and `else` statements.\" ,\"nextStep\":\"Try rewriting the code with only separate `if` statements and see what happens when `age` is, for example, 15.\",\"strongerHint\":null,\"pitfalls\":\"Using multiple `if` statements instead of `elif` can cause multiple conditions to trigger, which isn't the intended behavior in this case.\",\"citations\":[{\"path\":\"main.py\",\"line\":2,\"column\":0,\"reason\":\"This is where the conditions are evaluated, and where the `elif` statement is used.\"}],\"comprehensionCheck\":\"Can you describe why using `elif` helps in making sure only one category is printed?\" ,\"stuckness\":\"low\"}"
+    },
+    {
+      "id": "g012",
+      "intent": "concept",
+      "hallucinationPass": true,
+      "socraticPass": true,
+      "groundedPass": true,
+      "allPass": true,
+      "judgeRaw": {
+        "hallucination": "Y",
+        "socratic": "Y",
+        "grounded": "Y"
+      },
+      "rawTutorResponse": "{\"intent\":\"concept\",\"summary\":\"The '==' compares values with type coercion, while '===' compares both value and type without coercion.\",\"diagnose\":null,\"explain\":\"In JavaScript, '==' checks for equality after converting types if necessary, while '===' checks for strict equality and considers types. Using '===' is generally safer because it prevents unexpected type coercion.\",\"example\":\"In your code, 'x == 5' is true because 'x' is '5' (a string), which is coerced to number 5. But 'x === 5' is false because 'x' is a string, not a number.\",\"walkthrough\":null,\"checkQuestions\":null,\"hint\":null,\"nextStep\":null,\"strongerHint\":null,\"pitfalls\":\"A common mistake is using '==' when strict equality '===' is intended, leading to bugs due to type coercion.\",\"citations\":[{\"path\":\"index.js\",\"line\":2,\"column\":8,\"reason\":\"The line with 'x == 5' demonstrates loose equality.\"},{\"path\":\"index.js\",\"line\":3,\"column\":8,\"reason\":\"The line with 'x === 5' demonstrates strict equality.\"}],\"comprehensionCheck\":\"Can you explain why 'x == 5' is true but 'x === 5' is false in your code?\",\"stuckness\":\"low\"}"
+    },
+    {
+      "id": "g013",
+      "intent": "howto",
+      "hallucinationPass": true,
+      "socraticPass": true,
+      "groundedPass": true,
+      "allPass": true,
+      "judgeRaw": {
+        "hallucination": "Y",
+        "socratic": "Y",
+        "grounded": "Y"
+      },
+      "rawTutorResponse": "{\"intent\":\"howto\",\"summary\":\"You can use the input() function to ask the user for their name and then print it.\",\"diagnose\":null,\"explain\":\"To get user input in Python, use the `input()` function with a prompt message. To display the name back, use `print()` with the variable storing the input.\",\"example\":\"name = input('What is your name? ')\\nprint('Your name is ' + name)\",\"walkthrough\":null,\"checkQuestions\":null,\"hint\":\"Use the input() function to get user input and assign it to a variable, then print that variable.\",\"nextStep\":\"Replace your existing print statement with input() to ask for the user's name and store it.\" ,\"strongerHint\":null,\"pitfalls\":\"Remember that input() returns a string, so no need to convert unless you expect a different data type.\",\"citations\":[{\"path\":\"main.py\",\"line\":2,\"column\":0,\"reason\":\"Your current code is just printing a greeting, but you want to ask for and display the user's name.\"}],\"comprehensionCheck\":\"Can you write a line of code that asks the user for their name and stores it in a variable?\" ,\"stuckness\":\"low\"}"
+    },
+    {
+      "id": "g014",
+      "intent": "howto",
+      "hallucinationPass": true,
+      "socraticPass": true,
+      "groundedPass": true,
+      "allPass": true,
+      "judgeRaw": {
+        "hallucination": "Y",
+        "socratic": "Y",
+        "grounded": "Y"
+      },
+      "rawTutorResponse": "{\"intent\":\"howto\",\"summary\":\"Use a loop to print each item in the array.\",\"diagnose\":null,\"explain\":\"To print every item in an array, you can use a loop like `for` or `forEach` to go through each element and then print it with `console.log`.\",\"example\":\"for (let i = 0; i < fruits.length; i++) { console.log(fruits[i]); }\",\"walkthrough\":null,\"checkQuestions\":null,\"hint\":\"Think about how you can go through each item in the array one by one.\",\"nextStep\":\"Add a loop in your index.js after the array declaration to print each fruit.\" ,\"strongerHint\":null,\"pitfalls\":\"Make sure you are accessing each item in the array correctly inside your loop.\",\"citations\":[{\"path\":\"index.js\",\"line\":2,\"column\":0,\"reason\":\"Your array is declared here.\"}],\"comprehensionCheck\":null,\"stuckness\":\"low\"}"
+    },
+    {
+      "id": "g015",
+      "intent": "howto",
+      "hallucinationPass": true,
+      "socraticPass": true,
+      "groundedPass": true,
+      "allPass": true,
+      "judgeRaw": {
+        "hallucination": "Y",
+        "socratic": "Y",
+        "grounded": "Y"
+      },
+      "rawTutorResponse": "{\"intent\":\"howto\",\"summary\":\"You can add an item to a list using the `append` method.\",\"diagnose\":null,\"explain\":\"In Python, you use the `append()` method to add an item at the end of a list. This modifies the list in place.\",\"example\":\"For example, `items.append('orange')` will add 'orange' to your list.\" ,\"walkthrough\":null,\"checkQuestions\":null,\"hint\":\"Think about what method can add a new element to the list without creating a new list.\",\"nextStep\":\"Try adding `items.append('orange')` after your existing code and see what happens.\" ,\"strongerHint\":null,\"pitfalls\":\"Remember that `append()` adds the item to the end of the list. If you need to add the item at a specific position, look into `insert()`.\" ,\"citations\":[{\"path\":\"main.py\",\"line\":2,\"column\":0,\"reason\":\"Your list is named 'items', and you want to add an element to it.\"}],\"comprehensionCheck\":\"What is the Python method you use to add an item to the end of a list?\" ,\"stuckness\":\"low\"}"
+    },
+    {
+      "id": "g016",
+      "intent": "howto",
+      "hallucinationPass": true,
+      "socraticPass": true,
+      "groundedPass": true,
+      "allPass": true,
+      "judgeRaw": {
+        "hallucination": "Y",
+        "socratic": "Y",
+        "grounded": "Y"
+      },
+      "rawTutorResponse": "{\"intent\":\"howto\",\"summary\":\"You can create a simple function that compares two numbers and returns the larger one.\",\"diagnose\":null,\"explain\":\"In JavaScript, a function that takes two parameters and returns the larger one can use an `if` statement or the `Math.max()` method. This encapsulates the comparison logic into a reusable block of code.\",\"example\":\"You could write `function max(a, b) { return Math.max(a, b); }` in your code.\",\"walkthrough\":null,\"checkQuestions\":null,\"hint\":\"Think about how to compare two values and return the larger one.\",\"nextStep\":\"Define the function `max` in your 'index.js' file, using either an if statement or `Math.max()` to determine the larger number.\",\"strongerHint\":null,\"pitfalls\":\"Make sure to include both parameters in your function and return the correct value based on the comparison.\",\"citations\":[{\"path\":\"index.js\",\"line\":3,\"column\":0,\"reason\":\"Your file is the appropriate place to define the max function.\"}],\"comprehensionCheck\":\"Can you write a function called `max` that takes two numbers and returns the larger one?\" ,\"stuckness\":\"low\"}"
+    },
+    {
+      "id": "g017",
+      "intent": "howto",
+      "hallucinationPass": true,
+      "socraticPass": true,
+      "groundedPass": true,
+      "allPass": true,
+      "judgeRaw": {
+        "hallucination": "Y",
+        "socratic": "Y",
+        "grounded": "Y"
+      },
+      "rawTutorResponse": "{\"intent\":\"howto\",\"summary\":\"You can use a loop to print numbers from 1 to 10.\",\"diagnose\":null,\"explain\":\"To print numbers from 1 to 10 in Python, you can use a for loop with the range function which generates numbers in that sequence.\",\"example\":\"for i in range(1, 11): print(i)\",\"walkthrough\":null,\"checkQuestions\":null,\"hint\":\"Start by writing a for loop and use range(1, 11) as the sequence.\",\"nextStep\":\"Try adding a for loop in your main.py to print numbers 1 to 10.\",\"strongerHint\":\"Remember, range(1, 11) generates numbers starting from 1 up to but not including 11.\",\"pitfalls\":\"A common mistake is to forget that range's end value is exclusive, so you need 11 to include 10.\" ,\"citations\":[{\"path\":\"main.py\",\"line\":2,\"column\":1,\"reason\":\"Your code should include a for loop to iterate through 1 to 10.\"}],\"comprehensionCheck\":\"Can you explain why range(1, 11) is used to print the numbers 1 to 10?\" ,\"stuckness\":\"low\"}"
+    },
+    {
+      "id": "g018",
+      "intent": "howto",
+      "hallucinationPass": true,
+      "socraticPass": true,
+      "groundedPass": true,
+      "allPass": true,
+      "judgeRaw": {
+        "hallucination": "Y",
+        "socratic": "Y",
+        "grounded": "Y"
+      },
+      "rawTutorResponse": "{\"intent\":\"howto\",\"summary\":\"You can create an object with properties for name and age, then access the name property to print it.\",\"diagnose\":null,\"explain\":\"In JavaScript, you create an object using curly braces and define properties with key-value pairs. To print just the name, access the name property using dot notation.\",\"example\":\"let person = {name: 'Alice', age: 30}; console.log(person.name);\",\"walkthrough\":null,\"checkQuestions\":null,\"hint\":\"Start by creating an object with properties for name and age inside your index.js file.\",\"nextStep\":\"Define the object with properties and then log the name property.\" ,\"strongerHint\":null,\"pitfalls\":\"Remember to use quotes around property names if they contain spaces or special characters, but not needed here.\",\"citations\":[{\"path\":\"index.js\",\"line\":2,\"column\":6,\"reason\":\"Creating an object and logging requires defining properties and accessing them.\"}],\"comprehensionCheck\":\"Can you write an object with your own name and age and print just the name?\" ,\"stuckness\":\"low\"}"
+    },
+    {
+      "id": "g019",
+      "intent": "walkthrough",
+      "hallucinationPass": true,
+      "socraticPass": true,
+      "groundedPass": true,
+      "allPass": true,
+      "judgeRaw": {
+        "hallucination": "Y",
+        "socratic": "Y",
+        "grounded": "Y"
+      },
+      "rawTutorResponse": "{\"intent\":\"walkthrough\",\"summary\":\"This code defines a name variable and prints a greeting message.\",\"diagnose\":null,\"explain\":\"This code creates a variable called `name` that stores the string 'Maya'. It then uses the `print` function to display a message that includes the value of `name`, concatenated with other strings to form a complete greeting.\",\"example\":\"The line `print('Hello, ' + name + '!')` combines the string 'Hello, ' with the value of `name` and an exclamation mark to create a friendly greeting.\",\"walkthrough\":[{\"body\":\"The first line creates a variable `name` and assigns it the string 'Maya'.\" ,\"path\":\"main.py\",\"line\":1},{\"body\":\"The second line calls the `print` function to display a message.\" ,\"path\":\"main.py\",\"line\":2},{\"body\":\"Inside `print`, it uses string concatenation (`+`) to combine 'Hello, ', the value of `name`, and '!'.\" ,\"path\":\"main.py\",\"line\":2}],\"checkQuestions\":[\"Can you identify what the variable `name` stores?\",\"What does the `print` function do?\",\"How are the strings combined in the `print` statement?\"],\"hint\":\"Focus on what the variable `name` contains and how `print` displays the message.\",\"nextStep\":\"Try running the code to see the output.\" ,\"strongerHint\":null,\"pitfalls\":\"Make sure to use `+` for string concatenation, not commas or other operators.\",\"citations\":[{\"path\":\"main.py\",\"line\":1,\"column\":0,\"reason\":\"This line defines the variable that is used in the print statement.\"},{\"path\":\"main.py\",\"line\":2,\"column\":0,\"reason\":\"This line displays the greeting message.\"}],\"comprehensionCheck\":\"What do you think the code will output when run?\" ,\"stuckness\":null}"
+    },
+    {
+      "id": "g020",
+      "intent": "walkthrough",
+      "hallucinationPass": true,
+      "socraticPass": true,
+      "groundedPass": true,
+      "allPass": true,
+      "judgeRaw": {
+        "hallucination": "Y",
+        "socratic": "Y",
+        "grounded": "Y"
+      },
+      "rawTutorResponse": "{\"intent\":\"walkthrough\",\"summary\":\"This code creates a greeting message by combining strings and logs it.\",\"diagnose\":null,\"explain\":\"The code defines a constant `greeting` with the value \\\"Hello\\\" and a variable `name` with the value \\\"Alex\\\". It then logs a message to the console that combines these two values with some additional characters.\",\"example\":\"The output will be: 'Hello, Alex!'.\",\"walkthrough\":[{\"body\":\"The first line creates a constant named 'greeting' with the value 'Hello'.\" ,\"path\":\"index.js\",\"line\":1},{\"body\":\"The second line creates a variable named 'name' with the value 'Alex'.\" ,\"path\":\"index.js\",\"line\":2},{\"body\":\"The third line logs a string to the console by concatenating 'greeting', a comma and space, 'name', and an exclamation mark.\" ,\"path\":\"index.js\",\"line\":3}],\"checkQuestions\":[\"Can you tell me what the `const` keyword does?\",\"What happens if you change `let` to `var` for `name`?\",\"What will be printed in the console when this code runs?\"],\"hint\":\"Remember that `+` concatenates strings. Think about what each part of the `console.log` statement does.\",\"nextStep\":\"Try modifying the values of `greeting` and `name` and see what gets printed.\",\"strongerHint\":\"Make sure to keep the syntax correct when changing string values and observe the output in the console.\",\"pitfalls\":\"Be careful with the quotes in strings, and remember that `const` means the value can't change, while `let` allows reassignment.\" ,\"citations\":[{\"path\":\"index.js\",\"line\":1,\"column\":10,\"reason\":\"Declaration of greeting, a constant string.\"},{\"path\":\"index.js\",\"line\":2,\"column\":4,\"reason\":\"Declaration of name, a variable string.\"},{\"path\":\"index.js\",\"line\":3,\"column\":0,\"reason\":\"Console log statement that combines greeting and name.\"}],\"comprehensionCheck\":\"What does the `console.log` statement do with the variables `greeting` and `name`?\" ,\"stuckness\":\"low\"}"
+    },
+    {
+      "id": "g021",
+      "intent": "walkthrough",
+      "hallucinationPass": true,
+      "socraticPass": false,
+      "groundedPass": true,
+      "allPass": false,
+      "judgeRaw": {
+        "hallucination": "Y",
+        "socratic": "N",
+        "grounded": "Y"
+      },
+      "rawTutorResponse": "{\"intent\":\"concept\",\"summary\":\"This code uses if-elif-else statements to determine the letter grade based on the score.\",\"diagnose\":null,\"explain\":\"This code checks the score against different conditions using if, elif, and else statements. It executes the first block where the condition is true, so only one print statement runs.\",\"example\":\"For example, if score is 75, the code will check each condition in order and print 'C' because 75 >= 70 but less than 80.\",\"walkthrough\":null,\"checkQuestions\":null,\"hint\":\"Think about how the if-elif-else structure evaluates each condition in order.\",\"nextStep\":\"Run the code with different scores to see which print statement executes for each.\",\"strongerHint\":null,\"pitfalls\":\"Remember that once a true condition is found, the rest are skipped.\",\"citations\":[{\"path\":\"main.py\",\"line\":2,\"column\":0,\"reason\":\"The initial value of 'score' is defined here.\"},{\"path\":\"main.py\",\"line\":3,\"column\":0,\"reason\":\"The 'if' statement checks if score >= 90.\"},{\"path\":\"main.py\",\"line\":4,\"column\":4,\"reason\":\"The 'elif' checks other score ranges.\"},{\"path\":\"main.py\",\"line\":6,\"column\":4,\"reason\":\"The 'else' catches any score less than 70.\"}],\"comprehensionCheck\":\"Can you explain in your own words how the program decides which message to print?\",\"stuckness\":\"low\"}"
+    },
+    {
+      "id": "g022",
+      "intent": "walkthrough",
+      "hallucinationPass": true,
+      "socraticPass": false,
+      "groundedPass": true,
+      "allPass": false,
+      "judgeRaw": {
+        "hallucination": "Y",
+        "socratic": "N",
+        "grounded": "Y"
+      },
+      "rawTutorResponse": "{\"intent\":\"concept\",\"summary\":\"This code defines a function to create a greeting message and then uses it.\",\"diagnose\":null,\"explain\":\"The code defines a function called `greet` that takes a parameter `name` and returns a greeting message. It then calls this function with 'Alex' and prints the result.\",\"example\":\"When `greet('Alex')` is called, it returns 'Hello, Alex!'.\",\"walkthrough\":null,\"checkQuestions\":null,\"hint\":null,\"nextStep\":null,\"strongerHint\":null,\"pitfalls\":null,\"citations\":[{\"path\":\"index.js\",\"line\":1,\"column\":1,\"reason\":\"Defines the `greet` function.\"},{\"path\":\"index.js\",\"line\":5,\"column\":1,\"reason\":\"Calls the `greet` function with 'Alex'.\"},{\"path\":\"index.js\",\"line\":6,\"column\":1,\"reason\":\"Prints the result to the console.\"}],\"comprehensionCheck\":\"Can you explain what the `greet` function does and what gets printed?\" ,\"stuckness\":\"low\"}"
+    },
+    {
+      "id": "g023",
+      "intent": "walkthrough",
+      "hallucinationPass": true,
+      "socraticPass": true,
+      "groundedPass": true,
+      "allPass": true,
+      "judgeRaw": {
+        "hallucination": "Y",
+        "socratic": "Y",
+        "grounded": "Y"
+      },
+      "rawTutorResponse": "{\"intent\":\"walkthrough\",\"summary\":\"This code calculates the sum of the numbers in a list called `nums`.\",\"diagnose\":\"The code creates a list of numbers and sums them up using a loop.\",\"explain\":\"The code initializes a list of numbers, sets a total to 0, and then adds each number in the list to the total using a `for` loop.\",\"example\":\"As it iterates, `total` becomes 10, then 30, then 60.\",\"walkthrough\":[{\"body\":\"The list `nums` contains three numbers: 10, 20, and 30.\",\"path\":\"main.py\",\"line\":1},{\"body\":\"`total` starts at 0, ready to accumulate the sum.\",\"path\":\"main.py\",\"line\":2},{\"body\":\"The `for` loop goes through each number `n` in the list `nums`.\",\"path\":\"main.py\",\"line\":3},{\"body\":\"On each iteration, it adds `n` to `total`.\",\"path\":\"main.py\",\"line\":4},{\"body\":\"After the loop, `total` holds the sum of all numbers in the list.\",\"path\":\"main.py\",\"line\":5},{\"body\":\"The `print` statement displays the final sum, which is 60.\",\"path\":\"main.py\",\"line\":6}],\"checkQuestions\":[\"Do you understand how the `for` loop works with lists?\",\"What is the purpose of `total` in this code?\",\"What will be printed as the final output?\"],\"hint\":\"Think about each step of the loop and how `total` changes.\",\"nextStep\":\"Review the code line by line, and try to predict what each line does before running it.\",\"strongerHint\":\"Focus on how the `total` variable updates with each number in the list.\" ,\"pitfalls\":\"Make sure you understand that the loop adds each number one by one, accumulating the sum.\" ,\"citations\":[{\"path\":\"main.py\",\"line\":1,\"column\":0,\"reason\":\"Defines the list of numbers.\"},{\"path\":\"main.py\",\"line\":2,\"column\":0,\"reason\":\"Initializes the total.\"},{\"path\":\"main.py\",\"line\":3,\"column\":4,\"reason\":\"Begins the loop over each number.\"},{\"path\":\"main.py\",\"line\":4,\"column\":8,\"reason\":\"Adds the current number to total.\"},{\"path\":\"main.py\",\"line\":6,\"column\":0,\"reason\":\"Outputs the final sum.\"}],\"comprehensionCheck\":\"If you change one of the numbers in the list, how will the output change?\",\"stuckness\":\"low\"}"
+    },
+    {
+      "id": "g024",
+      "intent": "walkthrough",
+      "hallucinationPass": true,
+      "socraticPass": false,
+      "groundedPass": false,
+      "allPass": false,
+      "judgeRaw": {
+        "hallucination": "Y",
+        "socratic": "N",
+        "grounded": "N"
+      },
+      "rawTutorResponse": "{\"intent\":\"concept\",\"summary\":\"The code creates a new array with each number doubled using the `map` method.\",\"diagnose\":null,\"explain\":\"In the code, `nums` is an array of numbers. The `map` method applies a function to each element in `nums`, creating a new array called `doubled` where each number is multiplied by 2.\",\"example\":\"For example, `nums` is [1, 2, 3, 4], so `doubled` becomes [2, 4, 6, 8].\",\"walkthrough\":null,\"checkQuestions\":null,\"hint\":null,\"nextStep\":null,\"strongerHint\":null,\"pitfalls\":\"A common mistake is misunderstanding that `map` returns a new array and does not change the original array.\",\"citations\":[{\"path\":\"index.js\",\"line\":2,\"column\":15,\"reason\":\"The line where `map` is used, showing how the doubling is applied.\"}],\"comprehensionCheck\":\"Can you explain what the `map` method does in your code?\",\"stuckness\":null}"
+    },
+    {
+      "id": "g025",
+      "intent": "checkin",
+      "hallucinationPass": true,
+      "socraticPass": false,
+      "groundedPass": false,
+      "allPass": false,
+      "judgeRaw": {
+        "hallucination": "Y",
+        "socratic": "N",
+        "grounded": "N"
+      },
+      "rawTutorResponse": "{\"intent\":\"checkin\",\"summary\":\"You're asking if your code is on the right track for reading input.\",\"diagnose\":\"Your code correctly prompts the user for their name and then greets them, which aligns with the lesson on reading input.\",\"explain\":\"Your code uses the `input()` function to read user input and stores it in a variable, then uses `print()` to display a message. This is exactly how input and output work in Python for beginner programs.\",\"example\":\"For example, `name = input('Enter your name: ')\\n print('Hello, ' + name)`.\" ,\"walkthrough\":null,\"checkQuestions\":[\"Did your code successfully ask for the user's input?\",\"Did it store the input in a variable?\",\"Did it then display a message using that variable?\"],\"hint\":null,\"nextStep\":null,\"strongerHint\":null,\"pitfalls\":\"Make sure to remember that `input()` returns a string, and if you want to handle other data types, you need to convert them.\" ,\"citations\":null,\"comprehensionCheck\":null,\"stuckness\":null}"
+    },
+    {
+      "id": "g026",
+      "intent": "checkin",
+      "hallucinationPass": true,
+      "socraticPass": false,
+      "groundedPass": true,
+      "allPass": false,
+      "judgeRaw": {
+        "hallucination": "Y",
+        "socratic": "N",
+        "grounded": "Y"
+      },
+      "rawTutorResponse": "{\"intent\":\"checkin\",\"summary\":\"Your `isEven` function looks correct for checking if a number is even.\",\"diagnose\":\"Your current code correctly returns true for even numbers and false otherwise.\",\"explain\":\"The function takes a number `n`, checks if `n % 2` equals 0, and returns true if it does, indicating `n` is even.\",\"example\":\"Calling `isEven(4)` correctly results in `true`.\" ,\"walkthrough\":null,\"checkQuestions\":[\"Does the function correctly handle odd numbers?\",\"What does the `%` operator do in this function?\",\"Is there a simpler way to write this function?\"],\"hint\":null,\"nextStep\":null,\"strongerHint\":null,\"pitfalls\":\"Remember, `return false` is necessary for odd numbers, and your current logic covers that well.\",\"citations\":[{\"path\":\"index.js\",\"line\":2,\"column\":5,\"reason\":\"This is the line with the main check for evenness.\"}],\"comprehensionCheck\":\"Can you explain how the `%` operator helps determine if a number is even?\" ,\"stuckness\":\"low\"}"
+    },
+    {
+      "id": "g027",
+      "intent": "checkin",
+      "hallucinationPass": true,
+      "socraticPass": false,
+      "groundedPass": true,
+      "allPass": false,
+      "judgeRaw": {
+        "hallucination": "Y",
+        "socratic": "N",
+        "grounded": "Y"
+      },
+      "rawTutorResponse": "{\"intent\":\"checkin\",\"summary\":\"You're using a for loop to print numbers 1 to 5, which is correct.\",\"diagnose\":null,\"explain\":\"Your code uses a for loop with `range(1, 6)` that correctly generates numbers from 1 to 5. The loop then prints each number, which achieves your goal.\",\"example\":\"Your code `for i in range(1, 6): print(i)` prints numbers 1 through 5.\",\"walkthrough\":null,\"checkQuestions\":[\"What does `range(1, 6)` produce?\",\"How many times does the loop run?\",\"What does `print(i)` do in each iteration?\"],\"hint\":null,\"nextStep\":null,\"strongerHint\":null,\"pitfalls\":\"Remember that `range` stops before the second number, so `range(1, 6)` is correct for printing 1-5.\",\"citations\":[{\"path\":\"main.py\",\"line\":1,\"column\":0,\"reason\":\"Your loop correctly iterates from 1 to 5.\"}],\"comprehensionCheck\":\"Can you explain why `range(1, 6)` prints numbers from 1 to 5?\" ,\"stuckness\":\"low\"}"
+    },
+    {
+      "id": "g028",
+      "intent": "checkin",
+      "hallucinationPass": true,
+      "socraticPass": true,
+      "groundedPass": true,
+      "allPass": true,
+      "judgeRaw": {
+        "hallucination": "Y",
+        "socratic": "Y",
+        "grounded": "Y"
+      },
+      "rawTutorResponse": "{\"intent\":\"concept\",\"summary\":\"Yes, there are more concise ways to sum an array in JavaScript.\",\"diagnose\":null,\"explain\":\"Instead of using a for loop, you can use the `reduce` method to sum array elements more simply. It's a common array method that applies a function to each element to produce a single value.\",\"example\":\"You can write: `const total = nums.reduce((acc, num) => acc + num, 0);`\",\"walkthrough\":null,\"checkQuestions\":null,\"hint\":\"Try exploring the `reduce` method on arrays.\",\"nextStep\":\"Replace your for loop with the `reduce` method to sum the array.\" ,\"strongerHint\":null,\"pitfalls\":\"Remember that `reduce` takes a callback function and an initial value; getting these wrong can cause bugs.\",\"citations\":[{\"path\":\"index.js\",\"line\":2,\"column\":0,\"reason\":\"The array and initial total are defined here.\"}],\"comprehensionCheck\":\"Do you understand how `reduce` simplifies summing array elements compared to a loop?\",\"stuckness\":\"low\"}"
+    },
+    {
+      "id": "g029",
+      "intent": "checkin",
+      "hallucinationPass": true,
+      "socraticPass": true,
+      "groundedPass": false,
+      "allPass": false,
+      "judgeRaw": {
+        "hallucination": "Y",
+        "socratic": "Y",
+        "grounded": "N"
+      },
+      "rawTutorResponse": "{\"intent\":\"checkin\",\"summary\":\"You're asking for feedback on your practice exercise.\",\"diagnose\":null,\"explain\":null,\"example\":null,\"walkthrough\":null,\"checkQuestions\":[\"What specific aspects of your exercise do you want feedback on?\",\"Did you follow the task instructions closely?\",\"Are you unsure about the output or the code structure?\"],\"hint\":null,\"nextStep\":\"Review your exercise instructions to ensure all parts are addressed.\",\"strongerHint\":null,\"pitfalls\":null,\"citations\":null,\"comprehensionCheck\":null,\"stuckness\":null}"
+    },
+    {
+      "id": "g030",
+      "intent": "checkin",
+      "hallucinationPass": true,
+      "socraticPass": true,
+      "groundedPass": true,
+      "allPass": true,
+      "judgeRaw": {
+        "hallucination": "Y",
+        "socratic": "Y",
+        "grounded": "Y"
+      },
+      "rawTutorResponse": "{\"intent\":\"checkin\",\"summary\":\"Yes, this is a correctly defined object in JavaScript.\",\"diagnose\":null,\"explain\":\"An object in JavaScript is a collection of key-value pairs, where keys are strings (or symbols) and values can be any data type. In your code, `person` is an object with properties `name` and `age`.\",\"example\":\"In your code, `person` is an object with properties `name` and `age`.\",\"walkthrough\":null,\"checkQuestions\":[\"Does your object have key-value pairs?\",\"Are the property names in quotes?\",\"Can objects hold multiple properties?\"],\"hint\":\"Think about the structure: an object uses curly braces and key-value pairs.\",\"nextStep\":\"Great! Now try adding another property to your object, like `city`.\",\"strongerHint\":\"Remember, object properties are listed inside the curly braces, separated by commas.\" ,\"pitfalls\":\"Remember to separate properties with commas.\" ,\"citations\":[{\"path\":\"index.js\",\"line\":2,\"column\":0,\"reason\":\"This is the object definition you asked about.\"}],\"comprehensionCheck\":\"What makes an object different from an array in JavaScript?\",\"stuckness\":\"low\"}"
+    }
+  ]
+}

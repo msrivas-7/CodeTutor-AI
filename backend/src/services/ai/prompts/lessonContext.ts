@@ -41,6 +41,12 @@ export function buildLessonContextBlock(ctx: LessonContext): string {
       if (r.type === "forbidden_in_stdout") return `avoid producing stdout containing "${r.pattern}"`;
       if (r.type === "required_file_contains") return `write code in ${r.file ?? entryFile} containing \`${r.pattern}\``;
       if (r.type === "function_tests") return `define the tested function(s) at module scope so the harness can call them`;
+      // Phase A — A1: the retrieval check is a separate UI gate the
+      // learner answers in their own words; it isn't something the tutor
+      // helps "solve" in the editor. Calling it out as a write-this-code
+      // task (the prior fall-through "pass custom validation") would push
+      // the tutor toward giving away the multiple-choice answer.
+      if (r.type === "retrieval_check") return `answer a short comprehension question after the code is correct (this is a learner-facing check — do NOT reveal the answer)`;
       return `pass custom validation`;
     })
     .join("; and ");

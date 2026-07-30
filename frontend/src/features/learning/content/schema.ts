@@ -33,15 +33,14 @@ export const expectedStdoutRuleSchema = z.object({
   expected: nonEmptyString,
 });
 
-// Phase 27-v2 Day 3a: lesson 1's `expected_stdout: "Hello, "` substring
-// rule passes the unedited starter (`name = "YOUR_NAME"` → stdout
-// `Hello, YOUR_NAME!` → contains "Hello, "). Adding a paired
-// `forbidden_in_stdout` rule lets the lesson reject any output that
-// still contains the placeholder, without changing the existing
-// permissive substring shape (which other lessons may rely on).
-// The pair (expected_stdout: "Hello, " + forbidden_in_stdout:
-// "YOUR_NAME") is what tightens lesson 1 specifically — every other
-// lesson gets the new variant available but doesn't need to use it.
+// Lesson 1's `expected_stdout: "Hello, "` substring rule is lenient
+// by design (any output starting with "Hello, " counts). The paired
+// `forbidden_in_stdout` rule lets the lesson reject "lazy-pass" outputs
+// — Phase A — A1 sets it to "Hello, World!" so a learner who just
+// types the literal example shown in the starter comment doesn't clear
+// the funnel. Other lessons can use this rule to forbid placeholder
+// sentinels (`YOUR_NAME`-style), copy-pasted starter shells, or any
+// output that signals zero learner-driven editing.
 export const forbiddenInStdoutRuleSchema = z.object({
   type: z.literal("forbidden_in_stdout"),
   pattern: nonEmptyString,
@@ -62,23 +61,73 @@ export const customValidatorRuleSchema = z.object({
   type: z.literal("custom_validator"),
 });
 
+// Phase A — A1 (funnel-edge pedagogy): a learner-driven retrieval check
+// that fires AFTER the other completion rules pass but BEFORE the
+// celebration panel mounts. Not auto-evaluated against stdout — the
+// learner picks an answer, the validator gates `showComplete` on
+// the correct choice. Without this, a learner can paste their way past
+// `expected_stdout` and the funnel measures clicks, not learning.
+//
+// The rule is OPTIONAL on every lesson (existing lessons without it
+// behave exactly as before — the rule's absence is "no gate"). Lesson 1
+// of python-fundamentals adds one in Wave 1; other lessons can adopt
+// the pattern as authored.
+export const retrievalCheckRuleSchema = z
+  .object({
+    type: z.literal("retrieval_check"),
+    question: nonEmptyString,
+    // 2–4 multiple-choice answers. Single-choice; one is correct.
+    choices: z.array(nonEmptyString).min(2).max(4),
+    // 0-indexed position of the correct choice within `choices`.
+    correctIndex: z.number().int().min(0),
+    // Optional explanation shown after a wrong answer. Omitted = no
+    // explanation, just "try again."
+    explanation: z.string().optional(),
+  })
+  // Cross-field invariant: correctIndex must reference a real choice.
+  // Without this, a lesson author shipping `correctIndex: 5` with 3
+  // choices passes Zod parse but creates an unsatisfiable lesson —
+  // the panel can never resolve "you got it right" because none of
+  // the rendered buttons map to that index.
+  .refine((rule) => rule.correctIndex < rule.choices.length, {
+    message: "correctIndex must reference an existing choice (0..choices.length-1)",
+    path: ["correctIndex"],
+  });
+
 export const completionRuleSchema = z.discriminatedUnion("type", [
   expectedStdoutRuleSchema,
   forbiddenInStdoutRuleSchema,
   requiredFileContainsRuleSchema,
   functionTestsRuleSchema,
   customValidatorRuleSchema,
+  retrievalCheckRuleSchema,
 ]);
 
-export const practiceExerciseSchema = z.object({
-  id: kebabOrSnake,
-  title: nonEmptyString,
-  prompt: nonEmptyString,
-  goal: nonEmptyString,
-  starterCode: z.string().optional(),
-  completionRules: z.array(completionRuleSchema).min(1),
-  hints: z.array(z.string()).optional(),
-});
+export const practiceExerciseSchema = z
+  .object({
+    id: kebabOrSnake,
+    title: nonEmptyString,
+    prompt: nonEmptyString,
+    goal: nonEmptyString,
+    starterCode: z.string().optional(),
+    completionRules: z.array(completionRuleSchema).min(1),
+    hints: z.array(z.string()).optional(),
+  })
+  // Phase A — A1: practice-exercise validation runs through the
+  // shared `validateLesson` path but the LessonPage's retrieval
+  // panel is keyed to the lesson, not the exercise. Allowing a
+  // retrieval_check rule on a practice exercise would create an
+  // unsatisfiable lesson at runtime (rule fires, no UI surfaces to
+  // answer it). Reject it at parse time so a future lesson author
+  // can't ship a soft-locked practice by accident.
+  .refine(
+    (ex) => !ex.completionRules.some((r) => r.type === "retrieval_check"),
+    {
+      message:
+        "retrieval_check is not supported inside practiceExercises (no panel renders for the exercise scope)",
+      path: ["completionRules"],
+    },
+  );
 
 export const lessonMetaSchema = z.object({
   id: kebabOrSnake,
@@ -96,6 +145,13 @@ export const lessonMetaSchema = z.object({
   recap: z.string().optional(),
   practicePrompts: z.array(z.string()).optional(),
   practiceExercises: z.array(practiceExerciseSchema).optional(),
+  // Phase A — A7 (founder identity): the "post-credits" beat shown on
+  // LessonCompletePanel. Soft, optional, lesson-author-controlled.
+  // Phrasing convention: "In the next lesson, you'll …" — NEVER
+  // "Tomorrow you'll…" (lets the user decide cadence). Falls back to
+  // the next lesson's first objective if unset; renders nothing on the
+  // last lesson of a course.
+  nextLessonHint: z.string().optional(),
 });
 
 export const courseSchema = z.object({
