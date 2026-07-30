@@ -5,6 +5,7 @@
   "description": "Write tests with assert. Catch regressions before they reach production. Learn the three-line test that pays for itself a hundred times over.",
   "order": 11,
   "language": "python",
+  "starterFilePaths": ["main.py", "mathops.py"],
   "estimatedMinutes": 25,
   "objectives": [
     "Write tests using `assert` and a `test_<thing>` naming convention",
