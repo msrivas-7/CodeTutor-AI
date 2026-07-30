@@ -749,22 +749,17 @@ export default function LessonPage({
             replaces (does not overlay) the StreakChip — anon has no
             streak to show and the auth-only chip would 401 on
             /api/user/streak. */}
-        {/* Phase A — A2p2: the centered pill overlaps the wordmark at
-            390px, and the phone lesson card directly below already
-            says "Lesson 1 · ~10 min" — drop it on the phone-native
-            branch rather than squeeze it. */}
-        {!isPhoneNative && (
+        {/* Phase A — A7: the anon centre chip is gone. It read
+            "Lesson 1 · Python"; stripping "Python" for the
+            language-agnostic copy pass left it saying exactly what the
+            breadcrumb above already says, so the header announced
+            "Lesson 1" twice — visually redundant and a duplicate stop
+            for screen readers. The breadcrumb keeps the orienting job.
+            Authed keeps its StreakChip in the centre slot. */}
+        {mode !== "anon" && (
           <div className="pointer-events-none absolute left-1/2 -translate-x-1/2">
             <div className="pointer-events-auto">
-              {mode === "anon" ? (
-                // Phase A — A7: language-agnostic beginner copy — the
-                // trial sells "your first lesson," not "Python."
-                <span className="rounded-full bg-elevated/60 px-2 py-0.5 text-[10px] font-medium text-muted ring-1 ring-border">
-                  Lesson 1
-                </span>
-              ) : (
-                <StreakChip />
-              )}
+              <StreakChip />
             </div>
           </div>
         )}

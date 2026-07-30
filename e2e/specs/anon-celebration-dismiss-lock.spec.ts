@@ -149,9 +149,9 @@ test.describe("Phase 27-v2.1 medium-lock — celebration dismiss", () => {
     await page.getByRole("button", { name: /maybe later/i }).click();
     await expect(page.getByText(/Lesson 2 is queued up\./i)).toHaveCount(0);
 
-    // Lesson chrome is still interactive — the "Lesson 1 · Python"
+    // Lesson chrome is still interactive — the "Lesson 1"
     // header chip is the canary.
-    await expect(page.getByText(/Lesson 1 · Python/i)).toBeVisible();
+    await expect(page.locator("header").getByText("Lesson 1", { exact: true })).toBeVisible();
 
     // Pressing Esc here does NOT re-fire the wall — celebration is
     // unmounted, no celebration→wall handoff to trigger.

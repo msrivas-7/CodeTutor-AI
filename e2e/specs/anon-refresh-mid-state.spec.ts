@@ -36,7 +36,7 @@ test.describe("Phase 27-v2.1 — /try/ refresh idempotence", () => {
     await expect(
       page.getByRole("button", { name: /^skip$/i }),
     ).toHaveCount(0, { timeout: 3_000 });
-    await expect(page.getByText(/Lesson 1 · Python/i)).toBeVisible();
+    await expect(page.locator("header").getByText("Lesson 1", { exact: true })).toBeVisible();
   });
 
   test("refresh after coach dismiss in same tab: coach does not replay", async ({
@@ -60,7 +60,7 @@ test.describe("Phase 27-v2.1 — /try/ refresh idempotence", () => {
     // catches the wall, so use role="dialog" which is coach-specific.
     await expect(page.locator('[role="dialog"]')).toHaveCount(0);
     // And the lesson chrome IS rendered (sanity).
-    await expect(page.getByText(/Lesson 1 · Python/i)).toBeVisible();
+    await expect(page.locator("header").getByText("Lesson 1", { exact: true })).toBeVisible();
   });
 
   test("refresh after choreography done: walkthrough does not replay (no greet, no clearConversation)", async ({
