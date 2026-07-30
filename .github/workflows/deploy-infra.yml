@@ -111,18 +111,47 @@ jobs:
         # idempotent across re-runs (delete on a non-existent name is a
         # no-op).
         #
-        # Phase 22A audit revert: vm-cpu-high + vm-disk-warning are back
-        # in the template, so the list is empty for now. Keep the
-        # scaffolding so the next drop only requires adding a name.
+        # July-2026 credit-exhaustion cut: the sub hit its $150 cap and
+        # the VM was force-deallocated. Query rules, webtests, and metric
+        # alerts commented out of alerts.bicep ("NOT NEEDED FOR NOW"
+        # blocks) are GC'd here. When re-enabling one, remove its name
+        # from the matching list below in the same PR.
         if: inputs.mode == 'deploy'
         run: |
-          DROPPED_ALERTS=()
+          DROPPED_ALERTS=(
+            codetutor-vm-memory-high
+            codetutor-vm-cpu-high
+            codetutor-vm-disk-warning
+          )
           for name in "${DROPPED_ALERTS[@]}"; do
             echo "Deleting alert: $name"
             az monitor scheduled-query delete \
               -g codetutor-ai-prod-rg \
               --name "$name" \
               --yes 2>&1 || true
+          done
+
+          DROPPED_METRIC_ALERTS=(
+            codetutor-swa-root-availability
+            codetutor-tls-cert-expiry-warning
+          )
+          for name in "${DROPPED_METRIC_ALERTS[@]}"; do
+            echo "Deleting metric alert: $name"
+            az monitor metrics alert delete \
+              -g codetutor-ai-prod-rg \
+              --name "$name" 2>&1 || true
+          done
+
+          DROPPED_WEBTESTS=(
+            codetutor-swa-root
+            codetutor-tls-cert-14d
+          )
+          for name in "${DROPPED_WEBTESTS[@]}"; do
+            echo "Deleting webtest: $name"
+            az resource delete \
+              -g codetutor-ai-prod-rg \
+              --resource-type Microsoft.Insights/webtests \
+              --name "$name" 2>&1 || true
           done
 
       - name: Post-deploy summary

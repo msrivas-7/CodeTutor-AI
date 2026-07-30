@@ -185,7 +185,10 @@ module alerts 'modules/alerts.bicep' = {
     communicationServiceId: acsEmail.outputs.communicationServiceId
     appInsightsId: monitoring.outputs.appInsightsId
     healthEndpoint: 'https://${network.outputs.fqdn}/api/health/deep'
-    swaEndpoint: 'https://${swa.outputs.defaultHostname}/'
+    // NOT NEEDED FOR NOW (July-2026 cost cut): swaEndpoint feeds the
+    // commented-out swa-root webtest in alerts.bicep. Un-comment both
+    // when re-enabling once traffic is real.
+    // swaEndpoint: 'https://${swa.outputs.defaultHostname}/'
     // P0-5a: ACI NSG resource ID for the NSG-drift Activity Log alert.
     aciNsgId: network.outputs.aciNsgId
   }
