@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { MarketingNav } from "../features/marketing/components/MarketingNav";
+import { SimpleMarketingNav } from "../features/marketing/components/SimpleMarketingNav";
 import { MarketingFooter } from "../features/marketing/components/MarketingFooter";
 
 // Phase A — A7 (per competitive-intel): the public /why-not-chatgpt page.
@@ -18,22 +18,22 @@ import { MarketingFooter } from "../features/marketing/components/MarketingFoote
 const DIFFERENCES: Array<{ title: string; them: string; us: string }> = [
   {
     title: "What happens when you're stuck",
-    them: "ChatGPT hands you working code. You paste it, it runs, and the moment passes — along with the learning.",
-    us: "Our tutor asks you a question first. It will hint, narrow, and nudge — but the line of code that fixes it comes out of your keyboard.",
+    them: "ChatGPT can explain, coach, or generate working code — the choice is yours. That flexibility is useful, but it also leaves the learning discipline to you.",
+    us: "Our tutor diagnoses first, then offers questions and progressively stronger hints. It guides the next thought — but the line of code that fixes it still comes out of your keyboard.",
   },
   {
     title: "The shape of the journey",
-    them: "A chat thread has no map. Every session starts from a blank box, and 'what should I learn next?' is your problem.",
+    them: "ChatGPT has memory, projects, and a dedicated Study mode. It can carry context forward, but it is still a general-purpose assistant rather than this course's fixed learning path.",
     us: "A curriculum with a visible shape and an end: lessons build on each other, your dashboard shows the whole road, and next is always one click.",
   },
   {
     title: "What 'done' means",
-    them: "A conversation ends when you stop typing. Nothing checks whether any of it stuck.",
+    them: "ChatGPT's Study mode can quiz you and check understanding, but a general conversation does not own this course's completion rules.",
     us: "A lesson counts only when your code passes real checks — and you answer a cold retrieval question before we call it complete.",
   },
   {
     title: "Where the code runs",
-    them: "Code in a chat window is text. You read it; you rarely run it.",
+    them: "ChatGPT can analyze or run code in supported tools, but it is not continuously tied to this lesson's starter files, runner, and completion checks.",
     us: "Every lesson is a live workspace. You type, run, and watch real output — including the errors, which is where the learning is.",
   },
 ];
@@ -41,7 +41,7 @@ const DIFFERENCES: Array<{ title: string; them: string; us: string }> = [
 export default function WhyNotChatGPTPage() {
   return (
     <div className="min-h-screen bg-bg text-ink">
-      <MarketingNav />
+      <SimpleMarketingNav />
       <main className="mx-auto max-w-3xl px-5 pb-8 pt-28 sm:px-8">
         <p className="text-[12px] font-semibold uppercase tracking-wider text-accent">
           The honest question
@@ -50,10 +50,10 @@ export default function WhyNotChatGPTPage() {
           Why not just use ChatGPT?
         </h1>
         <p className="mt-5 text-base leading-relaxed text-muted">
-          Fair question — it's free, it's brilliant, and it will happily write
-          every line of code you ever ask for. That's exactly the problem.
-          Getting an answer and being able to produce one are different
-          skills, and only one of them is called "knowing how to code."
+          Fair question — ChatGPT is easy to open, remarkably capable, and
+          can be an excellent learning partner. The difference is the product
+          contract: a flexible assistant can help you learn, while CodeTutor
+          is built to make practice, proof, and progression unavoidable.
         </p>
 
         <div className="mt-12 flex flex-col gap-6">
@@ -62,21 +62,23 @@ export default function WhyNotChatGPTPage() {
               key={d.title}
               className="rounded-xl border border-border bg-panel p-5"
             >
-              <h2 className="text-sm font-bold text-ink">{d.title}</h2>
+              <h2 className="text-base font-bold text-ink sm:text-sm">
+                {d.title}
+              </h2>
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 <div className="rounded-lg bg-elevated/60 p-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-faint">
-                    A chat assistant
+                  <p className="text-xs font-semibold uppercase tracking-wider text-faint">
+                    ChatGPT
                   </p>
-                  <p className="mt-1.5 text-[13px] leading-relaxed text-muted">
+                  <p className="mt-1.5 text-base leading-relaxed text-muted sm:text-sm">
                     {d.them}
                   </p>
                 </div>
                 <div className="rounded-lg bg-accent/5 p-3 ring-1 ring-accent/20">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-accent">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-accent">
                     CodeTutor
                   </p>
-                  <p className="mt-1.5 text-[13px] leading-relaxed text-ink/90">
+                  <p className="mt-1.5 text-base leading-relaxed text-ink/90 sm:text-sm">
                     {d.us}
                   </p>
                 </div>
@@ -87,10 +89,10 @@ export default function WhyNotChatGPTPage() {
 
         {/* The concession — this is what makes the rest believable. */}
         <section className="mt-12 rounded-xl border border-border-soft/60 bg-panel/60 p-5">
-          <h2 className="text-sm font-bold text-ink">
+          <h2 className="text-base font-bold text-ink sm:text-sm">
             When ChatGPT <em>is</em> the better tool
           </h2>
-          <p className="mt-2 text-[13px] leading-relaxed text-muted">
+          <p className="mt-2 text-base leading-relaxed text-muted sm:text-sm">
             If you already know how to code and need a one-off script, a
             regex, or a rubber duck at 2am — use ChatGPT. It's excellent at
             that, and pretending otherwise would be silly. This product is
@@ -101,10 +103,10 @@ export default function WhyNotChatGPTPage() {
 
         {/* Receipts, not vibes: the standing refusals. */}
         <section className="mt-8">
-          <h2 className="text-sm font-bold text-ink">
+          <h2 className="text-base font-bold text-ink sm:text-sm">
             Promises we've made in writing
           </h2>
-          <ul className="mt-3 flex flex-col gap-1.5 text-[13px] leading-relaxed text-muted">
+          <ul className="mt-3 flex flex-col gap-2 text-base leading-relaxed text-muted sm:text-sm">
             <li>
               — There is no "give me the answer" button in the tutor. There
               never will be.
@@ -123,13 +125,13 @@ export default function WhyNotChatGPTPage() {
         <div className="mt-12 flex flex-col items-start gap-3">
           <Link
             to="/try/lesson/python-fundamentals/hello-world"
-            className="rounded-lg bg-gradient-to-r from-accent to-violet px-6 py-3 text-sm font-bold text-bg shadow-glow transition hover:opacity-90"
+            className="inline-flex min-h-11 items-center rounded-lg bg-gradient-to-r from-accent to-violet px-6 py-3 text-sm font-bold text-bg shadow-glow transition hover:opacity-90"
           >
             Judge for yourself — try lesson 1, no signup →
           </Link>
-          <p className="text-[11px] text-faint">
-            Ten minutes, in your browser. The tutor will refuse to write it
-            for you — that's the point.
+          <p className="text-sm leading-relaxed text-muted">
+            Ten minutes, in your browser. The tutor is designed to guide the
+            next thought without replacing your work — that's the point.
           </p>
         </div>
       </main>

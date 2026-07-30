@@ -1,11 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { usePreferencesStore } from "../../../state/preferencesStore";
 import {
   useLocalStorageFlag,
   usePersistedNumber,
   useNarrowViewport,
 } from "../../../util/layoutPrefs";
-import { COACH_AUTO_OPEN_MS } from "../../../util/timings";
 
 const LS_OUT_H = "ui:lesson:outputH";
 const LS_INSTR_W = "ui:lesson:instrW";
@@ -48,7 +46,7 @@ export interface UseLessonLayoutArgs {
   lessonId?: string | null;
 }
 
-export function useLessonLayout({ lessonReady, courseId, lessonId }: UseLessonLayoutArgs) {
+export function useLessonLayout({ courseId, lessonId }: UseLessonLayoutArgs) {
   const [outputH, setOutputH] = usePersistedNumber(LS_OUT_H, LESSON_LAYOUT_DEFAULTS.out);
   const [instrW, setInstrW] = usePersistedNumber(LS_INSTR_W, LESSON_LAYOUT_DEFAULTS.instr);
   const [tutorW, setTutorW] = usePersistedNumber(LS_TUTOR_W, LESSON_LAYOUT_DEFAULTS.tutor);
@@ -90,7 +88,6 @@ export function useLessonLayout({ lessonReady, courseId, lessonId }: UseLessonLa
 
   const [showSettings, setShowSettings] = useState(false);
   const [resetMenuOpen, setResetMenuOpen] = useState(false);
-  const [showCoach, setShowCoach] = useState(false);
 
   const resetMenuRef = useRef<HTMLDivElement>(null);
   const instrRef = useRef<HTMLDivElement>(null);
@@ -118,15 +115,6 @@ export function useLessonLayout({ lessonReady, courseId, lessonId }: UseLessonLa
     };
   }, [resetMenuOpen]);
 
-  const workspaceCoachDone = usePreferencesStore((s) => s.workspaceCoachDone);
-  useEffect(() => {
-    if (!lessonReady) return;
-    if (!workspaceCoachDone) {
-      const timer = setTimeout(() => setShowCoach(true), COACH_AUTO_OPEN_MS);
-      return () => clearTimeout(timer);
-    }
-  }, [lessonReady, workspaceCoachDone]);
-
   return {
     outputH,
     setOutputH,
@@ -142,8 +130,6 @@ export function useLessonLayout({ lessonReady, courseId, lessonId }: UseLessonLa
     setShowSettings,
     resetMenuOpen,
     setResetMenuOpen,
-    showCoach,
-    setShowCoach,
     resetMenuRef,
     instrRef,
     editorRef,

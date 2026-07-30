@@ -1,6 +1,5 @@
-import { useEffect } from "react";
 import { Link } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
+import { Modal } from "../../../components/Modal";
 
 // Phase 27 §3a — sign-up wall for anonymous lesson 1.
 //
@@ -105,15 +104,15 @@ const COPY_BY_REASON: Record<SignupWallReason, { title: string; body: string; ct
   // because the celebration already showed her what she made; the
   // wall is the conversion ask, not the pitch.
   share: {
-    title: "Sign up to share your first program",
+    title: "Your share link is ready.",
     // Phase 27-v2.2 audit fix F2 (business-leader): tighten the body to
     // name the social object Maya is actually about to perform — "your
     // friend gets a link" / "your name on it" speaks to peer-pressure
     // energy at the celebration moment. Generic "share image" was an
     // implementation noun, not Maya's mental model.
     body:
-      "Your friend gets a link to your first program — your name on it. Sign up takes 10 seconds.",
-    cta: "Sign up & share",
+      "Anyone with the link can see your first program. Create an account to keep this progress and save what you build next.",
+    cta: "Save my progress",
   },
   // Phase 27-v2.2 audit fix E1: trial paused (operator-flipped kill
   // switch). Reads as "small ops blip; sign up so you don't lose your
@@ -128,43 +127,20 @@ const COPY_BY_REASON: Record<SignupWallReason, { title: string; body: string; ct
 };
 
 export function SignupWallDialog({ open, reason, onDismiss }: SignupWallDialogProps) {
-  // Esc closes — same affordance as every other modal in the product.
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onDismiss();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onDismiss]);
-
   const copy = COPY_BY_REASON[reason];
 
+  if (!open) return null;
+
   return (
-    <AnimatePresence>
-      {open && (
-        <motion.div
-          role="alertdialog"
-          aria-modal="true"
-          aria-labelledby="signup-wall-title"
-          aria-describedby="signup-wall-body"
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-bg/70 px-6 backdrop-blur-sm"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.25 }}
-          onClick={(e) => {
-            if (e.target === e.currentTarget) onDismiss();
-          }}
-        >
-          <motion.div
-            className="relative w-full max-w-md rounded-2xl border border-accent/30 bg-panel/95 p-7 shadow-2xl"
-            initial={{ opacity: 0, scale: 0.96, y: 8 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.98 }}
-            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-            onClick={(e) => e.stopPropagation()}
-          >
+    <Modal
+      onClose={onDismiss}
+      role="dialog"
+      labelledBy="signup-wall-title"
+      describedBy="signup-wall-body"
+      position="center"
+      zIndex={60}
+      panelClassName="relative mx-4 w-full max-w-md rounded-2xl border border-accent/30 bg-panel/95 p-5 shadow-2xl sm:p-7"
+    >
             <h2
               id="signup-wall-title"
               className="mb-2 font-display text-[22px] font-semibold leading-tight text-ink"
@@ -181,7 +157,7 @@ export function SignupWallDialog({ open, reason, onDismiss }: SignupWallDialogPr
               <button
                 type="button"
                 onClick={onDismiss}
-                className="rounded-lg border border-border px-4 py-2 text-[13px] font-medium text-muted transition hover:bg-elevated hover:text-ink"
+                className="min-h-11 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
                 {/* Phase 27-v2.1 medium-lock copy: "Maybe later" reads as
                     completion-deferred, not refusal. "Not yet" suggests
@@ -198,14 +174,11 @@ export function SignupWallDialog({ open, reason, onDismiss }: SignupWallDialogPr
               </button>
               <Link
                 to="/signup"
-                className="inline-flex items-center justify-center rounded-lg bg-gradient-to-r from-accent to-violet px-5 py-2 text-[13px] font-bold text-bg shadow-sm transition hover:opacity-90"
+                className="inline-flex min-h-11 items-center justify-center rounded-lg bg-gradient-to-r from-accent to-violet px-5 py-2 text-sm font-bold text-bg shadow-sm transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
                 {copy.cta} →
               </Link>
             </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+    </Modal>
   );
 }

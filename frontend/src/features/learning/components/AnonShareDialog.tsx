@@ -13,8 +13,10 @@
 // anon happy path (link + copy + native-share + dismiss) is faster
 // AND keeps the authed dialog's regression surface unchanged.
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { isApiError } from "../../../api/ApiError";
+import { Modal } from "../../../components/Modal";
+import { publicShareUrl } from "../../share/shareUrl";
 
 export interface AnonShareDialogProps {
   /** Server-returned URL `/s/:token` — relative path; we build the
@@ -33,18 +35,11 @@ export interface AnonShareDialogProps {
 
 export function AnonShareDialog({ url, warn, onDismiss }: AnonShareDialogProps) {
   const [copied, setCopied] = useState(false);
+  const token = url.split("/").filter(Boolean).at(-1) ?? "";
   const absoluteUrl =
-    typeof window !== "undefined"
-      ? new URL(url, window.location.origin).toString()
+    typeof window !== "undefined" && token
+      ? publicShareUrl(token, window.location.origin)
       : url;
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onDismiss();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onDismiss]);
 
   async function handleCopy() {
     try {
@@ -76,19 +71,19 @@ export function AnonShareDialog({ url, warn, onDismiss }: AnonShareDialogProps) 
   }
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Share your first lesson"
-      className="fixed inset-0 z-50 flex items-end justify-center bg-bg/90 px-4 pb-6 pt-8 sm:items-center sm:p-6"
-      style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 1.5rem)" }}
+    <Modal
+      onClose={onDismiss}
+      labelledBy="anon-share-title"
+      describedBy="anon-share-description"
+      position="center"
+      zIndex={60}
+      panelClassName="mx-4 w-full max-w-md rounded-2xl border border-border bg-panel p-5 shadow-2xl sm:p-6"
     >
-      <div className="w-full max-w-md rounded-t-xl border border-border bg-panel p-5 shadow-2xl sm:rounded-xl">
-        <header className="mb-3">
-          <h2 className="text-lg font-semibold text-ink">
+        <header className="mb-4">
+          <h2 id="anon-share-title" className="font-display text-xl font-semibold text-ink">
             Your first one — share it
           </h2>
-          <p className="mt-1 text-sm leading-relaxed text-muted">
+          <p id="anon-share-description" className="mt-1 text-sm leading-relaxed text-muted">
             This link works for anyone, no signup. Send it to a friend
             who'd get a kick out of it.
           </p>
@@ -100,14 +95,14 @@ export function AnonShareDialog({ url, warn, onDismiss }: AnonShareDialogProps) 
           </p>
         ) : null}
 
-        <label className="mb-3 flex flex-col gap-1 text-xs font-medium text-muted">
+        <label className="mb-4 flex flex-col gap-1.5 text-sm font-medium text-muted">
           Public link
           <input
             type="text"
             readOnly
             value={absoluteUrl}
             onFocus={(e) => e.currentTarget.select()}
-            className="rounded-md border border-border bg-bg px-3 py-2 font-mono text-xs text-ink outline-none focus:border-accent"
+            className="min-h-11 rounded-md border border-border bg-bg px-3 py-2 font-mono text-xs text-ink outline-none transition focus:border-accent focus-visible:ring-2 focus-visible:ring-accent/70"
           />
         </label>
 
@@ -115,7 +110,7 @@ export function AnonShareDialog({ url, warn, onDismiss }: AnonShareDialogProps) 
           <button
             type="button"
             onClick={handleCopy}
-            className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-bg transition"
+            className="inline-flex min-h-11 items-center justify-center rounded-md bg-accent px-4 py-2 text-sm font-semibold text-bg transition hover:bg-accent/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-panel"
           >
             {copied ? "✓ Copied" : "Copy link"}
           </button>
@@ -123,7 +118,7 @@ export function AnonShareDialog({ url, warn, onDismiss }: AnonShareDialogProps) 
             <button
               type="button"
               onClick={handleNativeShare}
-              className="rounded-md border border-border bg-bg px-4 py-2 text-sm font-medium text-ink transition hover:border-accent/60"
+              className="inline-flex min-h-11 items-center justify-center rounded-md border border-border bg-bg px-4 py-2 text-sm font-medium text-ink transition hover:border-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-panel"
             >
               Share…
             </button>
@@ -131,13 +126,12 @@ export function AnonShareDialog({ url, warn, onDismiss }: AnonShareDialogProps) 
           <button
             type="button"
             onClick={onDismiss}
-            className="rounded-md text-sm text-muted hover:text-ink sm:ml-auto"
+            className="inline-flex min-h-11 items-center justify-center rounded-md px-4 py-2 text-sm font-medium text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-panel sm:ml-auto"
           >
             Done
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 

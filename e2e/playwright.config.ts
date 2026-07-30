@@ -8,6 +8,15 @@ import * as dotenv from "dotenv";
 // the dotenv call is a no-op if the file is absent.
 dotenv.config({ path: path.resolve(__dirname, "..", ".env") });
 
+// Give every local Playwright invocation its own user namespace, just as CI
+// does. Without this, one run's global teardown broadly deletes every e2e-w*
+// account and can invalidate another run that happens to overlap (for example,
+// a focused flake reproduction finishing while the full suite is starting).
+// Set this in the coordinator process so every spawned worker and the global
+// teardown inherit the same value.
+process.env.E2E_USER_SUFFIX ??=
+  `local-${process.pid}-${Date.now().toString(36)}`;
+
 const BASE_URL = process.env.E2E_BASE_URL ?? "http://localhost:5173";
 const API_URL = process.env.E2E_API_URL ?? "http://localhost:4000";
 const IS_CI = !!process.env.CI;
@@ -22,23 +31,26 @@ export default defineConfig({
   // parallel load (setInputFiles → modal render, store-update re-renders
   // detaching buttons mid-click). CI keeps 2 retries.
   retries: IS_CI ? 2 : 1,
-  // Local: 4 workers. Eight workers × (Docker container create + Supabase auth
-  // round-trip) saturates the docker-socket-proxy under parallel load and
-  // tests race to 30s session-start timeouts. Four is the sweet spot on an
-  // M1 Pro — plenty of CPU headroom, stable under parallel container churn.
-  // CI stays at 2 so we don't starve the runner.
+  // Local and CI: 2 workers. Four concurrent session-start tests can saturate
+  // the local runner pool and leave otherwise-correct lessons stuck at
+  // "Waiting for session". Two preserves useful parallelism without turning
+  // infrastructure capacity into false product failures.
   //
   // CI parallelism comes from sharding (4 matrix shards × 2 workers = 8
   // effective workers across separate ubuntu-latest runners) — see
   // .github/workflows/e2e.yml `--shard=${{ matrix.shard }}/4`. Larger
   // GitHub-hosted runners require a paid Team/Enterprise plan even for
   // public repos, so sharding is the right shape for the Free tier.
-  workers: IS_CI ? 2 : 4,
+  workers: 2,
   timeout: 60_000,
   expect: { timeout: 10_000 },
   reporter: IS_CI
     ? [["html", { open: "never" }], ["github"], ["list"]]
     : [["html", { open: "never" }], ["list"]],
+  // Visual baselines are intentionally shared across local macOS and Linux
+  // CI. Individual specs own a small rendering tolerance for font rasterizer
+  // differences; layout and clipping regressions still fail everywhere.
+  snapshotPathTemplate: "{testDir}/{testFilePath}-snapshots/{arg}-{projectName}{ext}",
 
   globalSetup: path.resolve(__dirname, "fixtures/boot.ts"),
   globalTeardown: path.resolve(__dirname, "fixtures/teardown.ts"),

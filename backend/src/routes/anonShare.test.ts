@@ -162,6 +162,12 @@ describe("POST /api/anon/shares", () => {
     expect(r.status).toBe(400);
   });
 
+  it("rejects a zero-attempt completion as non-credible public data", async () => {
+    if (!dbReachable) return;
+    const r = await postCreate(sampleBody({ attemptCount: 0 }));
+    expect(r.status).toBe(400);
+  });
+
   it("rejects a snippet that contains an OPENAI_API_KEY-shaped secret", async () => {
     if (!dbReachable) return;
     const r = await postCreate(

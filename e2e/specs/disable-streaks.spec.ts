@@ -34,6 +34,22 @@ import * as S from "../utils/selectors";
 
 const COURSE_ID = "python-fundamentals";
 
+async function toggleHideStreaks(
+  page: import("@playwright/test").Page,
+  expected: boolean,
+) {
+  const toggle = page.getByRole("switch", { name: /toggle hide streaks/i });
+  await toggle.click();
+  // First assertion observes the optimistic UI update. The busy-state wait
+  // then proves the server write settled, and the final assertion proves the
+  // value survived reconciliation rather than rolling back.
+  await expect(toggle).toHaveAttribute("aria-checked", String(expected));
+  await expect(toggle).toHaveAttribute("aria-busy", "false", {
+    timeout: 15_000,
+  });
+  await expect(toggle).toHaveAttribute("aria-checked", String(expected));
+}
+
 test.describe("disable-streaks toggle (Phase 27 §4)", () => {
   test.beforeEach(async ({ page }) => {
     await mockAllAI(page);
@@ -75,11 +91,7 @@ test.describe("disable-streaks toggle (Phase 27 §4)", () => {
 
     // Open settings, flip the toggle.
     await S.openSettings(page, "account");
-    const toggle = page.getByRole("switch", { name: /toggle hide streaks/i });
-    await toggle.click();
-    await expect(toggle).toHaveAttribute("aria-checked", "true", {
-      timeout: 5_000,
-    });
+    await toggleHideStreaks(page, true);
 
     // Close the settings dialog so the chip's container is unobscured.
     await page.keyboard.press("Escape");
@@ -96,20 +108,13 @@ test.describe("disable-streaks toggle (Phase 27 §4)", () => {
   }) => {
     await page.goto("/start");
     await S.openSettings(page, "account");
-    const toggle = page.getByRole("switch", { name: /toggle hide streaks/i });
 
     // ON → chip hidden.
-    await toggle.click();
-    await expect(toggle).toHaveAttribute("aria-checked", "true", {
-      timeout: 5_000,
-    });
+    await toggleHideStreaks(page, true);
 
     // OFF → chip back, same value (server-side streak preserved across
     // the toggle — disable is a display gate, not a data wipe).
-    await toggle.click();
-    await expect(toggle).toHaveAttribute("aria-checked", "false", {
-      timeout: 5_000,
-    });
+    await toggleHideStreaks(page, false);
 
     await page.keyboard.press("Escape");
     await expect(page.locator('[role="dialog"]')).toHaveCount(0);
@@ -125,21 +130,11 @@ test.describe("disable-streaks toggle (Phase 27 §4)", () => {
     // Toggle ON first via settings on the dashboard.
     await page.goto("/start");
     await S.openSettings(page, "account");
-    // The toggle fires a background PATCH /api/user/preferences. Wait for
-    // it to actually land before navigating: the lesson page hydrates
-    // preferences from the server on mount, so racing the write meant
-    // hydrating the pre-toggle value and seeing the chip we just hid.
-    const prefsSaved = page.waitForResponse(
-      (r) =>
-        r.url().includes("/api/user/preferences") &&
-        r.request().method() === "PATCH" &&
-        r.ok(),
-      { timeout: 15_000 },
-    );
-    await page
-      .getByRole("switch", { name: /toggle hide streaks/i })
-      .click();
-    await prefsSaved;
+    // Wait on the switch's public save lifecycle instead of inspecting a
+    // particular fetch event. `aria-busy=false` is set only after the awaited
+    // preference mutation settles; checking that it remains ON afterward also
+    // proves the optimistic value was not rolled back by an API failure.
+    await toggleHideStreaks(page, true);
     await page.keyboard.press("Escape");
 
     // Navigate to the lesson — chip should still be hidden in this

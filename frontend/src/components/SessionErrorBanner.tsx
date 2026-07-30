@@ -13,6 +13,21 @@ export function SessionErrorBanner() {
   const accountFrozen = usePreferencesStore((s) => s.accountFrozen);
   const [retrying, setRetrying] = useState(false);
 
+  if (phase === "starting") {
+    return (
+      <div
+        role="status"
+        aria-live="polite"
+        className="flex items-center gap-3 border-b border-accent/25 bg-accent/10 px-4 py-2 text-xs text-accent"
+      >
+        <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-accent" aria-hidden="true" />
+        <div>
+          <span className="font-semibold">Preparing your secure runner.</span>{" "}
+          <span className="text-muted">The first launch can take around 20 seconds.</span>
+        </div>
+      </div>
+    );
+  }
   if (phase !== "error") return null;
   // Phase 25: frozen accounts get the FrozenAccountBanner at the top of
   // every authed page already — a stacked "Session lost / Retry" banner
@@ -58,7 +73,7 @@ export function SessionErrorBanner() {
       <button
         onClick={retry}
         disabled={retrying}
-        className="shrink-0 rounded-md bg-danger/20 px-3 py-1 text-[11px] font-semibold text-danger ring-1 ring-danger/40 transition hover:bg-danger/30 disabled:cursor-not-allowed disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-danger"
+        className="inline-flex min-h-11 shrink-0 items-center rounded-md bg-danger/20 px-3 py-2 text-sm font-semibold text-danger ring-1 ring-danger/40 transition hover:bg-danger/30 disabled:cursor-not-allowed disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-danger"
       >
         {retrying ? "Retrying…" : "Retry"}
       </button>

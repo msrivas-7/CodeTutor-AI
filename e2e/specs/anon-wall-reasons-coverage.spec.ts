@@ -54,7 +54,7 @@ test.describe("Phase 27-v2.1 — SignupWallDialog reasons coverage", () => {
     await expect(page.getByText(/Lesson 2 is queued up/i)).toHaveCount(0);
   });
 
-  test("reason='next-lesson' from celebration dismiss — 'Lesson 2 is queued up.' headline + 'Maybe later' dismiss", async ({
+  test("reason='next-lesson' from the explicit continuation — distinct copy + dismiss", async ({
     page,
   }) => {
     await page.addInitScript(SEED_FLAGS);
@@ -86,11 +86,14 @@ test.describe("Phase 27-v2.1 — SignupWallDialog reasons coverage", () => {
       .getByRole("button", { name: /check/i })
       .first()
       .click();
-    await expect(page.getByRole("alertdialog").first()).toBeVisible({
+    await expect(page.getByRole("dialog", { name: /lesson complete/i })).toBeVisible({
       timeout: 10_000,
     });
-    // Dismiss celebration — wall opens with next-lesson copy.
-    await page.keyboard.press("Escape");
+    // Only the explicitly labelled continuation opens the wall.
+    await page
+      .getByRole("dialog", { name: /lesson complete/i })
+      .getByRole("button", { name: /next lesson/i })
+      .click();
     await expect(page.getByText(/Lesson 2 is queued up\./i)).toBeVisible();
     // Specific dismiss copy for THIS reason: "Maybe later" (not "Not yet").
     await expect(
@@ -127,7 +130,7 @@ test.describe("Phase 27-v2.1 — SignupWallDialog reasons coverage", () => {
     await expect(page.getByText(/Lesson 2 is queued up/i)).toHaveCount(0);
   });
 
-  test("reason='share' from celebration share card — 'Sign up to share your first program' headline + 'Maybe later' dismiss", async ({
+  test("share artifact is usable above completion, then the honest post-share wall opens", async ({
     page,
   }) => {
     // Phase 27-v2.2 Fix 1 — anon share lever. The pre-fix behavior
@@ -153,6 +156,24 @@ test.describe("Phase 27-v2.1 — SignupWallDialog reasons coverage", () => {
         }),
       }),
     );
+    await page.route("**/api/anon/shares", async (route) => {
+      const payload = route.request().postDataJSON() as {
+        attemptCount: number;
+        codeSnippet: string;
+        mastery: string;
+      };
+      expect(payload.attemptCount).toBeGreaterThanOrEqual(1);
+      expect(payload.codeSnippet).toContain("Hello, Maya!");
+      expect(payload.mastery).toMatch(/strong|okay|shaky/);
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          shareToken: "qualityshare1",
+          url: "/s/qualityshare1",
+        }),
+      });
+    });
     await page.goto(PATH);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible({
       timeout: 10_000,
@@ -168,7 +189,7 @@ test.describe("Phase 27-v2.1 — SignupWallDialog reasons coverage", () => {
       .getByRole("button", { name: /check/i })
       .first()
       .click();
-    await expect(page.getByRole("alertdialog").first()).toBeVisible({
+    await expect(page.getByRole("dialog", { name: /lesson complete/i })).toBeVisible({
       timeout: 10_000,
     });
     // Click the share affordance inside the celebration. The
@@ -176,15 +197,42 @@ test.describe("Phase 27-v2.1 — SignupWallDialog reasons coverage", () => {
     // one — Share it" card on lesson 1) — match its accessible name.
     // Scope to the celebration alertdialog so we don't catch a
     // persistent header chip.
-    await page
-      .getByRole("alertdialog")
+    const celebrationShareButton = page
+      .getByRole("dialog", { name: /lesson complete/i })
       .getByRole("button", { name: /share/i })
-      .first()
-      .click();
-    // Wall opens with the share-specific copy.
-    await expect(
-      page.getByText(/Sign up to share your first program/i),
-    ).toBeVisible({ timeout: 5_000 });
+      .first();
+    await celebrationShareButton.click();
+    // The public-link dialog sits above the still-mounted completion
+    // layer and its primary copy action is operable.
+    const shareDialog = page.getByRole("dialog", { name: /your first one/i });
+    await expect(shareDialog).toBeVisible({ timeout: 5_000 });
+    await expect(shareDialog.getByRole("button", { name: /copy link/i })).toBeEnabled();
+    await expect(page.locator('[data-modal-layer="60"]')).toBeVisible();
+    await expect(page.locator('[data-modal-layer="55"]')).toBeVisible();
+
+    // Only the top dialog owns the keyboard. Escape removes the share layer,
+    // leaves completion intact, and restores focus to the button that opened
+    // it. This protects the stacked-modal contract for keyboard users.
+    await page.keyboard.press("Tab");
+    await expect(shareDialog.locator(":focus")).toHaveCount(1);
+    await page.keyboard.press("Escape");
+    await expect(shareDialog).toHaveCount(0);
+    // The product contract intentionally follows any share-dialog dismissal
+    // with the conversion wall. The completion layer must remain mounted under
+    // that new top layer; a single Escape must never tear down both dialogs.
+    await expect(page.locator('[data-modal-layer="55"]')).toBeVisible();
+    await expect(page.getByText(/Your share link is ready/i)).toBeVisible();
+    const dismissWall = page.getByRole("button", { name: /maybe later/i });
+    await dismissWall.click();
+    await expect(page.getByRole("dialog", { name: /lesson complete/i })).toBeVisible();
+    await expect(celebrationShareButton).toBeFocused();
+
+    await celebrationShareButton.click();
+    await expect(shareDialog).toBeVisible({ timeout: 5_000 });
+    await shareDialog.getByRole("button", { name: /^done$/i }).click();
+
+    // The conversion ask now acknowledges the link already exists.
+    await expect(page.getByText(/Your share link is ready/i)).toBeVisible({ timeout: 5_000 });
     // "Maybe later" dismiss copy (continuation framing).
     await expect(
       page.getByRole("button", { name: /maybe later/i }),

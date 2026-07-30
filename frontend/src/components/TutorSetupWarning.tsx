@@ -30,19 +30,19 @@ function copyForReason(reason?: AIStatusNoneReason): {
     case "lifetime_usd_per_user_hit":
       return {
         title: "Want to keep going?",
-        body: "Add your own OpenAI key below — we never see it. Roughly a hundredth of a cent per question. Takes a minute, lasts forever.",
+        body: "Add your own OpenAI key below. We encrypt it at rest and never store it in plaintext. OpenAI bills usage directly.",
       };
     case "denylisted":
       return {
         title: "Bring your own key to continue",
-        body: "Add your OpenAI key below. We never see the key in plaintext, and OpenAI bills you directly.",
+        body: "Add your OpenAI key below. We encrypt it at rest and never store it in plaintext. OpenAI bills you directly.",
       };
     case "free_exhausted":
     case "no_key":
     default:
       return {
         title: "Connect your tutor",
-        body: "Your tutor reads your code and the current lesson. Bring your own OpenAI key — we never see it in plaintext, and you can pull it any time.",
+        body: "Your tutor reads your code and the current lesson. Bring your own OpenAI key — we encrypt it at rest, never store it in plaintext, and let you remove it any time.",
       };
   }
 }
@@ -112,10 +112,10 @@ export function TutorSetupWarning({ onOpenSettings, onDismiss, reason }: TutorSe
   };
 
   return (
-    <div className="rounded-md border border-warn/30 bg-warn/10 p-3 text-xs leading-relaxed text-warn">
+    <div className="rounded-lg border border-warn/30 bg-warn/10 p-3 text-base leading-relaxed text-warn sm:text-body">
       <div className="mb-1 font-semibold">{title}</div>
       <p className="text-warn/90">{body}</p>
-      <p className="mt-1.5 text-[11px] text-warn/80">
+      <p className="mt-2 text-sm text-warn/80">
         You'll need an API key from{" "}
         <a
           href="https://platform.openai.com/api-keys"
@@ -142,12 +142,12 @@ export function TutorSetupWarning({ onOpenSettings, onDismiss, reason }: TutorSe
           aria-label="OpenAI API key"
           autoComplete="off"
           spellCheck={false}
-          className="flex-1 rounded-md border border-warn/30 bg-bg/60 px-2 py-1 font-mono text-[11px] text-ink transition placeholder:text-warn/40 focus:border-warn/60 focus:outline-none"
+          className="min-h-11 min-w-0 flex-1 rounded-lg border border-warn/30 bg-bg/60 px-3 py-2 font-mono text-base text-ink transition placeholder:text-warn/40 focus:border-warn/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-warn sm:text-sm"
         />
         <button
           type="button"
           onClick={() => setReveal((v) => !v)}
-          className="rounded-md border border-warn/30 bg-bg/40 px-1.5 py-1 text-warn/80 transition hover:bg-bg/70"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-warn/30 bg-bg/40 text-warn/80 transition hover:bg-bg/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn"
           aria-label={reveal ? "Hide API key" : "Show API key"}
           aria-pressed={reveal}
           title={reveal ? "Hide" : "Show"}
@@ -167,14 +167,14 @@ export function TutorSetupWarning({ onOpenSettings, onDismiss, reason }: TutorSe
         <button
           onClick={handleConnect}
           disabled={!draft.trim() || validating}
-          className="rounded-md bg-warn px-2.5 py-1 text-[11px] font-semibold text-bg transition hover:bg-warn/90 disabled:cursor-not-allowed disabled:opacity-50"
+          className="min-h-11 shrink-0 rounded-lg bg-warn px-3 py-2 text-sm font-semibold text-bg transition hover:bg-warn/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn disabled:cursor-not-allowed disabled:opacity-50"
         >
           {validating ? "Checking…" : "Connect"}
         </button>
       </div>
 
       {status.kind === "invalid" && (
-        <p className="mt-1.5 text-[11px] text-danger">× {status.error}</p>
+        <p className="mt-2 text-sm text-danger">× {status.error}</p>
       )}
 
       {showPaidInterest && (
@@ -186,11 +186,11 @@ export function TutorSetupWarning({ onOpenSettings, onDismiss, reason }: TutorSe
         </div>
       )}
 
-      <div className="mt-2 flex items-center gap-3">
+      <div className="mt-2 flex flex-wrap items-center gap-2">
         {onOpenSettings && (
           <button
             onClick={onOpenSettings}
-            className="text-[11px] text-warn/80 underline underline-offset-2 transition hover:text-warn focus:outline-none focus-visible:ring-2 focus-visible:ring-warn"
+            className="min-h-11 rounded-lg px-3 py-2 text-sm text-warn/80 underline underline-offset-2 transition hover:bg-warn/10 hover:text-warn focus:outline-none focus-visible:ring-2 focus-visible:ring-warn"
           >
             More settings →
           </button>
@@ -198,7 +198,7 @@ export function TutorSetupWarning({ onOpenSettings, onDismiss, reason }: TutorSe
         {onDismiss && (
           <button
             onClick={onDismiss}
-            className="ml-auto text-[11px] text-warn/70 underline underline-offset-2 transition hover:text-warn focus:outline-none focus-visible:ring-2 focus-visible:ring-warn"
+            className="ml-auto min-h-11 rounded-lg px-3 py-2 text-sm text-warn/70 underline underline-offset-2 transition hover:bg-warn/10 hover:text-warn focus:outline-none focus-visible:ring-2 focus-visible:ring-warn"
           >
             Explore without tutor
           </button>

@@ -25,7 +25,7 @@ export function SessionReplacedModal() {
       role="alertdialog"
       labelledBy="session-replaced-title"
       position="center"
-      panelClassName="w-full max-w-md rounded-xl border border-warn/40 bg-panel p-6 shadow-xl"
+      panelClassName="mx-4 w-full max-w-md rounded-xl border border-warn/40 bg-panel p-6 shadow-xl"
     >
       <h2
         id="session-replaced-title"
@@ -41,7 +41,7 @@ export function SessionReplacedModal() {
       <div className="mt-5 flex justify-end">
         <button
           onClick={() => setSessionReplaced(false)}
-          className="rounded-md bg-accent px-3 py-1.5 text-sm font-semibold text-bg transition hover:bg-accent/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="min-h-11 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-bg transition hover:bg-accent/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
           Got it
         </button>

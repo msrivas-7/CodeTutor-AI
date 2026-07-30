@@ -6,6 +6,7 @@ import type {
   ShareMastery,
 } from "../../../api/client";
 import { ApiError } from "../../../api/ApiError";
+import { publicShareUrl } from "../shareUrl";
 import { useAuthStore } from "../../../auth/authStore";
 import { resolveFirstName } from "../../firstRun/resolveFirstName";
 import { ShareCardPreviewScaled } from "./ShareCardPreview";
@@ -259,7 +260,7 @@ export function ShareDialog({ open, onClose, payload }: ShareDialogProps) {
   };
 
   const shareUrl = shareToken
-    ? `${window.location.origin}/s/${shareToken}`
+    ? publicShareUrl(shareToken, window.location.origin)
     : null;
 
   const handleCopy = async () => {
@@ -295,7 +296,7 @@ export function ShareDialog({ open, onClose, payload }: ShareDialogProps) {
       labelledBy="share-dialog-title"
       describedBy="share-dialog-desc"
       position="center"
-      panelClassName="mx-4 w-full max-w-xl rounded-xl border border-border bg-panel p-6 shadow-2xl"
+      panelClassName="mx-4 max-h-[calc(100dvh-2rem)] w-full max-w-xl overflow-y-auto rounded-xl border border-border bg-panel p-4 shadow-2xl sm:p-6"
       // The dialog opens from the LessonCompletePanel's "Share this
       // win" button, and that panel is a fullscreen takeover at
       // z-[55]. Default Modal z-50 was placing the backdrop BEHIND
@@ -313,7 +314,7 @@ export function ShareDialog({ open, onClose, payload }: ShareDialogProps) {
           </h2>
           <p
             id="share-dialog-desc"
-            className="mt-1 text-[12px] leading-relaxed text-muted"
+            className="mt-1 text-base leading-relaxed text-muted sm:text-body"
           >
             {phase === "created"
               ? existingCreatedAt
@@ -324,7 +325,7 @@ export function ShareDialog({ open, onClose, payload }: ShareDialogProps) {
         </div>
         <button
           onClick={onClose}
-          className="-m-1 rounded-md p-1 text-muted transition hover:bg-elevated hover:text-ink"
+          className="-mr-2 -mt-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           aria-label="Close share dialog"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -357,7 +358,7 @@ export function ShareDialog({ open, onClose, payload }: ShareDialogProps) {
           {/* Display-name opt-in. Off by default (privacy by default).
               Disabled when no name is available. */}
           <label
-            className={`mb-4 flex items-start gap-3 rounded-lg border border-border bg-elevated/40 p-3 ${
+            className={`mb-4 flex min-h-11 items-start gap-3 rounded-lg border border-border bg-elevated/40 p-3 ${
               payload.suggestedName ? "cursor-pointer" : "opacity-60"
             }`}
           >
@@ -366,9 +367,9 @@ export function ShareDialog({ open, onClose, payload }: ShareDialogProps) {
               checked={showName}
               disabled={!payload.suggestedName}
               onChange={(e) => setShowName(e.target.checked)}
-              className="mt-0.5 h-4 w-4 cursor-pointer accent-accent"
+              className="mt-0.5 h-5 w-5 shrink-0 cursor-pointer accent-accent"
             />
-            <span className="flex-1 text-[12px] leading-relaxed text-ink/85">
+            <span className="flex-1 text-base leading-relaxed text-ink/85 sm:text-body">
               {payload.suggestedName ? (
                 <>
                   Show my name as{" "}
@@ -376,14 +377,14 @@ export function ShareDialog({ open, onClose, payload }: ShareDialogProps) {
                     {payload.suggestedName}
                   </span>
                   .
-                  <span className="block text-[11px] text-faint">
+                  <span className="mt-1 block text-meta text-faint">
                     Otherwise this publishes anonymously.
                   </span>
                 </>
               ) : (
                 <>
                   No name on file — share will publish anonymously.
-                  <span className="block text-[11px] text-faint">
+                  <span className="mt-1 block text-meta text-faint">
                     Add your name in Settings to attribute future shares.
                   </span>
                 </>
@@ -394,23 +395,23 @@ export function ShareDialog({ open, onClose, payload }: ShareDialogProps) {
           {error && (
             <div
               role="alert"
-              className="mb-3 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-[12px] leading-relaxed text-warn/90"
+              className="mb-3 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-base leading-relaxed text-warn/90 sm:text-body"
             >
               {error}
             </div>
           )}
 
-          <div className="flex items-center justify-end gap-2">
+          <div className="flex flex-col-reverse items-stretch gap-2 sm:flex-row sm:items-center sm:justify-end">
             <button
               onClick={onClose}
-              className="rounded-lg border border-border px-3 py-2 text-xs font-medium text-muted transition hover:bg-elevated hover:text-ink"
+              className="min-h-11 rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               Cancel
             </button>
             <button
               onClick={handleCreate}
               disabled={phase === "creating"}
-              className="rounded-lg bg-gradient-to-r from-violet to-accent px-4 py-2 text-xs font-bold text-bg shadow-glow transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+              className="min-h-11 rounded-lg bg-gradient-to-r from-violet to-accent px-4 py-2 text-sm font-bold text-bg shadow-glow transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60"
             >
               {phase === "creating" ? "Creating link…" : "Make public & share"}
             </button>
@@ -419,17 +420,17 @@ export function ShareDialog({ open, onClose, payload }: ShareDialogProps) {
       ) : (
         <>
           {/* Created state — copy URL + native share + view page */}
-          <div className="mb-4 flex items-center gap-2 rounded-lg border border-border bg-elevated/40 p-2">
+          <div className="mb-4 flex min-h-11 items-center gap-2 rounded-lg border border-border bg-elevated/40 p-2">
             <input
               readOnly
               value={shareUrl ?? ""}
               onFocus={(e) => e.currentTarget.select()}
-              className="flex-1 bg-transparent px-2 text-[12px] text-ink outline-none"
+              className="min-w-0 flex-1 bg-transparent px-2 text-base text-ink outline-none sm:text-body"
               aria-label="Share URL"
             />
             <button
               onClick={handleCopy}
-              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
+              className={`min-h-11 rounded-lg px-3 py-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
                 copyState === "copied"
                   ? "bg-success/20 text-success"
                   : "bg-accent/15 text-accent hover:bg-accent/25"
@@ -448,11 +449,11 @@ export function ShareDialog({ open, onClose, payload }: ShareDialogProps) {
                 • polling → animated dot triad + live elapsed counter
                 • gave up after ~30s → graceful fallback message */}
           {storyWaitGaveUp && !storyImageUrl ? (
-            <div className="mb-3 rounded-lg border border-border bg-elevated/40 p-3 text-[12px] text-muted">
+            <div className="mb-3 rounded-lg border border-border bg-elevated/40 p-3 text-base text-muted sm:text-body">
               <span className="block font-medium text-ink">
                 Couldn't generate Stories image
               </span>
-              <span className="block text-[11px] text-faint">
+              <span className="mt-1 block text-meta text-faint">
                 Use the link above instead — your share page is live.
               </span>
             </div>
@@ -470,7 +471,7 @@ export function ShareDialog({ open, onClose, payload }: ShareDialogProps) {
               target="_blank"
               rel="noopener noreferrer"
               aria-disabled={!storyImageUrl}
-              className={`mb-3 flex items-center justify-between gap-3 rounded-lg border p-3 text-[12px] transition ${
+              className={`mb-3 flex min-h-11 items-center justify-between gap-3 rounded-lg border p-3 text-base transition sm:text-body ${
                 storyImageUrl
                   ? "border-accent/30 bg-accent/5 text-ink hover:border-accent/50 hover:bg-accent/10"
                   : "pointer-events-none border-border bg-elevated/40 text-muted"
@@ -509,7 +510,7 @@ export function ShareDialog({ open, onClose, payload }: ShareDialogProps) {
                   )}
                 </span>
               </span>
-              <span className="text-[11px] text-faint">
+              <span className="text-meta text-faint">
                 {storyImageUrl
                   ? "1080×1920 PNG"
                   // First 800ms — render the dot triad alone (no
@@ -529,29 +530,29 @@ export function ShareDialog({ open, onClose, payload }: ShareDialogProps) {
               sheet to invoke. */}
           {typeof navigator !== "undefined" &&
           typeof navigator.share === "function" ? (
-            <div className="flex items-center justify-end gap-2">
+            <div className="flex flex-col-reverse items-stretch gap-2 sm:flex-row sm:items-center sm:justify-end">
               <a
                 href={shareUrl ?? "#"}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="rounded-lg border border-border px-3 py-2 text-xs font-medium text-muted transition hover:bg-elevated hover:text-ink"
+                className="inline-flex min-h-11 items-center justify-center rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
                 View page →
               </a>
               <button
                 onClick={handleNativeShare}
-                className="rounded-lg bg-gradient-to-r from-violet to-accent px-4 py-2 text-xs font-bold text-bg shadow-glow transition hover:opacity-90"
+                className="min-h-11 rounded-lg bg-gradient-to-r from-violet to-accent px-4 py-2 text-sm font-bold text-bg shadow-glow transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
                 Share…
               </button>
             </div>
           ) : (
-            <div className="flex items-center justify-end gap-2">
+            <div className="flex items-center justify-stretch sm:justify-end">
               <a
                 href={shareUrl ?? "#"}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="rounded-lg bg-gradient-to-r from-violet to-accent px-4 py-2 text-xs font-bold text-bg shadow-glow transition hover:opacity-90"
+                className="inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-gradient-to-r from-violet to-accent px-4 py-2 text-sm font-bold text-bg shadow-glow transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent sm:w-auto"
               >
                 View page →
               </a>

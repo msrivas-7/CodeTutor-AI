@@ -245,14 +245,14 @@ export function PracticeInstructionsView({
           position="center"
           panelClassName="mx-4 w-full max-w-xs rounded-xl border border-danger/30 bg-panel p-4 shadow-xl"
         >
-          <h3 id="practice-reset-title" className="text-xs font-bold text-ink">Reset practice progress?</h3>
-          <p className="mt-1.5 text-[11px] leading-relaxed text-muted">
+          <h3 id="practice-reset-title" className="text-lg font-bold text-ink">Reset practice progress?</h3>
+          <p className="mt-2 text-base leading-relaxed text-muted sm:text-body">
             This clears your practice completions for this lesson. Your lesson progress stays intact.
           </p>
           <div className="mt-3 flex items-center gap-2">
             <button
               onClick={() => setConfirmReset(false)}
-              className="flex-1 rounded-md border border-border px-3 py-1.5 text-[11px] font-medium text-muted transition hover:bg-elevated hover:text-ink"
+              className="min-h-11 flex-1 rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               Cancel
             </button>
@@ -261,7 +261,7 @@ export function PracticeInstructionsView({
                 onResetPractice();
                 setConfirmReset(false);
               }}
-              className="flex-1 rounded-md bg-danger/20 px-3 py-1.5 text-[11px] font-semibold text-danger ring-1 ring-danger/40 transition hover:bg-danger/30"
+              className="min-h-11 flex-1 rounded-lg bg-danger/20 px-3 py-2 text-sm font-semibold text-danger ring-1 ring-danger/40 transition hover:bg-danger/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger"
             >
               Reset
             </button>

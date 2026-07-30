@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, type CSSProperties } from "react";
+import { useId, type CSSProperties } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { HOUSE_EASE } from "../../../components/cinema/easing";
 
@@ -48,20 +48,10 @@ export function CoachBubble({ title, body, position, rect, onNext, stepLabel }: 
 
   const titleId = useId();
   const bodyId = useId();
-  const nextRef = useRef<HTMLButtonElement>(null);
-
-  // A3/A6: focus the primary button as each coach step paints so keyboard
-  // users can press Enter to advance. Keyed off `title` so stepping within a
-  // tour re-focuses on each new step without jumping focus mid-interaction.
-  useEffect(() => {
-    nextRef.current?.focus();
-  }, [title]);
-
   return (
     <div
       style={style}
-      role="dialog"
-      aria-modal="true"
+      role="region"
       aria-labelledby={titleId}
       aria-describedby={bodyId}
       className="rounded-xl border border-accent/40 bg-panel p-4 shadow-xl"
@@ -86,11 +76,10 @@ export function CoachBubble({ title, body, position, rect, onNext, stepLabel }: 
         </AnimatePresence>
       </div>
       <h3 id={titleId} className="text-sm font-bold text-ink">{title}</h3>
-      <p id={bodyId} className="mt-1 text-xs leading-relaxed text-muted">{body}</p>
+      <p id={bodyId} className="mt-1 text-base leading-relaxed text-muted sm:text-body">{body}</p>
       <button
-        ref={nextRef}
         onClick={onNext}
-        className="mt-3 w-full rounded-lg bg-accent px-4 py-1.5 text-xs font-semibold text-bg transition hover:bg-accent/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        className="mt-3 min-h-11 w-full rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-bg transition hover:bg-accent/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       >
         Got it
       </button>

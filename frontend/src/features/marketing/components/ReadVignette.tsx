@@ -35,7 +35,7 @@ export function ReadVignette() {
         {LESSON_LINES.map((line, i) => (
           <motion.p
             key={i}
-            initial={reduce ? undefined : { opacity: 0, y: 6 }}
+            initial={reduce ? false : { opacity: 0.55, y: 6 }}
             whileInView={reduce ? undefined : { opacity: 1, y: 0 }}
             viewport={{ once: true, margin: "0px 0px -8% 0px" }}
             transition={{
@@ -54,7 +54,7 @@ export function ReadVignette() {
           actual lesson page's code-snippet styling. Stages in after
           the paragraph completes. */}
       <motion.div
-        initial={reduce ? undefined : { opacity: 0, y: 8 }}
+        initial={reduce ? false : { opacity: 0.55, y: 8 }}
         whileInView={reduce ? undefined : { opacity: 1, y: 0 }}
         viewport={{ once: true, margin: "-25% 0px -25% 0px" }}
         transition={{

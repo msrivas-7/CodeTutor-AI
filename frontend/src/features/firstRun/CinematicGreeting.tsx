@@ -137,17 +137,11 @@ const MINIMAL_TIMELINE = {
   total: 5300,
 };
 
-// Sample dynamic code line for Beat 2. Phase 27-v2: this code MUST
-// match the lesson 1 starter pattern (string concat with `+`) — not
-// an f-string. The cinematic plays <60s before the user sees lesson
-// 1 on the anon /try/ path, and on the authed /welcome path it
-// plays right before /learn/.../hello-world. Lesson 1 teaches `+`
-// concatenation with a `name` variable; if the cinematic shows
-// f-strings (a feature lesson 1 doesn't reach), the cinematic's
-// "every lesson works like this" subtitle reads as a broken promise
-// the next 60 seconds. Hero output below lands as "Hello, {name}!"
-// — same shape as the lesson 1 starter's stdout.
-const CODE_LINE = '>>> print("Hello, " + name + "!")';
+// Sample code line for Beat 2. It intentionally matches lesson one's
+// single-string `print()` concept exactly. The prior concatenation example
+// introduced a variable and `+` before the lesson taught either construct,
+// breaking continuity less than a minute before the learner saw the task.
+const CODE_LINE = '>>> print("Hello, Maya!")';
 
 export function CinematicGreeting(props: CinematicGreetingProps) {
   const reduce = useReducedMotion();

@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { motion, useReducedMotion } from "framer-motion";
 import { Wordmark } from "../../../components/Wordmark";
 import { HOUSE_EASE } from "../../../components/cinema/easing";
-import { useAuthStore } from "../../../auth/authStore";
+import { useMarketingAuth } from "../useMarketingAuth";
 
 // Phase 22C — top chrome for the marketing page.
 //
@@ -25,8 +25,7 @@ import { useAuthStore } from "../../../auth/authStore";
 
 export function MarketingNav() {
   const reduce = useReducedMotion();
-  const user = useAuthStore((s) => s.user);
-  const loading = useAuthStore((s) => s.loading);
+  const { isLoggedIn } = useMarketingAuth();
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
@@ -48,19 +47,10 @@ export function MarketingNav() {
         <Wordmark size="md" />
       </Link>
 
-      {/* Auth-affordance slot. While auth is hydrating, render an
-          invisible spacer matching the largest label width so the nav
-          doesn't reflow when the resolved label arrives. Prevents the
-          "flash of Sign in" the audit flagged for returning users. */}
+      {/* Auth-affordance slot. The lightweight persisted-session hint
+          chooses the returning-user label before full auth hydration. */}
       <nav className="flex items-center gap-1 sm:gap-3">
-        {loading ? (
-          <span
-            aria-hidden="true"
-            className="invisible rounded-full px-4 py-1.5 text-[12.5px] font-medium sm:text-[13.5px]"
-          >
-            Dashboard →
-          </span>
-        ) : user ? (
+        {isLoggedIn ? (
           <Link
             to="/start"
             className="rounded-full border border-accent/30 bg-accent/[0.08] px-4 py-1.5 text-[12.5px] font-medium text-accent transition hover:bg-accent/[0.14] hover:text-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 sm:text-[13.5px]"

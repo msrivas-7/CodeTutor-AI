@@ -17,8 +17,14 @@
 // session from localStorage. page.context().newPage() is how a real user
 // gets a second tab; this spec mirrors that without mocking the backend.
 
-import { test as rawTest, expect, request } from "@playwright/test";
-import { getWorkerUser, loginAsTestUser } from "../fixtures/auth";
+import { request } from "@playwright/test";
+import {
+  expect,
+  getWorkerUser,
+  loginAsTestUser,
+  test,
+  trackSessionCleanup,
+} from "../fixtures/auth";
 import { mockAllAI } from "../fixtures/aiMocks";
 import { loadProfile, markOnboardingDone } from "../fixtures/profiles";
 import { setMonacoValue, waitForMonacoReady } from "../fixtures/monaco";
@@ -28,7 +34,7 @@ import { expectStdoutContains } from "../utils/assertions";
 const BACKEND = process.env.E2E_API_URL ?? "http://localhost:4000";
 const ORIGIN = process.env.E2E_APP_ORIGIN ?? "http://localhost:5173";
 
-rawTest.describe("tab-sleep → wake rebind", () => {
+test.describe("tab-sleep → wake rebind", () => {
   // Audit gap #7 (hazy-wishing-wren bucket 10): when a learner's tab is
   // hidden long enough for the backend's 120-min sweeper to reap their
   // idle session, the heartbeat stops (hidden-tab optimization). On
@@ -39,14 +45,14 @@ rawTest.describe("tab-sleep → wake rebind", () => {
   // removing the start() → tick() on wake, or dropping the 404-triggers
   // -rebind branch.
 
-  rawTest.beforeEach(async ({ page }, testInfo) => {
+  test.beforeEach(async ({ page }, testInfo) => {
     await loginAsTestUser(page, testInfo.workerIndex);
     await mockAllAI(page);
     await loadProfile(page, "empty");
     await markOnboardingDone(page);
   });
 
-  rawTest(
+  test(
     "visibility wake with a stale session triggers rebind + keeps Run usable",
     async ({ page }) => {
       await page.goto("/editor");
@@ -109,6 +115,17 @@ rawTest.describe("tab-sleep → wake rebind", () => {
         .toBeGreaterThanOrEqual(1);
       expect(pingCount).toBeGreaterThanOrEqual(1);
 
+      // A rebind to a different backend identity intentionally pauses the
+      // workspace behind a top-layer notice. Acknowledge it before checking
+      // that the newly assigned runner is usable.
+      const reassigned = page.getByRole("alertdialog", {
+        name: /workspace reassigned/i,
+      });
+      if (await reassigned.isVisible()) {
+        await reassigned.getByRole("button", { name: /got it/i }).click();
+        await expect(reassigned).toBeHidden();
+      }
+
       // After rebind, the Run button must still be enabled against the
       // new sessionId — if not, the learner is stuck until manual reload.
       await expect(S.runButton(page)).toBeEnabled({ timeout: 10_000 });
@@ -116,7 +133,7 @@ rawTest.describe("tab-sleep → wake rebind", () => {
   );
 });
 
-rawTest.describe("concurrent /snapshot calls", () => {
+test.describe("concurrent /snapshot calls", () => {
   // Audit gap #4 (hazy-wishing-wren bucket 10): QA-C2's per-session
   // serializer (localDocker.ts snapshotChains) lives to stop two parallel
   // /api/project/snapshot calls from racing on readdir+rm+writeFiles. If
@@ -126,14 +143,14 @@ rawTest.describe("concurrent /snapshot calls", () => {
   // run must reflect EXACTLY one of the submitted file sets, not a mix
   // or an error.
 
-  rawTest.beforeEach(async ({ page }, testInfo) => {
+  test.beforeEach(async ({ page }, testInfo) => {
     await loginAsTestUser(page, testInfo.workerIndex);
     await mockAllAI(page);
     await loadProfile(page, "empty");
     await markOnboardingDone(page);
   });
 
-  rawTest(
+  test(
     "5 concurrent snapshots on one session resolve without partial state",
     async ({ page }, testInfo) => {
       // Open the editor, capture the sessionId from POST /api/session.
@@ -213,15 +230,15 @@ rawTest.describe("concurrent /snapshot calls", () => {
   );
 });
 
-rawTest.describe("multi-tab session coherence", () => {
-  rawTest.beforeEach(async ({ page }, testInfo) => {
+test.describe("multi-tab session coherence", () => {
+  test.beforeEach(async ({ page }, testInfo) => {
     await loginAsTestUser(page, testInfo.workerIndex);
     await mockAllAI(page);
     await loadProfile(page, "empty");
     await markOnboardingDone(page);
   });
 
-  rawTest(
+  test(
     "two tabs get distinct sessionIds; each tab's runs stay in its own output panel",
     async ({ page }, testInfo) => {
       // Watch POST /api/session responses on each tab to capture the
@@ -252,47 +269,51 @@ rawTest.describe("multi-tab session coherence", () => {
       // init-script timing since addInitScript is per-page.
       const pageB = await page.context().newPage();
       await loginAsTestUser(pageB, testInfo.workerIndex);
+      const cleanupPageBSessions = trackSessionCleanup(pageB, testInfo.workerIndex);
       await mockAllAI(pageB);
       captureOn(pageB, "b");
-      await pageB.goto("/editor");
-      await waitForMonacoReady(pageB);
-      await expect(S.runButton(pageB)).toBeEnabled({ timeout: 30_000 });
+      try {
+        await pageB.goto("/editor");
+        await waitForMonacoReady(pageB);
+        await expect(S.runButton(pageB)).toBeEnabled({ timeout: 30_000 });
 
-      // Distinct markers per tab so a regression that collapses sessions
-      // would surface as "TAB-B" appearing in tab A's output or vice versa.
-      await setMonacoValue(page, "print('TAB-A-OUTPUT')\n");
-      await setMonacoValue(pageB, "print('TAB-B-OUTPUT')\n");
+        // Distinct markers per tab so a regression that collapses sessions
+        // would surface as "TAB-B" appearing in tab A's output or vice versa.
+        await setMonacoValue(page, "print('TAB-A-OUTPUT')\n");
+        await setMonacoValue(pageB, "print('TAB-B-OUTPUT')\n");
 
-      // Run sequentially so the assertions are deterministic — running in
-      // parallel would still exercise the coherence invariant but makes
-      // debugging a failure harder.
-      await S.runButton(page).click();
-      await expectStdoutContains(page, "TAB-A-OUTPUT");
+        // Run sequentially so the assertions are deterministic — running in
+        // parallel would still exercise the coherence invariant but makes
+        // debugging a failure harder.
+        await S.runButton(page).click();
+        await expectStdoutContains(page, "TAB-A-OUTPUT");
 
-      await S.runButton(pageB).click();
-      await expectStdoutContains(pageB, "TAB-B-OUTPUT");
+        await S.runButton(pageB).click();
+        await expectStdoutContains(pageB, "TAB-B-OUTPUT");
 
-      // Critical: TAB-B's run must not have overwritten TAB-A's output, and
-      // TAB-A's output must not contain TAB-B's marker.
-      const outA = await page.locator("#output-panel-body").innerText();
-      const outB = await pageB.locator("#output-panel-body").innerText();
-      expect(outA).toContain("TAB-A-OUTPUT");
-      expect(outA).not.toContain("TAB-B-OUTPUT");
-      expect(outB).toContain("TAB-B-OUTPUT");
-      expect(outB).not.toContain("TAB-A-OUTPUT");
+        // Critical: TAB-B's run must not have overwritten TAB-A's output, and
+        // TAB-A's output must not contain TAB-B's marker.
+        const outA = await page.locator("#output-panel-body").innerText();
+        const outB = await pageB.locator("#output-panel-body").innerText();
+        expect(outA).toContain("TAB-A-OUTPUT");
+        expect(outA).not.toContain("TAB-B-OUTPUT");
+        expect(outB).toContain("TAB-B-OUTPUT");
+        expect(outB).not.toContain("TAB-A-OUTPUT");
 
-      // Both sessionIds must be populated AND distinct. An empty-string
-      // case means the response event never fired (regression in the test
-      // harness); a shared id means two tabs collapsed to one container.
-      await expect
-        .poll(() => Boolean(sessionIds.a && sessionIds.b), { timeout: 10_000 })
-        .toBe(true);
-      expect(
-        sessionIds.a,
-        "each tab must hold its own sessionId (not collapsed)",
-      ).not.toBe(sessionIds.b);
-
-      await pageB.close();
+        // Both sessionIds must be populated AND distinct. An empty-string
+        // case means the response event never fired (regression in the test
+        // harness); a shared id means two tabs collapsed to one container.
+        await expect
+          .poll(() => Boolean(sessionIds.a && sessionIds.b), { timeout: 10_000 })
+          .toBe(true);
+        expect(
+          sessionIds.a,
+          "each tab must hold its own sessionId (not collapsed)",
+        ).not.toBe(sessionIds.b);
+      } finally {
+        await cleanupPageBSessions();
+        await pageB.close();
+      }
     },
   );
 });

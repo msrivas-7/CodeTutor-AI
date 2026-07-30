@@ -105,6 +105,36 @@ function applyServer(prefs: UserPreferences): Partial<PreferencesState> {
   };
 }
 
+// Network responses can arrive out of order. In particular, auth can start a
+// GET hydration just before the user changes a preference; allowing that GET
+// to land afterward would silently undo the optimistic change. These module-
+// scoped revisions let us discard any response whose view of the world was
+// superseded by a newer hydrate, mutation, or reset.
+let hydrateRevision = 0;
+let mutationRevision = 0;
+const fieldMutationRevisions = new Map<keyof PreferencesState, number>();
+
+function optimisticFromPatch(
+  body: UserPreferencesPatch,
+): Partial<PreferencesState> {
+  const optimistic: Partial<PreferencesState> = {};
+  if (body.persona !== undefined) optimistic.persona = body.persona;
+  if (body.openaiModel !== undefined) optimistic.openaiModel = body.openaiModel;
+  if (body.theme !== undefined) optimistic.theme = body.theme;
+  if (body.welcomeDone !== undefined) optimistic.welcomeDone = body.welcomeDone;
+  if (body.workspaceCoachDone !== undefined)
+    optimistic.workspaceCoachDone = body.workspaceCoachDone;
+  if (body.editorCoachDone !== undefined)
+    optimistic.editorCoachDone = body.editorCoachDone;
+  if (body.uiLayout !== undefined) optimistic.uiLayout = body.uiLayout;
+  if (body.lastWelcomeBackAt !== undefined)
+    optimistic.lastWelcomeBackAt = body.lastWelcomeBackAt;
+  if (body.emailOptIn !== undefined) optimistic.emailOptIn = body.emailOptIn;
+  if (body.disableStreaks !== undefined)
+    optimistic.disableStreaks = body.disableStreaks;
+  return optimistic;
+}
+
 export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
   hydrated: false,
   hydrateError: null,
@@ -116,13 +146,19 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
     // sign-out before the fetch returned), the response is from a prior user
     // and must not mutate the current user's store.
     const myGen = gen;
+    const myHydrateRevision = ++hydrateRevision;
+    const mutationRevisionAtStart = mutationRevision;
     set({ hydrateError: null });
     try {
       const prefs = await api.getPreferences();
       if (myGen !== undefined && myGen !== currentGen()) return;
+      if (myHydrateRevision !== hydrateRevision) return;
+      if (mutationRevisionAtStart !== mutationRevision) return;
       set(applyServer(prefs));
     } catch (err) {
       if (myGen !== undefined && myGen !== currentGen()) return;
+      if (myHydrateRevision !== hydrateRevision) return;
+      if (mutationRevisionAtStart !== mutationRevision) return;
       // Keep `hydrated: false` — the HydrationGate offers the user a Retry
       // / Sign-out escape hatch rather than silently dropping them onto a
       // defaults screen that would then silently overwrite their server row
@@ -134,6 +170,9 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
   },
 
   reset: () => {
+    hydrateRevision += 1;
+    mutationRevision += 1;
+    fieldMutationRevisions.clear();
     set({ hydrated: false, hydrateError: null, ...DEFAULTS });
   },
 
@@ -141,66 +180,77 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
     // Optimistic update — snapshot prior state so we can roll back on
     // network failure.
     const prior = get();
-    const optimistic: Partial<PreferencesState> = {};
-    if (body.persona !== undefined) optimistic.persona = body.persona;
-    if (body.openaiModel !== undefined) optimistic.openaiModel = body.openaiModel;
-    if (body.theme !== undefined) optimistic.theme = body.theme;
-    if (body.welcomeDone !== undefined) optimistic.welcomeDone = body.welcomeDone;
-    if (body.workspaceCoachDone !== undefined)
-      optimistic.workspaceCoachDone = body.workspaceCoachDone;
-    if (body.editorCoachDone !== undefined)
-      optimistic.editorCoachDone = body.editorCoachDone;
-    if (body.uiLayout !== undefined) optimistic.uiLayout = body.uiLayout;
-    if (body.lastWelcomeBackAt !== undefined)
-      optimistic.lastWelcomeBackAt = body.lastWelcomeBackAt;
-    if (body.emailOptIn !== undefined) optimistic.emailOptIn = body.emailOptIn;
-    if (body.disableStreaks !== undefined)
-      optimistic.disableStreaks = body.disableStreaks;
+    const myMutationRevision = ++mutationRevision;
+    const optimistic = optimisticFromPatch(body);
+    for (const key of Object.keys(optimistic) as Array<
+      keyof typeof optimistic
+    >) {
+      fieldMutationRevisions.set(key, myMutationRevision);
+    }
     set(optimistic);
 
     try {
       const prefs = await api.patchPreferences(body);
-      set(applyServer(prefs));
+      const server = applyServer(prefs);
+      const confirmed: Partial<PreferencesState> = {};
+      for (const key of Object.keys(optimistic) as Array<
+        keyof typeof optimistic
+      >) {
+        if (fieldMutationRevisions.get(key) === myMutationRevision) {
+          Object.assign(confirmed, { [key]: server[key] });
+        }
+      }
+      set(confirmed);
     } catch (err) {
       console.error("[preferences] patch failed:", (err as Error).message);
-      set({
-        persona: prior.persona,
-        openaiModel: prior.openaiModel,
-        theme: prior.theme,
-        welcomeDone: prior.welcomeDone,
-        workspaceCoachDone: prior.workspaceCoachDone,
-        editorCoachDone: prior.editorCoachDone,
-        uiLayout: prior.uiLayout,
-        lastWelcomeBackAt: prior.lastWelcomeBackAt,
-        emailOptIn: prior.emailOptIn,
-        disableStreaks: prior.disableStreaks,
-      });
+      // Roll back only fields that have not been superseded by a newer write.
+      const rollback: Partial<PreferencesState> = {};
+      for (const key of Object.keys(optimistic) as Array<
+        keyof typeof optimistic
+      >) {
+        if (fieldMutationRevisions.get(key) === myMutationRevision) {
+          Object.assign(rollback, { [key]: prior[key] });
+        }
+      }
+      set(rollback);
       throw err;
     }
   },
 
   // Phase 18e: server-backed BYOK key. The plaintext never lands in the
-  // store — only the `hasOpenaiKey` flag does. Optimistic flip-then-rollback
-  // so the Settings UI reflects the change immediately.
+  // store — only the `hasOpenaiKey` flag does. We intentionally wait for the
+  // PUT to commit before flipping the flag: setting it optimistically starts
+  // the model-loading effect, which can otherwise race the key write and
+  // observe a not-yet-connected account.
   saveOpenaiKey: async (key) => {
     const prior = get().hasOpenaiKey;
-    set({ hasOpenaiKey: true });
+    const myMutationRevision = ++mutationRevision;
+    fieldMutationRevisions.set("hasOpenaiKey", myMutationRevision);
     try {
       await api.saveOpenAIKey(key);
+      if (fieldMutationRevisions.get("hasOpenaiKey") === myMutationRevision) {
+        set({ hasOpenaiKey: true });
+      }
       invalidateAIStatus();
     } catch (err) {
-      set({ hasOpenaiKey: prior });
+      if (fieldMutationRevisions.get("hasOpenaiKey") === myMutationRevision) {
+        set({ hasOpenaiKey: prior });
+      }
       throw err;
     }
   },
   forgetOpenaiKey: async () => {
     const prior = get().hasOpenaiKey;
+    const myMutationRevision = ++mutationRevision;
+    fieldMutationRevisions.set("hasOpenaiKey", myMutationRevision);
     set({ hasOpenaiKey: false });
     try {
       await api.deleteOpenAIKey();
       invalidateAIStatus();
     } catch (err) {
-      set({ hasOpenaiKey: prior });
+      if (fieldMutationRevisions.get("hasOpenaiKey") === myMutationRevision) {
+        set({ hasOpenaiKey: prior });
+      }
       throw err;
     }
   },
@@ -273,6 +323,8 @@ let uiLayoutFlushTimer: ReturnType<typeof setTimeout> | null = null;
 const UI_LAYOUT_FLUSH_MS = 300;
 
 export function setUiLayoutValue(path: string, value: unknown): void {
+  const revision = ++mutationRevision;
+  fieldMutationRevisions.set("uiLayout", revision);
   usePreferencesStore.setState((s) => ({
     uiLayout: { ...s.uiLayout, [path]: value },
   }));

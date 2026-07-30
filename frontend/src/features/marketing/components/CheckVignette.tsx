@@ -69,9 +69,9 @@ export function CheckVignette() {
         </div>
 
         <motion.div
-          initial={reduce ? undefined : { opacity: 0, y: 4 }}
+          initial={reduce ? false : { opacity: 0.38, y: 4 }}
           animate={
-            showOutput ? { opacity: 1, y: 0 } : { opacity: 0, y: 4 }
+            showOutput ? { opacity: 1, y: 0 } : { opacity: 0.38, y: 4 }
           }
           transition={{ duration: 0.4, ease: HOUSE_EASE }}
           className="flex items-center gap-2 font-mono text-[13.5px] leading-[1.6] sm:text-[14.5px]"
@@ -84,7 +84,7 @@ export function CheckVignette() {
             ✓
           </span>
           <span style={{ color: "rgb(52 211 153)" }}>{OUTPUT_LINE}</span>
-          <span className="text-faint text-[12px] italic sm:text-[12.5px]">
+          <span className="text-muted text-[12px] italic sm:text-[12.5px]">
             with the type fixed
           </span>
         </motion.div>

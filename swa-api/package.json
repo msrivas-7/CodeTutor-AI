@@ -1,0 +1,16 @@
+{
+  "name": "codetutor-swa-api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/functions/*.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@azure/functions": "4.16.2"
+  }
+}

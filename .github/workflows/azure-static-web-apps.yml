@@ -10,12 +10,15 @@ on:
     branches: [main]
     paths:
       - 'frontend/**'
+      - 'swa-api/**'
       - '.github/workflows/azure-static-web-apps.yml'
   pull_request:
     types: [opened, synchronize, reopened, closed]
     branches: [main]
     paths:
       - 'frontend/**'
+      - 'swa-api/**'
+      - '.github/workflows/azure-static-web-apps.yml'
   workflow_dispatch:
 
 concurrency:
@@ -62,9 +65,12 @@ jobs:
           # up package.json in app_location, runs `npm ci` + `npm run build`,
           # then uploads output_location's contents.
           app_location: "frontend"
+          api_location: "swa-api"
           output_location: "dist"
-          # No API to build — api_location unset means Oryx skips that phase.
-          # `skip_api_build` isn't a valid input on this action; IDE errors.
+          # Managed Functions are available on the Free SWA plan and give
+          # public share links server-rendered crawler metadata. The product
+          # API remains on the existing VM; this function is a narrow unfurl
+          # adapter only.
 
   close-pr:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'

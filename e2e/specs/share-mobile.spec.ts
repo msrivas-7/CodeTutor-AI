@@ -110,7 +110,7 @@ test.describe("Phase 22E: SharePage at iPhone 13 portrait", () => {
     // Author + ring footer row — text-balance/grid catches mastery
     // ring at the start of the row.
     await expect(page.getByText("Mehul").first()).toBeVisible();
-    await expect(page.getByText(/Strong mastery/i)).toBeVisible();
+    await expect(page.getByText(/Completed confidently/i)).toBeVisible();
 
     // CTA — single tap target, single line at this width.
     const cta = page.getByRole("link", {
@@ -166,12 +166,16 @@ test.describe("Phase 22E: SharePage reduced-motion at iPhone 13", () => {
     const { shareToken } = await seedShare(page);
     await page.goto(`/s/${shareToken}`);
 
-    // No typewriter beat to wait for — the full code should be there
-    // within the first 2 seconds. (We give 3s for safety on slow CI
-    // hardware doing first-paint + share fetch.)
+    // First wait for the public share payload itself to arrive. Network and
+    // dynamic-chunk time are not animation time; once the heading renders,
+    // reduced motion must expose the full code in the same settled state
+    // rather than starting the typewriter timeline.
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible({
+      timeout: 10_000,
+    });
     await expect(
       page.getByText(/print\(greet\("Mehul"\)\)/),
-    ).toBeVisible({ timeout: 3_000 });
+    ).toBeVisible({ timeout: 1_000 });
 
     // CTA visible from t=0 (no fade-up beat). Same single-line tap
     // target.

@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef, useState } from "react";
 import type { ShareMastery } from "../../../api/client";
 import { MasteryRing, masteryLabel } from "./MasteryRing";
 
@@ -293,14 +294,28 @@ export function ShareCardPreviewScaled({
   width,
   ...rest
 }: ShareCardPreviewProps & { width: number }) {
-  const scale = width / W;
-  const height = H * scale;
+  const frameRef = useRef<HTMLDivElement>(null);
+  const [renderWidth, setRenderWidth] = useState(width);
+
+  useLayoutEffect(() => {
+    const frame = frameRef.current;
+    if (!frame) return;
+    const sync = () => setRenderWidth(Math.min(width, frame.clientWidth));
+    sync();
+    const observer = new ResizeObserver(sync);
+    observer.observe(frame);
+    return () => observer.disconnect();
+  }, [width]);
+
+  const scale = renderWidth / W;
   return (
     <div
-      className="relative overflow-hidden rounded-xl border border-border bg-bg"
-      style={{ width, height }}
+      ref={frameRef}
+      className="relative w-full overflow-hidden rounded-xl border border-border bg-bg"
+      style={{ maxWidth: width, aspectRatio: `${W} / ${H}` }}
     >
       <div
+        className="absolute left-0 top-0"
         style={{
           transform: `scale(${scale})`,
           transformOrigin: "top left",

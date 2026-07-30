@@ -1,0 +1,76 @@
+name: Production critical-journey synthetic
+
+on:
+  schedule:
+    # Four runs per day: enough to catch a broken public funnel without
+    # turning the anonymous runner into a material source of spend.
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: production-critical-journey-synthetic
+  cancel-in-progress: true
+
+jobs:
+  synthetic:
+    name: Marketing → trial → first output
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SITE_ORIGIN: https://codetutor.msrivas.com
+      API_ORIGIN: https://codetutor-ai-vm.eastus2.cloudapp.azure.com
+    steps:
+      - name: Check public entry points and backend readiness
+        run: |
+          set -euo pipefail
+          synthetic_dir="$(mktemp -d)"
+
+          curl --fail --silent --show-error --max-time 15 \
+            "$SITE_ORIGIN/" > "$synthetic_dir/home.html"
+          grep -q '<div id="root"></div>' "$synthetic_dir/home.html"
+
+          curl --fail --silent --show-error --max-time 15 \
+            "$SITE_ORIGIN/try/lesson/python-fundamentals/hello-world" \
+            > "$synthetic_dir/trial.html"
+          grep -q '<div id="root"></div>' "$synthetic_dir/trial.html"
+
+          curl --fail --silent --show-error --max-time 15 \
+            "$API_ORIGIN/api/health" > "$synthetic_dir/health.json"
+          node -e 'const b=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); if(b.ok!==true) process.exit(1)' \
+            "$synthetic_dir/health.json"
+
+      - name: Run the anonymous first program
+        run: |
+          set -euo pipefail
+          synthetic_dir="$(mktemp -d)"
+
+          total_seconds="$(curl --fail --silent --show-error --max-time 35 \
+            --output "$synthetic_dir/run.json" \
+            --write-out '%{time_total}' \
+            --header 'content-type: application/json' \
+            --data '{"language":"python","files":[{"path":"main.py","content":"print(\"Hello, Synthetic!\")\n"}]}' \
+            "$API_ORIGIN/api/anon/run")"
+
+          node -e 'const b=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); if(b.stdout!=="Hello, Synthetic!\n"||b.exitCode!==0) process.exit(1)' \
+            "$synthetic_dir/run.json"
+          node -e 'const seconds=Number(process.argv[1]); if(!Number.isFinite(seconds)||seconds>30) { console.error(`Anonymous run took ${seconds}s; budget is 30s`); process.exit(1) }' \
+            "$total_seconds"
+          echo "Anonymous first output completed in ${total_seconds}s"
+
+      - name: Open an actionable incident issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          title='Production synthetic: critical journey is failing'
+          existing="$(gh issue list --state open --search "$title in:title" --json number --jq '.[0].number // empty')"
+          if [ -z "$existing" ]; then
+            gh issue create \
+              --title "$title" \
+              --body "The scheduled Marketing → anonymous trial → first output synthetic failed. Owner: repository operator. Inspect the failed run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          fi

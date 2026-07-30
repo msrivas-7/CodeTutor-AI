@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Link } from "react-router-dom";
 import { motion, useReducedMotion } from "framer-motion";
 import { MeshGradient } from "@paper-design/shaders-react";
 import { AmbientGlyphField } from "../components/AmbientGlyphField";
@@ -104,8 +105,11 @@ export function AuthShell({
           )}
         </motion.div>
       </div>
-      <footer className="relative z-10 border-t border-border-soft/60 bg-panel/40 px-4 py-2 text-center text-[10px] text-faint backdrop-blur-sm">
-        © {new Date().getFullYear()} Mehul Srivastava
+      <footer className="relative z-10 flex flex-wrap items-center justify-center gap-x-4 border-t border-border-soft/60 bg-panel/40 px-4 py-2 text-center text-[10px] text-faint backdrop-blur-sm">
+        <span>© {new Date().getFullYear()} Mehul Srivastava</span>
+        <Link to="/privacy" className="inline-flex min-h-11 items-center hover:text-muted">Privacy</Link>
+        <Link to="/terms" className="inline-flex min-h-11 items-center hover:text-muted">Terms</Link>
+        <Link to="/support" className="inline-flex min-h-11 items-center hover:text-muted">Support</Link>
       </footer>
     </div>
   );

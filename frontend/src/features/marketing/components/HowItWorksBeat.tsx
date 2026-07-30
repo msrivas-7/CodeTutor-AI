@@ -9,9 +9,10 @@ import { HOUSE_EASE } from "../../../components/cinema/easing";
 //   ② Ask.    The tutor asks. You think.            [vignette]
 //   ③ Check.  When the test passes, you earned it.  [vignette]
 //
-// The beat reveals on scroll-into-view via Framer Motion's `whileInView`,
-// staggered by index so the eye flows down naturally. Reduced-motion
-// renders everything at full opacity / final position immediately.
+// The beat is readable before any observer callback fires. Vignettes can
+// still animate when they enter view, but essential marketing copy never
+// starts at opacity zero (which previously made the lower page appear
+// empty when intersection events were delayed or unavailable).
 //
 // The composition is intentional: number + heading + one-line line is
 // the LEFT column; the vignette panel is the RIGHT column on desktop,
@@ -38,13 +39,12 @@ export function HowItWorksBeat({
   beatIndex,
 }: HowItWorksBeatProps) {
   const reduce = useReducedMotion();
-  const baseDelay = beatIndex * 0.1;
+  const baseDelay = beatIndex * 0.05;
 
   return (
     <motion.div
-      initial={reduce ? undefined : { opacity: 0, y: 16 }}
-      whileInView={reduce ? undefined : { opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: "0px 0px -10% 0px" }}
+      initial={false}
+      animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.7, ease: HOUSE_EASE, delay: baseDelay }}
       className="grid grid-cols-1 gap-8 py-12 md:grid-cols-12 md:gap-12 md:py-20"
     >

@@ -74,11 +74,15 @@ test.describe("Phase A — A1 retrieval-check gate", () => {
       page.getByText(/what shows up on the screen/i),
     ).toBeVisible({ timeout: 10_000 });
 
+    // Passing code is awaiting a learning checkpoint, not failing. The
+    // coding-error banner and its language must stay absent.
+    await expect(page.getByText(/not quite right/i)).toHaveCount(0);
+
     // The celebration alertdialog must NOT mount — its title is "Lesson
     // complete" (LessonCompletePanel). The gate is the only thing on
     // screen at this point.
     await expect(
-      page.locator('[role="alertdialog"]').getByText(/lesson complete/i),
+      page.getByRole("dialog", { name: /lesson complete/i }),
     ).toHaveCount(0);
   });
 
@@ -112,7 +116,7 @@ test.describe("Phase A — A1 retrieval-check gate", () => {
 
     // Celebration still NOT mounted.
     await expect(
-      page.locator('[role="alertdialog"]').getByText(/lesson complete/i),
+      page.getByRole("dialog", { name: /lesson complete/i }),
     ).toHaveCount(0);
   });
 
@@ -141,13 +145,10 @@ test.describe("Phase A — A1 retrieval-check gate", () => {
 
     // Celebration mounts within the panel re-check tick.
     await expect(
-      page.locator('[role="alertdialog"]').first(),
+      page.getByRole("dialog", { name: /lesson complete/i }),
     ).toBeVisible({ timeout: 10_000 });
     await expect(
-      page
-        .locator('[role="alertdialog"]')
-        .getByText(/lesson complete/i)
-        .first(),
+      page.getByRole("dialog", { name: /lesson complete/i }),
     ).toBeVisible();
 
     // The pass persists so the learner doesn't re-prove it. On the anon
@@ -190,7 +191,7 @@ test.describe("Phase A — A1 retrieval-check gate", () => {
     // Celebration mounts immediately — the question panel does NOT
     // appear because the learner has already passed it.
     await expect(
-      page.locator('[role="alertdialog"]').first(),
+      page.getByRole("dialog", { name: /lesson complete/i }),
     ).toBeVisible({ timeout: 10_000 });
     await expect(
       page.getByText(/what shows up on the screen/i),

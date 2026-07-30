@@ -179,6 +179,9 @@ async function resetServerState(token: string): Promise<void> {
         workspaceCoachDone: false,
         editorCoachDone: false,
         uiLayout: {},
+        lastWelcomeBackAt: null,
+        emailOptIn: true,
+        disableStreaks: false,
       },
     });
     // Editor project — overwrite with an empty/starter-like row. The app's

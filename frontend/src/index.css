@@ -63,6 +63,27 @@ code, pre, .font-mono {
   font-feature-settings: "calt", "liga";
 }
 
+/* On compact acquisition screens, use the platform's native editorial and
+   code faces for the first viewport. Pulling two additional webfonts for a
+   360–640 px hero causes a late whole-screen type swap on throttled mobile
+   connections; the native fallbacks preserve the visual hierarchy without
+   resetting the page's largest paint. Desktop keeps the full Fraunces +
+   JetBrains Mono brand treatment. */
+@media (max-width: 640px) {
+  .public-surface {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+
+  .public-surface .font-display {
+    font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+    font-variation-settings: normal !important;
+  }
+
+  .public-surface .font-mono {
+    font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  }
+}
+
 /* App-wide scrollbar styling so dark panels don't get glaring light scroll
    thumbs. Firefox uses scrollbar-* properties; webkit uses the pseudo-elts. */
 * {

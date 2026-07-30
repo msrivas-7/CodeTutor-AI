@@ -24,14 +24,13 @@ import { SkipToContent } from "../../../components/SkipToContent";
 import { Modal } from "../../../components/Modal";
 import { LessonCompletePanel } from "../components/LessonCompletePanel";
 import { RetrievalCheckPanel } from "../components/RetrievalCheckPanel";
-import { WorkspaceCoach } from "../components/WorkspaceCoach";
 import { useSessionLifecycle } from "../../../hooks/useSessionLifecycle";
 import { useAuthStore } from "../../../auth/authStore";
 import { useAIStore } from "../../../state/aiStore";
 import { usePreferencesStore } from "../../../state/preferencesStore";
 import { useProgressStore } from "../stores/progressStore";
 import { useRunStore } from "../../../state/runStore";
-import { pickFirstFailure } from "../utils/validator";
+import { isRetrievalPending, pickFirstFailure } from "../utils/validator";
 import { computeMastery, formatTimeSpent } from "../utils/mastery";
 import { useShortcutLabels } from "../../../util/platform";
 import { clamp, clampSide, usePhoneFormFactor } from "../../../util/layoutPrefs";
@@ -86,6 +85,14 @@ import { api } from "../../../api/client";
  * LessonPage(mode="anon") reactive inHandoff fires → same 3.5s
  * "circle opening up" the authed /welcome flow gets via ?firstRun=1.
  */
+export interface AnonSharePayload {
+  mastery: "strong" | "okay" | "shaky";
+  timeSpentMs: number;
+  attemptCount: number;
+  codeSnippet: string;
+  displayName: string | null;
+}
+
 interface LessonPageProps {
   /** Default "authed". Pass "anon" for the /try/ trial flow. */
   mode?: "authed" | "anon";
@@ -114,10 +121,9 @@ interface LessonPageProps {
    * onAnonShare: invoked when the user clicks the share affordance on
    *   the LessonCompletePanel celebration (the "Your first one — Share
    *   it" card). On anon, opening the auth-required ShareDialog would
-   *   401-cascade and never produce a working share artifact, so we
-   *   pivot to SignupWallDialog reason="share" — same conversion lever
-   *   as save/next-lesson, different framing because Maya's intent is
-   *   "text my friend." Phase 27-v2.2 Fix 1.
+   *   401-cascade and never produce a working share artifact. The
+   *   callback receives the live, validated lesson evidence so the
+   *   public artifact never invents mastery, time, attempts, or code.
    *
    * onAnonTrialPaused: invoked when GuidedTutorPanel's anon stream
    *   returns 503 ANON_LESSON_DISABLED (operator flipped the kill
@@ -128,7 +134,7 @@ interface LessonPageProps {
   onAnonSave?: () => void;
   onAnonNext?: () => void;
   onAnonExhausted?: () => void;
-  onAnonShare?: () => void;
+  onAnonShare?: (payload: AnonSharePayload) => void;
   onAnonTrialPaused?: () => void;
   /**
    * Phase A — A6 (memory v0): fired EXACTLY ONCE when the celebration
@@ -180,7 +186,6 @@ export default function LessonPage({
 
   const lessonProgressMap = useProgressStore((s) => s.lessonProgress);
   const hasOpenaiKey = usePreferencesStore((s) => s.hasOpenaiKey);
-  const workspaceCoachDone = usePreferencesStore((s) => s.workspaceCoachDone);
   const selectedModel = useAIStore((s) => s.selectedModel);
   const tutorConfigured = !!selectedModel && hasOpenaiKey;
   const keys = useShortcutLabels();
@@ -461,14 +466,11 @@ export default function LessonPage({
   // scripted narration never fired. The URL param is only set by
   // FirstRunGreeting's own handoff, so keying off it is sufficient.
   //
-  // Also gate on the WorkspaceCoach being complete AND off-screen:
-  // brand-new users see the 6-step spotlight tour first (auto-opens
-  // ~3s after lesson mounts). Firing scripted tutor turns in parallel
-  // would double-narrate the same moment. The `!layout.showCoach`
-  // check covers the live render-state (the coach is unmounted), and
-  // `workspaceCoachDone` covers the "we've actually been through it"
-  // assertion — without the persistent flag, the initial 3s window
-  // before auto-open would falsely pass the gate.
+  // Phase A-Q: the former six-step WorkspaceCoach has been removed from
+  // lessons. The cinematic and scripted tutor already orient the first
+  // session, while CoachRail supplies contextual help after real learner
+  // behavior. Stacking a museum tour between those layers delayed the first
+  // useful action and could advance invisibly under the cinematic.
   const firstRunStep = useFirstRunStore((s) => s.step);
   // Phase 27-v2.1 — anon mounts the same scripted walkthrough as
   // authed-with-?firstRun=1. `isChoreographed` is the merged gate the
@@ -508,39 +510,12 @@ export default function LessonPage({
   // scanning the whole UI.
   const spotlightEditor = isChoreographed && firstRunStep === "awaitEdit";
 
-  // Lock the tutor composer + hint / action chips while the scripted
-  // choreography is mid-sentence. The last scripted message is
-  // praiseEditRun; once the step transitions to awaitCheck (or later),
-  // hand the panel back to the learner. "idle" also locks so the
-  // moment between mount and the first `start()` tick doesn't let the
-  // learner type into an empty panel before the greeting lands.
-  const tutorInputLocked =
-    isChoreographed &&
-    (firstRunStep === "idle" ||
-      firstRunStep === "greet" ||
-      firstRunStep === "awaitRun" ||
-      firstRunStep === "celebrateRun" ||
-      firstRunStep === "awaitEdit" ||
-      firstRunStep === "correctEdit" ||
-      firstRunStep === "praiseEditRun");
-
-  // Run + Check lock out so the learner can't skip ahead of the
-  // scripted beats by mashing buttons before the tutor has asked.
-  // Run is allowed during awaitRun (in case canRun never went true
-  // and we fell back to user-driven mode) and awaitEdit (the tutor
-  // explicitly asked them to run after editing). Check is allowed
-  // only during awaitCheck — the final nudge before lesson pass.
-  // Both unlock completely once the choreography reaches "done".
-  const runButtonLocked =
-    isChoreographed &&
-    firstRunStep !== "idle" &&
-    firstRunStep !== "awaitRun" &&
-    firstRunStep !== "awaitEdit" &&
-    firstRunStep !== "done";
-  const checkButtonLocked =
-    isChoreographed &&
-    firstRunStep !== "awaitCheck" &&
-    firstRunStep !== "done";
+  // Phase A-Q: scripted narration guides but never gates the product.
+  // A learner may type, run, check, or ask at any moment. The choreography
+  // observes that takeover and yields instead of disabling valid controls.
+  const tutorInputLocked = false;
+  const runButtonLocked = false;
+  const checkButtonLocked = false;
   // Hide "clear" entirely during the welcome sequence — a learner
   // who clears mid-narration wipes the scripted turns and breaks
   // the flow. After "done" the product is fully back to normal.
@@ -570,19 +545,10 @@ export default function LessonPage({
   // the lock derivations — same constant, just lifted earlier.)
 
   useFirstRunChoreography({
-    // Authed: gate on URL param + coach completion (workspaceCoachDone
-    // covers reload-replay, !layout.showCoach covers the fresh first
-    // run before the persistent flag has been set yet).
-    // Anon: gate on mode + coach completion (workspaceCoachDone here
-    // is the locally-flipped flag from WorkspaceCoach.maybeMarkDone
-    // when persistDone=false — Phase 27-v2.1 made that path do a
-    // preferencesStore.setState even without the PATCH) AND on the
-    // sessionStorage choreography-done flag so a reload mid-or-post
-    // lesson doesn't replay the scripted walkthrough.
+    // Authed is gated by the first-run URL; anon by its sessionStorage
+    // completion flag. No workspace-tour prerequisite remains.
     enabled:
       (isFirstRun || mode === "anon") &&
-      !layout.showCoach &&
-      workspaceCoachDone &&
       !anonChoreographyAlreadyDone,
     firstName: mode === "anon" ? "there" : resolveFirstName(user),
     runner: {
@@ -657,7 +623,8 @@ export default function LessonPage({
     hasRun: runner.hasRun,
     hasError: runner.hasStderr,
     hasChecked: validator.hasChecked,
-    checkPassed: !!validator.validation?.passed,
+    checkPassed:
+      !!validator.validation?.passed || isRetrievalPending(validator.validation),
     failedCheckCount: validator.failedCheckCount,
     lessonComplete: lp?.status === "completed" || !!validator.validation?.passed,
     tutorConfigured,
@@ -994,13 +961,11 @@ export default function LessonPage({
                   onExitPractice={validator.handleExitPractice}
                   onNextExercise={validator.handleNextPracticeExercise}
                   onResetPractice={validator.handleResetPracticeProgress}
-                  onCollapse={() => {}}
                 />
               ) : (
                 <LessonInstructionsPanel
                   meta={lesson}
                   content={lesson.content}
-                  onCollapse={() => {}}
                   coachState={coachState}
                   functionTests={validator.functionTests}
                   testReport={validator.testReport}
@@ -1066,7 +1031,6 @@ export default function LessonPage({
                     ? `attempt ${lp.attemptCount}, ${lp.runCount} runs, ${lp.hintCount} hints used`
                     : "first attempt"
                 }
-                onCollapse={() => {}}
                 onOpenSettings={() => layout.setShowSettings(true)}
                 resetNonce={validator.resetNonce}
                 inputLocked={tutorInputLocked}
@@ -1085,6 +1049,7 @@ export default function LessonPage({
             {!practiceMode
               && validator.validation
               && !validator.validation.passed
+              && !isRetrievalPending(validator.validation)
               && validator.functionTests.length === 0 && (
               <div
                 role="alert"
@@ -1345,7 +1310,7 @@ export default function LessonPage({
                       ease: MATERIAL_EASE,
                     }}
                     disabled={!runner.canRun || runButtonLocked}
-                    className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-xs font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+                    className={`flex items-center gap-1.5 whitespace-nowrap rounded-lg px-4 py-1.5 text-xs font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
                       runner.canRun && !runButtonLocked
                         ? "bg-accent text-bg hover:bg-accent/90"
                         : "bg-elevated text-muted cursor-not-allowed"
@@ -1395,7 +1360,7 @@ export default function LessonPage({
                   disabled={runner.running}
                   title="Reset code to starter"
                   aria-label="Reset code to starter"
-                  className="flex items-center gap-1 px-2 py-1.5 text-[11px] text-muted transition hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-40"
+                  className="flex items-center gap-1 whitespace-nowrap px-2 py-1.5 text-[11px] text-muted transition hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <span aria-hidden="true">↺</span>
                   Reset
@@ -1414,7 +1379,7 @@ export default function LessonPage({
                       void validator.handleCheck();
                     }}
                     disabled={runner.running || validator.runningTests || checkButtonLocked}
-                    className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-xs font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-violet ${
+                    className={`flex items-center gap-1.5 whitespace-nowrap rounded-lg px-4 py-1.5 text-xs font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-violet ${
                       !runner.running && !validator.runningTests && !checkButtonLocked
                         ? "bg-violet/20 text-violet hover:bg-violet/30"
                         : "bg-elevated text-muted cursor-not-allowed"
@@ -1445,7 +1410,7 @@ export default function LessonPage({
                     shift when stderr toggles. Copy shifted from "Explain Error"
                     (diagnostic) to "What went wrong?" (a question a real tutor
                     would ask) — same handler, warmer framing. */}
-                <div className="min-w-[160px]">
+                <div className="min-w-0 xl:min-w-[160px]">
                   {runner.hasStderr && !runner.running && (
                     <button
                       onClick={runner.handleExplainError}
@@ -1579,6 +1544,7 @@ export default function LessonPage({
               {!practiceMode
                 && validator.validation
                 && !validator.validation.passed
+                && !isRetrievalPending(validator.validation)
                 && validator.functionTests.length === 0 && (
                 <div
                   role="alert"
@@ -1767,19 +1733,10 @@ export default function LessonPage({
           nextLessonTitle={loader.nextLessonTitle}
           onDismiss={() => {
             validator.setShowComplete(false);
-            // Phase 27-v2.1 medium-lock: on anon, dismissing the
-            // celebration without clicking "Next Lesson" should still
-            // open the signup wall (reason="next-lesson"). The
-            // celebration is the curtain-call of Maya's three-act
-            // trial; dropping her back into a free-roam editor without
-            // the wall ask = silent bounce. The wall is itself
-            // dismissable (Esc / "Not yet"), so this is medium lock,
-            // not hard lock — she can still keep tinkering on lesson
-            // 1, but the conversion ask fires before she has the
-            // chance to walk away unprompted. Decision: product +
-            // staff-ux + staff-qa + creative director (4-agent
-            // consensus) in audit pass 3+.
-            if (mode === "anon" && onAnonNext) onAnonNext();
+            // Dismiss means dismiss. Conversion happens only through an
+            // explicitly labelled continuation or save action; Escape,
+            // backdrop click, and "Keep practicing" never surprise the
+            // learner with a second dialog.
           }}
           onNext={
             // Phase 27-v2.1 — anon mode replaces the authed nav-to-
@@ -1845,7 +1802,28 @@ export default function LessonPage({
             practiceMode
               ? undefined
               : mode === "anon"
-                ? onAnonShare
+                ? () => {
+                    const files = useProjectStore.getState().snapshot();
+                    const entry = LANGUAGE_ENTRYPOINT[lesson.language];
+                    const code =
+                      files.find((file) => file.path === entry)?.content ??
+                      lp?.lastCode?.[entry] ??
+                      "";
+                    const completedSnapshot = lp
+                      ? { ...lp, status: "completed" as const }
+                      : null;
+                    onAnonShare?.({
+                      mastery:
+                        computeMastery(completedSnapshot, lesson)?.level ?? "okay",
+                      timeSpentMs: Math.max(0, lp?.timeSpentMs ?? 0),
+                      // A validated completion represents at least one
+                      // Check, even if a stale local snapshot has not yet
+                      // observed the store update from that click.
+                      attemptCount: Math.max(1, lp?.attemptCount ?? 0),
+                      codeSnippet: code,
+                      displayName: extractNameFromCode(code),
+                    });
+                  }
                 : !!lp?.lastCode?.[LANGUAGE_ENTRYPOINT[lesson.language]]?.trim()
                   ? () => setShareOpen(true)
                   : undefined
@@ -1869,7 +1847,7 @@ export default function LessonPage({
               lessonId,
               mastery: computeMastery(lp, lesson)?.level ?? "okay",
               timeSpentMs: lp.timeSpentMs ?? 0,
-              attemptCount: lp.attemptCount ?? 0,
+              attemptCount: Math.max(1, lp.attemptCount ?? 0),
               codeSnippet:
                 lp.lastCode?.[LANGUAGE_ENTRYPOINT[lesson.language]] ?? "",
             },
@@ -1888,20 +1866,6 @@ export default function LessonPage({
       )}
       {layout.showSettings && (
         <SettingsModal onClose={() => layout.setShowSettings(false)} />
-      )}
-      {layout.showCoach && (
-        <WorkspaceCoach
-          refs={{
-            instructions: layout.instrRef.current,
-            editor: layout.editorRef.current,
-            runButton: layout.runBtnRef.current,
-            outputPanel: layout.outputRef.current,
-            checkButton: layout.checkBtnRef.current,
-            tutorPanel: layout.tutorRef.current,
-          }}
-          persistDone={mode === "authed"}
-          onComplete={() => layout.setShowCoach(false)}
-        />
       )}
       <FirstRunSpotlight
         targetRef={layout.tutorRef}
@@ -1931,27 +1895,27 @@ export default function LessonPage({
           position="center"
           panelClassName="mx-4 w-full max-w-sm rounded-xl border border-danger/30 bg-panel p-5 shadow-xl"
         >
-          <h2 id="reset-lesson-title" className="text-sm font-bold text-ink">
+          <h2 id="reset-lesson-title" className="text-lg font-bold text-ink">
             Reset Lesson Progress?
           </h2>
-          <p className="mt-2 text-xs leading-relaxed text-muted">
+          <p className="mt-2 text-base leading-relaxed text-muted sm:text-body">
             This will clear all progress for this lesson — attempts, runs, hints,
             saved code, and completion status. You'll start fresh as if you've
             never opened this lesson.
           </p>
-          <p className="mt-2 text-[11px] leading-relaxed text-faint">
+          <p className="mt-2 text-meta leading-relaxed text-faint">
             Your saved tutor messages stay.
           </p>
           <div className="mt-4 flex items-center gap-2">
             <button
               onClick={() => validator.setConfirmResetLesson(false)}
-              className="flex-1 rounded-lg border border-border px-4 py-2 text-xs font-medium text-muted transition hover:bg-elevated hover:text-ink"
+              className="min-h-11 flex-1 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               Cancel
             </button>
             <button
               onClick={validator.handleResetLessonProgress}
-              className="flex-1 rounded-lg bg-danger/20 px-4 py-2 text-xs font-semibold text-danger ring-1 ring-danger/40 transition hover:bg-danger/30"
+              className="min-h-11 flex-1 rounded-lg bg-danger/20 px-4 py-2 text-sm font-semibold text-danger ring-1 ring-danger/40 transition hover:bg-danger/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger"
             >
               Reset Lesson
             </button>

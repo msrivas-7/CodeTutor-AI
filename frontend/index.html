@@ -38,10 +38,22 @@
     <meta name="twitter:image:alt" content="CodeTutor AI: an AI coding tutor that builds you, not the code" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- Brand fonts enhance wider screens but never block first paint.
+         Compact public surfaces deliberately keep their polished native
+         stacks, so the stylesheet remains a low-priority async enhancement
+         instead of competing with the application bundle as a preload. -->
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Fraunces:opsz,wght,SOFT@9..144,500..700,0..50&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Fraunces:opsz,wght,SOFT@9..144,500..700,0..50&display=optional"
       rel="stylesheet"
+      media="print"
+      onload="this.media='all'"
     />
+    <noscript>
+      <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Fraunces:opsz,wght,SOFT@9..144,500..700,0..50&display=optional"
+        rel="stylesheet"
+      />
+    </noscript>
   </head>
   <body>
     <div id="root"></div>

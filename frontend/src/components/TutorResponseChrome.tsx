@@ -36,7 +36,7 @@ export function ActionChips({
           key={c.label}
           onClick={() => onAsk(c.prompt)}
           disabled={disabled}
-          className="rounded-full border border-border bg-elevated/60 px-2 py-[2px] text-[10px] text-muted transition hover:border-accent/60 hover:bg-accent/10 hover:text-accent disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border disabled:hover:bg-elevated disabled:hover:text-muted"
+          className="min-h-11 rounded-full border border-border bg-elevated/60 px-3 py-2 text-sm text-muted transition hover:border-accent/60 hover:bg-accent/10 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border disabled:hover:bg-elevated disabled:hover:text-muted"
           title={c.prompt}
         >
           {c.label}
@@ -111,7 +111,7 @@ export function AskErrorView({
   return (
     <div
       role="alert"
-      className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs"
+      className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-base sm:text-body"
     >
       <div className="mb-1 flex items-center gap-1.5">
         <span aria-hidden="true" className="text-danger">!</span>
@@ -120,14 +120,14 @@ export function AskErrorView({
         </span>
       </div>
       {hint && <div className="mb-1.5 text-ink/90">{hint}</div>}
-      <div className="whitespace-pre-wrap break-words font-mono text-[11px] text-muted">
+      <div className="whitespace-pre-wrap break-words font-mono text-sm text-muted">
         {message}
       </div>
       {canRetry && (
         <button
           onClick={onRetry}
           disabled={retryDisabled}
-          className="mt-2 inline-flex items-center gap-1 rounded-md border border-danger/40 bg-danger/15 px-2 py-1 text-[11px] font-semibold text-danger transition hover:bg-danger/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-danger/50 disabled:cursor-not-allowed disabled:opacity-50"
+          className="mt-2 inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-danger/40 bg-danger/15 px-3 py-2 text-sm font-semibold text-danger transition hover:bg-danger/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-danger/50 disabled:cursor-not-allowed disabled:opacity-50"
           aria-label="Retry the last question"
         >
           <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -141,8 +141,14 @@ export function AskErrorView({
   );
 }
 
-function classifyAskError(raw: string): { kind: string; title: string; hint?: string } {
+export function classifyAskError(raw: string): { kind: string; title: string; hint?: string } {
   const m = raw.toLowerCase();
+  if (m.includes("failed to fetch") || m.includes("network") || m.includes("offline")) {
+    return { kind: "network", title: "Connection lost", hint: "Your code is safe. Check your connection, then try the question again." };
+  }
+  if (m.includes("timeout") || m.includes("timed out")) {
+    return { kind: "timeout", title: "Tutor took too long", hint: "Your code is safe. Try again; if it repeats, you can keep working without the tutor." };
+  }
   if (m.includes("insufficient_quota") || m.includes("exceeded your current quota") || m.includes("billing")) {
     return { kind: "quota", title: "OpenAI quota exceeded", hint: "Your API key has no remaining credits. Check billing on the OpenAI dashboard, then try again." };
   }

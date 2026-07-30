@@ -34,6 +34,11 @@ test.describe("keyboard shortcuts + schema-error branch", () => {
     await loadProfile(page, "empty");
     await page.goto("/start");
 
+    // `/start` loads the authenticated application as a lazy bundle. Wait for
+    // the real page rather than firing the shortcut at the loading skeleton,
+    // before GlobalShortcuts has mounted its window listener.
+    await expect(page.getByRole("heading", { name: /continue learning/i })).toBeVisible();
+
     // Dialog is absent until the shortcut fires.
     await expect(page.getByRole("dialog", { name: /keyboard shortcuts/i })).toHaveCount(0);
 

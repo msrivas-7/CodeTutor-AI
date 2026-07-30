@@ -126,12 +126,12 @@ export function FeedbackModal({ onClose, initialCategory, initialBody, mood, les
 
   if (status === "sent") {
     return (
-      <Modal onClose={onClose} labelledBy={headingId}>
+      <Modal onClose={onClose} labelledBy={headingId} position="center" panelClassName="mx-4 w-full max-w-md rounded-xl border border-border bg-panel p-5 shadow-xl">
         <div className="flex flex-col gap-3">
-          <h2 id={headingId} className="text-sm font-semibold text-ink">
+          <h2 id={headingId} className="text-lg font-semibold text-ink">
             Thanks — we got it
           </h2>
-          <p className="text-xs text-muted">
+          <p className="text-base leading-relaxed text-muted sm:text-body">
             Your feedback helps us prioritise what to fix and build next. We
             read everything that comes in.
           </p>
@@ -144,7 +144,7 @@ export function FeedbackModal({ onClose, initialCategory, initialBody, mood, les
             <button
               type="button"
               onClick={onClose}
-              className="rounded-md bg-accent px-3 py-1.5 text-[11px] font-semibold text-bg transition hover:bg-accentMuted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              className="min-h-11 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-bg transition hover:bg-accentMuted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               Close
             </button>
@@ -158,15 +158,16 @@ export function FeedbackModal({ onClose, initialCategory, initialBody, mood, les
     <Modal
       onClose={onClose}
       labelledBy={headingId}
-      panelClassName="w-full max-w-lg rounded-xl border border-border bg-panel p-5 shadow-xl"
+      position="center"
+      panelClassName="mx-4 max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-panel p-5 shadow-xl"
     >
       <form onSubmit={handleSubmit} className="flex flex-col gap-3" noValidate>
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h2 id={headingId} className="text-sm font-semibold text-ink">
+            <h2 id={headingId} className="text-lg font-semibold text-ink">
               Send feedback
             </h2>
-            <p className="mt-0.5 text-[11px] text-muted">
+            <p className="mt-1 text-base leading-relaxed text-muted sm:text-body">
               Bug, idea, or just something confusing? Tell us what happened —
               we read every note.
             </p>
@@ -181,7 +182,7 @@ export function FeedbackModal({ onClose, initialCategory, initialBody, mood, les
             <span className="text-base" aria-hidden="true">
               {MOOD_BADGE[mood].emoji}
             </span>
-            <span className="text-[11px] text-ink">
+            <span className="text-sm text-ink">
               You rated this lesson:{" "}
               <span className="font-semibold text-accent">{MOOD_BADGE[mood].label}</span>
             </span>
@@ -189,7 +190,7 @@ export function FeedbackModal({ onClose, initialCategory, initialBody, mood, les
         )}
 
         <fieldset className="flex flex-col gap-1.5">
-          <legend className="text-[11px] font-medium text-muted">Type</legend>
+          <legend className="text-sm font-medium text-muted">Type</legend>
           <div
             role="radiogroup"
             aria-label="Feedback type"
@@ -204,7 +205,7 @@ export function FeedbackModal({ onClose, initialCategory, initialBody, mood, les
                   role="radio"
                   aria-checked={active}
                   onClick={() => setCategory(c)}
-                  className={`rounded-md border px-2.5 py-1 text-[11px] capitalize transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+                  className={`min-h-11 rounded-lg border px-3 py-2 text-sm capitalize transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
                     active
                       ? "border-accent/60 bg-accent/10 text-accent"
                       : "border-border bg-elevated text-muted hover:text-ink"
@@ -218,7 +219,7 @@ export function FeedbackModal({ onClose, initialCategory, initialBody, mood, les
         </fieldset>
 
         <label className="flex flex-col gap-1.5">
-          <span className="text-[11px] font-medium text-muted">
+          <span className="text-sm font-medium text-muted">
             What's on your mind?
           </span>
           <textarea
@@ -229,7 +230,7 @@ export function FeedbackModal({ onClose, initialCategory, initialBody, mood, les
             required
             aria-label="Feedback message"
             placeholder="What happened, and what did you expect?"
-            className="resize-y rounded-md border border-border bg-elevated px-2.5 py-1.5 text-xs text-ink placeholder:text-faint focus:border-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="resize-y rounded-lg border border-border bg-elevated px-3 py-2 text-base text-ink placeholder:text-faint focus:border-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent sm:text-sm"
           />
           <span className="self-end text-[10px] text-faint">
             {body.length}/4000
@@ -237,13 +238,13 @@ export function FeedbackModal({ onClose, initialCategory, initialBody, mood, les
         </label>
 
         <div className="flex flex-col gap-1 rounded-md border border-border bg-elevated/50 p-2.5">
-          <label className="flex items-start gap-2 text-[11px] text-muted">
+          <label className="flex min-h-11 items-start gap-2 text-sm leading-relaxed text-muted">
             <input
               type="checkbox"
               checked={attach}
               onChange={(e) => setAttach(e.target.checked)}
               aria-label="Attach diagnostic context"
-              className="mt-0.5"
+              className="mt-0.5 h-5 w-5 shrink-0"
             />
             <span>
               Attach page context (route, viewport, theme, language, app
@@ -253,7 +254,7 @@ export function FeedbackModal({ onClose, initialCategory, initialBody, mood, les
           <button
             type="button"
             onClick={() => setShowDiag((v) => !v)}
-            className="self-start text-[10px] text-accent hover:underline"
+            className="min-h-11 self-start rounded px-2 text-sm text-accent hover:bg-accent/5 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             {showDiag ? "Hide" : "What's included?"}
           </button>
@@ -262,7 +263,7 @@ export function FeedbackModal({ onClose, initialCategory, initialBody, mood, les
               {JSON.stringify(diagnostics, null, 2)}
             </pre>
           )}
-          <p className="text-[10px] text-faint">
+          <p className="text-meta text-faint">
             Never included: your code, your OpenAI key, your email, your IP.
           </p>
         </div>
@@ -270,7 +271,7 @@ export function FeedbackModal({ onClose, initialCategory, initialBody, mood, les
         {err && (
           <div
             role="alert"
-            className="rounded-md border border-danger/40 bg-danger/10 px-2.5 py-1.5 text-[11px] text-danger"
+            className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger"
           >
             {err}
           </div>
@@ -280,7 +281,7 @@ export function FeedbackModal({ onClose, initialCategory, initialBody, mood, les
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md border border-border bg-elevated px-3 py-1.5 text-[11px] text-muted transition hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="min-h-11 rounded-lg border border-border bg-elevated px-3 py-2 text-sm text-muted transition hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             Cancel
           </button>
@@ -288,7 +289,7 @@ export function FeedbackModal({ onClose, initialCategory, initialBody, mood, les
             type="submit"
             disabled={!canSubmit}
             aria-busy={status === "sending"}
-            className="rounded-md bg-accent px-3 py-1.5 text-[11px] font-semibold text-bg transition hover:bg-accentMuted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:bg-elevated disabled:text-faint"
+            className="min-h-11 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-bg transition hover:bg-accentMuted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:bg-elevated disabled:text-faint"
           >
             {status === "sending" ? "Sending…" : "Send feedback"}
           </button>

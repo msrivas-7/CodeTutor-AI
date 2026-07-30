@@ -58,6 +58,10 @@ ops/*
 # under frontend/public/courses/; this manifest is a cached enumeration.
 frontend/public/courses/registry.json
 
+# Lighthouse CI scratch state and generated HTML/JSON reports.
+frontend/.lighthouseci/
+frontend/lhci-reports/
+
 # Bicep build outputs — `az bicep build` writes a sibling .json next to
 # every .bicep file. Source of truth is the .bicep itself; the .json is
 # regenerated on every build, so we don't track it. main.parameters.json

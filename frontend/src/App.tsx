@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate, Outlet } from "react-router-dom";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
+import { initAuth } from "./auth/authStore";
 import { StorageQuotaBanner } from "./components/StorageQuotaBanner";
 import { FrozenAccountBanner } from "./components/FrozenAccountBanner";
 import { GlobalShortcuts } from "./components/GlobalShortcuts";
@@ -8,13 +9,6 @@ import { RequireAuth } from "./auth/RequireAuth";
 import { RequireAdmin } from "./auth/RequireAdmin";
 import { HydrationGate } from "./auth/HydrationGate";
 import { WelcomeBackOverlay } from "./features/firstRun/WelcomeBackOverlay";
-import { OverviewSection } from "./components/admin/OverviewSection";
-import { SessionsSection } from "./components/admin/SessionsSection";
-import { UsersSection } from "./components/admin/UsersSection";
-import { ProjectCapsSection } from "./components/admin/ProjectCapsSection";
-import { EmailLogSection } from "./components/admin/EmailLogSection";
-import { AuditLogSection } from "./components/admin/AuditLogSection";
-import { AnonSection } from "./components/admin/AnonSection";
 const MarketingPage = lazy(() => import("./pages/MarketingPage"));
 const WhyNotChatGPTPage = lazy(() => import("./pages/WhyNotChatGPTPage"));
 const StartPage = lazy(() => import("./pages/StartPage"));
@@ -29,7 +23,43 @@ const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
 const AuthCallbackPage = lazy(() => import("./pages/AuthCallbackPage"));
 const FirstRunPage = lazy(() => import("./features/firstRun/pages/FirstRunPage"));
 const SharePage = lazy(() => import("./features/share/pages/SharePage"));
+const TrustPage = lazy(() => import("./pages/TrustPage"));
 const AdminPage = lazy(() => import("./pages/AdminPage"));
+const OverviewSection = lazy(() =>
+  import("./components/admin/OverviewSection").then((module) => ({
+    default: module.OverviewSection,
+  })),
+);
+const SessionsSection = lazy(() =>
+  import("./components/admin/SessionsSection").then((module) => ({
+    default: module.SessionsSection,
+  })),
+);
+const UsersSection = lazy(() =>
+  import("./components/admin/UsersSection").then((module) => ({
+    default: module.UsersSection,
+  })),
+);
+const ProjectCapsSection = lazy(() =>
+  import("./components/admin/ProjectCapsSection").then((module) => ({
+    default: module.ProjectCapsSection,
+  })),
+);
+const EmailLogSection = lazy(() =>
+  import("./components/admin/EmailLogSection").then((module) => ({
+    default: module.EmailLogSection,
+  })),
+);
+const AuditLogSection = lazy(() =>
+  import("./components/admin/AuditLogSection").then((module) => ({
+    default: module.AuditLogSection,
+  })),
+);
+const AnonSection = lazy(() =>
+  import("./components/admin/AnonSection").then((module) => ({
+    default: module.AnonSection,
+  })),
+);
 
 // Dev-only /dev/content dashboard. Guarded by import.meta.env.DEV so the
 // import (and its transitive deps) are stripped from prod bundles.
@@ -90,6 +120,12 @@ function AuthedLayout() {
 // without being bounced.
 
 export default function App() {
+  // Direct full-app loads start auth in main.tsx. This second idempotent call
+  // covers client navigation from the lightweight public shell into an auth,
+  // anonymous lesson, or workspace route without waiting on its deferred
+  // marketing bootstrap timer.
+  useEffect(() => initAuth(), []);
+
   return (
     <Suspense fallback={<Loading />}>
       <StorageQuotaBanner />
@@ -105,6 +141,9 @@ export default function App() {
             Answers the honest "why not just ChatGPT?" question in the
             open, including where ChatGPT wins. */}
         <Route path="/why-not-chatgpt" element={<WhyNotChatGPTPage />} />
+        <Route path="/privacy" element={<TrustPage />} />
+        <Route path="/terms" element={<TrustPage />} />
+        <Route path="/support" element={<TrustPage />} />
 
         {/* Public auth routes — no layout wrapper, no RequireAuth. */}
         <Route path="/login" element={<LoginPage />} />

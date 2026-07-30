@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAIStore } from "../state/aiStore";
+import { Modal } from "./Modal";
 
 // QA-L4 + M-12: single window-level keydown handler for app-wide shortcuts.
 //
@@ -51,14 +52,10 @@ export function GlobalShortcuts() {
         return;
       }
 
-      if (e.key === "Escape" && helpOpen) {
-        e.preventDefault();
-        setHelpOpen(false);
-      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [bumpFocusComposer, helpOpen]);
+  }, [bumpFocusComposer]);
 
   if (!helpOpen) return null;
 
@@ -74,26 +71,22 @@ export function GlobalShortcuts() {
   ];
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="kbd-help-title"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-bg/70 backdrop-blur-sm"
-      onClick={() => setHelpOpen(false)}
+    <Modal
+      onClose={() => setHelpOpen(false)}
+      labelledBy="kbd-help-title"
+      position="center"
+      panelClassName="mx-4 w-full max-w-md rounded-xl border border-border bg-panel p-5 shadow-xl"
     >
-      <div
-        className="max-w-md rounded-lg border border-border bg-panel p-5 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div>
         <div className="flex items-start justify-between gap-4">
-          <h2 id="kbd-help-title" className="text-sm font-semibold text-ink">
+          <h2 id="kbd-help-title" className="text-lg font-semibold text-ink">
             Keyboard shortcuts
           </h2>
           <button
             type="button"
             aria-label="Close"
             onClick={() => setHelpOpen(false)}
-            className="rounded p-1 text-muted hover:bg-border/40 hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="flex h-11 w-11 items-center justify-center rounded-lg text-muted hover:bg-border/40 hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             <svg
               className="h-3.5 w-3.5"
@@ -110,11 +103,11 @@ export function GlobalShortcuts() {
             </svg>
           </button>
         </div>
-        <dl className="mt-3 space-y-2 text-xs">
+        <dl className="mt-3 space-y-3 text-base sm:text-body">
           {rows.map((r) => (
             <div key={r.keys} className="flex items-start gap-3">
               <dt className="min-w-[84px] shrink-0">
-                <kbd className="rounded border border-border bg-bg px-1.5 py-0.5 font-mono text-[11px] text-ink">
+                <kbd className="rounded border border-border bg-bg px-1.5 py-0.5 font-mono text-meta text-ink">
                   {r.keys}
                 </kbd>
               </dt>
@@ -122,10 +115,10 @@ export function GlobalShortcuts() {
             </div>
           ))}
         </dl>
-        <p className="mt-4 text-[11px] text-muted">
+        <p className="mt-4 text-meta text-muted">
           Press <kbd className="font-mono">Esc</kbd> or click outside to close.
         </p>
       </div>
-    </div>
+    </Modal>
   );
 }

@@ -11,8 +11,12 @@
 // user's server state first via the profiles fixture so earlier tests in
 // the same worker can't bleed through.
 
-import { test as rawTest, expect } from "@playwright/test";
-import { loginAsTestUser } from "../fixtures/auth";
+import {
+  expect,
+  loginAsTestUser,
+  test,
+  trackSessionCleanup,
+} from "../fixtures/auth";
 import { loadProfile, markOnboardingDone } from "../fixtures/profiles";
 import { mockAllAI } from "../fixtures/aiMocks";
 import { setMonacoValue, waitForMonacoReady } from "../fixtures/monaco";
@@ -21,15 +25,15 @@ import { seedAuthedRetrievalPass } from "../fixtures/retrievalGate";
 
 const COURSE_ID = "python-fundamentals";
 
-rawTest.describe("cross-device persistence (Phase 18b)", () => {
-  rawTest.beforeEach(async ({ page }, testInfo) => {
+test.describe("cross-device persistence (Phase 18b)", () => {
+  test.beforeEach(async ({ page }, testInfo) => {
     await loginAsTestUser(page, testInfo.workerIndex);
     await mockAllAI(page);
     await loadProfile(page, "empty");
     await markOnboardingDone(page);
   });
 
-  rawTest(
+  test(
     "theme change persists across a fresh browser context for the same user",
     async ({ page, browser }, testInfo) => {
       // 1. On device A (pre-authed page), flip to light theme via Settings.
@@ -54,7 +58,7 @@ rawTest.describe("cross-device persistence (Phase 18b)", () => {
     },
   );
 
-  rawTest(
+  test(
     "course progress persists across a fresh browser context for the same user",
     async ({ page, browser }, testInfo) => {
       // Phase A — A1 added a retrieval-check gate to hello-world, so
@@ -85,7 +89,7 @@ rawTest.describe("cross-device persistence (Phase 18b)", () => {
       // specifically — there are multiple "Next lesson" buttons in the DOM
       // (recap panel + course nav) once complete.
       await expect(
-        page.getByRole("alertdialog", { name: /lesson complete/i }),
+        page.getByRole("dialog", { name: /lesson complete/i }),
       ).toBeVisible({ timeout: 30_000 });
       await page.waitForTimeout(500);
 
@@ -104,7 +108,7 @@ rawTest.describe("cross-device persistence (Phase 18b)", () => {
     },
   );
 
-  rawTest(
+  test(
     "onboarding flags persist across a fresh browser context for the same user",
     async ({ browser }, testInfo) => {
       // markOnboardingDone in beforeEach already flipped all three flags
@@ -124,7 +128,7 @@ rawTest.describe("cross-device persistence (Phase 18b)", () => {
     },
   );
 
-  rawTest(
+  test(
     "editor project (file contents) persists across a fresh browser context",
     async ({ page, browser }, testInfo) => {
       const stamp = Date.now();
@@ -138,28 +142,33 @@ rawTest.describe("cross-device persistence (Phase 18b)", () => {
       const contextB = await browser.newContext();
       const pageB = await contextB.newPage();
       await loginAsTestUser(pageB, testInfo.workerIndex);
-      await pageB.goto("/editor");
-      await waitForMonacoReady(pageB);
+      const cleanupPageBSessions = trackSessionCleanup(pageB, testInfo.workerIndex);
+      try {
+        await pageB.goto("/editor");
+        await waitForMonacoReady(pageB);
 
-      await expect
-        .poll(
-          async () =>
-            pageB.evaluate(() => {
-              const win = window as unknown as {
-                monaco?: {
-                  editor?: { getModels: () => Array<{ getValue: () => string }> };
+        await expect
+          .poll(
+            async () =>
+              pageB.evaluate(() => {
+                const win = window as unknown as {
+                  monaco?: {
+                    editor?: { getModels: () => Array<{ getValue: () => string }> };
+                  };
                 };
-              };
-              return win.monaco?.editor?.getModels()?.[0]?.getValue() ?? "";
-            }),
-          { timeout: 15_000 },
-        )
-        .toContain(`persisted-editor-${stamp}`);
-      await contextB.close();
+                return win.monaco?.editor?.getModels()?.[0]?.getValue() ?? "";
+              }),
+            { timeout: 15_000 },
+          )
+          .toContain(`persisted-editor-${stamp}`);
+      } finally {
+        await cleanupPageBSessions();
+        await contextB.close();
+      }
     },
   );
 
-  rawTest(
+  test(
     "same-device sign-out → sign-in re-hydrates preferences",
     async ({ page }, testInfo) => {
       // Flip theme + sign out.

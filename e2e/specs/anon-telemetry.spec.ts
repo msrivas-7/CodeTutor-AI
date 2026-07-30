@@ -121,7 +121,7 @@ test.describe("Phase 27-v2.2 Fix 6 — funnel telemetry", () => {
     );
   });
 
-  test("anon_wall_opened fires with reason='next-lesson' on celebration dismiss", async ({
+  test("anon_wall_opened fires with reason='next-lesson' on explicit continuation", async ({
     page,
   }) => {
     await page.route("**/api/anon/run", (route) =>
@@ -153,10 +153,13 @@ test.describe("Phase 27-v2.2 Fix 6 — funnel telemetry", () => {
       .getByRole("button", { name: /check/i })
       .first()
       .click();
-    await expect(page.getByRole("alertdialog").first()).toBeVisible({
+    await expect(page.getByRole("dialog", { name: /lesson complete/i })).toBeVisible({
       timeout: 10_000,
     });
-    await page.keyboard.press("Escape");
+    await page
+      .getByRole("dialog", { name: /lesson complete/i })
+      .getByRole("button", { name: /next lesson/i })
+      .click();
     await waitForEvent(
       events,
       (e) => e.event === "anon_wall_opened" && e.reason === "next-lesson",
@@ -187,7 +190,7 @@ test.describe("Phase 27-v2.2 Fix 6 — funnel telemetry", () => {
     );
   });
 
-  test("anon_wall_opened fires with reason='share' on celebration share click", async ({
+  test("anon_wall_opened fires with reason='share' when the post-share wall opens", async ({
     page,
   }) => {
     await page.route("**/api/anon/run", (route) =>
@@ -201,6 +204,13 @@ test.describe("Phase 27-v2.2 Fix 6 — funnel telemetry", () => {
           timedOut: false,
           durationMs: 42,
         }),
+      }),
+    );
+    await page.route("**/api/anon/shares", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ shareToken: "telemetry-share", url: "/s/telemetry-share" }),
       }),
     );
     const events = await recordTelemetry(page);
@@ -219,17 +229,21 @@ test.describe("Phase 27-v2.2 Fix 6 — funnel telemetry", () => {
       .getByRole("button", { name: /check/i })
       .first()
       .click();
-    await expect(page.getByRole("alertdialog").first()).toBeVisible({
+    await expect(page.getByRole("dialog", { name: /lesson complete/i })).toBeVisible({
       timeout: 10_000,
     });
     await page
-      .getByRole("alertdialog")
+      .getByRole("dialog", { name: /lesson complete/i })
       .getByRole("button", { name: /share/i })
       .first()
       .click();
+    const shareDialog = page.getByRole("dialog", { name: /your first one/i });
+    await expect(shareDialog).toBeVisible({ timeout: 5_000 });
+    await shareDialog.getByRole("button", { name: /^done$/i }).click();
     await waitForEvent(
       events,
       (e) => e.event === "anon_wall_opened" && e.reason === "share",
     );
+    await expect(page.getByText(/Your share link is ready/i)).toBeVisible();
   });
 });

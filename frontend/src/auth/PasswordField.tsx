@@ -72,7 +72,7 @@ export function PasswordField({
 
   return (
     <div className="flex flex-col gap-1.5">
-      <label htmlFor={id} className="text-[11px] font-medium text-muted">
+      <label htmlFor={id} className="text-sm font-medium text-muted">
         {label}
       </label>
       <div className="flex items-center gap-2">
@@ -85,12 +85,12 @@ export function PasswordField({
           autoComplete={autoComplete}
           disabled={disabled}
           aria-describedby={describedById}
-          className="flex-1 rounded-md border border-border bg-elevated px-2.5 py-1.5 text-xs text-ink transition placeholder:text-faint focus:border-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60"
+          className="min-h-11 min-w-0 flex-1 rounded-md border border-border bg-elevated px-3 py-2 text-base text-ink transition placeholder:text-faint focus:border-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm"
         />
         <button
           type="button"
           onClick={() => setReveal((v) => !v)}
-          className="flex items-center justify-center rounded-md border border-border bg-elevated p-1.5 text-muted transition hover:border-accent/60 hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="flex min-h-11 min-w-11 items-center justify-center rounded-md border border-border bg-elevated p-2 text-muted transition hover:border-accent/60 hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           title={reveal ? "Hide password" : "Show password"}
           aria-label={reveal ? "Hide password" : "Show password"}
           aria-pressed={reveal}
@@ -129,7 +129,7 @@ export function PasswordField({
                 style={{ width: `${(strength.passed / strength.total) * 100}%` }}
               />
             </div>
-            <span className="w-10 text-right text-[10px] font-semibold text-muted">
+            <span className="w-12 text-right text-meta font-semibold text-muted">
               {strength.level === "empty" ? "" : STRENGTH_LABEL[strength.level]}
             </span>
           </div>
@@ -139,7 +139,7 @@ export function PasswordField({
               return (
                 <li
                   key={check.label}
-                  className={`flex items-center gap-1.5 text-[10px] transition ${
+                  className={`flex items-center gap-1.5 text-sm transition ${
                     ok ? "text-success" : "text-faint"
                   }`}
                 >

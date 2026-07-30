@@ -11,10 +11,13 @@ import { HOUSE_EASE } from "../../../components/cinema/easing";
 // magic. One beat, generous pacing, then the still frame holds.
 //
 //   0.0  – 0.4s    caret blinks twice on a dark glass panel
-//   0.4  – 3.4s    four lines of Python type in:
+//   0.4  – 3.4s    responsive Python example types in:
 //                      name = "Maya"
 //                      points = 100
-//                      message = name + " earned " + points + " points!"
+//                      message = (
+//                        name + " earned "
+//                        + points + " points!"
+//                      )
 //                      print(message)
 //   3.4  – 5.2s    READ PAUSE (1.8s). Code stays still, no caret.
 //                  Viewer scans the body and thinks "looks fine to me."
@@ -70,13 +73,15 @@ type Phase = "caret" | "typing" | "iris" | "bubble" | "exhale" | "hold";
 // `+` operator demands both sides be the same type: it concatenates
 // strings or adds numbers, but refuses to bridge str + int. The fix the
 // tutor will eventually walk the learner toward is `str(points)` (or
-// f-strings later). Lines are sized so the longest (~50 chars) fits
-// the hero panel at 16.5px mono on any modern viewport without
-// horizontal scroll.
+// f-strings later). The expression is split inside parentheses so it stays
+// valid Python while remaining readable on a 360px phone.
 const CODE_LINES: readonly string[] = [
   'name = "Maya"',
   "points = 100",
-  'message = name + " earned " + points + " points!"',
+  "message = (",
+  '  name + " earned "',
+  '  + points + " points!"',
+  ")",
   "print(message)",
 ];
 const FULL_CODE = CODE_LINES.join("\n");
@@ -97,13 +102,14 @@ function tickFor(i: number, total: number): number {
  * then holds the final state. Sized to fit between the hero claim and
  * the CTA in the marketing page composition.
  */
-export function MatchCutHero() {
+export function MatchCutHero({ staticMotion = false }: { staticMotion?: boolean }) {
   const reduce = useReducedMotion();
+  const staticMode = Boolean(reduce || staticMotion);
   const panelRef = useRef<HTMLDivElement>(null);
-  const [phase, setPhase] = useState<Phase>(reduce ? "hold" : "caret");
+  const [phase, setPhase] = useState<Phase>(staticMode ? "hold" : "caret");
   // `typed` is the count of characters revealed across the multi-line
   // FULL_CODE string (newlines included). Reduced-motion shows full.
-  const [typed, setTyped] = useState(reduce ? FULL_CODE.length : 0);
+  const [typed, setTyped] = useState(staticMode ? FULL_CODE.length : 0);
 
   // Beat scheduler. Runs ONCE on mount — the panel plays through the
   // beats and then holds the final state. No loop; per the director's
@@ -117,7 +123,7 @@ export function MatchCutHero() {
   // when `reduce` resolves to true, we explicitly snap state to its
   // final values here (no scheduling needed).
   useEffect(() => {
-    if (reduce) {
+    if (staticMode) {
       setPhase("hold");
       setTyped(FULL_CODE.length);
       return;
@@ -162,7 +168,7 @@ export function MatchCutHero() {
       cancelled = true;
       timeouts.forEach((t) => clearTimeout(t));
     };
-  }, [reduce]);
+  }, [staticMode]);
 
   // Cursor-tracked tilt + key-light. useMotionValue + spring keeps the
   // motion buttery and reactive without rendering on every mouse event.
@@ -193,7 +199,7 @@ export function MatchCutHero() {
   );
 
   function handleMouseMove(e: React.MouseEvent<HTMLDivElement>) {
-    if (reduce) return;
+    if (staticMode) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const nx = (e.clientX - rect.left) / rect.width;
     const ny = (e.clientY - rect.top) / rect.height;
@@ -225,16 +231,19 @@ export function MatchCutHero() {
       // line needs (~520px at 16.5px mono). text-left explicitly
       // overrides the hero section's text-center so code reads as
       // real code (left-anchored), not poetry.
-      className="relative isolate w-full max-w-[860px] overflow-hidden rounded-2xl border border-border/70 bg-panel/80 p-7 text-left shadow-[0_30px_80px_-30px_rgba(0,0,0,0.55)] backdrop-blur-xl sm:p-8 md:p-10"
+      className={`relative isolate w-full max-w-[860px] overflow-hidden rounded-2xl border border-border/70 bg-panel/80 p-5 text-left shadow-[0_30px_80px_-30px_rgba(0,0,0,0.55)] sm:p-8 md:p-10 ${staticMode ? "" : "backdrop-blur-xl"}`}
       style={{
-        rotateX: reduce ? 0 : rotateX,
-        rotateY: reduce ? 0 : rotateY,
-        transformStyle: "preserve-3d",
-        transformPerspective: 1200,
+        rotateX: staticMode ? undefined : rotateX,
+        rotateY: staticMode ? undefined : rotateY,
+        transformStyle: staticMode ? "flat" : "preserve-3d",
+        transformPerspective: staticMode ? undefined : 1200,
       }}
-      initial={reduce ? undefined : { opacity: 0, y: 12 }}
+      // The containing hero already choreographs this panel's arrival.
+      // Keep it visible from first paint so the two layers do not compound
+      // into a long blank state on slower devices.
+      initial={staticMode ? false : { opacity: 1, y: 12 }}
       animate={
-        reduce
+        staticMode
           ? undefined
           : {
               opacity: 1,
@@ -252,7 +261,7 @@ export function MatchCutHero() {
           base panel — gives the panel a sense of being lit from a moving
           source. Accent color, soft falloff, low alpha so it reads as
           ambient, not "a spotlight." */}
-      {!reduce && (
+      {!staticMode && (
         <motion.div
           aria-hidden="true"
           className="pointer-events-none absolute inset-0 -z-0 opacity-70 mix-blend-screen"
@@ -273,14 +282,8 @@ export function MatchCutHero() {
       />
 
       {/* Code block — JetBrains Mono with token-style coloring per
-          line. Sized so the longest line (~50 chars including the
-          two-space indent on line 2) reads comfortably at 16.5px on
-          desktop and never wraps. The 760px panel + p-10 padding
-          gives ~600px of usable width; at 16.5px mono each char is
-          ~10px wide, so 50 × 10 = 500px well inside the budget.
-          `whitespace-nowrap` is the safety net — if the panel ever
-          renders narrower, lines stay on one row and overflow
-          horizontally rather than wrap mid-token. */}
+          line. The longest line is deliberately short enough to remain
+          readable at phone size without clipping or micro typography. */}
       <div className="relative font-mono text-[13px] leading-[1.7] sm:text-[15px] md:text-[16.5px]">
         {/* Pre-rendered line slots: as `typed` advances, each slot
             fills with its share of the prefix. Empty slots reserve
@@ -307,7 +310,7 @@ export function MatchCutHero() {
         {/* Iris wipe — a thin horizontal line that contracts inward
             on the iris beat. Reads as a film-cut transition, not a UI
             element. Auto-clears once the bubble is up. */}
-        {!reduce && phase === "iris" && (
+        {!staticMode && phase === "iris" && (
           <motion.div
             aria-hidden="true"
             className="pointer-events-none absolute left-0 right-0 top-1/2 h-px bg-gradient-to-r from-transparent via-accent/70 to-transparent"
@@ -326,7 +329,7 @@ export function MatchCutHero() {
       <div className="mt-6 min-h-[60px]">
         {(phase === "bubble" || phase === "exhale" || phase === "hold") && (
           <motion.div
-            initial={reduce ? undefined : { opacity: 0, y: 6 }}
+            initial={staticMode ? undefined : { opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, ease: HOUSE_EASE }}
             className="rounded-xl border border-accent/25 bg-accent/[0.06] px-5 py-3.5 text-[15px] italic text-accent shadow-inner sm:text-[16px]"

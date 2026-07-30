@@ -533,7 +533,7 @@ export function useFirstRunChoreography({
     bumpWrongEditAttempts,
   ]);
 
-  // Observer: Check pass terminates the scripted choreography. The
+  // Observer: a successful code check terminates the scripted choreography. The
   // learner is about to see the product's own lesson-complete
   // confetti + "Next lesson" panel — that's the real celebration.
   // Adding another scripted tutor turn here would either compete
@@ -542,8 +542,10 @@ export function useFirstRunChoreography({
   // exit cleanly.
   useEffect(() => {
     if (!enabled || skipped) return;
-    if (step !== "awaitCheck") return;
-    if (validator.validation?.passed) {
+    if (
+      validator.validation?.passed ||
+      validator.validation?.passedExceptRetrieval
+    ) {
       setStep("seed");
     }
   }, [enabled, skipped, step, validator.validation, setStep]);

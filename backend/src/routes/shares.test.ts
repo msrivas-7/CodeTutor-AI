@@ -156,6 +156,14 @@ describe("POST /api/shares", () => {
     expect(r.status).toBe(400);
   });
 
+  it("rejects a zero-attempt completion as non-credible public data", async () => {
+    if (!dbReachable) return;
+    const u = await mkUser();
+    await seedCompletedLesson(u, "python-fundamentals", "hello-world");
+    const r = await postCreate(u, sampleBody({ attemptCount: 0 }));
+    expect(r.status).toBe(400);
+  });
+
   it("blocks share when codeSnippet contains a secret-looking string", async () => {
     if (!dbReachable) return;
     const u = await mkUser();

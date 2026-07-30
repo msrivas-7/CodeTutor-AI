@@ -87,19 +87,19 @@ export function LessonInstructionsPanel({
         <h1 className="font-display text-[28px] font-semibold leading-tight tracking-tight text-ink">
           {meta.title}
         </h1>
-        <p className="mt-0.5 text-[11px] text-muted">
+        <p className="mt-1 text-meta text-muted">
           Lesson {meta.order} · ~{meta.estimatedMinutes} min
         </p>
       </div>
-      <header className="flex items-center gap-2 border-b border-border px-4 py-2">
-        <span className="flex-1 text-[10px] uppercase tracking-wider text-muted">
+      <header className="flex min-h-11 items-center gap-2 border-b border-border px-4">
+        <span className="flex-1 text-micro uppercase tracking-wider text-muted">
           Instructions
         </span>
         {onCollapse && (
           <button
             onClick={onCollapse}
             title="Collapse instructions"
-            className="rounded p-1 text-muted transition hover:bg-elevated hover:text-ink"
+            className="flex h-11 w-11 items-center justify-center rounded-lg text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
               <path d="M5.5 3.5L10 8l-4.5 4.5L4 11l3-3-3-3z" />
@@ -115,7 +115,7 @@ export function LessonInstructionsPanel({
             role="tab"
             aria-selected={activeTab === "instructions"}
             onClick={() => setTab("instructions")}
-            className={`flex-1 px-3 py-1.5 text-[11px] font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent ${
+            className={`min-h-11 flex-1 px-3 py-2 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent ${
               activeTab === "instructions"
                 ? "border-b-2 border-accent text-ink"
                 : "border-b-2 border-transparent text-muted hover:text-ink"
@@ -128,7 +128,7 @@ export function LessonInstructionsPanel({
             role="tab"
             aria-selected={activeTab === "examples"}
             onClick={() => setTab("examples")}
-            className={`flex-1 px-3 py-1.5 text-[11px] font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent ${
+            className={`min-h-11 flex-1 px-3 py-2 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent ${
               activeTab === "examples"
                 ? "border-b-2 border-accent text-ink"
                 : "border-b-2 border-transparent text-muted hover:text-ink"
@@ -155,14 +155,14 @@ export function LessonInstructionsPanel({
               {meta.objectives.map((obj) => (
                 <span
                   key={obj}
-                  className="rounded-full bg-violet/10 px-2 py-0.5 text-[10px] font-medium text-violet"
+                  className="rounded-full bg-violet/10 px-2 py-1 text-meta font-medium text-violet"
                 >
                   {obj}
                 </span>
               ))}
             </div>
 
-            <div className="prose-learning text-sm leading-relaxed text-ink/90">
+            <div className="prose-learning text-base leading-relaxed text-ink/90 sm:text-body">
               <MarkdownContent text={mainContent} />
             </div>
 
@@ -170,7 +170,7 @@ export function LessonInstructionsPanel({
               <div className="mt-4 border-t border-border pt-3">
                 <button
                   onClick={() => setShowHints(!showHints)}
-                  className="flex items-center gap-1 text-xs font-medium text-accent transition hover:text-accent/80"
+                  className="flex min-h-11 items-center gap-2 rounded-lg px-2 text-base font-medium text-accent transition hover:bg-accent/5 hover:text-accent/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent sm:text-body"
                 >
                   <svg
                     className={`h-3 w-3 transition ${showHints ? "rotate-90" : ""}`}
@@ -188,7 +188,7 @@ export function LessonInstructionsPanel({
                 {showHints && (
                   <ol className="mt-2 list-decimal space-y-1.5 pl-5">
                     {hints.map((hint, i) => (
-                      <li key={i} className="text-xs text-muted">
+                      <li key={i} className="text-base leading-relaxed text-muted sm:text-body">
                         {hint}
                       </li>
                     ))}
@@ -227,9 +227,10 @@ function MarkdownContent({ text }: { text: string }) {
 
   while (i < lines.length) {
     const line = lines[i];
+    const fencedBlock = readFencedCodeBlock(lines, i);
 
     if (line.startsWith("### ")) {
-      elements.push(<h3 key={i} className="mb-1 mt-3 text-xs font-bold uppercase tracking-wide text-muted">{line.slice(4)}</h3>);
+      elements.push(<h3 key={i} className="mb-1 mt-3 text-sm font-bold uppercase tracking-wide text-muted">{line.slice(4)}</h3>);
     } else if (line.startsWith("## ")) {
       elements.push(<h2 key={i} className="mb-1 mt-4 text-sm font-bold">{line.slice(3)}</h2>);
     } else if (line.startsWith("# ")) {
@@ -240,16 +241,11 @@ function MarkdownContent({ text }: { text: string }) {
       // avoids strict-mode collisions in tests that find the lesson
       // title via getByRole({level: 1, name: /^title$/}).
       elements.push(<h2 key={i} className="mb-2 mt-4 text-base font-bold">{line.slice(2)}</h2>);
-    } else if (line.startsWith("```")) {
-      const codeLines: string[] = [];
-      i++;
-      while (i < lines.length && !lines[i].startsWith("```")) {
-        codeLines.push(lines[i]);
-        i++;
-      }
+    } else if (fencedBlock) {
+      i = fencedBlock.endIndex;
       elements.push(
-        <pre key={`code-${i}`} className="my-2 overflow-x-auto rounded-lg bg-elevated p-3 text-xs">
-          <code>{codeLines.join("\n")}</code>
+        <pre key={`code-${i}`} className="my-2 overflow-x-auto rounded-lg bg-elevated p-3 text-sm">
+          <code>{fencedBlock.code}</code>
         </pre>
       );
     } else if (line.startsWith("- ") || line.startsWith("* ")) {
@@ -261,7 +257,7 @@ function MarkdownContent({ text }: { text: string }) {
       elements.push(
         <ul key={`ul-${i}`} className="my-1 space-y-0.5 pl-4">
           {items.map((item, j) => (
-            <li key={j} className="list-disc text-xs">{renderInline(item)}</li>
+            <li key={j} className="list-disc text-base sm:text-body">{renderInline(item)}</li>
           ))}
         </ul>
       );
@@ -274,14 +270,14 @@ function MarkdownContent({ text }: { text: string }) {
       elements.push(
         <ol key={`ol-${i}`} className="my-1 list-decimal space-y-0.5 pl-5">
           {items.map((item, j) => (
-            <li key={j} className="text-xs">{renderInline(item)}</li>
+            <li key={j} className="text-base sm:text-body">{renderInline(item)}</li>
           ))}
         </ol>
       );
     } else if (line.trim() === "") {
       elements.push(<div key={i} className="h-2" />);
     } else {
-      elements.push(<p key={i} className="text-xs leading-relaxed">{renderInline(line)}</p>);
+      elements.push(<p key={i} className="text-base leading-relaxed sm:text-body">{renderInline(line)}</p>);
     }
 
     i++;
@@ -290,12 +286,43 @@ function MarkdownContent({ text }: { text: string }) {
   return <>{elements}</>;
 }
 
+export interface FencedCodeBlock {
+  code: string;
+  endIndex: number;
+}
+
+/**
+ * Reads a CommonMark-style fenced code block beginning at `startIndex`.
+ * Fences may be indented by up to three spaces. Content indentation that
+ * belongs to the fence is removed so authored list-nested examples render as
+ * executable code instead of exposing Markdown delimiters or leading spaces.
+ */
+export function readFencedCodeBlock(
+  lines: string[],
+  startIndex: number,
+): FencedCodeBlock | null {
+  const opening = lines[startIndex]?.match(/^( {0,3})```(?:[^`]*)$/);
+  if (!opening) return null;
+
+  const indent = opening[1].length;
+  const codeLines: string[] = [];
+  let i = startIndex + 1;
+  while (i < lines.length && !/^ {0,3}```\s*$/.test(lines[i])) {
+    const current = lines[i];
+    const removableIndent = Math.min(indent, current.match(/^ */)?.[0].length ?? 0);
+    codeLines.push(current.slice(removableIndent));
+    i++;
+  }
+
+  return { code: codeLines.join("\n"), endIndex: i };
+}
+
 function renderInline(text: string): React.ReactNode {
   const parts = text.split(/(`[^`]+`)/g);
   return parts.map((part, i) => {
     if (part.startsWith("`") && part.endsWith("`")) {
       return (
-        <code key={i} className="rounded bg-elevated px-1 py-0.5 text-[11px] text-accent">
+        <code key={i} className="rounded bg-elevated px-1 py-0.5 text-sm text-accent">
           {part.slice(1, -1)}
         </code>
       );

@@ -22,7 +22,7 @@ interface ModalProps {
   panelClassName?: string;
   // Layout of the overlay: "center" vertically centres the panel (confirms),
   // "top" anchors near the top of the viewport (Settings).
-  position?: "center" | "top";
+  position?: "center" | "top" | "bottom";
   // Stacking layer for the backdrop. Default 50 covers normal modals.
   // Higher values are reserved for surfaces that need to overlay
   // already-fullscreen takeovers — e.g. the ShareDialog opening
@@ -70,7 +70,17 @@ export function Modal({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") closeWithExit();
+      if (e.key !== "Escape") return;
+      const layers = Array.from(
+        document.querySelectorAll<HTMLElement>("[data-modal-layer]"),
+      );
+      const topLayer = layers.reduce<HTMLElement | null>((top, candidate) => {
+        if (!top) return candidate;
+        const topZ = Number(top.dataset.modalLayer) || 0;
+        const candidateZ = Number(candidate.dataset.modalLayer) || 0;
+        return candidateZ >= topZ ? candidate : top;
+      }, null);
+      if (topLayer === backdropRef.current) closeWithExit();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -84,7 +94,46 @@ export function Modal({
     );
     (first ?? panel)?.focus();
     return () => {
-      previouslyFocused?.focus?.();
+      // Stacked-dialog teardown also removes `inert` from the lower layer.
+      // Defer restoration until all effect cleanups have run so focus does
+      // not target an element that is still inert for this cleanup tick.
+      queueMicrotask(() => {
+        if (previouslyFocused?.isConnected) previouslyFocused.focus();
+      });
+    };
+  }, []);
+
+  // Make the rest of the document genuinely non-interactive while a modal is
+  // open. The focus trap protects keyboard navigation, but without `inert`
+  // assistive technology and scripted focus could still reach the workspace
+  // behind the backdrop. This also composes for stacked modals: a share dialog
+  // temporarily inerts the completion dialog beneath it, then restores that
+  // layer when it closes while the completion dialog keeps the app inert.
+  useEffect(() => {
+    const backdrop = backdropRef.current;
+    if (!backdrop) return;
+
+    const siblings = Array.from(document.body.children).filter(
+      (node): node is HTMLElement =>
+        node instanceof HTMLElement && node !== backdrop,
+    );
+    const previous = siblings.map((node) => ({
+      node,
+      inert: node.inert,
+      ariaHidden: node.getAttribute("aria-hidden"),
+    }));
+
+    for (const node of siblings) {
+      node.inert = true;
+      node.setAttribute("aria-hidden", "true");
+    }
+
+    return () => {
+      for (const state of previous) {
+        state.node.inert = state.inert;
+        if (state.ariaHidden === null) state.node.removeAttribute("aria-hidden");
+        else state.node.setAttribute("aria-hidden", state.ariaHidden);
+      }
     };
   }, []);
 
@@ -96,6 +145,17 @@ export function Modal({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Tab") return;
+      const layers = Array.from(
+        document.querySelectorAll<HTMLElement>("[data-modal-layer]"),
+      );
+      const topLayer = layers.reduce<HTMLElement | null>((top, candidate) => {
+        if (!top) return candidate;
+        return (Number(candidate.dataset.modalLayer) || 0) >=
+          (Number(top.dataset.modalLayer) || 0)
+          ? candidate
+          : top;
+      }, null);
+      if (topLayer !== backdropRef.current) return;
       const panel = panelRef.current;
       if (!panel) return;
       const focusables = Array.from(
@@ -127,7 +187,12 @@ export function Modal({
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const overlayPos = position === "center" ? "items-center justify-center" : "items-start justify-center pt-[10vh]";
+  const overlayPos =
+    position === "center"
+      ? "items-center justify-center"
+      : position === "bottom"
+        ? "items-end justify-center sm:items-center"
+        : "items-start justify-center pt-[10vh]";
 
   // Honor prefers-reduced-motion — skip the scale/translate entrance
   // and fall back to a pure opacity fade. framer-motion's hook returns
@@ -158,6 +223,7 @@ export function Modal({
         <motion.div
           ref={backdropRef}
           key="backdrop"
+          data-modal-layer={zIndex}
           className={`fixed inset-0 flex ${overlayPos} bg-black/50 backdrop-blur-sm`}
           style={{ zIndex }}
           initial={{ opacity: 0 }}

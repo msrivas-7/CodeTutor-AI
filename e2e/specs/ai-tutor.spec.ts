@@ -530,11 +530,19 @@ test.describe("AI tutor", () => {
     // The bookmark is the only "Save tutor message" button on the page.
     const bookmark = page.getByRole("button", { name: /save tutor message/i }).first();
     await bookmark.scrollIntoViewIfNeeded();
+    const bookmarkSaved = page.waitForResponse(
+      (r) =>
+        new URL(r.url()).pathname === "/api/user/saved-tutor-messages" &&
+        r.request().method() === "POST" &&
+        r.ok(),
+      { timeout: 15_000 },
+    );
     await bookmark.click();
     // After save, aria-pressed flips to true and the label switches.
     await expect(
       page.getByRole("button", { name: /remove from saved/i }).first(),
     ).toBeVisible({ timeout: 5_000 });
+    await bookmarkSaved;
 
     // Reload — accordion should be present from first paint with count 1.
     await page.reload();

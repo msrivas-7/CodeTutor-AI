@@ -121,7 +121,7 @@ export default function SignupPage() {
           </button>
         }
       >
-        <p className="text-center text-[11px] text-muted">
+        <p className="text-center text-sm text-muted">
           If you don't see it, check your spam folder. The link expires in
           an hour.
         </p>
@@ -151,7 +151,7 @@ export default function SignupPage() {
       {justDeleted && (
         <div
           role="status"
-          className="mb-3 rounded-md border border-success/30 bg-success/10 px-3 py-2 text-[11px] text-success"
+          className="mb-3 rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-sm text-success"
         >
           Your account has been deleted.
         </div>
@@ -168,7 +168,7 @@ export default function SignupPage() {
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-3" noValidate>
         <div className="flex flex-col gap-1.5">
-          <label htmlFor="firstName" className="text-[11px] font-medium text-muted">
+          <label htmlFor="firstName" className="text-sm font-medium text-muted">
             First name
           </label>
           <input
@@ -181,12 +181,12 @@ export default function SignupPage() {
             maxLength={50}
             aria-invalid={firstName.length > 0 && !firstNameValid}
             disabled={submitting}
-            className="rounded-md border border-border bg-elevated px-2.5 py-1.5 text-xs text-ink transition placeholder:text-faint focus:border-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60 aria-[invalid=true]:border-danger/60"
+            className="min-h-11 rounded-md border border-border bg-elevated px-3 py-2 text-base text-ink transition placeholder:text-faint focus:border-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60 aria-[invalid=true]:border-danger/60 sm:text-sm"
           />
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <label htmlFor="email" className="text-[11px] font-medium text-muted">
+          <label htmlFor="email" className="text-sm font-medium text-muted">
             Email
           </label>
           <input
@@ -198,10 +198,10 @@ export default function SignupPage() {
             autoComplete="email"
             aria-invalid={!emailValid}
             disabled={submitting}
-            className="rounded-md border border-border bg-elevated px-2.5 py-1.5 text-xs text-ink transition placeholder:text-faint focus:border-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60 aria-[invalid=true]:border-danger/60"
+            className="min-h-11 rounded-md border border-border bg-elevated px-3 py-2 text-base text-ink transition placeholder:text-faint focus:border-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60 aria-[invalid=true]:border-danger/60 sm:text-sm"
           />
           {!emailValid && (
-            <span className="text-[10px] text-danger">
+            <span className="text-sm text-danger">
               Enter a valid email address.
             </span>
           )}
@@ -219,7 +219,7 @@ export default function SignupPage() {
         />
 
         <div className="flex flex-col gap-1.5">
-          <label htmlFor="confirm" className="text-[11px] font-medium text-muted">
+          <label htmlFor="confirm" className="text-sm font-medium text-muted">
             Confirm password
           </label>
           <input
@@ -230,22 +230,22 @@ export default function SignupPage() {
             autoComplete="new-password"
             aria-invalid={!confirmValid}
             disabled={submitting}
-            className="rounded-md border border-border bg-elevated px-2.5 py-1.5 text-xs text-ink transition focus:border-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60 aria-[invalid=true]:border-danger/60"
+            className="min-h-11 rounded-md border border-border bg-elevated px-3 py-2 text-base text-ink transition focus:border-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60 aria-[invalid=true]:border-danger/60 sm:text-sm"
           />
           {!confirmValid && (
-            <span className="text-[10px] text-danger">
+            <span className="text-sm text-danger">
               Passwords don't match.
             </span>
           )}
           {confirmValid && confirm.length > 0 && confirm === password && (
-            <span className="text-[10px] text-success">✓ Passwords match</span>
+            <span className="text-sm text-success">✓ Passwords match</span>
           )}
         </div>
 
         {err && (
           <div
             role="alert"
-            className="rounded-md border border-danger/40 bg-danger/10 px-2.5 py-1.5 text-[11px] text-danger"
+            className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger"
           >
             {err}
           </div>
@@ -255,11 +255,22 @@ export default function SignupPage() {
           type="submit"
           disabled={!canSubmit}
           aria-busy={submitting}
-          className="rounded-md bg-accent px-3 py-1.5 text-[11px] font-semibold text-bg transition hover:bg-accentMuted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:bg-elevated disabled:text-faint"
+          className="min-h-11 rounded-md bg-accent px-4 py-2 text-sm font-semibold text-bg transition hover:bg-accentMuted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:bg-elevated disabled:text-faint"
         >
           {submitting ? "Creating account…" : "Create account"}
         </button>
       </form>
+      <p className="mt-4 text-center text-sm leading-relaxed text-faint">
+        By creating an account, you agree to the{" "}
+        <Link to="/terms" className="text-muted underline decoration-border underline-offset-2 hover:text-ink">
+          Terms
+        </Link>{" "}
+        and acknowledge the{" "}
+        <Link to="/privacy" className="text-muted underline decoration-border underline-offset-2 hover:text-ink">
+          Privacy notice
+        </Link>
+        .
+      </p>
     </AuthShell>
   );
 }

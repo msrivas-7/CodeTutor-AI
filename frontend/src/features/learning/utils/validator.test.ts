@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { validateLesson, pickFirstFailure } from "./validator";
+import { isRetrievalPending, validateLesson, pickFirstFailure } from "./validator";
 import type { CompletionRule, TestCaseResult, TestReport } from "../types";
 import type { RunResult, ProjectFile } from "../../../types";
 
@@ -427,6 +427,7 @@ describe("validateLesson", () => {
       // passedExceptRetrieval is the "everything else is green" signal that
       // the LessonPage uses to decide whether to mount the panel.
       expect(result.passedExceptRetrieval).toBe(true);
+      expect(isRetrievalPending(result)).toBe(true);
     });
 
     it("fails with retrievalAnswered explicitly false (same as undefined)", () => {
@@ -458,6 +459,7 @@ describe("validateLesson", () => {
       // STDOUT rule failed — the panel must NOT mount when the learner is
       // still debugging code.
       expect(result.passedExceptRetrieval).toBe(false);
+      expect(isRetrievalPending(result)).toBe(false);
     });
 
     it("passedExceptRetrieval=true only when stdout/file rules pass and retrieval is the only blocker", () => {
@@ -469,6 +471,7 @@ describe("validateLesson", () => {
       const result = validateLesson(okRun, files, rules, { retrievalAnswered: false });
       expect(result.passed).toBe(false);
       expect(result.passedExceptRetrieval).toBe(true);
+      expect(isRetrievalPending(result)).toBe(true);
     });
 
     it("passes the whole lesson when stdout + retrieval are both green", () => {
@@ -479,6 +482,7 @@ describe("validateLesson", () => {
       const result = validateLesson(okRun, files, rules, { retrievalAnswered: true });
       expect(result.passed).toBe(true);
       expect(result.passedExceptRetrieval).toBe(true);
+      expect(isRetrievalPending(result)).toBe(false);
     });
 
     it("emits learner-facing feedback that mentions the question (not the code)", () => {
