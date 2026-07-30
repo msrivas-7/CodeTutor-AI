@@ -247,15 +247,22 @@ remaining headroom in under an hour.
 Two defense layers:
 1. `codetutor-session-cleanup.timer` prunes sessions older than 120 min
    hourly (see "Session workspace cleanup timer" above).
-2. Two scheduled-query alerts in `modules/alerts.bicep` — `codetutor-vm-
-   disk-warning` at 70% (severity 4, lead indicator) and
-   `codetutor-vm-disk-high` at 80% (severity 3, paging). The 70% tier
-   gives ~2–3 GB of runway to `docker system prune` +
-   `journalctl --vacuum-size=100M` before the louder one fires.
+2. One scheduled-query alert in `modules/alerts.bicep` —
+   `codetutor-vm-disk-high` at 80% (severity 3, paging), leaving ~6 GB
+   of headroom on the 32 GB disk.
 
-If the warning tier fires persistently without the paging tier crossing,
-investigate the sweeper first: `systemctl status codetutor-session-cleanup`,
-then `ls -lah /opt/codetutor/temp/sessions/` for ownership / mtime anomalies.
+> **July-2026 cost cut:** the 70% `codetutor-vm-disk-warning` lead
+> indicator was commented out (see the `NOT NEEDED FOR NOW` block in
+> `modules/alerts.bicep`) when observability spend blew the monthly
+> credit. There is now **one tier, not two** — the first signal you get
+> is the 80% page, so the runway to act is shorter than the old two-tier
+> response assumed. Re-enable the 70% rule when real traffic justifies
+> the ~$0.50/mo.
+
+On a disk-high page: `docker system prune` +
+`journalctl --vacuum-size=100M` first, then investigate the sweeper —
+`systemctl status codetutor-session-cleanup`, then
+`ls -lah /opt/codetutor/temp/sessions/` for ownership / mtime anomalies.
 
 ### Budget + daily LA ingest cap (bucket 6)
 
@@ -288,15 +295,28 @@ DCR association missing from the VM.
 
 ### App Insights availability tests (bucket 6)
 
-Two Standard webtests (`modules/alerts.bicep`) probe the public-facing
-URLs from 5 US Azure regions every 5 min:
+**One** Standard webtest (`modules/alerts.bicep`) probes the backend from
+**2 US Azure regions (San Jose + Virginia) every 15 min**:
 - `codetutor-api-health` → `https://<vm-fqdn>/api/health/deep`
-- `codetutor-swa-root` → `https://<swa-hostname>/`
 
-Alerts fire on 2+ failing locations in a 5-min window. The backend probe
-also enforces TLS + cert-lifetime ≥7 days, so an expired Caddy cert pages
-before users hit the outage. When the custom domain lands, rewire
-`healthEndpoint` in `main.bicep` to `https://api.codetutor.msrivas.com/api/health/deep`.
+The alert fires when **both** locations fail, evaluated every 5 min over a
+30-minute window (the window must be wide enough to contain samples at the
+15-min cadence). Worst-case external detection is therefore ~30 min;
+`codetutor-vm-heartbeat-missing` at 5-min eval is the fast VM-down signal,
+and `codetutor-http-error-rate` covers app-level failure. The probe still
+enforces TLS + cert-lifetime ≥7 days, so a silently-failing Caddy renewal
+pages before users hit the outage.
+
+> **July-2026 cost cut:** Standard web tests bill ~$0.001/execution, which
+> made three probes at 5 min × 5 locations ≈ $45/mo — more than the VM.
+> `codetutor-swa-root` (Microsoft-managed SWA, its own SLA) and
+> `codetutor-tls-cert-14d` (the 14-day early-warning tier) are commented
+> out in `modules/alerts.bicep`. Net effect on operations: no independent
+> check on the SWA edge, and cert-expiry warning moved from 14 days out to
+> 7. 15 min is Azure's slowest webtest cadence — 30/60 min is not offered.
+
+When the custom domain lands, rewire `healthEndpoint` in `main.bicep` to
+`https://api.codetutor.msrivas.com/api/health/deep`.
 
 ## Image pinning
 
