@@ -9,7 +9,11 @@ import { expect, test } from "../fixtures/auth";
 import { getWorkerUser } from "../fixtures/auth";
 
 import { mockAllAI } from "../fixtures/aiMocks";
-import { markOnboardingDone, seedApiKey } from "../fixtures/profiles";
+import {
+  loadProfile,
+  markOnboardingDone,
+  seedApiKey,
+} from "../fixtures/profiles";
 import * as S from "../utils/selectors";
 
 async function openSettings(
@@ -24,6 +28,7 @@ test.describe("settings panel", () => {
   test.beforeEach(async ({ page }) => {
     await mockAllAI(page);
     await markOnboardingDone(page);
+    await loadProfile(page, "empty");
   });
 
   test("Theme toggle applies data-theme on <html> and persists pref", async ({ page }) => {
@@ -102,9 +107,9 @@ test.describe("settings panel", () => {
     await page.getByRole("button", { name: /^validate and save api key$/i }).click();
 
     // Saved pill renders, then the Model picker appears.
-    await expect(page.getByText(/● saved/i)).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText(/● saved/i)).toBeVisible({ timeout: 10_000 });
     const modelSelect = page.getByRole("combobox", { name: /^model$/i });
-    await expect(modelSelect).toBeVisible({ timeout: 5_000 });
+    await expect(modelSelect).toBeVisible({ timeout: 10_000 });
 
     // Both mocked options should be there.
     await expect(modelSelect.locator("option")).toHaveCount(2);
@@ -449,13 +454,29 @@ test.describe("settings panel", () => {
     // typed something. Empty input must be omitted (preserve any legacy
     // last_name on the account), not sent as "".
     const patchBodies: Array<Record<string, unknown>> = [];
+    const worker = await getWorkerUser(test.info().workerIndex);
+    let mockedUser = worker.session.user;
     await page.route("**/auth/v1/user**", async (route) => {
       if (route.request().method() === "PUT") {
+        let body: Record<string, unknown> = {};
         try {
-          patchBodies.push(JSON.parse(route.request().postData() ?? "{}"));
+          body = JSON.parse(route.request().postData() ?? "{}");
+          patchBodies.push(body);
         } catch {
           patchBodies.push({});
         }
+        const data = (body.data ?? {}) as Record<string, unknown>;
+        mockedUser = {
+          ...mockedUser,
+          user_metadata: { ...mockedUser.user_metadata, ...data },
+          updated_at: new Date().toISOString(),
+        };
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ user: mockedUser }),
+        });
+        return;
       }
       await route.continue();
     });

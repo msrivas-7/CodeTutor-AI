@@ -7,6 +7,7 @@ import { StreakChip } from "./StreakChip";
 import { RingPulse } from "../../../components/cinema/RingPulse";
 import { invalidateStreak, useStreak } from "../../../state/useStreak";
 import { useDisableStreaks } from "../../../state/preferencesStore";
+import { Modal } from "../../../components/Modal";
 
 /**
  * Phase A — A7: resolve the post-credits ("next episode") line.
@@ -77,15 +78,6 @@ export function LessonCompletePanel({
   ).length;
   const showShakyNudge =
     mastery === "shaky" && practiceCount > 0 && practiceDone < practiceCount;
-
-  // Phase B: Esc dismisses (preserved from the prior Modal wrapper).
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onDismiss();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onDismiss]);
 
   // Phase 21B (iter-4, post-feedback): refetch streak on mount, then
   // celebrate the CURRENT value — not a value-just-changed odometer.
@@ -162,27 +154,15 @@ export function LessonCompletePanel({
   // Fraunces, and the rings (already wrapped by CelebrationHeader)
   // get the room they need to breathe.
   return (
-    <motion.div
-      role="alertdialog"
-      aria-labelledby="lesson-complete-title"
-      aria-describedby="lesson-complete-desc"
-      className="fixed inset-0 z-[55] flex items-center justify-center px-6"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onDismiss();
-      }}
+    <Modal
+      onClose={onDismiss}
+      role="dialog"
+      labelledBy="lesson-complete-title"
+      describedBy="lesson-complete-desc"
+      position="center"
+      zIndex={55}
+      panelClassName="relative mx-4 max-h-[calc(100dvh-2rem)] w-full max-w-2xl overflow-y-auto rounded-2xl border border-success/30 bg-panel/95 p-5 shadow-2xl backdrop-blur sm:p-8 lg:p-10"
     >
-      <motion.div
-        className="relative w-full max-w-2xl rounded-2xl border border-success/30 bg-panel/95 p-10 shadow-2xl backdrop-blur"
-        initial={{ opacity: 0, scale: 0.96, y: 8 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 1.02 }}
-        transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-        onClick={(e) => e.stopPropagation()}
-      >
       <div className="relative">
         {/* Phase 21B (iter-4): always-fire streak celebration on the
             lesson-complete panel. The chip is rendered in PROMINENT mode
@@ -241,7 +221,7 @@ export function LessonCompletePanel({
               without assistive tech tripping over motion elements. */}
           {timeSpentMs !== undefined && timeSpentMs > 0 && (
             <motion.p
-              className="text-[11px] text-faint"
+              className="text-meta text-faint"
               initial={{ opacity: 0, y: 4 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.35, delay: 0.7, ease: [0.22, 1, 0.36, 1] }}
@@ -256,10 +236,10 @@ export function LessonCompletePanel({
 
         {lesson.recap && (
           <div className="mb-4 rounded-lg bg-success/5 px-4 py-3">
-            <h3 className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-success/70">
+            <h3 className="mb-1 text-meta font-semibold uppercase tracking-wider text-success/70">
               What you learned
             </h3>
-            <p className="text-xs leading-relaxed text-ink/80">{lesson.recap}</p>
+            <p className="text-base leading-relaxed text-ink/80 sm:text-body">{lesson.recap}</p>
           </div>
         )}
 
@@ -268,7 +248,7 @@ export function LessonCompletePanel({
             {lesson.teachesConceptTags.map((tag) => (
               <span
                 key={tag}
-                className="rounded-full bg-violet/10 px-2 py-0.5 text-[10px] font-medium text-violet"
+                className="rounded-full bg-violet/10 px-2 py-1 text-meta font-medium text-violet"
               >
                 {tag}
               </span>
@@ -285,15 +265,15 @@ export function LessonCompletePanel({
             }`}
           >
             {showShakyNudge && (
-              <p className="mb-2 text-[11px] font-medium leading-relaxed text-warn/90">
+              <p className="mb-2 text-base font-medium leading-relaxed text-warn/90 sm:text-body">
                 This one took a few tries — the practice below will help lock it in.
               </p>
             )}
             <div className="mb-2 flex items-center justify-between">
-              <h3 className="text-[11px] font-semibold uppercase tracking-wider text-violet/80">
+              <h3 className="text-meta font-semibold uppercase tracking-wider text-violet/80">
                 Practice challenges (optional)
               </h3>
-              <span className="text-[10px] text-muted">
+              <span className="text-meta text-muted">
                 {practiceDone}/{practiceCount}
               </span>
             </div>
@@ -301,10 +281,10 @@ export function LessonCompletePanel({
               {practiceExercises.map((ex, i) => {
                 const done = completedPracticeIds.includes(ex.id);
                 return (
-                  <li key={ex.id} className="flex items-start gap-2 text-xs text-ink/80">
+                  <li key={ex.id} className="flex items-start gap-2 text-base leading-relaxed text-ink/80 sm:text-body">
                     <span
                       aria-hidden="true"
-                      className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold md:h-4 md:w-4 md:text-[9px] ${
+                      className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-meta font-bold ${
                         done
                           ? "bg-success/20 text-success"
                           : "bg-violet/15 text-violet"
@@ -322,7 +302,7 @@ export function LessonCompletePanel({
             {onStartPractice && practiceDone < practiceCount && !showShakyNudge && (
               <button
                 onClick={onStartPractice}
-                className="w-full rounded-lg bg-violet/20 px-3 py-1.5 text-xs font-semibold text-violet transition hover:bg-violet/30"
+                className="min-h-11 w-full rounded-lg bg-violet/20 px-3 py-2 text-sm font-semibold text-violet transition hover:bg-violet/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet"
                 aria-label={practiceDone === 0 ? "Start practice challenges" : "Continue practice challenges"}
               >
                 {practiceDone === 0 ? "Start Practice" : "Continue Practice"}
@@ -333,12 +313,12 @@ export function LessonCompletePanel({
 
         {lesson.practicePrompts && lesson.practicePrompts.length > 0 && practiceCount === 0 && (
           <div className="mb-5 rounded-lg border border-accent/20 bg-accent/5 px-4 py-3">
-            <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-accent/70">
+            <h3 className="mb-2 text-meta font-semibold uppercase tracking-wider text-accent/70">
               Try these next
             </h3>
             <ul className="space-y-1.5">
               {lesson.practicePrompts.map((prompt, i) => (
-                <li key={i} className="flex gap-2 text-xs leading-relaxed text-ink/80">
+                <li key={i} className="flex gap-2 text-base leading-relaxed text-ink/80 sm:text-body">
                   <span className="shrink-0 text-accent/60">•</span>
                   {prompt}
                 </li>
@@ -355,17 +335,17 @@ export function LessonCompletePanel({
             rest of the course. */}
         {lesson.order === 1 && onShare && (
           <div className="mb-5 rounded-lg border border-accent/30 bg-gradient-to-br from-accent/10 via-violet/5 to-success/10 px-4 py-4">
-            <h3 className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-accent/80">
+            <h3 className="mb-1 text-meta font-semibold uppercase tracking-wider text-accent/80">
               Your first one
             </h3>
-            <p className="mb-3 text-[13px] leading-relaxed text-ink/85">
+            <p className="mb-3 text-base leading-relaxed text-ink/85 sm:text-body">
               First program shipped. Text it to someone who'd be proud — a
               friend, a group chat, anyone you want to show.
             </p>
             <button
               type="button"
               onClick={onShare}
-              className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-accent to-violet px-4 py-2 text-[12px] font-bold text-bg shadow-sm transition hover:opacity-90"
+              className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-gradient-to-r from-accent to-violet px-4 py-2 text-sm font-bold text-bg shadow-sm transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               aria-label="Share your first program"
             >
               <svg
@@ -394,26 +374,26 @@ export function LessonCompletePanel({
             the tease is the last thing read before choosing to
             continue — the "next episode" card, not a nag. */}
         {postCredits && (
-          <p className="mb-2 text-center text-[11px] italic leading-relaxed text-muted">
+          <p className="mb-3 text-center text-base italic leading-relaxed text-muted sm:text-body">
             {postCredits}
           </p>
         )}
         {/* CTA priority swap: when mastery is shaky and practice is incomplete,
             Start Practice becomes primary and Next Lesson is secondary. */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
           {showShakyNudge && onStartPractice ? (
             <>
               <button
                 onClick={onDismiss}
-                className="rounded-lg border border-border px-3 py-2 text-xs font-medium text-muted transition hover:bg-elevated hover:text-ink"
-                aria-label="Close celebration and stay on this lesson"
+                className="min-h-11 rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                aria-label="Keep practicing on this lesson"
               >
                 Close
               </button>
               {onNext && (
                 <button
                   onClick={onNext}
-                  className="rounded-lg border border-border px-3 py-2 text-xs font-medium text-muted transition hover:bg-elevated hover:text-ink"
+                  className="min-h-11 rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                   aria-label="Skip to next lesson"
                 >
                   Next Lesson →
@@ -421,7 +401,7 @@ export function LessonCompletePanel({
               )}
               <button
                 onClick={onStartPractice}
-                className="flex-1 rounded-lg bg-gradient-to-r from-violet to-accent px-4 py-2 text-xs font-bold text-bg shadow-glow transition hover:opacity-90"
+                className="min-h-11 flex-1 rounded-lg bg-gradient-to-r from-violet to-accent px-4 py-2 text-sm font-bold text-bg shadow-glow transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 aria-label={practiceDone === 0 ? "Start practice challenges" : "Continue practice challenges"}
               >
                 {practiceDone === 0 ? "Start Practice →" : "Continue Practice →"}
@@ -431,29 +411,15 @@ export function LessonCompletePanel({
             <>
               <button
                 onClick={onDismiss}
-                className="flex-1 rounded-lg border border-border px-4 py-2 text-xs font-medium text-muted transition hover:bg-elevated hover:text-ink"
-                // Phase 27-v2.1 medium-lock: anon dismiss preserves
-                // agency by labeling the conversion ask honestly.
-                // Phase 27-v2.2 audit fix E4 (product-owner): the prior
-                // "Done for now" label promised completion ("I'm done")
-                // but the click opens the wall titled "Lesson 2 is
-                // queued up" — clicked-stop, got-go. "See lesson 2"
-                // names the actual outcome so the wall reads as the
-                // promised destination, not a surprise. Authed dismiss
-                // stays "Keep practicing" since they have a real
-                // lesson 2 they can navigate to anytime.
-                aria-label={
-                  mode === "anon"
-                    ? "See lesson 2 — opens the signup wall"
-                    : "Close celebration and stay on this lesson"
-                }
+                className="min-h-11 flex-1 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                aria-label="Keep practicing on this lesson"
               >
-                {mode === "anon" ? "See lesson 2" : "Keep practicing"}
+                Keep practicing
               </button>
               {onNext && (
                 <button
                   onClick={onNext}
-                  className="flex-1 rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-bg transition hover:bg-accent/90"
+                  className="min-h-11 flex-1 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-bg transition hover:bg-accent/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                   aria-label="Go to next lesson"
                 >
                   Next Lesson →
@@ -476,7 +442,7 @@ export function LessonCompletePanel({
             <button
               type="button"
               onClick={onShare}
-              className="inline-flex items-center gap-1.5 rounded-full border border-border/70 px-4 py-1.5 text-[12px] font-medium text-muted transition hover:border-accent/40 hover:bg-accent/5 hover:text-ink"
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-full border border-border/70 px-4 py-2 text-sm font-medium text-muted transition hover:border-accent/40 hover:bg-accent/5 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               aria-label="Open share dialog for this lesson"
             >
               <svg
@@ -505,8 +471,7 @@ export function LessonCompletePanel({
           <LessonFeedbackChip lessonId={lesson.id} lessonTitle={lesson.title} />
         )}
       </div>
-      </motion.div>
-    </motion.div>
+    </Modal>
   );
 }
 

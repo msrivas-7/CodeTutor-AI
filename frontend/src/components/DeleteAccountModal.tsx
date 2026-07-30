@@ -109,22 +109,22 @@ export function DeleteAccountModal({ onClose }: DeleteAccountModalProps) {
       role="alertdialog"
       labelledBy="delete-account-title"
       position="center"
-      panelClassName="w-full max-w-md rounded-xl border border-danger/40 bg-panel p-5 shadow-xl"
+      panelClassName="mx-4 w-full max-w-md rounded-xl border border-danger/40 bg-panel p-5 shadow-xl"
     >
       {mode === "confirm" ? (
         <div className="flex flex-col gap-3">
           <h2
             id="delete-account-title"
-            className="text-sm font-semibold text-danger"
+            className="text-lg font-semibold text-danger"
           >
             Delete account
           </h2>
-          <p className="text-[12px] leading-relaxed text-ink/90">
+          <p className="text-base leading-relaxed text-ink/90 sm:text-body">
             This permanently removes your account, lesson progress, saved editor
             projects, preferences, and your encrypted OpenAI key from our
             servers. <span className="font-semibold">This cannot be undone.</span>
           </p>
-          <p className="text-[12px] leading-relaxed text-ink/80">
+          <p className="text-base leading-relaxed text-ink/80 sm:text-body">
             Type your email <span className="font-mono text-ink">{email}</span>{" "}
             to confirm.
           </p>
@@ -139,13 +139,13 @@ export function DeleteAccountModal({ onClose }: DeleteAccountModalProps) {
             autoComplete="off"
             spellCheck={false}
             disabled={busy}
-            className="rounded-md border border-border bg-elevated px-2.5 py-1.5 font-mono text-xs text-ink transition placeholder:text-faint focus:border-danger/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-danger disabled:cursor-not-allowed disabled:opacity-60"
+            className="min-h-11 rounded-lg border border-border bg-elevated px-3 py-2 font-mono text-base text-ink transition placeholder:text-faint focus:border-danger/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-danger disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm"
             aria-label="Confirm email"
           />
           {err && (
             <div
               role="alert"
-              className="rounded-md border border-danger/40 bg-danger/10 px-2 py-1 text-[11px] text-danger"
+              className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger"
             >
               {err}
             </div>
@@ -155,7 +155,7 @@ export function DeleteAccountModal({ onClose }: DeleteAccountModalProps) {
               type="button"
               onClick={onClose}
               disabled={busy}
-              className="rounded-md border border-border bg-elevated px-3 py-1 text-[11px] font-semibold text-ink transition hover:border-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60"
+              className="min-h-11 rounded-lg border border-border bg-elevated px-3 py-2 text-sm font-semibold text-ink transition hover:border-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60"
             >
               Cancel
             </button>
@@ -164,7 +164,7 @@ export function DeleteAccountModal({ onClose }: DeleteAccountModalProps) {
               onClick={handleDelete}
               disabled={!matches || busy}
               aria-busy={busy}
-              className="rounded-md bg-danger px-3 py-1 text-[11px] font-semibold text-bg transition hover:bg-danger/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-danger disabled:cursor-not-allowed disabled:opacity-60"
+              className="min-h-11 rounded-lg bg-danger px-3 py-2 text-sm font-semibold text-bg transition hover:bg-danger/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-danger disabled:cursor-not-allowed disabled:opacity-60"
             >
               {busy ? "Deleting…" : "Delete account"}
             </button>
@@ -179,11 +179,11 @@ export function DeleteAccountModal({ onClose }: DeleteAccountModalProps) {
         <div className="flex flex-col gap-3">
           <h2
             id="delete-account-title"
-            className="text-sm font-semibold text-danger"
+            className="text-lg font-semibold text-danger"
           >
             Sign in again to confirm
           </h2>
-          <p className="text-[12px] leading-relaxed text-ink/90">
+          <p className="text-base leading-relaxed text-ink/90 sm:text-body">
             For your safety, deleting an account requires a recent sign-in.
             We&rsquo;ll sign you out — please sign back in the same way you
             usually do, then return to{" "}
@@ -194,7 +194,7 @@ export function DeleteAccountModal({ onClose }: DeleteAccountModalProps) {
           {err && (
             <div
               role="alert"
-              className="rounded-md border border-danger/40 bg-danger/10 px-2 py-1 text-[11px] text-danger"
+              className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger"
             >
               {err}
             </div>
@@ -204,7 +204,7 @@ export function DeleteAccountModal({ onClose }: DeleteAccountModalProps) {
               type="button"
               onClick={onClose}
               disabled={busy}
-              className="rounded-md border border-border bg-elevated px-3 py-1 text-[11px] font-semibold text-ink transition hover:border-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60"
+              className="min-h-11 rounded-lg border border-border bg-elevated px-3 py-2 text-sm font-semibold text-ink transition hover:border-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60"
             >
               Cancel
             </button>
@@ -213,7 +213,7 @@ export function DeleteAccountModal({ onClose }: DeleteAccountModalProps) {
               onClick={handleSignOutForReauth}
               disabled={busy}
               aria-busy={busy}
-              className="rounded-md bg-danger px-3 py-1 text-[11px] font-semibold text-bg transition hover:bg-danger/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-danger disabled:cursor-not-allowed disabled:opacity-60"
+              className="min-h-11 rounded-lg bg-danger px-3 py-2 text-sm font-semibold text-bg transition hover:bg-danger/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-danger disabled:cursor-not-allowed disabled:opacity-60"
             >
               {busy ? "Signing out…" : "Sign out and continue"}
             </button>

@@ -1,20 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Navigate, useParams } from "react-router-dom";
-import LessonPage from "./LessonPage";
+import LessonPage, { type AnonSharePayload } from "./LessonPage";
 import { CinematicGreeting } from "../../firstRun/CinematicGreeting";
 import { SignupWallDialog, type SignupWallReason } from "../components/SignupWallDialog";
 import { PhoneGraduationDialog } from "../components/PhoneGraduationDialog";
 import { AnonShareDialog } from "../components/AnonShareDialog";
 import { useProjectStore } from "../../../state/projectStore";
-import { usePreferencesStore } from "../../../state/preferencesStore";
 import { api } from "../../../api/client";
 import { usePhoneFormFactor } from "../../../util/layoutPrefs";
 import {
   extractNameFromCode,
   hasCinematicSeen,
-  hasCoachSeenAnon,
   markCinematicSeen,
-  markCoachSeenAnon,
   writeAnonStash,
 } from "../../anon/anonStash";
 
@@ -37,15 +34,10 @@ import {
 //   - sessionStorage stash on Next-lesson click. Carries (code, name,
 //     completion flags) into the post-signup handoff endpoint so the
 //     user lands on lesson 2 with state preserved.
-//   - hasCoachSeenAnon ↔ preferencesStore.workspaceCoachDone bridge so
-//     a same-tab reload after coach dismissal doesn't replay the tour.
-//
 // What LessonPage(mode="anon") owns (the entire visible workspace):
 //   - Lesson load (loadFullLesson into projectStore)
 //   - Monaco editor + Run button + output panel + Check button
 //   - GuidedTutorPanel (routes AI stream to /api/anon/ai/ask/stream)
-//   - WorkspaceCoach 6-step tour (persistDone={false} on anon, but
-//     locally flips workspaceCoachDone so choreography enable kicks in)
 //   - useFirstRunChoreography scripted walkthrough (greet → awaitRun →
 //     celebrateRun → awaitEdit → praiseEditRun → awaitCheck → seed)
 //   - LessonCompletePanel celebration on Check pass (confetti + share +
@@ -115,44 +107,17 @@ export default function AnonLessonPage() {
     open: boolean;
     url: string;
   }>({ open: false, url: "" });
+  const anonShareTriggerRef = useRef<HTMLElement | null>(null);
+  const postShareWallTimerRef = useRef<number | null>(null);
 
-  // Bridge sessionStorage anon-coach flag → preferencesStore SYNCHRONOUSLY
-  // on first render. WorkspaceCoach inside LessonPage(mode="anon") flips
-  // workspaceCoachDone locally on dismissal (no PATCH); we mirror that
-  // flip back into sessionStorage so a reload doesn't re-show the
-  // 6-step tour.
-  //
-  // CRITICAL: this must run BEFORE LessonPage's first render commits.
-  // useEffect runs AFTER first commit — by which time useLessonLayout
-  // has already read workspaceCoachDone=false and scheduled the
-  // COACH_AUTO_OPEN_MS=600ms timer. Even though a follow-up effect
-  // would clear that timer, there's a window where the user can see
-  // a flicker if the workspaceCoachDone update lands too late.
-  // useState's lazy initializer runs DURING render, before any child
-  // mounts, so by the time LessonPage reads workspaceCoachDone via
-  // its preferencesStore selector, the value is already true.
-  // (Side-effect-in-initializer pattern: idempotent setState, runs
-  // exactly once thanks to useState's contract.)
-  useState(() => {
-    if (hasCoachSeenAnon()) {
-      usePreferencesStore.setState({ workspaceCoachDone: true });
-    }
-    return true;
-  });
-
-  // Subscribe to coach-completion → mirror back into sessionStorage.
-  // Subscribe is registered post-mount (useEffect) but the false→true
-  // transition only fires AFTER the user actually completes the coach
-  // in this tab, well after mount. The seed-via-useState above covers
-  // the reload-replay case independently.
-  useEffect(() => {
-    const unsub = usePreferencesStore.subscribe((state, prev) => {
-      if (state.workspaceCoachDone && !prev.workspaceCoachDone) {
-        markCoachSeenAnon();
+  useEffect(
+    () => () => {
+      if (postShareWallTimerRef.current !== null) {
+        window.clearTimeout(postShareWallTimerRef.current);
       }
-    });
-    return unsub;
-  }, []);
+    },
+    [],
+  );
 
   // Phase 27-v2.2 Fix 6 — funnel telemetry: anon_page_view fires at
   // most once per browser session per /try/ visit. Backend hashes the
@@ -212,11 +177,10 @@ export default function AnonLessonPage() {
   // Note: the share gate in LessonPage still hides on practice mode
   // for both authed and anon — this callback only fires for non-
   // practice celebrations.
-  const onAnonShare = () => {
-    const files = useProjectStore.getState().snapshot();
-    const main = files.find((f) => f.path === "main.py") ?? files[0];
-    const code = main?.content ?? "";
-    if (!code.trim()) {
+  const onAnonShare = (payload: AnonSharePayload) => {
+    anonShareTriggerRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (!payload.codeSnippet.trim()) {
       // No code typed — shouldn't happen post-celebration, but if it
       // does, fall back to the wall instead of sending a 400.
       openWall("share");
@@ -226,15 +190,10 @@ export default function AnonLessonPage() {
       .createAnonShare({
         courseId: ANON_ALLOWED.courseId,
         lessonId: ANON_ALLOWED.lessonId,
-        mastery: "strong",
-        timeSpentMs: 0,
-        attemptCount: 0,
-        codeSnippet: code,
-        displayName: extractNameFromCode(code),
+        ...payload,
       })
       .then(({ url }) => {
         setAnonShare({ open: true, url });
-        api.postFunnelEvent("anon_wall_opened", "share");
       })
       .catch(() => {
         // Rate-limit / kill-switch / network: silent fallback to wall
@@ -264,13 +223,12 @@ export default function AnonLessonPage() {
       lessonId: ANON_ALLOWED.lessonId,
       code,
       name: parsedName,
-      // workspaceCoachDone reflects the local truth: coach was either
-      // dismissed in this tab or skipped because hasCoachSeenAnon was
-      // already true on mount. Either way, the post-signup handoff
-      // flips the persistent flag so lesson 2 doesn't re-show the tour.
       flags: {
         welcomeDone: true,
-        workspaceCoachDone: hasCoachSeenAnon(),
+        // Phase A-Q removed the stacked workspace tour from lessons.
+        // Keep the persisted flag true so post-signup lesson 2 and the
+        // free editor do not resurrect obsolete onboarding.
+        workspaceCoachDone: true,
       },
     });
     if (isPhone) {
@@ -342,7 +300,21 @@ export default function AnonLessonPage() {
       <SignupWallDialog
         open={wall.open}
         reason={wall.reason}
-        onDismiss={() => setWall({ open: false, reason: wall.reason })}
+        onDismiss={() => {
+          const restoreTarget =
+            wall.reason === "share" ? anonShareTriggerRef.current : null;
+          setWall({ open: false, reason: wall.reason });
+          if (restoreTarget) {
+            // This wall follows a dismissed share dialog, so the Modal's
+            // immediate previous-focus element belonged to a portal that no
+            // longer exists. Restore to the durable celebration trigger once
+            // the wall's inert cleanup has completed.
+            window.requestAnimationFrame(() => {
+              if (restoreTarget.isConnected) restoreTarget.focus();
+              anonShareTriggerRef.current = null;
+            });
+          }
+        }}
       />
       {graduation.open && (
         <PhoneGraduationDialog
@@ -356,10 +328,17 @@ export default function AnonLessonPage() {
         <AnonShareDialog
           url={anonShare.url}
           onDismiss={() => {
-            // Close the dialog AND open the wall in the same beat
-            // so the conversion ask lands after the artifact reveal.
+            // Let the share Modal unmount and restore focus to its trigger
+            // before mounting the conversion wall. A zero-delay task gives
+            // React and the Modal cleanup a deterministic commit boundary.
+            // requestAnimationFrame is intentionally avoided here: WebKit can
+            // defer animation frames in headless/background tabs, which used
+            // to leave users with neither dialog nor conversion prompt.
             setAnonShare((s) => ({ ...s, open: false }));
-            openWall("share");
+            postShareWallTimerRef.current = window.setTimeout(() => {
+              postShareWallTimerRef.current = null;
+              openWall("share");
+            }, 0);
           }}
         />
       )}

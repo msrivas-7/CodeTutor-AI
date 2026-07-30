@@ -1,12 +1,28 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { UserPreferences } from "../api/client";
 
-const { getPreferences, patchPreferences } = vi.hoisted(() => ({
+const {
+  getPreferences,
+  patchPreferences,
+  saveOpenAIKey,
+  deleteOpenAIKey,
+  getAIStatus,
+} = vi.hoisted(() => ({
   getPreferences: vi.fn(),
   patchPreferences: vi.fn(),
+  saveOpenAIKey: vi.fn(),
+  deleteOpenAIKey: vi.fn(),
+  getAIStatus: vi.fn(),
 }));
 
 vi.mock("../api/client", () => ({
-  api: { getPreferences, patchPreferences },
+  api: {
+    getPreferences,
+    patchPreferences,
+    saveOpenAIKey,
+    deleteOpenAIKey,
+    getAIStatus,
+  },
 }));
 
 // Phase 27-v2.1 audit pass 1 fix #5 added a `hasAuthSession()` short-
@@ -22,7 +38,7 @@ vi.mock("../auth/hasAuthSession", () => ({
 
 import { usePreferencesStore, setTheme, setPersona, setUiLayoutValue } from "./preferencesStore";
 
-function defaultServer() {
+function defaultServer(): UserPreferences {
   return {
     persona: "intermediate" as const,
     openaiModel: null,
@@ -31,6 +47,11 @@ function defaultServer() {
     workspaceCoachDone: false,
     editorCoachDone: false,
     uiLayout: {},
+    hasOpenaiKey: false,
+    lastWelcomeBackAt: null,
+    emailOptIn: true,
+    disableStreaks: false,
+    accountFrozen: false,
     updatedAt: "now",
   };
 }
@@ -45,9 +66,18 @@ beforeEach(() => {
     workspaceCoachDone: false,
     editorCoachDone: false,
     uiLayout: {},
+    hasOpenaiKey: false,
+    lastWelcomeBackAt: null,
+    emailOptIn: true,
+    disableStreaks: false,
+    accountFrozen: false,
   });
   getPreferences.mockReset();
   patchPreferences.mockReset();
+  saveOpenAIKey.mockReset();
+  deleteOpenAIKey.mockReset();
+  getAIStatus.mockReset();
+  getAIStatus.mockResolvedValue({ source: "byok" });
 });
 
 afterEach(() => {
@@ -78,6 +108,43 @@ describe("preferencesStore.hydrate", () => {
     expect(s.hydrateError).toBe("boom");
     expect(s.theme).toBe("dark");
   });
+
+  it("does not let a stale hydration overwrite a newer preference mutation", async () => {
+    let resolveHydrate!: (value: ReturnType<typeof defaultServer>) => void;
+    getPreferences.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveHydrate = resolve;
+      }),
+    );
+    patchPreferences.mockResolvedValueOnce({
+      ...defaultServer(),
+      disableStreaks: true,
+    });
+
+    const hydration = usePreferencesStore.getState().hydrate();
+    await usePreferencesStore.getState().patch({ disableStreaks: true });
+    resolveHydrate({ ...defaultServer(), disableStreaks: false });
+    await hydration;
+
+    expect(usePreferencesStore.getState().disableStreaks).toBe(true);
+  });
+
+  it("only applies the newest overlapping hydration response", async () => {
+    let resolveFirst!: (value: ReturnType<typeof defaultServer>) => void;
+    let resolveSecond!: (value: ReturnType<typeof defaultServer>) => void;
+    getPreferences
+      .mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve; }))
+      .mockReturnValueOnce(new Promise((resolve) => { resolveSecond = resolve; }));
+
+    const first = usePreferencesStore.getState().hydrate();
+    const second = usePreferencesStore.getState().hydrate();
+    resolveSecond({ ...defaultServer(), theme: "light" });
+    await second;
+    resolveFirst({ ...defaultServer(), theme: "dark" });
+    await first;
+
+    expect(usePreferencesStore.getState().theme).toBe("light");
+  });
 });
 
 describe("preferencesStore.patch (optimistic)", () => {
@@ -100,6 +167,55 @@ describe("preferencesStore.patch (optimistic)", () => {
       usePreferencesStore.getState().patch({ theme: "light" }),
     ).rejects.toThrow();
     expect(usePreferencesStore.getState().theme).toBe("dark");
+  });
+
+  it("does not let an older PATCH response overwrite a newer mutation", async () => {
+    let resolveFirst!: (value: ReturnType<typeof defaultServer>) => void;
+    patchPreferences
+      .mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve; }))
+      .mockResolvedValueOnce({ ...defaultServer(), theme: "dark" });
+
+    const first = usePreferencesStore.getState().patch({ theme: "light" });
+    const second = usePreferencesStore.getState().patch({ theme: "dark" });
+    await second;
+    resolveFirst({ ...defaultServer(), theme: "light" });
+    await first;
+
+    expect(usePreferencesStore.getState().theme).toBe("dark");
+  });
+
+  it("reconciles only fields owned by a PATCH response", async () => {
+    usePreferencesStore.setState({ hasOpenaiKey: true });
+    patchPreferences.mockResolvedValueOnce({
+      ...defaultServer(),
+      openaiModel: "gpt-4o-mini",
+      hasOpenaiKey: false,
+    });
+
+    await usePreferencesStore.getState().patch({
+      openaiModel: "gpt-4o-mini",
+    });
+
+    expect(usePreferencesStore.getState().openaiModel).toBe("gpt-4o-mini");
+    expect(usePreferencesStore.getState().hasOpenaiKey).toBe(true);
+  });
+});
+
+describe("preferencesStore API key persistence", () => {
+  it("does not expose a connected key until the server write commits", async () => {
+    let resolveSave!: () => void;
+    saveOpenAIKey.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        resolveSave = resolve;
+      }),
+    );
+
+    const saving = usePreferencesStore.getState().saveOpenaiKey("sk-test");
+    expect(usePreferencesStore.getState().hasOpenaiKey).toBe(false);
+
+    resolveSave();
+    await saving;
+    expect(usePreferencesStore.getState().hasOpenaiKey).toBe(true);
   });
 });
 

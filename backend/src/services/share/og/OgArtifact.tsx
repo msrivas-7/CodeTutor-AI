@@ -39,9 +39,9 @@ function masteryColor(mastery: "strong" | "okay" | "shaky"): string {
 }
 
 function masteryLabel(mastery: "strong" | "okay" | "shaky"): string {
-  if (mastery === "strong") return "Strong mastery";
-  if (mastery === "okay") return "Solid mastery";
-  return "Earned the hard way";
+  if (mastery === "strong") return "Completed confidently";
+  if (mastery === "okay") return "Lesson completed";
+  return "Kept going and finished";
 }
 
 function fmtTimeSpent(ms: number): string {

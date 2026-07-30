@@ -10,19 +10,27 @@
 import type { Page } from "@playwright/test";
 
 // Polls until @monaco-editor/react has registered at least one model. 15s
-// ceiling keeps bad tests from hanging forever; 250ms interval is fast enough
-// that a normal cold boot clears in ~2s.
+// keeps a genuinely missing editor from consuming the whole test timeout;
+// a normal cold boot clears in ~2s. Include the final URL in the error because
+// a prerequisite redirect can otherwise masquerade as a slow Monaco import.
 export async function waitForMonacoReady(page: Page, timeout = 15_000): Promise<void> {
-  await page.waitForFunction(
-    () => {
-      const w = window as unknown as {
-        monaco?: { editor: { getModels(): Array<unknown> } };
-      };
-      return (w.monaco?.editor.getModels?.()?.length ?? 0) > 0;
-    },
-    undefined,
-    { timeout, polling: 250 },
-  );
+  try {
+    await page.waitForFunction(
+      () => {
+        const w = window as unknown as {
+          monaco?: { editor: { getModels(): Array<unknown> } };
+        };
+        return (w.monaco?.editor.getModels?.()?.length ?? 0) > 0;
+      },
+      undefined,
+      { timeout, polling: 250 },
+    );
+  } catch (error) {
+    throw new Error(
+      `Monaco did not become ready within ${timeout}ms at ${page.url()}`,
+      { cause: error },
+    );
+  }
   // One RAF hop for tokenization to settle so `.monaco-editor[data-mode-id]`
   // is accurate in downstream checks. Cheaper than a blanket setTimeout.
   await page.evaluate(

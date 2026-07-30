@@ -95,9 +95,10 @@ test.describe("anonymous lesson 1 (Phase 27 §3a)", () => {
     // callback to open the wall with reason="save".
     await page.getByRole("button", { name: /sign up to save/i }).click();
 
-    // Wall renders as role=alertdialog with aria-labelledby targeting
+    // The conversion prompt is an ordinary modal dialog (not an urgent
+    // alertdialog) with aria-labelledby targeting
     // the title. The "save" reason title is "Sign up to save?".
-    const dialog = page.getByRole("alertdialog");
+    const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
     await expect(dialog.getByText(/Sign up to save\?/i)).toBeVisible();
 
@@ -206,49 +207,23 @@ test.describe("first-run cinematic on /try/ (Phase 27-v2 Day 2)", () => {
     await expect(page.getByRole("button", { name: /skip/i })).toHaveCount(0);
   });
 
-  test("WorkspaceCoach auto-opens on /try/ after cinematic dismisses", async ({
+  test("lesson is immediately usable after the cinematic without a stacked workspace tour", async ({
     page,
   }) => {
-    // Phase 27-v2 Day 6: brand-new tab → cinematic plays → cinematic
-    // dismisses → WorkspaceCoach 6-step tour mounts BEFORE the
-    // scripted walkthrough fires.
-    //
-    // Phase 27-v2.1 Part 3: the WorkspaceCoach now mounts INSIDE
-    // LessonPage(mode="anon") via useLessonLayout's auto-open timer
-    // (gated on !workspaceCoachDone). The wrapper bridges the
-    // sessionStorage flag → preferencesStore on mount; we only seed
-    // the cinematic flag here so the coach mounts fresh.
     await page.addInitScript(() => {
       window.sessionStorage.setItem("codetutor.anonCinematicSeen", "1");
     });
     await page.goto(ALLOWED_PATH);
-
-    // The coach's first step bubble carries the "Lesson Instructions"
-    // title + body. Generous timeout because the coach mounts only
-    // after the lesson loads + the spotlight rect resolves.
-    await expect(
-      page.getByText(/Lesson Instructions/i).first(),
-    ).toBeVisible({ timeout: 10_000 });
-
-    // Esc dismisses the coach (parity with /welcome → /learn cinematic).
-    await page.keyboard.press("Escape");
-
-    // After dismiss the coach is gone; lesson chrome is unobstructed.
-    await expect(page.getByText(/Lesson Instructions/i)).toHaveCount(0);
-    await expect(page.locator("header").getByText("Lesson 1", { exact: true })).toBeVisible();
-
-    // Same-tab reload — coach should NOT replay. The wrapper
-    // subscribes to preferencesStore.workspaceCoachDone changes
-    // and mirrors them into sessionStorage via markCoachSeenAnon,
-    // so a reload pre-seeds the flag and skips the auto-open timer.
-    await page.reload();
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible({
       timeout: 10_000,
     });
-    await expect(page.getByText(/Lesson Instructions/i)).toHaveCount(0);
+    await page.waitForTimeout(1500);
+    await expect(page.getByRole("button", { name: /^skip tour$/i })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /run/i }).first()).toBeEnabled();
+    await expect(page.getByRole("button", { name: /check/i }).first()).toBeEnabled();
   });
 
-  test("WorkspaceCoach phone short-circuits — no coach on 390x844 (Fix 3)", async ({
+  test("no workspace tour appears on 390x844", async ({
     browser,
   }) => {
     // Phase 27-v2.2 Fix 3 — coach mounts on desktop but auto-skips on

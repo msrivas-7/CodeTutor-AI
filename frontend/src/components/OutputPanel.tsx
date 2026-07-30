@@ -106,7 +106,7 @@ export function OutputPanel() {
               aria-controls="output-panel-body"
               tabIndex={tab === t ? 0 : -1}
               onClick={() => setTab(t)}
-              className={`rounded px-2 py-1 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+              className={`inline-flex min-h-11 min-w-11 items-center justify-center rounded px-2 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
                 tab === t
                   ? "bg-bg text-ink shadow-soft ring-1 ring-accent/40"
                   : "text-muted hover:bg-bg/40 hover:text-ink"

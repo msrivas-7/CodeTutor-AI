@@ -38,6 +38,15 @@ export interface ValidateExtraContext {
   retrievalAnswered?: boolean;
 }
 
+/** True when the learner's code is correct and only the concept check remains. */
+export function isRetrievalPending(
+  validation: ValidationResult | null | undefined,
+): boolean {
+  return Boolean(
+    validation && !validation.passed && validation.passedExceptRetrieval,
+  );
+}
+
 /**
  * Returns the single most informative failure from a test report, in priority
  * order: first failing visible test, then first failing hidden test. Used by

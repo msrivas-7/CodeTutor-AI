@@ -265,6 +265,9 @@ function ProfileTab({ onClose }: { onClose?: () => void }) {
   const timerRef = useRef<number | null>(null);
   useEffect(() => {
     if (!saveMsg) return;
+    // Success is a lightweight confirmation; errors need to remain visible
+    // long enough to read and act on, especially on slower connections.
+    if (saveMsg.kind === "error") return;
     if (timerRef.current) window.clearTimeout(timerRef.current);
     timerRef.current = window.setTimeout(() => setSaveMsg(null), 2500);
     return () => {
@@ -1131,4 +1134,3 @@ function DataExportSection() {
     </section>
   );
 }
-

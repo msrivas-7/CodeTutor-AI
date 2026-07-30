@@ -34,7 +34,7 @@ export function ExhaustionCard({ resetAtUtc, onOpenSettings, onDismiss }: Exhaus
   };
 
   return (
-    <div className="rounded-md border border-warn/40 bg-warn/10 p-3 text-xs leading-relaxed text-warn">
+    <div className="rounded-lg border border-warn/40 bg-warn/10 p-3 text-base leading-relaxed text-warn sm:text-body">
       <div className="mb-1 font-semibold text-warn">
         You've used today's free tutor questions.
       </div>
@@ -44,14 +44,14 @@ export function ExhaustionCard({ resetAtUtc, onOpenSettings, onDismiss }: Exhaus
       <div className="mt-2.5 flex flex-col gap-1.5">
         <button
           onClick={handleByok}
-          className="rounded-md bg-warn px-2.5 py-1.5 text-[11px] font-semibold text-bg transition hover:bg-warn/90"
+          className="min-h-11 rounded-lg bg-warn px-3 py-2 text-sm font-semibold text-bg transition hover:bg-warn/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn"
         >
           Add my OpenAI key for unlimited
         </button>
         <PaidAccessInterestButton tone="warn" />
         <button
           onClick={handleDismiss}
-          className="text-[11px] text-warn/70 underline underline-offset-2 transition hover:text-warn"
+          className="min-h-11 rounded-lg px-3 py-2 text-sm text-warn/70 underline underline-offset-2 transition hover:bg-warn/10 hover:text-warn focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn"
         >
           Dismiss
         </button>

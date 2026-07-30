@@ -312,7 +312,7 @@ test.describe("practice mode", () => {
     await S.checkMyWorkButton(page).click();
 
     // Completion modal renders with "Start Practice" primary CTA.
-    const modal = page.locator('[role="alertdialog"]');
+    const modal = page.getByRole("dialog", { name: /lesson complete/i });
     const startPractice = modal.getByRole("button", { name: /^start practice/i });
     await expect(startPractice).toBeVisible({ timeout: 30_000 });
     await startPractice.click();

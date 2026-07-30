@@ -24,14 +24,14 @@ import { loadProfile, markOnboardingDone } from "../fixtures/profiles";
 //     still flags our route-level <div> wrappers because they don't all
 //     have an explicit landmark. Not a bucket-5 regression; would need a
 //     broader layout refactor.
-//   - "color-contrast": Monaco's editor skins are third-party and fail
-//     this check on some tokens; we can't fix them without forking. Our
-//     own copy was already tightened in bucket 5 (A-5).
-const DISABLED_RULES = ["region", "color-contrast"];
+const DISABLED_RULES = ["region"];
 
 async function runAxe(page: import("@playwright/test").Page) {
   return await new AxeBuilder({ page })
     .disableRules(DISABLED_RULES)
+    // Monaco owns its syntax theme and internal textarea. Exclude only
+    // that third-party subtree; first-party contrast remains enforced.
+    .exclude(".monaco-editor")
     .withTags(["wcag2a", "wcag2aa"])
     .analyze();
 }
@@ -104,4 +104,29 @@ test.describe("a11y — axe-core regression fence", () => {
     }
     expect(severe).toEqual([]);
   });
+
+  for (const publicPage of [
+    { path: "/", heading: /AI that builds you/i },
+    { path: "/signup", heading: /create your account/i },
+    { path: "/privacy", heading: /privacy, in plain language/i },
+    { path: "/terms", heading: /terms of use/i },
+    { path: "/support", heading: /let's get you unstuck/i },
+  ]) {
+    test(`${publicPage.path} has no serious/critical first-party axe violations`, async ({ page }) => {
+      // The shared fixture owns an authenticated session. Auth routes
+      // intentionally redirect signed-in learners to /start, so clear the
+      // browser session before scanning genuinely public/auth entry pages.
+      await page.context().clearCookies();
+      await page.addInitScript(() => {
+        window.localStorage.clear();
+        window.sessionStorage.clear();
+      });
+      await page.goto(publicPage.path);
+      await expect(page.getByRole("heading", { name: publicPage.heading }).first()).toBeVisible({
+        timeout: 15_000,
+      });
+      const severe = severeViolations(await runAxe(page));
+      expect(severe).toEqual([]);
+    });
+  }
 });

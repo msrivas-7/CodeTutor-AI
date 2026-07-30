@@ -59,7 +59,7 @@ const bodySchema = z
     lessonId: z.literal("hello-world"),
     mastery: z.enum(["strong", "okay", "shaky"]),
     timeSpentMs: z.number().int().min(0).max(7 * 24 * 60 * 60 * 1000),
-    attemptCount: z.number().int().min(0).max(10_000),
+    attemptCount: z.number().int().min(1).max(10_000),
     codeSnippet: z
       .string()
       .min(1, "codeSnippet required")

@@ -44,18 +44,18 @@ export function CoursePrereqWarningModal({
       labelledBy="course-prereq-warning-title"
       describedBy="course-prereq-warning-body"
       position="center"
-      panelClassName="w-full max-w-md rounded-xl border border-border bg-panel p-5 shadow-xl"
+      panelClassName="mx-4 w-full max-w-md rounded-xl border border-border bg-panel p-5 shadow-xl"
     >
       <div className="flex flex-col gap-3">
         <h2
           id="course-prereq-warning-title"
-          className="text-sm font-semibold text-ink"
+          className="text-lg font-semibold text-ink"
         >
           Heads up
         </h2>
         <p
           id="course-prereq-warning-body"
-          className="text-[12px] leading-relaxed text-ink/90"
+          className="text-base leading-relaxed text-ink/90 sm:text-body"
         >
           {targetCourseTitle} assumes you&rsquo;ve completed{" "}
           <span className="font-semibold text-ink">{prereqCourseTitle}</span>.
@@ -66,14 +66,14 @@ export function CoursePrereqWarningModal({
           <button
             type="button"
             onClick={onGoToPrereq}
-            className="rounded-md bg-accent px-3 py-2 text-[12px] font-semibold text-bg transition hover:bg-accent/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="min-h-11 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-bg transition hover:bg-accent/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             Take me to {prereqCourseTitle}
           </button>
           <button
             type="button"
             onClick={onContinue}
-            className="rounded-md px-3 py-2 text-[12px] font-medium text-ink/80 underline-offset-4 transition hover:text-ink hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="min-h-11 rounded-lg px-3 py-2 text-sm font-medium text-ink/80 underline-offset-4 transition hover:bg-elevated hover:text-ink hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             Continue to {targetCourseTitle}
           </button>

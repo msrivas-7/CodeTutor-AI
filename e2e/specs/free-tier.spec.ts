@@ -194,8 +194,10 @@ test.describe("free AI tier", () => {
     await expect(page.getByText(/You've used today's free tutor questions/i)).toBeHidden();
 
     // Each click path hits its backend once.
-    expect(paidCta.count()).toBeGreaterThanOrEqual(1);
-    expect(byokCta.count()).toBeGreaterThanOrEqual(1); // Dismiss → exhaustion-click
+    await expect.poll(paidCta.count).toBeGreaterThanOrEqual(1);
+    // Dismiss updates the UI synchronously while telemetry is intentionally
+    // fire-and-forget, so wait for the intercepted request to arrive.
+    await expect.poll(byokCta.count).toBeGreaterThanOrEqual(1);
   });
 
   test("BYOK source renders UsageChip, no pill", async ({ page }) => {

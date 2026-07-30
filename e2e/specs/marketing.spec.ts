@@ -77,6 +77,15 @@ test.describe("marketing page (Phase 22C) — anonymous", () => {
     await expect(page.getByRole("heading", { name: "Check." })).toBeVisible();
   });
 
+  test("essential How-it-works copy is never animation-gated at zero opacity", async ({ page }) => {
+    await page.goto("/");
+    const section = page.locator("#how-it-works");
+    const hiddenEssential = await section.locator("h3, p").evaluateAll((nodes) =>
+      nodes.filter((node) => Number.parseFloat(getComputedStyle(node).opacity) === 0).length,
+    );
+    expect(hiddenEssential).toBe(0);
+  });
+
   test("OG meta and document title carry the new hero claim", async ({
     page,
   }) => {
@@ -144,6 +153,25 @@ test.describe("marketing page (Phase 22C) — reduced motion", () => {
       .getByRole("link", { name: /start your first lesson/i })
       .first();
     await expect(cta).toBeVisible();
+    const box = await cta.boundingBox();
+    expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+  });
+
+  test("360px viewport has no essential horizontal overflow", async ({ browser }) => {
+    const context = await browser.newContext({
+      viewport: { width: 360, height: 800 },
+      isMobile: true,
+      hasTouch: true,
+    });
+    const page = await context.newPage();
+    await page.goto("/");
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+    const widths = await page.evaluate(() => ({
+      document: document.documentElement.scrollWidth,
+      viewport: window.innerWidth,
+    }));
+    expect(widths.document).toBeLessThanOrEqual(widths.viewport + 1);
+    await context.close();
   });
 });
 

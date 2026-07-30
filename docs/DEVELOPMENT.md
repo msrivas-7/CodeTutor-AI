@@ -105,7 +105,7 @@ All optional — defaults work for local use. See [.env.example](../.env.example
 | `RUN_TIMEOUT_MS` | `10000` | Wall-clock per `docker exec` |
 | `RUNNER_MEMORY_BYTES` | `536870912` | Per-container memory (512 MB) |
 | `RUNNER_NANO_CPUS` | `1000000000` | Per-container CPU (1 CPU) |
-| `CORS_ORIGIN` | `http://localhost:5173` | Frontend origin |
+| `CORS_ORIGIN` | `http://localhost:5173` | Canonical frontend origin. Production also accepts only this CodeTutor Azure Static Web Apps resource's exact primary and numeric PR-preview hostnames; it does not wildcard `azurestaticapps.net`. |
 | `EXECUTION_BACKEND` | `local-docker` | Execution backend impl (future: cloud variants) |
 | `DOCKER_HOST` | `tcp://socket-proxy:2375` | Docker endpoint — set by compose so dockerode talks to the allowlisted socket proxy, not the raw socket |
 | `AI_RATE_LIMIT_WINDOW_MS` | `60000` | Rate-limit window for `/api/ai/*` |

@@ -23,16 +23,24 @@ export default defineConfig({
     },
   },
   build: {
+    modulePreload: {
+      // Rollup's explicit Monaco vendor chunk is needed only by the editor
+      // routes. Vite otherwise injects that dynamic chunk (and its 129 kB CSS)
+      // into index.html as an eager preload, making every marketing/auth visit
+      // pay the editor's render-blocking cost before it can paint.
+      resolveDependencies: (_filename, dependencies, { hostType }) =>
+        hostType === "html"
+          ? dependencies.filter((dependency) => !dependency.includes("monaco"))
+          : dependencies,
+    },
     rollupOptions: {
       output: {
-        // P-H2: force Monaco + its workers into a dedicated chunk so it can
-        // stay dynamically-imported by lazy(() => import("./MonacoPane")) and
-        // doesn't bleed back into the landing/entry bundle via accidental
-        // dependency sharing. `react-router-dom` lives in the SPA shell (every
-        // route touches it), so it gets its own stable chunk — without this,
-        // the router's ~40 KB bounces between chunks across builds.
+        // Monaco stays behind MonacoPane's dynamic import. Forcing it into a
+        // manual vendor chunk caused Vite to emit the editor's 129 kB CSS as a
+        // render-blocking link in index.html on every public route. Let Rollup
+        // keep that dynamic boundary intact. `react-router-dom` lives in the
+        // SPA shell, so it retains a stable shared chunk.
         manualChunks: {
-          monaco: ["monaco-editor", "@monaco-editor/react"],
           router: ["react-router-dom"],
         },
       },

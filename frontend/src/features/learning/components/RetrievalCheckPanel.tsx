@@ -70,14 +70,23 @@ export function RetrievalCheckPanel({
 
   return (
     <div
-      role="dialog"
-      aria-label="Quick check before you finish"
-      className="rounded-lg border border-accent/40 bg-panel p-5 shadow-lg"
+      role="region"
+      aria-labelledby="retrieval-check-title"
+      aria-describedby="retrieval-check-question"
+      className="rounded-xl border border-accent/40 bg-panel p-4 shadow-lg sm:p-5"
     >
-      <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-accent">
+      <div
+        id="retrieval-check-title"
+        className="mb-3 text-meta font-semibold uppercase tracking-wide text-accent"
+      >
         Quick check
       </div>
-      <pre className="mb-4 whitespace-pre-wrap font-sans text-sm text-ink">{question}</pre>
+      <pre
+        id="retrieval-check-question"
+        className="mb-4 whitespace-pre-wrap font-sans text-base leading-relaxed text-ink sm:text-body"
+      >
+        {question}
+      </pre>
 
       <div className="flex flex-col gap-2">
         {choices.map((choice, i) => {
@@ -95,7 +104,7 @@ export function RetrievalCheckPanel({
               type="button"
               onClick={() => handlePick(i)}
               disabled={confirming}
-              className={`rounded-md border px-3 py-2 text-left text-sm transition disabled:cursor-default ${stateClass}`}
+              className={`min-h-11 rounded-lg border px-3 py-2 text-left text-base transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-default sm:text-body ${stateClass}`}
             >
               {choice}
             </button>
@@ -104,12 +113,12 @@ export function RetrievalCheckPanel({
       </div>
 
       {isWrong && (
-        <div className="mt-4 rounded-md border border-warn/40 bg-warn/10 p-3 text-xs leading-relaxed text-warn">
+        <div className="mt-4 rounded-lg border border-warn/40 bg-warn/10 p-3 text-base leading-relaxed text-warn sm:text-body">
           {explanation ?? "Not quite — try again."}
           <button
             type="button"
             onClick={handleRetry}
-            className="ml-2 inline-flex items-center font-semibold underline underline-offset-2 hover:text-warn/80"
+            className="ml-1 inline-flex min-h-11 items-center rounded px-2 font-semibold underline underline-offset-2 hover:text-warn/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn"
           >
             Try again
           </button>
@@ -117,7 +126,7 @@ export function RetrievalCheckPanel({
       )}
 
       {confirming && (
-        <div className="mt-4 text-xs font-semibold text-success">
+        <div role="status" className="mt-4 text-base font-semibold text-success sm:text-body">
           ✓ Correct — finishing your lesson…
         </div>
       )}

@@ -53,10 +53,10 @@ export function PaidAccessInterestButton({
 
   const btnCls =
     tone === "warn"
-      ? "rounded-md border border-warn/40 bg-bg/40 px-2.5 py-1 text-[11px] font-semibold text-warn transition hover:bg-bg/70 disabled:cursor-not-allowed disabled:opacity-60"
-      : "rounded-md border border-border bg-elevated px-2.5 py-1 text-[11px] font-semibold text-ink transition hover:bg-elevated/80 disabled:cursor-not-allowed disabled:opacity-60";
-  const leadCls = tone === "warn" ? "text-[11px] text-warn/80" : "text-[11px] text-muted";
-  const ackCls = tone === "warn" ? "text-[11px] text-warn/90" : "text-[11px] text-muted";
+      ? "min-h-11 rounded-lg border border-warn/40 bg-bg/40 px-3 py-2 text-sm font-semibold text-warn transition hover:bg-bg/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn disabled:cursor-not-allowed disabled:opacity-60"
+      : "min-h-11 rounded-lg border border-border bg-elevated px-3 py-2 text-sm font-semibold text-ink transition hover:bg-elevated/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60";
+  const leadCls = tone === "warn" ? "text-sm text-warn/80" : "text-sm text-muted";
+  const ackCls = tone === "warn" ? "text-sm text-warn/90" : "text-sm text-muted";
 
   return (
     <div className="flex flex-col gap-1.5">

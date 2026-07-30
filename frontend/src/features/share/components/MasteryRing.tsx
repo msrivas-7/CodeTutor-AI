@@ -49,7 +49,7 @@ export function MasteryRing({
 }
 
 export function masteryLabel(mastery: ShareMastery): string {
-  if (mastery === "strong") return "Strong mastery";
-  if (mastery === "okay") return "Solid mastery";
-  return "Earned the hard way";
+  if (mastery === "strong") return "Completed confidently";
+  if (mastery === "okay") return "Lesson completed";
+  return "Kept going and finished";
 }

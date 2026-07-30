@@ -462,8 +462,8 @@ export default function StartPage() {
     return (
       <div className="flex h-full items-center justify-center bg-bg text-muted">
         <div className="flex flex-col items-center gap-1 text-center">
-          <div className="text-[13px] text-ink">Carrying your work over…</div>
-          <div className="text-[11px] text-faint">
+          <div className="text-base text-ink">Carrying your work over…</div>
+          <div className="text-sm text-faint">
             Your code, your name, and lesson 1 are coming with you.
           </div>
         </div>
@@ -510,7 +510,7 @@ export default function StartPage() {
         <StaggerItem>
           <div ref={headerRef} className="mb-10 flex flex-col items-center gap-4">
             <Wordmark size="hero" />
-            <p className="max-w-lg text-center text-[15px] leading-relaxed text-muted">
+            <p className="max-w-lg text-center text-base leading-relaxed text-muted sm:text-[15px]">
               Learn to code with a tutor who has all day for you. Write real
               Python, JavaScript, or Go in your browser — run it in a sandbox,
               ask questions, build understanding.
@@ -535,57 +535,57 @@ export default function StartPage() {
         )}
 
 
-        <StaggerItem className="grid w-full max-w-2xl gap-4 sm:grid-cols-2">
-          <motion.button
-            ref={editorRef}
-            onClick={() => nav("/editor")}
-            whileHover={{ y: -6, scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            transition={{ type: "spring", stiffness: 300, damping: 22 }}
-            className="group flex flex-col items-start gap-3 rounded-xl border border-border bg-panel p-6 text-left shadow-sm transition-[border-color,box-shadow] hover:border-accent/50 hover:shadow-glow focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-          >
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent/10 text-accent transition group-hover:bg-accent/20">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="16 18 22 12 16 6" />
-                <polyline points="8 6 2 12 8 18" />
-              </svg>
-            </div>
-            <div>
-              <h2 className="text-base font-semibold">Open Editor</h2>
-              <p className="mt-1 text-xs leading-relaxed text-muted">
-                Free-form coding workspace with 9 languages, sandboxed
-                execution, and AI-powered help.
-              </p>
-            </div>
-            <span className="mt-auto text-[11px] font-medium text-accent transition sm:opacity-0 sm:group-hover:opacity-100">
-              Launch editor →
-            </span>
-          </motion.button>
-
+        <StaggerItem className="grid w-full max-w-2xl gap-4">
           <motion.button
             ref={guidedRef}
             onClick={() => nav("/learn")}
             whileHover={{ y: -6, scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             transition={{ type: "spring", stiffness: 300, damping: 22 }}
-            className="group flex flex-col items-start gap-3 rounded-xl border border-border bg-panel p-6 text-left shadow-sm transition-[border-color,box-shadow] hover:border-violet/50 hover:shadow-glow focus:outline-none focus-visible:ring-2 focus-visible:ring-violet"
+            className="group relative flex min-h-44 flex-col items-start gap-4 overflow-hidden rounded-2xl border border-violet/45 bg-gradient-to-br from-violet/15 via-panel to-accent/10 p-6 text-left shadow-soft transition-[border-color,box-shadow] hover:border-violet/70 hover:shadow-glow focus:outline-none focus-visible:ring-2 focus-visible:ring-violet sm:p-8"
           >
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-violet/10 text-violet transition group-hover:bg-violet/20">
+            <div className="absolute right-5 top-5 rounded-full border border-violet/30 bg-violet/10 px-3 py-1 text-meta font-semibold uppercase tracking-wider text-violet">
+              Recommended
+            </div>
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-violet/15 text-violet transition group-hover:bg-violet/25">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
                 <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
               </svg>
             </div>
             <div>
-              <h2 className="text-base font-semibold">Guided Course</h2>
-              <p className="mt-1 text-xs leading-relaxed text-muted">
-                Structured Python and JavaScript lessons for beginners. Track
-                your progress and get lesson-aware AI guidance.
+              <h2 className="font-display text-2xl font-semibold tracking-tight">Continue learning</h2>
+              <p className="mt-2 max-w-xl text-base leading-relaxed text-muted sm:text-body">
+                Follow a structured path, write real code, and get lesson-aware guidance that
+                helps you understand each step.
               </p>
             </div>
-            <span className="mt-auto text-[11px] font-medium text-violet transition sm:opacity-0 sm:group-hover:opacity-100">
-              Start learning →
+            <span className="mt-auto text-sm font-semibold text-violet">
+              View guided courses →
             </span>
+          </motion.button>
+
+          <motion.button
+            ref={editorRef}
+            onClick={() => nav("/editor")}
+            whileHover={{ y: -3 }}
+            whileTap={{ scale: 0.98 }}
+            transition={{ type: "spring", stiffness: 300, damping: 22 }}
+            className="group flex min-h-24 items-center gap-4 rounded-xl border border-border bg-panel/75 p-5 text-left shadow-sm transition-[border-color,background-color] hover:border-accent/45 hover:bg-panel focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent/10 text-accent transition group-hover:bg-accent/20">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="16 18 22 12 16 6" />
+                <polyline points="8 6 2 12 8 18" />
+              </svg>
+            </div>
+            <div className="min-w-0 flex-1">
+              <h2 className="text-base font-semibold">Open the playground</h2>
+              <p className="mt-1 text-base leading-relaxed text-muted sm:text-body">
+                Use the free-form nine-language editor when you already know what you want to build.
+              </p>
+            </div>
+            <span className="shrink-0 text-lg text-accent" aria-hidden="true">→</span>
           </motion.button>
         </StaggerItem>
       </StaggerReveal>

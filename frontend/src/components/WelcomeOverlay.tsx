@@ -145,7 +145,7 @@ export function WelcomeOverlay({ refs, onDismiss }: WelcomeOverlayProps) {
         onClick={dismiss}
         title="Skip onboarding"
         aria-label="Skip onboarding"
-        className="fixed right-2 top-2 z-[53] rounded-md bg-panel/95 px-3 py-1.5 text-[11px] font-medium text-ink shadow-sm ring-1 ring-border transition hover:bg-panel hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent sm:right-4 sm:top-4"
+        className="fixed right-2 top-2 z-[53] inline-flex min-h-11 min-w-11 items-center justify-center rounded-md bg-panel/95 px-3 text-[11px] font-medium text-ink shadow-sm ring-1 ring-border transition hover:bg-panel hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent sm:right-4 sm:top-4"
       >
         Skip
       </button>

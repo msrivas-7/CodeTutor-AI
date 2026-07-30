@@ -102,10 +102,10 @@ export function Toolbar({ langPickerRef, runButtonRef }: ToolbarProps = {}) {
           position="center"
           panelClassName="mx-4 w-full max-w-sm rounded-xl border border-warn/30 bg-panel p-5 shadow-xl"
         >
-          <h2 id="lang-switch-title" className="text-sm font-bold text-ink">
+          <h2 id="lang-switch-title" className="text-lg font-bold text-ink">
             Switch to {LANGUAGE_LABEL[pendingLang]}?
           </h2>
-          <p className="mt-2 text-xs leading-relaxed text-muted">
+          <p className="mt-2 text-base leading-relaxed text-muted sm:text-body">
             This replaces your current project files with the{" "}
             <span className="font-semibold text-ink">{LANGUAGE_LABEL[pendingLang]}</span>{" "}
             starter. Any unsaved code in the editor will be lost.
@@ -113,13 +113,13 @@ export function Toolbar({ langPickerRef, runButtonRef }: ToolbarProps = {}) {
           <div className="mt-4 flex items-center gap-2">
             <button
               onClick={() => setPendingLang(null)}
-              className="flex-1 rounded-lg border border-border px-4 py-2 text-xs font-medium text-muted transition hover:bg-elevated hover:text-ink"
+              className="min-h-11 flex-1 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               Cancel
             </button>
             <button
               onClick={confirmLanguageSwitch}
-              className="flex-1 rounded-lg bg-warn/20 px-4 py-2 text-xs font-semibold text-warn ring-1 ring-warn/40 transition hover:bg-warn/30"
+              className="min-h-11 flex-1 rounded-lg bg-warn/20 px-4 py-2 text-sm font-semibold text-warn ring-1 ring-warn/40 transition hover:bg-warn/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn"
             >
               Switch
             </button>

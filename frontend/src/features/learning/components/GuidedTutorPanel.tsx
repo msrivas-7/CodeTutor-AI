@@ -293,7 +293,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
           {!clearHidden && (
           <button
             onClick={() => { clearConversation(); setDraft(""); }}
-            className="rounded px-2 py-0.5 text-[11px] text-muted transition hover:bg-elevated hover:text-ink disabled:opacity-40"
+            className="min-h-11 rounded-lg px-3 py-2 text-sm text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-40"
             disabled={history.length === 0 || asking}
             title="Clear conversation"
           >
@@ -305,7 +305,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
               onClick={onCollapse}
               title="Collapse tutor"
               aria-label="Collapse tutor"
-              className="rounded p-1 text-muted transition hover:bg-elevated hover:text-ink"
+              className="flex h-11 w-11 items-center justify-center rounded-lg text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
                 <path d="M10.5 3.5L6 8l4.5 4.5L12 11 9 8l3-3z" />
@@ -343,7 +343,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
         )}
 
         {history.length === 0 && !asking && configured && (
-          <div className="rounded-md border border-border bg-elevated/60 p-3 text-xs leading-relaxed text-muted">
+          <div className="rounded-lg border border-border bg-elevated/60 p-3 text-base leading-relaxed text-muted sm:text-body">
             <div className="mb-1.5 font-semibold text-ink">
               Lesson {lessonMeta.order}: {lessonMeta.title}
             </div>
@@ -351,19 +351,19 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
             <div className="mt-2.5 flex flex-wrap gap-1.5">
               <button
                 onClick={() => setPendingAsk("What should I do in this lesson?")}
-                className="rounded-md border border-border bg-bg/60 px-2 py-1 text-[11px] text-ink/80 transition hover:border-accent/40 hover:bg-accent/10 hover:text-accent"
+                className="min-h-11 rounded-lg border border-border bg-bg/60 px-3 py-2 text-sm text-ink/80 transition hover:border-accent/40 hover:bg-accent/10 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
                 What should I do?
               </button>
               <button
                 onClick={() => setPendingAsk("I don't understand the instructions. Can you explain?")}
-                className="rounded-md border border-border bg-bg/60 px-2 py-1 text-[11px] text-ink/80 transition hover:border-accent/40 hover:bg-accent/10 hover:text-accent"
+                className="min-h-11 rounded-lg border border-border bg-bg/60 px-3 py-2 text-sm text-ink/80 transition hover:border-accent/40 hover:bg-accent/10 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
                 Explain the task
               </button>
               <button
                 onClick={() => setPendingAsk("Give me a hint to get started.")}
-                className="rounded-md border border-border bg-bg/60 px-2 py-1 text-[11px] text-ink/80 transition hover:border-accent/40 hover:bg-accent/10 hover:text-accent"
+                className="min-h-11 rounded-lg border border-border bg-bg/60 px-3 py-2 text-sm text-ink/80 transition hover:border-accent/40 hover:bg-accent/10 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
                 Give me a hint
               </button>
@@ -403,7 +403,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
           return (
             <div key={messageId ?? i} className="flex flex-col gap-2 motion-safe:animate-fadeInUp">
               {m.role === "user" ? (
-                <div className="self-end max-w-[90%] rounded-md bg-accent/15 px-3 py-1.5 text-xs text-ink ring-1 ring-accent/30">
+                <div className="self-end max-w-[90%] rounded-lg bg-accent/15 px-3 py-2 text-base leading-relaxed text-ink ring-1 ring-accent/30 sm:text-body">
                   {m.content}
                 </div>
               ) : m.sections ? (
@@ -414,7 +414,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
                   scripted={m.meta?.scripted}
                 />
               ) : (
-                <div className="whitespace-pre-wrap rounded-md border border-border bg-elevated/60 px-3 py-2 text-xs text-ink/90">
+                <div className="whitespace-pre-wrap rounded-lg border border-border bg-elevated/60 px-3 py-2 text-base leading-relaxed text-ink/90 sm:text-body">
                   {m.content}
                 </div>
               )}
@@ -449,7 +449,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
                                 ? "A stronger pointer toward the solution"
                                 : "A walk-through of the approach"
                           }
-                          className="flex items-center gap-1 rounded-full border border-warn/40 bg-warn/10 px-2 py-[2px] text-[10px] font-medium text-warnInk transition hover:bg-warn/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-warn disabled:cursor-not-allowed disabled:opacity-50"
+                          className="flex min-h-11 items-center gap-1.5 rounded-full border border-warn/40 bg-warn/10 px-3 py-2 text-sm font-medium text-warnInk transition hover:bg-warn/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-warn disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           <span aria-hidden="true">💡</span>
                           <span>
@@ -537,7 +537,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
               disabled={!configured || inputLocked}
               rows={2}
               aria-label="Ask the tutor"
-              className="w-full resize-none rounded-md border border-border bg-elevated px-2.5 py-2 text-xs text-ink transition placeholder:text-faint focus:border-accent/60 disabled:cursor-not-allowed disabled:bg-elevated/40 disabled:opacity-50"
+              className="w-full resize-none rounded-lg border border-border bg-elevated px-3 py-2 text-base text-ink transition placeholder:text-faint focus:border-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:bg-elevated/40 disabled:opacity-50 sm:text-body"
             />
             <div className="mt-1.5 flex items-center justify-between gap-2 text-[10px] text-faint">
               <div
@@ -555,7 +555,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
                 <button
                   onClick={cancelAsk}
                   title="Stop the current response"
-                  className="inline-flex items-center gap-1.5 rounded-md bg-danger/15 px-3 py-1 text-[11px] font-semibold text-danger ring-1 ring-danger/30 transition hover:bg-danger/25"
+                  className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-danger/15 px-3 py-2 text-sm font-semibold text-danger ring-1 ring-danger/30 transition hover:bg-danger/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger"
                 >
                   <span className="inline-block h-2 w-2 rounded-sm bg-danger" />
                   Stop
@@ -571,7 +571,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
                 <button
                   onClick={handleSubmit}
                   disabled={!draft.trim() || !configured || inputLocked}
-                  className="rounded-md bg-accent px-3 py-1 text-[11px] font-semibold text-bg transition hover:bg-accentMuted disabled:cursor-not-allowed disabled:bg-elevated disabled:text-faint"
+                  className="min-h-11 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-bg transition hover:bg-accentMuted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:bg-elevated disabled:text-faint"
                 >
                   Ask
                 </button>

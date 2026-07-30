@@ -2,6 +2,44 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 
+interface InertOwnership {
+  count: number;
+  inert: boolean;
+  ariaHidden: string | null;
+}
+
+// Several dialogs can legitimately stack (completion → share → signup wall).
+// Their effects may clean up in either order during route changes. Track shared
+// ownership so the last live modal restores the page's original state instead
+// of an upper layer restoring the lower layer's temporary `inert=true` snapshot.
+const inertOwnership = new Map<HTMLElement, InertOwnership>();
+
+function acquireInert(node: HTMLElement) {
+  const existing = inertOwnership.get(node);
+  if (existing) existing.count += 1;
+  else {
+    inertOwnership.set(node, {
+      count: 1,
+      inert: node.inert,
+      ariaHidden: node.getAttribute("aria-hidden"),
+    });
+  }
+  node.inert = true;
+  node.setAttribute("aria-hidden", "true");
+}
+
+function releaseInert(node: HTMLElement) {
+  const ownership = inertOwnership.get(node);
+  if (!ownership) return;
+  ownership.count -= 1;
+  if (ownership.count > 0) return;
+
+  node.inert = ownership.inert;
+  if (ownership.ariaHidden === null) node.removeAttribute("aria-hidden");
+  else node.setAttribute("aria-hidden", ownership.ariaHidden);
+  inertOwnership.delete(node);
+}
+
 interface ModalProps {
   onClose: () => void;
   children: ReactNode;
@@ -22,7 +60,7 @@ interface ModalProps {
   panelClassName?: string;
   // Layout of the overlay: "center" vertically centres the panel (confirms),
   // "top" anchors near the top of the viewport (Settings).
-  position?: "center" | "top";
+  position?: "center" | "top" | "bottom";
   // Stacking layer for the backdrop. Default 50 covers normal modals.
   // Higher values are reserved for surfaces that need to overlay
   // already-fullscreen takeovers — e.g. the ShareDialog opening
@@ -46,6 +84,7 @@ export function Modal({
 }: ModalProps) {
   const backdropRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const closeFinishedRef = useRef(false);
 
   // Cinema Kit Continuity Pass — modal exit animation. Existing
   // callers do `{open && <Modal onClose={() => setOpen(false)}>}`,
@@ -63,14 +102,41 @@ export function Modal({
   // those paths still pop out cold. Most product modals close via
   // user-initiated dismiss, so this covers the visible majority.
   const [exiting, setExiting] = useState(false);
+  const finishClose = useCallback(() => {
+    if (closeFinishedRef.current) return;
+    closeFinishedRef.current = true;
+    onClose();
+  }, [onClose]);
   const closeWithExit = useCallback(() => {
     if (exiting) return;
     setExiting(true);
   }, [exiting]);
 
   useEffect(() => {
+    if (!exiting) return;
+
+    // The state transition must not depend on the browser producing another
+    // animation frame. WebKit can pause frame callbacks in background tabs or
+    // under heavy load, which would otherwise leave an invisible exiting
+    // dialog mounted forever. Normal exits finish through AnimatePresence;
+    // this deadline is a guarded fallback just beyond the 160 ms animation.
+    const fallback = window.setTimeout(finishClose, 300);
+    return () => window.clearTimeout(fallback);
+  }, [exiting, finishClose]);
+
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") closeWithExit();
+      if (e.key !== "Escape") return;
+      const layers = Array.from(
+        document.querySelectorAll<HTMLElement>("[data-modal-layer]"),
+      );
+      const topLayer = layers.reduce<HTMLElement | null>((top, candidate) => {
+        if (!top) return candidate;
+        const topZ = Number(top.dataset.modalLayer) || 0;
+        const candidateZ = Number(candidate.dataset.modalLayer) || 0;
+        return candidateZ >= topZ ? candidate : top;
+      }, null);
+      if (topLayer === backdropRef.current) closeWithExit();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -84,50 +150,96 @@ export function Modal({
     );
     (first ?? panel)?.focus();
     return () => {
-      previouslyFocused?.focus?.();
+      // Stacked-dialog teardown also removes `inert` from the lower layer.
+      // Defer restoration until all effect cleanups have run so focus does
+      // not target an element that is still inert for this cleanup tick.
+      queueMicrotask(() => {
+        if (previouslyFocused?.isConnected) previouslyFocused.focus();
+      });
     };
   }, []);
 
-  // Phase 20-P1: Tab focus trap. Modal.tsx focused first element on mount but
-  // Tab could escape to the page behind (Settings, Reset Lesson, language
-  // switch), which is both a WCAG failure and a confusing UX — the backdrop
-  // swallows clicks but not keystrokes. Wrap focus back to the first/last
-  // focusable inside the panel when the user Tabs past the edge.
+  // Make the rest of the document genuinely non-interactive while a modal is
+  // open. The focus trap protects keyboard navigation, but without `inert`
+  // assistive technology and scripted focus could still reach the workspace
+  // behind the backdrop. This also composes for stacked modals: a share dialog
+  // temporarily inerts the completion dialog beneath it, then restores that
+  // layer when it closes while the completion dialog keeps the app inert.
+  useEffect(() => {
+    const backdrop = backdropRef.current;
+    if (!backdrop) return;
+
+    const siblings = Array.from(document.body.children).filter(
+      (node): node is HTMLElement =>
+        node instanceof HTMLElement && node !== backdrop,
+    );
+    for (const node of siblings) acquireInert(node);
+
+    return () => {
+      for (const node of siblings) releaseInert(node);
+    };
+  }, []);
+
+  // Phase 20-P1 / Phase A-Q: Tab focus trap. Own the complete Tab sequence,
+  // not only first/last wrapping. Safari/WebKit can skip button elements when
+  // the OS "keyboard navigation" preference is off; from a read-only input
+  // that can move focus out of the document before our old edge-only trap ever
+  // ran. A modal must remain fully keyboard-operable regardless of that host
+  // preference, so advance explicitly through its visible controls.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Tab") return;
+      const layers = Array.from(
+        document.querySelectorAll<HTMLElement>("[data-modal-layer]"),
+      );
+      const topLayer = layers.reduce<HTMLElement | null>((top, candidate) => {
+        if (!top) return candidate;
+        return (Number(candidate.dataset.modalLayer) || 0) >=
+          (Number(top.dataset.modalLayer) || 0)
+          ? candidate
+          : top;
+      }, null);
+      if (topLayer !== backdropRef.current) return;
       const panel = panelRef.current;
       if (!panel) return;
       const focusables = Array.from(
         panel.querySelectorAll<HTMLElement>(
           'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
         ),
-      ).filter((el) => !el.hasAttribute("disabled"));
+      ).filter(
+        (el) =>
+          !el.hasAttribute("disabled") &&
+          !el.hidden &&
+          !el.closest<HTMLElement>("[inert]") &&
+          el.getClientRects().length > 0,
+      );
       if (focusables.length === 0) {
         e.preventDefault();
         panel.focus();
         return;
       }
-      const first = focusables[0]!;
-      const last = focusables[focusables.length - 1]!;
       const active = document.activeElement as HTMLElement | null;
-      if (e.shiftKey) {
-        if (active === first || !panel.contains(active)) {
-          e.preventDefault();
-          last.focus();
-        }
-      } else {
-        if (active === last || !panel.contains(active)) {
-          e.preventDefault();
-          first.focus();
-        }
-      }
+      const activeIndex = active ? focusables.indexOf(active) : -1;
+      const nextIndex = e.shiftKey
+        ? activeIndex <= 0
+          ? focusables.length - 1
+          : activeIndex - 1
+        : activeIndex < 0 || activeIndex === focusables.length - 1
+          ? 0
+          : activeIndex + 1;
+      e.preventDefault();
+      focusables[nextIndex]!.focus({ preventScroll: true });
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const overlayPos = position === "center" ? "items-center justify-center" : "items-start justify-center pt-[10vh]";
+  const overlayPos =
+    position === "center"
+      ? "items-center justify-center"
+      : position === "bottom"
+        ? "items-end justify-center sm:items-center"
+        : "items-start justify-center pt-[10vh]";
 
   // Honor prefers-reduced-motion — skip the scale/translate entrance
   // and fall back to a pure opacity fade. framer-motion's hook returns
@@ -153,11 +265,12 @@ export function Modal({
     : { opacity: 0, scale: 0.96, y: 4 };
 
   return createPortal(
-    <AnimatePresence onExitComplete={onClose}>
+    <AnimatePresence onExitComplete={finishClose}>
       {!exiting && (
         <motion.div
           ref={backdropRef}
           key="backdrop"
+          data-modal-layer={zIndex}
           className={`fixed inset-0 flex ${overlayPos} bg-black/50 backdrop-blur-sm`}
           style={{ zIndex }}
           initial={{ opacity: 0 }}

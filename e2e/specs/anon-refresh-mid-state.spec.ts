@@ -8,9 +8,8 @@
 // This spec covers:
 //   1. Reload AFTER cinematic dismissed → cinematic does NOT replay
 //      (markCinematicSeen flag in sessionStorage)
-//   2. Reload AFTER coach dismissed (in this same tab) → coach does
-//      NOT replay (markCoachSeenAnon + preferencesStore mirror via
-//      AnonLessonPage's useState initializer bridge)
+//   2. Lesson workspace coach never appears (the obsolete stacked tour
+//      was removed in Phase A-Q).
 //   3. Reload AFTER walkthrough completed (anonChoreographyDone=1) →
 //      walkthrough does NOT replay (no clearConversation, no greet)
 //   4. Reload AFTER walkthrough skipped via user-typing-into-tutor →
@@ -39,7 +38,7 @@ test.describe("Phase 27-v2.1 — /try/ refresh idempotence", () => {
     await expect(page.locator("header").getByText("Lesson 1", { exact: true })).toBeVisible();
   });
 
-  test("refresh after coach dismiss in same tab: coach does not replay", async ({
+  test("refresh never resurrects the removed workspace tour", async ({
     page,
   }) => {
     await page.addInitScript(() => {
@@ -47,18 +46,8 @@ test.describe("Phase 27-v2.1 — /try/ refresh idempotence", () => {
       window.sessionStorage.setItem("codetutor.anonCoachSeen", "1");
     });
     await page.goto(PATH);
-    // Coach's first-step bubble title is "Lesson Instructions" with a
-    // body about reading the panel. If the coach replayed, that text
-    // would render inside a CoachBubble (role="dialog"). With the
-    // sessionStorage flag set, AnonLessonPage's wrapper useState
-    // initializer flips preferencesStore.workspaceCoachDone=true
-    // BEFORE LessonPage's first render — so the auto-open timer
-    // never schedules. Wait past the timer window then assert no
-    // bubble.
     await page.waitForTimeout(1500);
-    // Coach mounts inside the page; the alertdialog selector also
-    // catches the wall, so use role="dialog" which is coach-specific.
-    await expect(page.locator('[role="dialog"]')).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /^skip tour$/i })).toHaveCount(0);
     // And the lesson chrome IS rendered (sanity).
     await expect(page.locator("header").getByText("Lesson 1", { exact: true })).toBeVisible();
   });

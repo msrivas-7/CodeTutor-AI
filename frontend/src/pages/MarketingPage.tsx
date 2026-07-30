@@ -1,14 +1,11 @@
-import { useEffect, useRef } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { motion, useReducedMotion } from "framer-motion";
-import { MeshGradient } from "@paper-design/shaders-react";
-import Lenis from "lenis";
+import type Lenis from "lenis";
 
 import { CinematicLighting } from "../components/cinema/CinematicLighting";
 import { FilmGrain } from "../components/cinema/FilmGrain";
 import { HOUSE_EASE } from "../components/cinema/easing";
-
-import { useAuthStore } from "../auth/authStore";
 
 import { MarketingNav } from "../features/marketing/components/MarketingNav";
 import { MatchCutHero } from "../features/marketing/components/MatchCutHero";
@@ -19,6 +16,7 @@ import { CheckVignette } from "../features/marketing/components/CheckVignette";
 import { MarketingCta } from "../features/marketing/components/MarketingCta";
 import { MarketingFooter } from "../features/marketing/components/MarketingFooter";
 import { pickHeroCopy } from "../features/marketing/heroCopy";
+import { useMarketingAuth } from "../features/marketing/useMarketingAuth";
 
 // Phase 22C — Cinematic Marketing Page.
 //
@@ -46,26 +44,65 @@ import { pickHeroCopy } from "../features/marketing/heroCopy";
 // unmount. Reduced-motion bypasses Lenis (native browser scroll).
 
 const HERO = pickHeroCopy();
+const DeferredMeshGradient = lazy(() =>
+  import("@paper-design/shaders-react").then(({ MeshGradient }) => ({
+    default: MeshGradient,
+  })),
+);
 
 export default function MarketingPage() {
   const reduce = useReducedMotion();
+  const [compactMotion, setCompactMotion] = useState(() =>
+    window.matchMedia("(max-width: 640px)").matches,
+  );
+  const staticHero = Boolean(reduce || compactMotion);
+  const [atmosphereReady, setAtmosphereReady] = useState(false);
   // Phase 27 §3a: anonymous "Try a lesson — no signup" link is shown
   // ONLY to logged-out visitors. Logged-in users hitting / get the
   // "Continue learning" path via MarketingCta + the nav's Dashboard
   // affordance — pushing them toward an anon path would be a
-  // regression. While auth is hydrating, an invisible spacer
-  // reserves the link's row width so the CTA row doesn't reflow
-  // when the resolved state arrives. Mirrors MarketingNav's
-  // "flash of Sign in" defense — Maya is on mobile with a 90s
-  // attention budget; a CTA-row reflow mid-paint reads as
-  // "broken site, still loading."
-  const authUser = useAuthStore((s) => s.user);
-  const authLoading = useAuthStore((s) => s.loading);
+  // regression. A persisted-session hint selects the returning-user
+  // treatment immediately; deferred Supabase hydration verifies it.
+  const { isLoggedIn } = useMarketingAuth();
   // Lenis instance lives in a ref so the "How it works ↓" click handler
   // can call lenis.scrollTo() — using native scrollIntoView() while
   // Lenis is hijacking wheel/touch events would have the two scroll
   // engines fight each other and produce a janky takeover.
   const lenisRef = useRef<Lenis | null>(null);
+
+  // Browser emulation and real device rotation can change the compact
+  // breakpoint after the route has mounted. Track it instead of treating the
+  // first viewport sample as permanent, otherwise a phone can accidentally
+  // receive the desktop choreography during a resize race.
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 640px)");
+    const update = () => setCompactMotion(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+
+  // The WebGL atmosphere is decorative, so it must not delay the product's
+  // actual promise, demo, or CTA. Paint the equivalent static gradient first,
+  // then upgrade to the shader after the browser has had a full frame plus a
+  // short quiet window. This avoids shader compilation becoming the page's
+  // first meaningful paint on lower-end phones while preserving the effect.
+  useEffect(() => {
+    if (staticHero) {
+      setAtmosphereReady(false);
+      return;
+    }
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const frame = requestAnimationFrame(() => {
+      timer = setTimeout(() => setAtmosphereReady(true), 2500);
+    });
+
+    return () => {
+      cancelAnimationFrame(frame);
+      if (timer) clearTimeout(timer);
+    };
+  }, [staticHero]);
 
   // Lenis smooth scroll. The library hijacks wheel + touch events and
   // drives a single rAF loop with eased deltas. Reduced-motion bypasses
@@ -73,34 +110,42 @@ export default function MarketingPage() {
   // listener still fires on real scroll events, so the backdrop blur
   // works in both modes.
   useEffect(() => {
-    if (reduce) return;
-    const lenis = new Lenis({
-      duration: 1.1,
-      easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
-      lerp: 0.1,
-      wheelMultiplier: 1,
-      smoothWheel: true,
-    });
-    lenisRef.current = lenis;
+    if (staticHero) return;
+    let cancelled = false;
     let raf = 0;
-    const tick = (time: number) => {
-      lenis.raf(time);
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
+    const timer = setTimeout(() => {
+      void import("lenis").then(({ default: LenisConstructor }) => {
+        if (cancelled) return;
+        const lenis = new LenisConstructor({
+          duration: 1.1,
+          easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
+          lerp: 0.1,
+          wheelMultiplier: 1,
+          smoothWheel: true,
+        });
+        lenisRef.current = lenis;
+        const tick = (time: number) => {
+          lenis.raf(time);
+          raf = requestAnimationFrame(tick);
+        };
+        raf = requestAnimationFrame(tick);
+      });
+    }, 2500);
 
     return () => {
+      cancelled = true;
+      clearTimeout(timer);
       cancelAnimationFrame(raf);
-      lenis.destroy();
+      lenisRef.current?.destroy();
       lenisRef.current = null;
     };
-  }, [reduce]);
+  }, [staticHero]);
 
   return (
     // No `bg-bg` on the wrapper — the WebGL mesh + lighting stack IS the
     // background, and a solid color layer here would paint over it. The
     // `text-ink` keeps the default ink color for any descendants.
-    <div className="relative min-h-screen overflow-x-hidden text-ink">
+    <div className="marketing-page relative min-h-screen overflow-x-clip text-ink">
       {/* ================================================================
           ATMOSPHERIC BACKDROP STACK
           ================================================================ */}
@@ -111,32 +156,28 @@ export default function MarketingPage() {
           atmosphere rather than near-black. Distortion + swirl provide
           organic warp; speed is intentionally low so the motion feels
           like the room is breathing, not a screensaver. */}
-      {!reduce && (
-        <div
-          aria-hidden="true"
-          className="pointer-events-none fixed inset-0 -z-30"
-        >
-          <MeshGradient
-            colors={[
-              "#0a0e22", // ink-deep
-              "#1d1758", // violet-deep
-              "#5b2cb0", // violet (brand)
-              "#1d5b9e", // accent-deep
-            ]}
-            distortion={0.7}
-            swirl={0.6}
-            speed={0.22}
-            scale={1.3}
-            style={{ width: "100%", height: "100%" }}
-          />
-        </div>
-      )}
-      {reduce && (
-        <div
-          aria-hidden="true"
-          className="pointer-events-none fixed inset-0 -z-30 bg-gradient-to-br from-[#0a0e22] via-[#1d1758] to-[#1d5b9e]"
-        />
-      )}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none fixed inset-0 -z-30 bg-gradient-to-br from-[#0a0e22] via-[#1d1758] to-[#1d5b9e]"
+      >
+        {!staticHero && atmosphereReady && (
+          <Suspense fallback={null}>
+            <DeferredMeshGradient
+              colors={[
+                "#0a0e22", // ink-deep
+                "#1d1758", // violet-deep
+                "#5b2cb0", // violet (brand)
+                "#1d5b9e", // accent-deep
+              ]}
+              distortion={0.7}
+              swirl={0.6}
+              speed={0.22}
+              scale={1.3}
+              style={{ width: "100%", height: "100%" }}
+            />
+          </Suspense>
+        )}
+      </div>
 
       {/* Three-point lighting + grain — same primitives as the
           cinematic onboarding. Marketing and product inherit the same
@@ -147,11 +188,11 @@ export default function MarketingPage() {
           variant="three-point"
           intensity="soft"
           keyColor="accent"
-          fadeInMs={reduce ? 0 : 700}
+          fadeInMs={staticHero ? 0 : 700}
         />
       </div>
       <div aria-hidden="true" className="pointer-events-none fixed inset-0 -z-10">
-        <FilmGrain intensity="hero" fadeInMs={reduce ? 0 : 600} />
+        {!staticHero && <FilmGrain intensity="hero" fadeInMs={600} />}
       </div>
 
       {/* ================================================================
@@ -166,46 +207,48 @@ export default function MarketingPage() {
         {/* The hero claim — Fraunces 48–72px, gradient sweep, balanced
             line-wrap, optical-size animation. The claim is the ONE
             gradient on the page; everything else is solid ink/muted. */}
-        <HeroClaim claim={HERO.claim} />
+        <HeroClaim claim={HERO.claim} staticMotion={staticHero} />
 
-        {/* Subhead — Inter 14–16, muted. Fades in after the claim's
-            gradient sweep settles. */}
+        {/* Subhead — Inter 14–16, muted. It is readable from first paint;
+            the delayed lift still preserves the intended choreography
+            without making essential copy wait on JavaScript or WebGL. */}
         <motion.p
-          initial={reduce ? undefined : { opacity: 0, y: 6 }}
-          animate={{ opacity: 1, y: 0 }}
+          initial={staticHero ? false : { y: 6 }}
+          animate={staticHero ? undefined : { y: 0 }}
           transition={{
             duration: 0.6,
             ease: HOUSE_EASE,
-            delay: reduce ? 0 : 1.6,
+            delay: staticHero ? 0 : 1.6,
           }}
           className="mt-5 max-w-[44ch] text-balance text-[15px] leading-relaxed text-muted sm:text-[16.5px]"
         >
           {HERO.subhead}
         </motion.p>
 
-        {/* The match-cut motion panel. Mounts with its own opacity/y
-            stagger; once mounted, runs its 7s loop forever. */}
+        {/* The match-cut motion panel. Its delayed lift remains, but the
+            panel is present from first paint so the cinematic sequence
+            never creates a blank hero on a slower device. */}
         <motion.div
-          initial={reduce ? undefined : { opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
+          initial={staticHero ? false : { y: 12 }}
+          animate={staticHero ? undefined : { y: 0 }}
           transition={{
             duration: 0.7,
             ease: HOUSE_EASE,
-            delay: reduce ? 0 : 1.9,
+            delay: staticHero ? 0 : 1.9,
           }}
           className="mt-12 flex w-full justify-center md:mt-14"
         >
-          <MatchCutHero />
+          <MatchCutHero staticMotion={staticHero} />
         </motion.div>
 
         {/* CTA row — primary pill + secondary anchor link. */}
         <motion.div
-          initial={reduce ? undefined : { opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
+          initial={staticHero ? false : { y: 8 }}
+          animate={staticHero ? undefined : { y: 0 }}
           transition={{
             duration: 0.5,
             ease: HOUSE_EASE,
-            delay: reduce ? 0 : 2.4,
+            delay: staticHero ? 0 : 2.4,
           }}
           className="mt-10 flex flex-col items-center gap-4 sm:flex-row sm:gap-6"
         >
@@ -215,20 +258,12 @@ export default function MarketingPage() {
               Anchored to the same row as the primary CTA on desktop;
               wraps below on mobile. Anon-only — a logged-in user
               hitting / shouldn't be invited back into the trial path.
-              During auth hydration we render an invisible spacer
-              matching the link's footprint so the CTA row doesn't
-              reflow when the resolved state arrives. */}
-          {authLoading ? (
-            <span
-              aria-hidden="true"
-              className="invisible text-[13.5px]"
-            >
-              Or try a lesson — no signup →
-            </span>
-          ) : !authUser ? (
+              The persisted-session hint avoids an anonymous-link flash
+              for returning learners while full auth hydrates. */}
+          {!isLoggedIn ? (
             <Link
               to="/try/lesson/python-fundamentals/hello-world"
-              className="text-[13.5px] text-accent transition hover:text-accent/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+              className="inline-flex min-h-11 items-center rounded-md px-2 text-sm text-accent transition hover:bg-accent/5 hover:text-accent/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
             >
               Or try a lesson — no signup →
             </Link>
@@ -249,7 +284,7 @@ export default function MarketingPage() {
                 if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
               }
             }}
-            className="text-[13.5px] text-muted transition hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+            className="inline-flex min-h-11 items-center rounded-md px-2 text-sm text-muted transition hover:bg-elevated/50 hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
           >
             How it works ↓
           </a>
@@ -311,14 +346,15 @@ export default function MarketingPage() {
 }
 
 // ---------------------------------------------------------------------------
-// Hero claim — Fraunces variable-axis with a gradient sweep + opacity
-// fade-in. Variable-weight + opsz axes are animated together so the
+// Hero claim — Fraunces variable-axis with a gradient sweep. The claim
+// is visible from first paint; variable-weight + opsz axes animate so the
 // type "settles" as the gradient lands — a tiny detail that makes the
 // type feel printed rather than rendered.
 // ---------------------------------------------------------------------------
 
-function HeroClaim({ claim }: { claim: string }) {
+function HeroClaim({ claim, staticMotion }: { claim: string; staticMotion: boolean }) {
   const reduce = useReducedMotion();
+  const staticClaim = Boolean(reduce || staticMotion);
 
   return (
     <motion.h1
@@ -335,35 +371,40 @@ function HeroClaim({ claim }: { claim: string }) {
       className="bg-gradient-to-r from-success via-accent to-violet bg-clip-text font-display font-semibold leading-[1.16] tracking-[-0.022em] text-transparent [text-wrap:balance] [padding-block-end:0.22em]"
       style={{
         backgroundSize: "200% 100%",
+        backgroundPosition: staticClaim ? "0% 50%" : undefined,
         // Initial Fraunces variation — slightly lighter weight + lower
         // optical size, so the gradient-sweep's "settle" can transition
         // toward heavier weight + higher opsz for a tactile arrival.
-        fontVariationSettings: reduce ? '"opsz" 96, "wght" 600' : '"opsz" 80, "wght" 540',
+        fontVariationSettings: staticClaim ? '"opsz" 96, "wght" 600' : '"opsz" 80, "wght" 540',
       }}
       initial={
-        reduce
-          ? { opacity: 1, backgroundPosition: "0% 50%" }
-          : { opacity: 0, backgroundPosition: "100% 50%" }
+        staticClaim
+          ? false
+          : { opacity: 1, backgroundPosition: "100% 50%" }
       }
-      animate={{
-        opacity: 1,
-        backgroundPosition: "0% 50%",
-        fontVariationSettings: '"opsz" 96, "wght" 600',
-      }}
+      animate={
+        staticClaim
+          ? undefined
+          : {
+              opacity: 1,
+              backgroundPosition: "0% 50%",
+              fontVariationSettings: '"opsz" 96, "wght" 600',
+            }
+      }
       transition={{
         opacity: {
-          duration: reduce ? 0 : 0.6,
-          delay: reduce ? 0 : 0.7,
+          duration: staticClaim ? 0 : 0.6,
+          delay: staticClaim ? 0 : 0.7,
           ease: HOUSE_EASE,
         },
         backgroundPosition: {
-          duration: reduce ? 0 : 1.4,
-          delay: reduce ? 0 : 0.9,
+          duration: staticClaim ? 0 : 1.4,
+          delay: staticClaim ? 0 : 0.9,
           ease: HOUSE_EASE,
         },
         fontVariationSettings: {
-          duration: reduce ? 0 : 1.4,
-          delay: reduce ? 0 : 0.9,
+          duration: staticClaim ? 0 : 1.4,
+          delay: staticClaim ? 0 : 0.9,
           ease: HOUSE_EASE,
         },
       }}

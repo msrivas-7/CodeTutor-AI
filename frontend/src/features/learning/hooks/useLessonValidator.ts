@@ -8,7 +8,7 @@ import { useAIStore } from "../../../state/aiStore";
 import { useProgressStore } from "../stores/progressStore";
 import { useValidatorUIStore } from "../stores/validatorUIStore";
 import { api } from "../../../api/client";
-import { pickFirstFailure, validateLesson } from "../utils/validator";
+import { isRetrievalPending, pickFirstFailure, validateLesson } from "../utils/validator";
 import { CINEMA_DURATIONS } from "../../../components/cinema/easing";
 import { LANGUAGE_ENTRYPOINT } from "../../../types";
 import {
@@ -232,7 +232,8 @@ export function useLessonValidator({
     // `startLesson`, where it was incorrectly counting page opens).
     // Practice-mode checks have their own per-exercise completion
     // model and don't roll up into the lesson's attemptCount.
-    if (!practiceMode) {
+    const isRetrievalRecheck = overrides?.retrievalAnswered === true;
+    if (!practiceMode && !isRetrievalRecheck) {
       useProgressStore.getState().incrementAttempt(courseId, lessonId);
     }
 
@@ -306,7 +307,7 @@ export function useLessonValidator({
     });
     setValidation(v);
     setHasChecked(true);
-    if (!v.passed) {
+    if (!v.passed && !isRetrievalPending(v)) {
       // QA-H5: a harness error (docker exec hiccup, network timeout) surfaces
       // as v.passed=false + testReport.harnessError. That's infrastructure
       // noise — not the learner struggling. Only genuine validation

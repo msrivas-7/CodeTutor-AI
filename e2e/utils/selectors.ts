@@ -130,7 +130,7 @@ export const failedTestCallout = (page: Page): Locator =>
   page.locator('[role="status"]').filter({ hasText: /failed|not quite|try again/i }).first();
 
 export const lessonCompletePanel = (page: Page): Locator =>
-  page.getByRole("alertdialog").filter({ hasText: /complete|nice work|great job|🎉/i });
+  page.getByRole("dialog", { name: /lesson complete/i });
 
 export const nextLessonButton = (page: Page): Locator =>
   page.getByRole("button", { name: /next lesson/i });

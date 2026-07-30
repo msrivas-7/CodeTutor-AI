@@ -210,16 +210,16 @@ export function FileTree({ onCollapse }: { onCollapse?: () => void }) {
           position="center"
           panelClassName="mx-4 w-full max-w-sm rounded-xl border border-danger/30 bg-panel p-5 shadow-xl"
         >
-          <h2 id="delete-file-title" className="text-sm font-bold text-ink">
+          <h2 id="delete-file-title" className="text-lg font-bold text-ink">
             Delete file?
           </h2>
-          <p className="mt-2 text-xs leading-relaxed text-muted">
+          <p className="mt-2 text-base leading-relaxed text-muted sm:text-body">
             Permanently delete <span className="font-mono font-semibold text-ink">{pendingDelete}</span>? This can't be undone.
           </p>
           <div className="mt-4 flex items-center gap-2">
             <button
               onClick={() => setPendingDelete(null)}
-              className="flex-1 rounded-lg border border-border px-4 py-2 text-xs font-medium text-muted transition hover:bg-elevated hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              className="min-h-11 flex-1 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted transition hover:bg-elevated hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               Cancel
             </button>
@@ -228,7 +228,7 @@ export function FileTree({ onCollapse }: { onCollapse?: () => void }) {
                 deleteFile(pendingDelete);
                 setPendingDelete(null);
               }}
-              className="flex-1 rounded-lg bg-danger/20 px-4 py-2 text-xs font-semibold text-danger ring-1 ring-danger/40 transition hover:bg-danger/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-danger"
+              className="min-h-11 flex-1 rounded-lg bg-danger/20 px-4 py-2 text-sm font-semibold text-danger ring-1 ring-danger/40 transition hover:bg-danger/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-danger"
             >
               Delete
             </button>

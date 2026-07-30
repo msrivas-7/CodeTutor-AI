@@ -1,7 +1,8 @@
 // Onboarding + coach specs (Phase 12G). Covers the four surfaces that render
 // on first-visit and never return once dismissed: WelcomeOverlay (StartPage),
 // Dashboard welcome banner, CourseOverview lesson-1 nudge, EditorCoach and
-// WorkspaceCoach spotlight tours. Also covers CoachRail existence checks for
+// contextual EditorCoach guidance. Lesson workspace tours were removed in
+// Phase A-Q so the learner can act immediately. Also covers CoachRail checks for
 // states where a nudge is expected.
 //
 // These tests deliberately SKIP markOnboardingDone() — the whole point is to
@@ -96,8 +97,31 @@ test.describe("onboarding", () => {
     await expect(page.getByRole("button", { name: /^got it$/i })).toBeVisible();
 
     // Dismiss via Skip tour, then reload to confirm server-backed flag held.
+    // The coach hides optimistically, so wait for the exact persistence write
+    // instead of racing an immediate reload against the background PATCH.
+    const coachSaved = page.waitForResponse(
+      (r) => {
+        if (
+          !r.url().includes("/api/user/preferences") ||
+          r.request().method() !== "PATCH" ||
+          !r.ok()
+        ) {
+          return false;
+        }
+        try {
+          const body = r.request().postDataJSON() as {
+            editorCoachDone?: boolean;
+          };
+          return body.editorCoachDone === true;
+        } catch {
+          return false;
+        }
+      },
+      { timeout: 15_000 },
+    );
     await skipTour.click();
     await expect(skipTour).toHaveCount(0);
+    await coachSaved;
 
     await page.reload();
     await waitForMonacoReady(page);
@@ -105,19 +129,15 @@ test.describe("onboarding", () => {
     await expect(page.getByRole("button", { name: /^skip tour$/i })).toHaveCount(0);
   });
 
-  test("WorkspaceCoach auto-opens on first lesson; stepping through completes the tour", async ({ page }) => {
+  test("first lesson opens without a stacked workspace tour or locked actions", async ({ page }) => {
     await loadProfile(page, "empty", { onboarded: false });
     await page.goto(`/learn/course/${COURSE_ID}/lesson/hello-world`);
     await waitForMonacoReady(page);
 
-    const skipTour = page.getByRole("button", { name: /^skip tour$/i });
-    await expect(skipTour).toBeVisible({ timeout: AUTO_OPEN_MS + 5_000 });
-    // Dismiss via Skip tour — stepping through all 6 steps would require
-    // clicking "Got it" six times, but targets may become stale between
-    // steps (Monaco hasn't fully laid out). The dismiss path is the
-    // critical one to exercise.
-    await skipTour.click();
-    await expect(skipTour).toHaveCount(0);
+    await page.waitForTimeout(AUTO_OPEN_MS + 500);
+    await expect(page.getByRole("button", { name: /^skip tour$/i })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /run code/i }).first()).toBeEnabled();
+    await expect(page.getByRole("button", { name: /check/i }).first()).toBeEnabled();
   });
 
   test("Coaches don't render when onboarding flags are already set", async ({ page }) => {

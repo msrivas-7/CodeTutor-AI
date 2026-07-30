@@ -102,7 +102,7 @@ test.describe("Phase 27-v2.1 — no 401 cascade on anon path", () => {
       .getByRole("button", { name: /check/i })
       .first()
       .click();
-    await expect(page.getByRole("alertdialog").first()).toBeVisible({
+    await expect(page.getByRole("dialog", { name: /lesson complete/i })).toBeVisible({
       timeout: 10_000,
     });
 

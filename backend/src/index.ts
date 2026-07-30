@@ -65,6 +65,7 @@ import {
   clearPlatformAuthFailed,
   getPlatformAuthStatus,
 } from "./services/ai/credential.js";
+import { corsOriginPolicy } from "./middleware/frontendOrigin.js";
 
 async function main() {
   // Validate env-sourced config before any wiring. Prefer a loud, fast failure
@@ -82,7 +83,7 @@ async function main() {
   // the socket source.
   app.set("trust proxy", 1);
 
-  app.use(cors({ origin: config.corsOrigin }));
+  app.use(cors({ origin: corsOriginPolicy }));
   // Defense-in-depth security headers: X-Content-Type-Options, Referrer-Policy,
   // X-Frame-Options, no-store on sensitive responses, etc. CSP is a strict
   // default-src 'self'; the backend proxies every OpenAI call, so the browser

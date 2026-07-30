@@ -22,15 +22,13 @@
 //   - Email send failure but URL valid (warn=EMAIL_SEND_FAILED):
 //     surface a "didn't get the email? Use QR instead" hint
 //
-// Accessibility:
-//   - role=dialog with aria-modal=true
-//   - Esc closes (focus trap intentionally NOT implemented — the
-//     dialog is small, mobile-first; trap would fight the on-screen
-//     keyboard's input flow)
+// Accessibility is owned by the shared Modal contract: labelled dialog,
+// focus entry/trap/restore, Escape, backdrop dismissal, and safe-area spacing.
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { api } from "../../../api/client";
 import { isApiError } from "../../../api/ApiError";
+import { Modal } from "../../../components/Modal";
 import { QRCodePanel } from "./QRCodePanel";
 
 export interface PhoneGraduationDialogProps {
@@ -69,26 +67,6 @@ export function PhoneGraduationDialog({
   const [showQR, setShowQR] = useState(false);
   const [phase, setPhase] = useState<Phase>({ kind: "form" });
   const submittedSuccessfullyRef = useRef(false);
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        if (submittedSuccessfullyRef.current) {
-          // After a successful send, Esc is a clean dismiss — don't
-          // re-open the wall since the funnel ask has already
-          // landed via email.
-          onDismiss();
-        } else {
-          // No send happened yet → fall back to wall so the funnel
-          // still surfaces the convert ask.
-          onDismiss();
-          onFallbackToWall();
-        }
-      }
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onDismiss, onFallbackToWall]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -151,19 +129,19 @@ export function PhoneGraduationDialog({
   }
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Continue lesson 2 on your laptop"
-      className="fixed inset-0 z-50 flex items-end justify-center bg-bg/90 px-4 pb-6 pt-8 sm:items-center sm:p-6"
-      style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 1.5rem)" }}
+    <Modal
+      onClose={handleDismiss}
+      labelledBy="phone-graduation-title"
+      describedBy="phone-graduation-description"
+      position="bottom"
+      zIndex={60}
+      panelClassName="mx-4 mb-[calc(env(safe-area-inset-bottom)+1rem)] w-full max-w-md rounded-t-2xl border border-border bg-panel p-5 shadow-2xl sm:mb-0 sm:rounded-2xl sm:p-6"
     >
-      <div className="w-full max-w-md rounded-t-xl border border-border bg-panel p-5 shadow-2xl sm:rounded-xl">
         <header className="mb-3">
-          <h2 className="text-lg font-semibold text-ink">
+          <h2 id="phone-graduation-title" className="font-display text-xl font-semibold text-ink">
             {phase.kind === "sent" ? "Check your inbox" : "Lesson 2 needs more screen"}
           </h2>
-          <p className="mt-1 text-sm leading-relaxed text-muted">
+          <p id="phone-graduation-description" className="mt-1 text-sm leading-relaxed text-muted">
             {phase.kind === "sent"
               ? "We sent you a magic link. Open it on your laptop to keep going from where you left off."
               : "We'll email you a link. Open it on your laptop and pick up exactly where you stopped — same code, same name, no signup yet."}
@@ -172,7 +150,7 @@ export function PhoneGraduationDialog({
 
         {phase.kind === "form" || phase.kind === "submitting" ? (
           <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-            <label className="flex flex-col gap-1 text-xs font-medium text-muted">
+            <label className="flex flex-col gap-1.5 text-sm font-medium text-muted">
               Your email
               <input
                 type="email"
@@ -183,21 +161,21 @@ export function PhoneGraduationDialog({
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 disabled={phase.kind === "submitting"}
-                className="rounded-md border border-border bg-bg px-3 py-2 text-sm text-ink outline-none focus:border-accent disabled:opacity-50"
+                className="min-h-11 rounded-md border border-border bg-bg px-3 py-2 text-base text-ink outline-none transition focus:border-accent focus-visible:ring-2 focus-visible:ring-accent/70 disabled:opacity-50"
                 placeholder="you@example.com"
               />
             </label>
             <button
               type="submit"
               disabled={phase.kind === "submitting" || !email.trim()}
-              className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-bg transition disabled:opacity-50"
+              className="min-h-11 rounded-md bg-accent px-4 py-2 text-sm font-semibold text-bg transition hover:bg-accent/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
             >
               {phase.kind === "submitting" ? "Sending…" : "Send myself the link"}
             </button>
             <button
               type="button"
               onClick={handleDismiss}
-              className="text-xs text-muted underline-offset-2 hover:text-ink hover:underline"
+              className="min-h-11 rounded-md px-4 py-2 text-sm font-medium text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               Maybe later
             </button>
@@ -214,7 +192,7 @@ export function PhoneGraduationDialog({
               <button
                 type="button"
                 onClick={() => setShowQR(true)}
-                className="rounded-md border border-border bg-bg px-4 py-2 text-sm font-medium text-ink transition hover:border-accent/60"
+                className="min-h-11 rounded-md border border-border bg-bg px-4 py-2 text-sm font-medium text-ink transition hover:border-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
                 Show QR code
               </button>
@@ -224,7 +202,7 @@ export function PhoneGraduationDialog({
             <button
               type="button"
               onClick={onDismiss}
-              className="text-xs text-muted underline-offset-2 hover:text-ink hover:underline"
+              className="min-h-11 rounded-md px-4 py-2 text-sm font-medium text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               Done
             </button>
@@ -237,13 +215,12 @@ export function PhoneGraduationDialog({
             <button
               type="button"
               onClick={handleDismiss}
-              className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-bg"
+              className="min-h-11 rounded-md bg-accent px-4 py-2 text-sm font-semibold text-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               Sign up to keep going
             </button>
           </div>
         )}
-      </div>
-    </div>
+    </Modal>
   );
 }

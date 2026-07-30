@@ -27,7 +27,7 @@ export function AskVignette() {
   // setTimeouts started once the panel scrolls into view; clearing on
   // unmount or re-trigger to be tidy.
   const [stage, setStage] = useState<"hidden" | "tutor" | "typing" | "reply">(
-    reduce ? "reply" : "hidden",
+    reduce ? "reply" : "tutor",
   );
   const [replyChars, setReplyChars] = useState(reduce ? LEARNER_TEXT.length : 0);
 
@@ -69,7 +69,7 @@ export function AskVignette() {
           the lesson page's tutor message, so the panel reads as a real
           tutor exchange. */}
       <motion.div
-        initial={reduce ? undefined : { opacity: 0, y: 6 }}
+        initial={reduce ? false : { opacity: 0.65, y: 6 }}
         animate={
           stage === "hidden"
             ? { opacity: 0, y: 6 }

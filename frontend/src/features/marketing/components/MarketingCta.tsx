@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { motion, useMotionValue, useReducedMotion, useSpring, useTransform } from "framer-motion";
 
-import { useAuthStore } from "../../../auth/authStore";
+import { useMarketingAuth } from "../useMarketingAuth";
 
 // Phase 22C — primary CTA pill.
 //
@@ -22,7 +22,7 @@ import { useAuthStore } from "../../../auth/authStore";
 // Reduced-motion drops the magnet entirely; the static gradient pill is
 // already the win.
 
-const MotionLink = motion(Link);
+const MotionLink = motion.create(Link);
 
 export interface MarketingCtaProps {
   /** Override the destination. Defaults to /signup (anon) or /start (logged-in). */
@@ -43,9 +43,7 @@ export function MarketingCta({
   size = "hero",
 }: MarketingCtaProps) {
   const reduce = useReducedMotion();
-  const user = useAuthStore((s) => s.user);
-  const loading = useAuthStore((s) => s.loading);
-  const isLoggedIn = !loading && !!user;
+  const { isLoggedIn } = useMarketingAuth();
   const effectiveTo = to ?? (isLoggedIn ? "/start" : "/signup");
   const effectiveLabel =
     label ?? (isLoggedIn ? "Continue learning" : "Start your first lesson");

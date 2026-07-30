@@ -1,4 +1,7 @@
 {
+  "platform": {
+    "apiRuntime": "node:22"
+  },
   "navigationFallback": {
     "rewrite": "/index.html",
     "exclude": ["/assets/*", "/courses/*", "/*.{css,js,svg,png,ico,json,webp,map}"]

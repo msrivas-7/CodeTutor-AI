@@ -106,7 +106,7 @@ test.describe("learning", () => {
     await S.checkMyWorkButton(page).click();
     await expectLessonComplete(page);
     await expect(
-      page.locator('[role="alertdialog"]').getByText(/lesson complete/i).first(),
+      page.getByRole("dialog", { name: /lesson complete/i }),
     ).toBeVisible();
   });
 
@@ -125,7 +125,7 @@ test.describe("learning", () => {
     // Click the Next Lesson button INSIDE the completion modal — there's a
     // header-rendered one too, which the modal backdrop intercepts.
     await page
-      .locator('[role="alertdialog"]')
+      .getByRole("dialog", { name: /lesson complete/i })
       .getByRole("button", { name: /next lesson|skip to next/i })
       .first()
       .click();

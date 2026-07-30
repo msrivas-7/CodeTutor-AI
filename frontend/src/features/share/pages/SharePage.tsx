@@ -77,12 +77,10 @@ export default function SharePage() {
     };
   }, [token]);
 
-  // Set OG meta tags on the live document head. Most modern unfurl
-  // crawlers (Twitter, Slack, Discord, iMessage on iOS 17+) respect
-  // client-rendered tags; LinkedIn and older crawlers prefer SSR. For
-  // v1 we accept the LinkedIn gap — the cinematic page itself is the
-  // primary conversion surface; OG fidelity is a multiplier, not the
-  // mechanism.
+  // Keep the live document metadata correct for browser navigation and
+  // client-side transitions. Public copy/share URLs use the managed
+  // server-rendered unfurl entry point, because crawlers cannot be
+  // expected to execute this React effect.
   useEffect(() => {
     if (!share) return;
     const prevTitle = document.title;
@@ -91,8 +89,10 @@ export default function SharePage() {
     document.title = docTitle;
 
     const url = `${window.location.origin}/s/${share.shareToken}`;
-    const description = `Built it in ${fmtTimeSpent(share.timeSpentMs)} on ${
-      share.attemptCount === 1 ? "the first try" : `attempt ${share.attemptCount}`
+    const description = `${masteryLabel(share.mastery)} in ${fmtTimeSpent(
+      share.timeSpentMs,
+    )} · ${Math.max(1, share.attemptCount)} ${
+      Math.max(1, share.attemptCount) === 1 ? "attempt" : "attempts"
     }. See the code on CodeTutor.`;
 
     const tags: Array<[string, string, string]> = [
@@ -155,12 +155,12 @@ export default function SharePage() {
         <h1 className="font-display text-3xl font-semibold text-ink">
           Share not found
         </h1>
-        <p className="mt-3 max-w-md text-sm text-muted">
+        <p className="mt-3 max-w-md text-base text-muted sm:text-body">
           The link you followed is invalid or was revoked.
         </p>
         <button
           onClick={() => nav("/")}
-          className="mt-8 rounded-full bg-gradient-to-r from-violet to-accent px-5 py-2.5 text-xs font-bold text-bg shadow-glow transition hover:opacity-90"
+          className="mt-8 inline-flex min-h-11 items-center rounded-full bg-gradient-to-r from-violet to-accent px-5 py-2.5 text-sm font-bold text-bg shadow-glow transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
           Go to CodeTutor →
         </button>
@@ -174,12 +174,12 @@ export default function SharePage() {
         <h1 className="font-display text-2xl font-semibold text-ink">
           Couldn't load this share
         </h1>
-        <p className="mt-3 max-w-md text-sm text-muted">
+        <p className="mt-3 max-w-md text-base text-muted sm:text-body">
           Try again in a moment, or open CodeTutor directly.
         </p>
         <button
           onClick={() => nav("/")}
-          className="mt-8 rounded-full bg-gradient-to-r from-violet to-accent px-5 py-2.5 text-xs font-bold text-bg shadow-glow transition hover:opacity-90"
+          className="mt-8 inline-flex min-h-11 items-center rounded-full bg-gradient-to-r from-violet to-accent px-5 py-2.5 text-sm font-bold text-bg shadow-glow transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
           Go to CodeTutor →
         </button>
@@ -188,13 +188,33 @@ export default function SharePage() {
   }
 
   if (!share) {
-    // Loading state — render the page chrome but without the artwork.
-    // The cinematic lighting + grain land first; the rest fades in once
-    // the share data resolves. Avoids a janky flash-of-empty-page.
+    // Loading state carries identity and page structure immediately;
+    // a blank atmospheric canvas reads as a broken link on slow networks.
     return (
-      <div className="relative min-h-screen overflow-hidden bg-bg">
+      <div
+        className="relative min-h-screen overflow-hidden bg-bg text-ink"
+        role="status"
+        aria-live="polite"
+      >
         <CinematicLighting variant="three-point" fadeInMs={400} keyColor="accent" intensity="soft" />
         <FilmGrain intensity="hero" fadeInMs={400} />
+        <div className="relative mx-auto max-w-5xl px-5 pt-8 sm:px-10 sm:pt-10">
+          <div className="font-display text-xl font-semibold tracking-tight sm:text-2xl">
+            CodeTutor
+          </div>
+          <main className="pt-12 sm:pt-16">
+            <div className="text-xs font-medium uppercase tracking-wider text-muted">
+              Shared lesson
+            </div>
+            <div className="mt-4 h-12 w-3/4 max-w-xl animate-pulse rounded-xl bg-elevated/80" />
+            <div className="mt-6 rounded-2xl border border-border bg-panel/90 p-5 shadow-2xl sm:p-8">
+              <div className="h-3 w-28 animate-pulse rounded-full bg-elevated" />
+              <div className="mt-5 h-3 w-2/3 animate-pulse rounded-full bg-elevated" />
+              <div className="mt-3 h-3 w-1/2 animate-pulse rounded-full bg-elevated" />
+            </div>
+            <p className="mt-6 text-sm text-muted">Loading this learner's project…</p>
+          </main>
+        </div>
       </div>
     );
   }
@@ -304,7 +324,7 @@ function SharePageReady({ share }: SharePageReadyProps) {
           overflow risk and keeps the header airy. */}
       <motion.header
         className="relative mx-auto flex max-w-5xl items-center justify-between px-5 pt-8 sm:px-10 sm:pt-10"
-        initial={reduce ? false : { opacity: 0, y: -4 }}
+        initial={reduce ? false : { opacity: 0.65, y: -4 }}
         animate={
           inMoneyShot
             ? { opacity: 0.7, y: 0 }
@@ -331,7 +351,7 @@ function SharePageReady({ share }: SharePageReadyProps) {
         {/* Course context eyebrow */}
         <motion.div
           className="text-xs font-medium uppercase tracking-wider text-muted sm:text-sm"
-          initial={reduce ? false : { opacity: 0, y: 4 }}
+          initial={reduce ? false : { opacity: 0.65, y: 4 }}
           animate={
             inMoneyShot
               ? { opacity: 0.6, y: 0 }
@@ -377,7 +397,7 @@ function SharePageReady({ share }: SharePageReadyProps) {
             initial={
               reduce
                 ? { opacity: 1, backgroundPosition: "0% 50%" }
-                : { opacity: 0, backgroundPosition: "100% 50%" }
+                : { opacity: 0.65, backgroundPosition: "100% 50%" }
             }
             animate={{ opacity: 1, backgroundPosition: "0% 50%" }}
             transition={{
@@ -406,7 +426,7 @@ function SharePageReady({ share }: SharePageReadyProps) {
               colors across visual lines). */}
           <motion.div
             className="mt-5 rounded-2xl border border-border bg-panel/95 p-4 shadow-2xl sm:mt-6 sm:p-6 md:p-8"
-            initial={reduce ? false : { opacity: 0, y: 8 }}
+            initial={reduce ? false : { opacity: 0.55, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{
               duration: reduce ? 0 : 0.5,
@@ -430,11 +450,11 @@ function SharePageReady({ share }: SharePageReadyProps) {
         {/* Footer band — author + ring + meta + CTA */}
         <motion.div
           className="mt-10 flex flex-col items-start gap-6 border-t border-border pt-8 sm:flex-row sm:items-center sm:justify-between"
-          initial={reduce ? false : { opacity: 0, y: 8 }}
+          initial={false}
           animate={
             phase === "ring" || phase === "footer" || phase === "idle"
               ? { opacity: 1, y: 0 }
-              : { opacity: 0, y: 8 }
+              : { opacity: 0.72, y: 0 }
           }
           transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
         >
@@ -479,8 +499,8 @@ function SharePageReady({ share }: SharePageReadyProps) {
           </div>
           <div className="flex flex-col items-start gap-1 text-xs text-faint sm:items-end">
             <div>
-              {fmtTimeSpent(share.timeSpentMs)} · {share.attemptCount}{" "}
-              {share.attemptCount === 1 ? "attempt" : "attempts"}
+              {fmtTimeSpent(share.timeSpentMs)} · {Math.max(1, share.attemptCount)}{" "}
+              {Math.max(1, share.attemptCount) === 1 ? "attempt" : "attempts"}
             </div>
             {/* View counter — hidden when 0 readers. "0 readers" under
                 a freshly-published share reads sad and undercuts the
@@ -502,7 +522,7 @@ function SharePageReady({ share }: SharePageReadyProps) {
           animate={
             phase === "footer" || phase === "idle"
               ? { opacity: 1, y: 0 }
-              : { opacity: 0, y: 8 }
+              : { opacity: 0.65, y: 8 }
           }
           transition={{
             duration: 0.5,
@@ -520,7 +540,7 @@ function SharePageReady({ share }: SharePageReadyProps) {
             label="Try this lesson — takes 4 minutes →"
             breathe={phase === "idle" && !reduce}
           />
-          <div className="text-[11px] text-faint">
+          <div className="text-sm text-faint">
             No signup needed for the first lesson.
           </div>
           {/* Phase 22E: secondary download / share-out for the Story
@@ -624,7 +644,7 @@ function SaveImageButton({ storyImageUrl, authorLabel }: SaveImageButtonProps) {
       onClick={onClick}
       disabled={busy}
       aria-label="Save image to share"
-      className="inline-flex items-center gap-1.5 rounded-full border border-borderSoft bg-panel/60 px-3.5 py-1.5 text-[11.5px] font-medium text-muted transition hover:border-accent/40 hover:bg-panel hover:text-ink disabled:cursor-not-allowed disabled:opacity-60"
+      className="inline-flex min-h-11 items-center gap-1.5 rounded-full border border-borderSoft bg-panel/60 px-4 py-2 text-sm font-medium text-muted transition hover:border-accent/40 hover:bg-panel hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60"
     >
       <span aria-hidden="true">↓</span>
       Save image
@@ -662,7 +682,7 @@ function CtaButton({ href, label, breathe }: CtaButtonProps) {
       }
       whileHover={{ y: -1 }}
       whileTap={{ y: 0, scale: 0.985 }}
-      className="inline-flex items-center rounded-full border border-borderSoft bg-panel px-5 py-2.5 text-sm font-medium text-ink transition hover:border-accent/40 hover:bg-accent/5"
+      className="inline-flex min-h-11 items-center rounded-full border border-borderSoft bg-panel px-5 py-2.5 text-sm font-medium text-ink transition hover:border-accent/40 hover:bg-accent/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
     >
       {label}
     </motion.a>
