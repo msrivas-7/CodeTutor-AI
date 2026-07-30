@@ -40,7 +40,7 @@ interface LessonCompletePanelProps {
   // can't assemble a snippet — practice mode, no lastCode), the button
   // is hidden rather than shown disabled. Sharing is celebratory; a
   // dimmed "Share" feels worse than no share at all.
-  onShare?: () => void;
+  onShare?: (trigger: HTMLButtonElement) => void;
   /**
    * Phase A — A7: post-credits beat. The next lesson's title, used as
    * the fallback tease when the lesson hasn't authored a
@@ -344,7 +344,7 @@ export function LessonCompletePanel({
             </p>
             <button
               type="button"
-              onClick={onShare}
+              onClick={(event) => onShare(event.currentTarget)}
               className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-gradient-to-r from-accent to-violet px-4 py-2 text-sm font-bold text-bg shadow-sm transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               aria-label="Share your first program"
             >
@@ -441,7 +441,7 @@ export function LessonCompletePanel({
           <div className="mt-3 flex items-center justify-center">
             <button
               type="button"
-              onClick={onShare}
+              onClick={(event) => onShare(event.currentTarget)}
               className="inline-flex min-h-11 items-center gap-1.5 rounded-full border border-border/70 px-4 py-2 text-sm font-medium text-muted transition hover:border-accent/40 hover:bg-accent/5 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               aria-label="Open share dialog for this lesson"
             >

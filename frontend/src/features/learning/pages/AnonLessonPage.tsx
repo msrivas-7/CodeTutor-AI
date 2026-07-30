@@ -165,9 +165,11 @@ export default function AnonLessonPage() {
   // Note: the share gate in LessonPage still hides on practice mode
   // for both authed and anon — this callback only fires for non-
   // practice celebrations.
-  const onAnonShare = (payload: AnonSharePayload) => {
-    anonShareTriggerRef.current =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const onAnonShare = (payload: AnonSharePayload, trigger: HTMLButtonElement) => {
+    // Safari/WebKit does not consistently move DOM focus to a button when it
+    // is clicked. Carry the concrete opener through the callback so closing
+    // the stacked dialog always has a durable, cross-browser restore target.
+    anonShareTriggerRef.current = trigger;
     if (!payload.codeSnippet.trim()) {
       // No code typed — shouldn't happen post-celebration, but if it
       // does, fall back to the wall instead of sending a 400.

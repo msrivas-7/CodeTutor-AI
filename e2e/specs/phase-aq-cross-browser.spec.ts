@@ -111,6 +111,15 @@ test.describe("Phase A-Q — Firefox and WebKit critical journey", () => {
     await expect(shareDialog.locator(":focus")).toHaveCount(1);
     await page.keyboard.press("Escape");
     await expect(shareDialog).toHaveCount(0);
+    await expect(completion).toBeVisible();
+    await expect(shareButton).toBeFocused();
+
+    // Dismissal must return to the completed lesson without converting the
+    // user. Conversion is reserved for the explicit save-progress action.
+    await shareButton.click();
+    await shareDialog
+      .getByRole("button", { name: /save this progress with a free account/i })
+      .click();
     await expect(page.getByText(/Your share link is ready/i)).toBeVisible();
 
     const signup = page.getByRole("link", { name: /save my progress/i });
@@ -143,7 +152,7 @@ test.describe("Phase A-Q — Firefox and WebKit critical journey", () => {
     ).toBeVisible();
     await expectNoHorizontalOverflow(page);
     const landingCta = page
-      .getByRole("link", { name: /start your first lesson/i })
+      .getByRole("link", { name: /try your first lesson/i })
       .first();
     const ctaBox = await landingCta.boundingBox();
     expect(ctaBox?.height ?? 0).toBeGreaterThanOrEqual(44);

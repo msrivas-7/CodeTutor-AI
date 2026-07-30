@@ -134,7 +134,7 @@ interface LessonPageProps {
   onAnonSave?: () => void;
   onAnonNext?: () => void;
   onAnonExhausted?: () => void;
-  onAnonShare?: (payload: AnonSharePayload) => void;
+  onAnonShare?: (payload: AnonSharePayload, trigger: HTMLButtonElement) => void;
   onAnonTrialPaused?: () => void;
   /**
    * Phase A — A6 (memory v0): fired EXACTLY ONCE when the celebration
@@ -1802,7 +1802,7 @@ export default function LessonPage({
             practiceMode
               ? undefined
               : mode === "anon"
-                ? () => {
+                ? (trigger) => {
                     const files = useProjectStore.getState().snapshot();
                     const entry = LANGUAGE_ENTRYPOINT[lesson.language];
                     const code =
@@ -1812,17 +1812,20 @@ export default function LessonPage({
                     const completedSnapshot = lp
                       ? { ...lp, status: "completed" as const }
                       : null;
-                    onAnonShare?.({
-                      mastery:
-                        computeMastery(completedSnapshot, lesson)?.level ?? "okay",
-                      timeSpentMs: Math.max(0, lp?.timeSpentMs ?? 0),
-                      // A validated completion represents at least one
-                      // Check, even if a stale local snapshot has not yet
-                      // observed the store update from that click.
-                      attemptCount: Math.max(1, lp?.attemptCount ?? 0),
-                      codeSnippet: code,
-                      displayName: extractNameFromCode(code),
-                    });
+                    onAnonShare?.(
+                      {
+                        mastery:
+                          computeMastery(completedSnapshot, lesson)?.level ?? "okay",
+                        timeSpentMs: Math.max(0, lp?.timeSpentMs ?? 0),
+                        // A validated completion represents at least one
+                        // Check, even if a stale local snapshot has not yet
+                        // observed the store update from that click.
+                        attemptCount: Math.max(1, lp?.attemptCount ?? 0),
+                        codeSnippet: code,
+                        displayName: extractNameFromCode(code),
+                      },
+                      trigger,
+                    );
                   }
                 : !!lp?.lastCode?.[LANGUAGE_ENTRYPOINT[lesson.language]]?.trim()
                   ? () => setShareOpen(true)

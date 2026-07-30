@@ -486,7 +486,11 @@ unit/contract tests, a production build, content lint, golden-solution
 verification, and 34/34 executed changed-surface Chromium tests, including the
 corrected iPhone-13 CTA check (the opt-in real-provider check was intentionally
 skipped). The fresh-browser journey is covered independently at desktop and
-390×844. Cinematic duration remains unchanged by explicit product decision.
+390×844. A draft-PR WebKit failure also exposed and repaired Safari's
+click-without-focus behavior: the share opener is now passed explicitly so
+Escape restores focus across engines. The focused Chromium suite passes 7/7
+and the WebKit critical journey passes 2/2 locally. Cinematic duration remains
+unchanged by explicit product decision.
 
 Deliver:
 
