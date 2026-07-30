@@ -35,6 +35,7 @@ import { config } from "../config.js";
 import { isAnonLessonEnabled } from "../services/share/killSwitches.js";
 import { anonLaptopInviteRouter } from "./anonLaptopInvite.js";
 import { anonShareRouter } from "./anonShare.js";
+import { anonConceptTagRouter } from "./anonConceptTag.js";
 import { runProject } from "../services/execution/router.js";
 import { languageSchema } from "../services/execution/commands.js";
 import type { ExecutionBackend, RuntimeSpec } from "../services/execution/backends/index.js";
@@ -707,6 +708,11 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
   // abuse via the same switch that already drains authed-share abuse,
   // without nuking the entire trial path.
   router.use(anonShareRouter);
+
+  // Phase A — A6 (memory v0): write-only concept-tag ledger for the
+  // anon path. Same kill-switch + rate-limit inheritance as the rest
+  // of /api/anon/*. Idempotent at the DB layer.
+  router.use(anonConceptTagRouter);
 
   return router;
 }

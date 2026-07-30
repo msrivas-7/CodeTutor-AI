@@ -930,6 +930,28 @@ export const api = {
     return (await res.json()) as { code: string; name: string | null };
   },
 
+  // Phase A — A6 (memory v0): fire-and-forget concept-tag write for
+  // the anon path. AnonLessonPage calls this when LessonCompletePanel
+  // mounts — the server reads the lesson's tags from the catalog and
+  // writes ip_hash-keyed rows. Errors are silent at the call site;
+  // the authed-side ledger write at handoff time is the safety net.
+  postAnonConceptTag: async (body: {
+    courseId: "python-fundamentals";
+    lessonId: "hello-world";
+  }): Promise<void> => {
+    try {
+      await fetch(`${API_BASE}/api/anon/concept-tag`, {
+        method: "POST",
+        headers: { ...JSON_HEADERS, ...CSRF_HEADER },
+        body: JSON.stringify(body),
+        keepalive: true,
+      });
+    } catch {
+      // Network failure — fail-soft, the authed-side ledger write at
+      // handoff covers the gap.
+    }
+  },
+
   // Phase A — A3 (anon-share unlock): create a share artifact for an
   // anon learner (no userId). The server returns a public `/s/:token`
   // URL that anyone can open without signup — the K-factor lever the

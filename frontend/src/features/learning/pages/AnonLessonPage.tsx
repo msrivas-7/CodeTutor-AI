@@ -327,6 +327,17 @@ export default function AnonLessonPage() {
         onAnonExhausted={onAnonExhausted}
         onAnonShare={onAnonShare}
         onAnonTrialPaused={onAnonTrialPaused}
+        onAnonComplete={() => {
+          // Phase A — A6: fire-and-forget concept-tag write on the
+          // anon-completion beat. The authed-side write at handoff
+          // time covers the gap if this fails (network blip,
+          // backend down) — the ledger is the data substrate, not a
+          // critical path for the user's experience.
+          void api.postAnonConceptTag({
+            courseId: ANON_ALLOWED.courseId,
+            lessonId: ANON_ALLOWED.lessonId,
+          });
+        }}
       />
       <SignupWallDialog
         open={wall.open}

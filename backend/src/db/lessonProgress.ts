@@ -2,6 +2,8 @@ import type { JSONValue } from "postgres";
 import { z } from "zod";
 import { db, withRlsContext } from "./client.js";
 import { HttpError } from "../middleware/errorHandler.js";
+import { writeConceptTags } from "./conceptLedger.js";
+import { getLessonConceptTags } from "../services/share/lessonCatalog.js";
 
 export interface LessonProgress {
   courseId: string;
@@ -111,6 +113,15 @@ export interface LessonPatch {
   practiceExerciseCode?: Record<string, Record<string, string>>;
 }
 
+// Phase A — A6 (memory v0): track which (userId, courseId, lessonId)
+// triples have already had their concept-tag rows written, so a
+// repeated completion call (e.g., progressStore.completeLesson firing
+// on a lesson the user already completed) doesn't re-issue the catalog
+// read + ledger writes. This is a soft cache layered over the DB-level
+// idempotency in conceptLedger.writeConceptTags — the DB constraint is
+// the ultimate truth, this just saves the round trips.
+const completedConceptWriteCache = new Set<string>();
+
 export async function upsertLessonProgress(
   userId: string,
   courseId: string,
@@ -168,7 +179,105 @@ export async function upsertLessonProgress(
                 practice_exercise_code
     `;
   });
-  return rowToLesson(rows[0]);
+  const result = rowToLesson(rows[0]);
+
+  // Phase A — A6: write concept-tag rows on the completion transition
+  // AND on practice-exercise progress. Fire-and-forget — the user's
+  // completion succeeds regardless of ledger health; failures get
+  // logged but don't propagate. The DB layer (conceptLedger.
+  // writeConceptTags) is idempotent, and the soft cache below saves
+  // the round trips on repeated calls for the same (user, lesson) tuple.
+  const cacheKey = `${userId}/${courseId}/${lessonId}`;
+  if (result.status === "completed" && !completedConceptWriteCache.has(cacheKey)) {
+    completedConceptWriteCache.add(cacheKey);
+    void writeConceptTagsForCompletion(userId, courseId, lessonId, "lesson").catch((err) => {
+      completedConceptWriteCache.delete(cacheKey);
+      console.error(
+        JSON.stringify({
+          level: "error",
+          evt: "concept_ledger_write_failed",
+          phase: "lesson",
+          userId,
+          courseId,
+          lessonId,
+          msg: err instanceof Error ? err.message : String(err),
+        }),
+      );
+    });
+  }
+  // Practice-exercise hook: when the patch carries practiceCompletedIds
+  // (any value, even an empty array — the route only sends this field
+  // when the user just completed an exercise), write `practiced` rows
+  // for the lesson's concept tags. The DB UNIQUE index collapses
+  // repeats to no-ops, so writing on every practice patch is cheap.
+  if (
+    patch.practiceCompletedIds !== undefined &&
+    !practiceConceptWriteCache.has(cacheKey)
+  ) {
+    practiceConceptWriteCache.add(cacheKey);
+    void writeConceptTagsForCompletion(userId, courseId, lessonId, "practice").catch((err) => {
+      practiceConceptWriteCache.delete(cacheKey);
+      console.error(
+        JSON.stringify({
+          level: "error",
+          evt: "concept_ledger_write_failed",
+          phase: "practice",
+          userId,
+          courseId,
+          lessonId,
+          msg: err instanceof Error ? err.message : String(err),
+        }),
+      );
+    });
+  }
+
+  return result;
+}
+
+// Phase A — A6: a separate cache for the practice-exercise write so a
+// learner who finishes a practice exercise BEFORE the main lesson check
+// (or vice-versa) gets both rows written without one suppressing the
+// other.
+const practiceConceptWriteCache = new Set<string>();
+
+// Helper kept private to this module: read the lesson's concept tags
+// from the catalog, then write them via the ledger. Catalog miss
+// (lesson removed from the catalog mid-flight) → no-op write, since
+// the ledger is honest about lessons that exist in lesson_progress
+// but not in the catalog (a soft inconsistency Phase B's read side
+// can tolerate by ignoring orphan tags).
+//
+// `phase` selects which event types to write: "lesson" → taught + used
+// (one row per tag in each), "practice" → practiced (re-uses the same
+// taught+used tags as the practice surface for the lesson).
+async function writeConceptTagsForCompletion(
+  userId: string,
+  courseId: string,
+  lessonId: string,
+  phase: "lesson" | "practice",
+): Promise<void> {
+  const tags = await getLessonConceptTags(courseId, lessonId);
+  if (!tags) return;
+  if (tags.taught.length === 0 && tags.used.length === 0) return;
+  if (phase === "lesson") {
+    await writeConceptTags({
+      userId,
+      courseId,
+      lessonId,
+      taught: tags.taught,
+      used: tags.used,
+    });
+  } else {
+    // Practice rows reuse the lesson's concept set — Phase B reads
+    // them as "did the learner reinforce this concept after the
+    // initial lesson" rather than "which exercise was practiced."
+    await writeConceptTags({
+      userId,
+      courseId,
+      lessonId,
+      practiced: [...tags.taught, ...tags.used],
+    });
+  }
 }
 
 /**

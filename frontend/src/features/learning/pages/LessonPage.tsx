@@ -130,6 +130,16 @@ interface LessonPageProps {
   onAnonExhausted?: () => void;
   onAnonShare?: () => void;
   onAnonTrialPaused?: () => void;
+  /**
+   * Phase A — A6 (memory v0): fired EXACTLY ONCE when the celebration
+   * mounts on the anon path. AnonLessonPage uses it to fire the
+   * fire-and-forget concept-tag write (writes ip_hash-keyed rows for
+   * the lesson's teaches/uses tags). Authed path is covered by
+   * `upsertLessonProgress`'s server-side hook; anon needs this
+   * client-trigger because there's no server-side completion write
+   * pre-signup.
+   */
+  onAnonComplete?: () => void;
 }
 
 export default function LessonPage({
@@ -141,6 +151,7 @@ export default function LessonPage({
   onAnonExhausted,
   onAnonShare,
   onAnonTrialPaused,
+  onAnonComplete,
 }: LessonPageProps = {}) {
   const params = useParams<{
     courseId: string;
@@ -382,6 +393,21 @@ export default function LessonPage({
     mode,
     retrievalAnswered,
   });
+
+  // Phase A — A6: fire onAnonComplete once when the celebration
+  // mounts on the anon path. AnonLessonPage hooks this to fire a
+  // fire-and-forget POST /api/anon/concept-tag (ip_hash-keyed
+  // ledger write). One firing per mount is enough — the DB write
+  // is itself idempotent, but the network call is wasted on
+  // dismiss/re-mount cycles.
+  const anonCompleteFiredRef = useRef(false);
+  useEffect(() => {
+    if (mode !== "anon") return;
+    if (!validator.showComplete) return;
+    if (anonCompleteFiredRef.current) return;
+    anonCompleteFiredRef.current = true;
+    onAnonComplete?.();
+  }, [mode, validator.showComplete, onAnonComplete]);
 
   // Run-success ring + Check sonar removed per user direction —
   // the lesson-complete celebration is the win moment; per-press

@@ -36,6 +36,12 @@ interface LessonJson {
   id: string;
   title: string;
   order: number;
+  // Phase A — A6: concept-tag write side. The lesson.json declares
+  // which concepts the lesson teaches (new to the learner) vs uses
+  // (assumed prior knowledge). Optional in the JSON shape because
+  // older lessons predate the tagging convention.
+  teachesConceptTags?: string[];
+  usesConceptTags?: string[];
 }
 
 // Resolve the catalog root once. In the runtime container, this file
@@ -120,7 +126,51 @@ export async function getLessonSnapshot(
   return snapshot;
 }
 
-/** Test-only: clear the cache between vitest cases. */
+/**
+ * Phase A — A6: concept-tag lookup for the learner-concept ledger.
+ * Returns `taught` (new concepts the lesson teaches) and `used`
+ * (concepts the lesson assumes prior knowledge of), parsed from the
+ * lesson.json. Both arrays may be empty if the lesson hasn't declared
+ * tags yet — caller treats that as a no-op write.
+ *
+ * Returns null when the lesson is unknown (path-traversal-safe slug
+ * guard + catalog-miss fallthrough). Cached separately from the share
+ * snapshot so the existing share path doesn't pay for this read.
+ */
+const tagsCache = new Map<string, { taught: string[]; used: string[] }>();
+
+export async function getLessonConceptTags(
+  courseId: string,
+  lessonId: string,
+): Promise<{ taught: string[]; used: string[] } | null> {
+  if (!SLUG_RE.test(courseId) || !SLUG_RE.test(lessonId)) return null;
+  const cacheKey = `${courseId}/${lessonId}`;
+  const cached = tagsCache.get(cacheKey);
+  if (cached) return cached;
+
+  const root = catalogRoot();
+  const lesson = await readJson<LessonJson>(
+    path.join(root, courseId, "lessons", lessonId, "lesson.json"),
+  );
+  if (!lesson) return null;
+  if (lesson.id !== lessonId) return null;
+
+  // Defensive: filter to non-empty strings only. Lesson authors who
+  // ship a stray empty string in the array would otherwise fail the
+  // ledger's `concept_tag_size BETWEEN 1 AND 64` CHECK on insert.
+  const taught = (lesson.teachesConceptTags ?? []).filter(
+    (t) => typeof t === "string" && t.trim().length > 0,
+  );
+  const used = (lesson.usesConceptTags ?? []).filter(
+    (t) => typeof t === "string" && t.trim().length > 0,
+  );
+  const tags = { taught, used };
+  tagsCache.set(cacheKey, tags);
+  return tags;
+}
+
+/** Test-only: clear the caches between vitest cases. */
 export function _resetLessonCatalogCache(): void {
   cache.clear();
+  tagsCache.clear();
 }
