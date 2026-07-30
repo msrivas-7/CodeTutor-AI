@@ -107,6 +107,29 @@ export default function AnonLessonPage() {
     url: string;
   }>({ open: false, url: "" });
   const anonShareTriggerRef = useRef<HTMLElement | null>(null);
+  const anonShareDismissFocusPendingRef = useRef(false);
+  const wallDismissFocusPendingRef = useRef(false);
+
+  // Restore stacked-dialog focus only after React has committed the upper
+  // layer's removal and Modal has released `inert` from the celebration below.
+  // Scheduling from the click/Escape handler itself races that cleanup in
+  // Firefox; this effect runs in the post-commit phase across engines.
+  useEffect(() => {
+    if (anonShare.open || !anonShareDismissFocusPendingRef.current) return;
+    anonShareDismissFocusPendingRef.current = false;
+    const target = anonShareTriggerRef.current;
+    if (!target?.isConnected) return;
+    target.focus({ preventScroll: true });
+  }, [anonShare.open]);
+
+  useEffect(() => {
+    if (wall.open || !wallDismissFocusPendingRef.current) return;
+    wallDismissFocusPendingRef.current = false;
+    const target = anonShareTriggerRef.current;
+    if (!target?.isConnected) return;
+    target.focus({ preventScroll: true });
+    anonShareTriggerRef.current = null;
+  }, [wall.open]);
 
   // Phase 27-v2.2 Fix 6 — funnel telemetry: anon_page_view fires at
   // most once per browser session per /try/ visit. Backend hashes the
@@ -289,19 +312,10 @@ export default function AnonLessonPage() {
         open={wall.open}
         reason={wall.reason}
         onDismiss={() => {
-          const restoreTarget =
-            wall.reason === "share" ? anonShareTriggerRef.current : null;
-          setWall({ open: false, reason: wall.reason });
-          if (restoreTarget) {
-            // This wall follows a dismissed share dialog, so the Modal's
-            // immediate previous-focus element belonged to a portal that no
-            // longer exists. Restore to the durable celebration trigger once
-            // the wall's inert cleanup has completed.
-            window.requestAnimationFrame(() => {
-              if (restoreTarget.isConnected) restoreTarget.focus();
-              anonShareTriggerRef.current = null;
-            });
+          if (wall.reason === "share" && anonShareTriggerRef.current) {
+            wallDismissFocusPendingRef.current = true;
           }
+          setWall({ open: false, reason: wall.reason });
         }}
       />
       {graduation.open && (
@@ -316,11 +330,8 @@ export default function AnonLessonPage() {
         <AnonShareDialog
           url={anonShare.url}
           onDismiss={() => {
+            anonShareDismissFocusPendingRef.current = true;
             setAnonShare((s) => ({ ...s, open: false }));
-            const restoreTarget = anonShareTriggerRef.current;
-            window.requestAnimationFrame(() => {
-              if (restoreTarget?.isConnected) restoreTarget.focus();
-            });
           }}
           onSaveProgress={() => {
             setAnonShare((s) => ({ ...s, open: false }));
