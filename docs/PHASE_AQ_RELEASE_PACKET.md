@@ -34,7 +34,7 @@
 | G3 — Accessibility | **Automated/manual browser pass; physical mobile pending** | Axe has zero serious/critical findings on the critical surfaces; keyboard/focus, reduced motion, light theme, zoom, and touch-target tests pass. Physical mobile assistive/keyboard checks remain part of G2. |
 | G4 — Interaction consistency | **Pass** | Shared `Modal` contract plus settings, completion/share stacking, Escape, focus trap, focus restoration, route-transition inert cleanup, and dialog regressions. |
 | G5 — Journey continuity | **Pass — automated/browser** | Full Chromium E2E and focused WebKit/Firefox gate cover public discovery through signup; anon handoff tests cover lesson-2 continuation and failure recovery. |
-| G6 — Distribution artifact | **Crawler implementation pass; real-destination proof pending** | SWA crawler function, server lookup, canonical metadata, privacy defaults, image rendering, mobile share page, revoke/not-found tests pass. Record real iMessage, Slack, Discord, LinkedIn, and generic-validator unfurls before exit. |
+| G6 — Distribution artifact | **Live crawler-transport pass; real-destination visual proof pending** | The SWA crawler function, server lookup, canonical metadata, privacy defaults, image rendering, mobile share page, and revoke/not-found tests pass. A synthetic completion was created against the deployed service on 2026-07-30 and the PR preview returned `200` plus the correct public canonical/OG URL, personalized title/description, `summary_large_image`, and rendered OG image to generic, Slack, Discord, LinkedIn, and iMessage-style crawler user agents. Record visual unfurls inside the real destination apps before exit. |
 | G7 — Human comprehension | **Pending external sessions** | Run five unfamiliar phone-first sessions and three laptop-continuation sessions using the pre-registered observation sheet. No production cohort is required, but these cannot be replaced by automated tests. |
 | G8 — Performance | **Pass — pre-traffic lab** | Repeated Lighthouse lab runs passed for `/` and `/why-not-chatgpt`; deterministic production asset budgets pass with Monaco/editor excluded from the public entry. Field p75 remains a post-traffic measurement. |
 | G9 — Regression protection | **Pass** | Frontend unit, backend unit/integration, SWA API, content, golden-solution, visual, accessibility, full Chromium E2E, and focused Firefox/WebKit gates are present. |
@@ -45,12 +45,21 @@
 - Frontend: 38 files, 370 tests passed.
 - Frontend production build: passed.
 - Backend: 898 tests passed, 16 intentional skips.
-- SWA share function: 5 tests passed.
+- SWA share function: 8 tests passed, including public-host preservation and Host-header-poisoning defenses.
 - Production asset budgets: passed (396,235 bytes total shipped JS gzip; 66,004-byte largest JS chunk; 12,464-byte CSS; 1,194-byte HTML; no Monaco/editor preload).
 - Full Chromium E2E: 303 passed, 12 intentional skips, zero retries, 17.9 minutes.
 - WebKit critical journey: desktop and phone passed locally with zero retries.
 - Firefox: the pinned macOS browser process could not establish its Playwright control channel on this host; this is not counted as a local pass. The Linux CI job is the required authoritative Firefox result.
 - Manual in-app browser audit: 1440×900 and 390×844 passed with no horizontal overflow or fresh console warnings/errors.
+
+## Live share-unfurl probe
+
+- Environment: pull-request SWA preview backed by the deployed CodeTutor API.
+- Synthetic data only: a clearly labeled `Quality Audit` anonymous lesson completion with harmless Python output.
+- Crawler profiles: generic HTML, Slack, Discord, LinkedIn, and iMessage-style fetchers.
+- Every profile returned `200`, `text/html`, the same public SWA preview canonical and `og:url`, the personalized lesson title/description, `twitter:card=summary_large_image`, and the rendered public OG image.
+- The first probe caught an internal `azurewebsites.net` canonical URL caused by the SWA-to-Functions proxy boundary. Commit `05637ac` fixed the resolver to use validated public proxy metadata; the post-deploy probe passed for all profiles.
+- This proves the server transport and metadata contract. It does not substitute for visually confirming the rendered card inside each named destination app.
 
 ## Visual evidence
 
