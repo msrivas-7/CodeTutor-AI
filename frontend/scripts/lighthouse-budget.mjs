@@ -3,8 +3,9 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { extname, resolve } from "node:path";
 import { promisify } from "node:util";
 import { gzip as gzipCallback } from "node:zlib";
-import { launch } from "chrome-launcher";
+import { getChromePath } from "chrome-launcher";
 import lighthouse from "lighthouse";
+import puppeteer from "puppeteer-core";
 
 const RUNS_PER_PAGE = 3;
 const HOST = "127.0.0.1";
@@ -143,12 +144,10 @@ async function collect(url, reportPath) {
   let lastError;
 
   for (let attempt = 1; attempt <= 2; attempt += 1) {
-    const chrome = await launch({
-      ...(process.env.LIGHTHOUSE_CHROME_PATH
-        ? { chromePath: process.env.LIGHTHOUSE_CHROME_PATH }
-        : {}),
-      chromeFlags: [
-        "--headless",
+    const browser = await puppeteer.launch({
+      executablePath: process.env.LIGHTHOUSE_CHROME_PATH || getChromePath(),
+      headless: true,
+      args: [
         "--no-sandbox",
         "--disable-dev-shm-usage",
         "--no-first-run",
@@ -156,13 +155,14 @@ async function collect(url, reportPath) {
         "--window-size=1440,900",
       ],
     });
+    const port = Number(new URL(browser.wsEndpoint()).port);
 
     try {
       const result = await lighthouse(url, {
-        logLevel: process.env.CI ? "info" : "warn",
+        logLevel: "warn",
         output: "json",
         onlyCategories: ["performance"],
-        port: chrome.port,
+        port,
         maxWaitForLoad: 90_000,
         // Public routes use deliberate system-font fallbacks. Keep the lab
         // gate about our application rather than Google Fonts availability on
@@ -191,7 +191,7 @@ async function collect(url, reportPath) {
         console.warn(`Collection failed once for ${url}; retrying with a fresh browser.`);
       }
     } finally {
-      await chrome.kill();
+      await browser.close();
     }
   }
 

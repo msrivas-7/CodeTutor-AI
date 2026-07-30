@@ -153,10 +153,9 @@ jobs:
 
   performance-budget:
     name: Lab performance budgets
-    # GitHub's Linux images currently fail to emit Chrome paint events for
-    # this navigation (NO_FCP) with both system Chrome and pinned Chromium.
-    # Keep the strict Lighthouse gate on the macOS environment where the same
-    # pinned browser produces complete traces; do not weaken the budgets.
+    # Keep the strict Lighthouse gate on the same macOS + pinned-Chromium
+    # baseline used for the local release audit; the script launches that
+    # browser through Puppeteer so hosted runs emit complete paint traces.
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
