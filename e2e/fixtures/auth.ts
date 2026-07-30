@@ -17,7 +17,8 @@
 
 import { test as baseTest, request as playwrightRequest } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { createClient, type Session, type SupabaseClient, type User } from "@supabase/supabase-js";
+import { createClient, type Session, type SupabaseClient } from "@supabase/supabase-js";
+import { buildWorkerTestEmail, listAllUsers } from "./testIdentity";
 
 const BACKEND_URL = process.env.E2E_API_URL ?? "http://localhost:4000";
 const APP_ORIGIN = process.env.E2E_APP_ORIGIN ?? "http://localhost:5173";
@@ -49,12 +50,10 @@ const admin: SupabaseClient = createClient(SUPABASE_URL, SERVICE_KEY, {
 });
 
 // Per-worker identity so parallel specs don't share a user (and thus a
-// user-keyed rate-limit bucket). Playwright sets TEST_WORKER_INDEX in the
-// fixture runtime; fall back to a PID + random suffix for one-off usage.
+// user-keyed rate-limit bucket). The shared identity helper requires the
+// coordinator-created run namespace before it will form an address.
 function workerEmail(workerIndex: number): string {
-  const suffix =
-    process.env.E2E_USER_SUFFIX ?? `${process.pid}-${Math.floor(Math.random() * 1e6)}`;
-  return `e2e-w${workerIndex}-${suffix}@codetutor.test`;
+  return buildWorkerTestEmail(workerIndex);
 }
 
 type CachedUser = {
@@ -67,32 +66,6 @@ type CachedUser = {
 // rather than once per test. The access token is valid an hour — plenty
 // for a full spec run.
 const workerCache = new Map<number, Promise<CachedUser>>();
-const createdUserIds = new Set<string>();
-
-// Walk every page of `/auth/v1/admin/users`. GoTrue caps perPage at 1000;
-// if a CI environment ever accumulates more test users than that (e.g. the
-// teardown was skipped across multiple runs) a single-page listing would
-// silently miss rows and leave the stale pile to grow forever.
-async function listAllUsers(): Promise<User[]> {
-  const out: User[] = [];
-  let page = 1;
-  // Hard ceiling on pagination depth so a misbehaving GoTrue can't put us
-  // in an infinite loop; 50 pages × 1000 per page = 50k users, well beyond
-  // anything our E2E suite would ever produce.
-  const MAX_PAGES = 50;
-  while (page <= MAX_PAGES) {
-    const { data, error } = await admin.auth.admin.listUsers({
-      page,
-      perPage: 1000,
-    });
-    if (error) throw error;
-    if (data.users.length === 0) break;
-    out.push(...data.users);
-    if (data.users.length < 1000) break;
-    page++;
-  }
-  return out;
-}
 
 async function createOrReuseUser(email: string): Promise<string> {
   // `createUser` returns the existing record when email collides (by
@@ -110,12 +83,11 @@ async function createOrReuseUser(email: string): Promise<string> {
     const isDuplicate = /already registered|already exists/i.test(error.message);
     if (!isDuplicate) throw error;
     // Look the user up so we can track the id for teardown.
-    const users = await listAllUsers();
+    const users = await listAllUsers(admin);
     const existing = users.find((u) => u.email === email);
     if (!existing) throw error;
     return existing.id;
   }
-  createdUserIds.add(data.user.id);
   return data.user.id;
 }
 
@@ -217,65 +189,6 @@ export async function loginAsTestUser(
     { key: STORAGE_KEY, value: JSON.stringify(storedSession) },
   );
   return user;
-}
-
-/**
- * Purge every test user whose email begins with `e2e-w`. Invoked by
- * globalTeardown.ts after the suite completes.
- *
- * We can't rely on `createdUserIds` here — globalTeardown runs in a
- * different process than the workers that created users, so it would see
- * an empty set. Listing by email prefix also sweeps users left behind by
- * earlier crashed runs, which keeps the local Supabase instance clean
- * without manual intervention. The paginated walk matters here: if a
- * previous teardown failed mid-delete and the pile grew past 1000, a
- * single-page listing would silently leave the excess behind every run.
- */
-export async function teardownTestUsers(): Promise<void> {
-  createdUserIds.clear();
-  let users: User[];
-  try {
-    users = await listAllUsers();
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    console.warn("[auth teardown] listAllUsers failed:", msg);
-    return;
-  }
-  // Scope the teardown filter to THIS shard's user namespace when
-  // E2E_USER_SUFFIX is set — without it, shard 1's teardown would
-  // delete shard 2's still-running test users (the workflow's matrix
-  // shards run on distinct ubuntu-latest runners but share one
-  // Supabase project). Email format from `workerEmail` above:
-  // `e2e-w{idx}-{suffix}@codetutor.test`. Local runs (no suffix env)
-  // keep the broader cleanup so a crashed run still gets swept.
-  const suffix = process.env.E2E_USER_SUFFIX;
-  // Stale sweep: the CI suffix now carries `github.run_id`, so no future
-  // run ever shares a namespace with this one. That's what makes
-  // concurrent runs safe, but it also means a run cancelled before
-  // teardown (the workflow uses cancel-in-progress) would leak its users
-  // forever, since no later run would match their suffix. Anything
-  // `e2e-w*` older than this threshold cannot belong to a live run — a
-  // full suite is minutes, not hours — so it's safe to reap regardless
-  // of suffix.
-  const STALE_MS = 6 * 60 * 60 * 1000;
-  const staleBefore = Date.now() - STALE_MS;
-  const toDelete = users.filter((u) => {
-    if (typeof u.email !== "string" || !u.email.startsWith("e2e-w")) return false;
-    if (!suffix) return true;
-    if (u.email.includes(`-${suffix}@`)) return true;
-    const createdMs = u.created_at ? Date.parse(u.created_at) : NaN;
-    return Number.isFinite(createdMs) && createdMs < staleBefore;
-  });
-  if (toDelete.length === 0) return;
-  const results = await Promise.allSettled(
-    toDelete.map((u) => admin.auth.admin.deleteUser(u.id)),
-  );
-  const failed = results.filter((r) => r.status === "rejected").length;
-  if (failed > 0) {
-    console.warn(
-      `[auth teardown] ${failed}/${toDelete.length} delete calls failed`,
-    );
-  }
 }
 
 /**

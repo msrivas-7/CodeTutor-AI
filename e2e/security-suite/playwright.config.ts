@@ -9,6 +9,10 @@ import * as dotenv from "dotenv";
 
 dotenv.config({ path: path.resolve(__dirname, "..", "..", ".env") });
 
+// The security suite is a standalone Playwright entrypoint, so it cannot rely
+// on the main config to establish a test-user namespace for local runs.
+process.env.E2E_USER_SUFFIX ??= `security-local-${process.pid}-${Date.now().toString(36)}`;
+
 const IS_CI = !!process.env.CI;
 
 export default defineConfig({

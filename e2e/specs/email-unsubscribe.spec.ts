@@ -21,6 +21,10 @@
 import { createHmac } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { expect, test } from "@playwright/test";
+import {
+  buildCurrentRunTestEmail,
+  deleteCurrentRunTestUser,
+} from "../fixtures/testIdentity";
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? "";
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
@@ -56,9 +60,14 @@ const admin =
       })
     : null;
 
-async function createTestUserWithPrefs(): Promise<string> {
+async function createTestUserWithPrefs(): Promise<{
+  userId: string;
+  email: string;
+}> {
   if (!admin) throw new Error("Supabase admin client not configured");
-  const email = `e2e-unsub-${process.pid}-${Date.now()}@codetutor.test`;
+  const email = buildCurrentRunTestEmail(
+    `unsub-${Date.now().toString(36)}-${process.pid}`,
+  );
   const { data, error } = await admin.auth.admin.createUser({
     email,
     password: "E2E-Password-123!",
@@ -74,7 +83,7 @@ async function createTestUserWithPrefs(): Promise<string> {
     .from("user_preferences")
     .upsert({ user_id: userId, email_opt_in: true }, { onConflict: "user_id" });
   if (insertErr) throw insertErr;
-  return userId;
+  return { userId, email };
 }
 
 async function readEmailOptIn(userId: string): Promise<boolean | null> {
@@ -88,9 +97,9 @@ async function readEmailOptIn(userId: string): Promise<boolean | null> {
   return data?.email_opt_in ?? null;
 }
 
-async function deleteTestUser(userId: string): Promise<void> {
+async function deleteTestUser(userId: string, email: string): Promise<void> {
   if (!admin) return;
-  await admin.auth.admin.deleteUser(userId);
+  await deleteCurrentRunTestUser(admin, { id: userId, email });
 }
 
 const skipIfMissingSecret = !SECRET || !admin;
@@ -112,7 +121,7 @@ test.describe("Phase 22D: streak-nudge unsubscribe route", () => {
 
   test("tampered token → 401 branded HTML", async ({ request }) => {
     // Mint a real token, then mangle the signature so HMAC fails.
-    const userId = await createTestUserWithPrefs();
+    const { userId, email } = await createTestUserWithPrefs();
     try {
       const real = mintTestToken(userId, SECRET);
       const [payload] = real.split(".");
@@ -126,7 +135,7 @@ test.describe("Phase 22D: streak-nudge unsubscribe route", () => {
       // DB flag must be UNCHANGED — tampered request never mutated state.
       expect(await readEmailOptIn(userId)).toBe(true);
     } finally {
-      await deleteTestUser(userId);
+      await deleteTestUser(userId, email);
     }
   });
 
@@ -140,7 +149,7 @@ test.describe("Phase 22D: streak-nudge unsubscribe route", () => {
   test("valid token → 200 + email_opt_in flips to false in DB", async ({
     request,
   }) => {
-    const userId = await createTestUserWithPrefs();
+    const { userId, email } = await createTestUserWithPrefs();
     try {
       // Sanity: precondition is opt_in = true.
       expect(await readEmailOptIn(userId)).toBe(true);
@@ -158,14 +167,14 @@ test.describe("Phase 22D: streak-nudge unsubscribe route", () => {
       // The DB flag must now be false.
       expect(await readEmailOptIn(userId)).toBe(false);
     } finally {
-      await deleteTestUser(userId);
+      await deleteTestUser(userId, email);
     }
   });
 
   test("idempotent: a second click on the same token still 200s", async ({
     request,
   }) => {
-    const userId = await createTestUserWithPrefs();
+    const { userId, email } = await createTestUserWithPrefs();
     try {
       const token = mintTestToken(userId, SECRET);
       const r1 = await request.get(`${APP_ORIGIN}${API_PATH}?token=${token}`);
@@ -177,7 +186,7 @@ test.describe("Phase 22D: streak-nudge unsubscribe route", () => {
       expect(r2.status()).toBe(200);
       expect(await readEmailOptIn(userId)).toBe(false);
     } finally {
-      await deleteTestUser(userId);
+      await deleteTestUser(userId, email);
     }
   });
 });
