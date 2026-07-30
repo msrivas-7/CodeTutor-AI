@@ -158,7 +158,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Build the production frontend
@@ -168,17 +168,7 @@ jobs:
           npm run build
       - name: Run repeated Lighthouse lab checks
         working-directory: frontend
-        run: |
-          npm install --global @lhci/cli@0.15.1
-          # Retry collection only when Chrome fails to produce a report (for
-          # example a hosted-runner NO_FCP). Assertions are never retried, so a
-          # real budget regression cannot pass by selecting a favorable run.
-          lhci collect --config=./lighthouserc.cjs || {
-            echo "Lighthouse collection failed once; retrying collection."
-            lhci collect --config=./lighthouserc.cjs
-          }
-          lhci assert --config=./lighthouserc.cjs
-          lhci upload --config=./lighthouserc.cjs
+        run: npm run test:lighthouse-budget
       - name: Upload Lighthouse reports
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
