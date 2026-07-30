@@ -190,7 +190,7 @@ test.describe("Phase 27-v2.2 Fix 6 — funnel telemetry", () => {
     );
   });
 
-  test("anon_wall_opened fires with reason='share' when the post-share wall opens", async ({
+  test("anon_wall_opened fires with reason='share' from the explicit save-progress action", async ({
     page,
   }) => {
     await page.route("**/api/anon/run", (route) =>
@@ -239,7 +239,9 @@ test.describe("Phase 27-v2.2 Fix 6 — funnel telemetry", () => {
       .click();
     const shareDialog = page.getByRole("dialog", { name: /your first one/i });
     await expect(shareDialog).toBeVisible({ timeout: 5_000 });
-    await shareDialog.getByRole("button", { name: /^done$/i }).click();
+    await shareDialog
+      .getByRole("button", { name: /save this progress with a free account/i })
+      .click();
     await waitForEvent(
       events,
       (e) => e.event === "anon_wall_opened" && e.reason === "share",

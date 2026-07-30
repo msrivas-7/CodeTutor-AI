@@ -497,14 +497,14 @@ test.describe("marketing CTA → anonymous lesson (Phase 27 §3a sub-commit 3)",
     });
   });
 
-  test("anonymous visitor on / sees the 'Or try a lesson — no signup →' link pointing at /try/...", async ({
+  test("anonymous visitor on / sees the primary try-first-lesson link pointing at /try/...", async ({
     page,
   }) => {
     await page.goto("/");
     // Wait for hydration so the loading-state spacer resolves.
     const tryLink = page.getByRole("link", {
-      name: /or try a lesson — no signup/i,
-    });
+      name: /try your first lesson/i,
+    }).first();
     await expect(tryLink).toBeVisible({ timeout: 10_000 });
     await expect(tryLink).toHaveAttribute(
       "href",
@@ -517,7 +517,8 @@ test.describe("marketing CTA → anonymous lesson (Phase 27 §3a sub-commit 3)",
   }) => {
     await page.goto("/");
     await page
-      .getByRole("link", { name: /or try a lesson — no signup/i })
+      .getByRole("link", { name: /try your first lesson/i })
+      .first()
       .click();
     await expect(page).toHaveURL(new RegExp(ALLOWED_PATH.replace(/\//g, "\\/")), {
       timeout: 15_000,
