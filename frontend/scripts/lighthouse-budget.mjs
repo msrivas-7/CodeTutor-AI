@@ -159,12 +159,24 @@ async function collect(url, reportPath) {
 
     try {
       const result = await lighthouse(url, {
-        logLevel: "warn",
+        logLevel: process.env.CI ? "info" : "warn",
         output: "json",
         onlyCategories: ["performance"],
         port: chrome.port,
         maxWaitForLoad: 90_000,
+        // Public routes use deliberate system-font fallbacks. Keep the lab
+        // gate about our application rather than Google Fonts availability on
+        // a hosted runner (the production synthetic separately covers the
+        // deployed network path).
+        blockedUrlPatterns: [
+          "https://fonts.googleapis.com/*",
+          "https://fonts.gstatic.com/*",
+        ],
       });
+
+      // Runtime-error reports still contain the trace diagnosis. Persist them
+      // before throwing so CI always uploads actionable evidence.
+      await writeFile(reportPath, result.report);
 
       if (result.lhr.runtimeError) {
         throw new Error(
@@ -172,7 +184,6 @@ async function collect(url, reportPath) {
         );
       }
 
-      await writeFile(reportPath, result.report);
       return readMetrics(result.lhr);
     } catch (error) {
       lastError = error;
