@@ -9,6 +9,7 @@ import {
 import { useProgressStore, loadAllLessonProgress } from "../stores/progressStore";
 import { useAuthStore } from "../../../auth/authStore";
 import { CourseCard } from "../components/CourseCard";
+import { CurriculumMap } from "../components/CurriculumMap";
 import { CoursePrereqWarningModal } from "../components/CoursePrereqWarningModal";
 import { ProgressRing } from "../components/ProgressRing";
 import { AmbientGlyphField } from "../../../components/AmbientGlyphField";
@@ -346,6 +347,20 @@ export default function LearningDashboardPage() {
                   )}
                 </StaggerItem>
               )}
+
+              {/* Phase A — A7: curriculum map. The whole journey at a
+                  glance — every course a row, every lesson a node. Sits
+                  between "what's next" (cards above) and "what happened"
+                  (activity below): present, past, and the whole road. */}
+              <StaggerItem className="mb-8">
+                <CurriculumMap
+                  courses={courses}
+                  courseProgressMap={courseProgressMap}
+                  onOpenLesson={(cId, lId) =>
+                    nav(`/learn/course/${cId}/lesson/${lId}`)
+                  }
+                />
+              </StaggerItem>
 
               {/* Recent activity — inner StaggerReveal so each row
                   cascades in sequence instead of the whole block popping

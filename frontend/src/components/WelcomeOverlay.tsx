@@ -36,7 +36,12 @@ const STEPS: WelcomeStep[] = [
   {
     refKey: "guidedCard",
     title: "Guided Course — start here!",
-    body: "New to coding? This is for you. Step-by-step Python or JavaScript lessons with instructions, instant feedback, and an AI tutor that won't give away the answer.",
+    // Phase A — A7: language-agnostic beginner copy. The learner is
+    // choosing to learn CODING, not a language — naming Python/JS here
+    // makes the choice feel like a test they haven't studied for.
+    // Course titles keep their language names; SEO/meta surfaces keep
+    // "Python" per growth-marketing's nuance.
+    body: "New to coding? This is for you. Step-by-step lessons with instructions, instant feedback, and an AI tutor that won't give away the answer.",
     position: "top",
   },
 ];

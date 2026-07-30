@@ -757,8 +757,10 @@ export default function LessonPage({
           <div className="pointer-events-none absolute left-1/2 -translate-x-1/2">
             <div className="pointer-events-auto">
               {mode === "anon" ? (
+                // Phase A — A7: language-agnostic beginner copy — the
+                // trial sells "your first lesson," not "Python."
                 <span className="rounded-full bg-elevated/60 px-2 py-0.5 text-[10px] font-medium text-muted ring-1 ring-border">
-                  Lesson 1 · Python
+                  Lesson 1
                 </span>
               ) : (
                 <StreakChip />
@@ -1747,6 +1749,7 @@ export default function LessonPage({
           completedPracticeIds={lp?.practiceCompletedIds ?? []}
           mastery={computeMastery(lp, lesson)?.level ?? null}
           timeSpentMs={lp?.timeSpentMs}
+          nextLessonTitle={loader.nextLessonTitle}
           onDismiss={() => {
             validator.setShowComplete(false);
             // Phase 27-v2.1 medium-lock: on anon, dismissing the
