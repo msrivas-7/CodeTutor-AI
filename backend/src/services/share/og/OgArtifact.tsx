@@ -135,22 +135,29 @@ export interface OgArtifactProps {
 }
 
 export function OgArtifact(props: OgArtifactProps): React.ReactElement {
-  // Truncate + clamp the code to fit nicely in the artifact. Aim for
-  // ~10 lines max; if the snippet is longer, take the first 10 and add
-  // an ellipsis line so the eye knows it's truncated.
+  // Truncate + clamp the code to fit nicely in the artifact. The
+  // polaroid frame (Phase A — A3) costs ~90px of vertical budget, so
+  // the interior clamps at 8 lines instead of the pre-frame 10.
   const allLines = props.codeSnippet.split("\n");
-  const MAX_LINES = 10;
+  const MAX_LINES = 8;
   const lines = allLines.slice(0, MAX_LINES);
   const truncated = allLines.length > MAX_LINES;
 
-  // Pick a code font size that keeps the code block height bounded.
-  // 22px line-height × 11 lines (10 + ellipsis) = 242px, fits comfortably
-  // in the centred code area.
-  const codeLineHeight = 32;
-  const codeFontSize = 22;
+  const codeLineHeight = 30;
+  const codeFontSize = 21;
 
   // Author line — anonymous when no displayName chosen.
   const author = props.displayName ?? "A learner on CodeTutor";
+
+  // Phase A — A3 (growth-marketing): polaroid-border attribution
+  // framing. The artifact travels as a screenshot far more often than
+  // as a linked unfurl — a warm paper frame with a "Made on CodeTutor"
+  // caption band makes the brand part of the PHOTO, not chrome around
+  // it: cropping the attribution out means visibly mutilating the
+  // polaroid. Paper color is deliberately warm (photo paper, not UI
+  // white) so the dark artifact reads as a developed picture.
+  const PAPER = "rgb(244, 241, 234)";
+  const PAPER_INK = "rgb(41, 37, 36)";
 
   return (
     <div
@@ -159,17 +166,25 @@ export function OgArtifact(props: OgArtifactProps): React.ReactElement {
         flexDirection: "column",
         width: W,
         height: H,
-        backgroundColor: BRAND.bg,
-        color: BRAND.ink,
+        backgroundColor: PAPER,
+        padding: "18px 18px 0 18px",
         fontFamily: "Inter",
-        padding: "48px 64px",
-        // Soft accent radial in the top-left, simulated via an absolutely
-        // positioned blurred disc since Satori doesn't support
-        // background-image gradients beyond linear. A solid-color overlay
-        // with slight transparency does the same job.
-        position: "relative",
       }}
     >
+      {/* The photo — the pre-A3 dark artifact, framed. */}
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          flex: 1,
+          backgroundColor: BRAND.bg,
+          color: BRAND.ink,
+          padding: "28px 48px",
+          borderRadius: 6,
+          position: "relative",
+          overflow: "hidden",
+        }}
+      >
       {/* Ambient accent glow top-left */}
       <div
         style={{
@@ -185,7 +200,8 @@ export function OgArtifact(props: OgArtifactProps): React.ReactElement {
         }}
       />
 
-      {/* Header row: wordmark left, view URL right (also footers later) */}
+      {/* Header row: wordmark left. The share URL moved to the polaroid
+          caption band — one attribution surface, carried by the frame. */}
       <div
         style={{
           display: "flex",
@@ -206,7 +222,7 @@ export function OgArtifact(props: OgArtifactProps): React.ReactElement {
           <div
             style={{
               fontFamily: "Fraunces",
-              fontSize: 28,
+              fontSize: 26,
               fontWeight: 600,
               letterSpacing: "-0.02em",
               color: BRAND.ink,
@@ -214,16 +230,6 @@ export function OgArtifact(props: OgArtifactProps): React.ReactElement {
           >
             CodeTutor
           </div>
-        </div>
-        <div
-          style={{
-            display: "flex",
-            fontFamily: "JetBrainsMono",
-            fontSize: 16,
-            color: BRAND.faint,
-          }}
-        >
-          {`codetutor.msrivas.com/s/${props.shareToken}`}
         </div>
       </div>
 
@@ -233,8 +239,8 @@ export function OgArtifact(props: OgArtifactProps): React.ReactElement {
           display: "flex",
           flexDirection: "column",
           flex: 1,
-          marginTop: 36,
-          gap: 18,
+          marginTop: 20,
+          gap: 14,
         }}
       >
         {/* Course context — small eyebrow */}
@@ -264,7 +270,7 @@ export function OgArtifact(props: OgArtifactProps): React.ReactElement {
           style={{
             display: "flex",
             fontFamily: "Fraunces",
-            fontSize: 56,
+            fontSize: 46,
             fontWeight: 600,
             letterSpacing: "-0.01em",
             lineHeight: 1.1,
@@ -341,8 +347,8 @@ export function OgArtifact(props: OgArtifactProps): React.ReactElement {
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          marginTop: 24,
-          paddingTop: 20,
+          marginTop: 16,
+          paddingTop: 14,
           borderTop: `1px solid ${BRAND.border}`,
         }}
       >
@@ -399,6 +405,44 @@ export function OgArtifact(props: OgArtifactProps): React.ReactElement {
           {`${fmtTimeSpent(props.timeSpentMs)} · ${props.attemptCount} ${
             props.attemptCount === 1 ? "attempt" : "attempts"
           }`}
+        </div>
+      </div>
+      </div>
+
+      {/* Polaroid caption band — the thick bottom border of a real
+          polaroid, carrying the attribution. Fraunces italic reads as
+          the handwritten caption; the share URL rides along so the
+          artifact is a working pointer even as a bare screenshot. */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          height: 58,
+          gap: 16,
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            fontFamily: "Fraunces",
+            fontSize: 22,
+            fontWeight: 600,
+            fontStyle: "italic",
+            color: PAPER_INK,
+          }}
+        >
+          Made on CodeTutor
+        </div>
+        <div
+          style={{
+            display: "flex",
+            fontFamily: "JetBrainsMono",
+            fontSize: 15,
+            color: "rgb(120, 113, 108)",
+          }}
+        >
+          {`codetutor.msrivas.com/s/${props.shareToken}`}
         </div>
       </div>
     </div>
