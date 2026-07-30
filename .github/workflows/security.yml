@@ -17,20 +17,6 @@ name: Security suite
 # HMAC-signed grading envelopes are all working as claimed.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'backend/src/services/execution/**'
-      - 'backend/src/routes/execution.ts'
-      - 'backend/src/routes/executeTests.ts'
-      - 'backend/src/routes/project.ts'
-      - 'backend/src/routes/session.ts'
-      - 'backend/src/services/session/**'
-      - 'backend/src/middleware/csrfGuard.ts'
-      - 'runner-image/**'
-      - 'docker-compose*.yml'
-      - 'e2e/security-suite/**'
-      - '.github/workflows/security.yml'
   pull_request:
     paths:
       - 'backend/src/services/execution/**'
@@ -49,10 +35,26 @@ on:
     # don't touch our files (kernel CVE patches, etc.).
     - cron: '0 7 * * *'
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      backend_image_ref:
+        description: Immutable backend digest to test; empty builds locally
+        required: false
+        default: ''
+        type: string
+      runner_image_ref:
+        description: Immutable runner digest to test; empty builds locally
+        required: false
+        default: ''
+        type: string
 
 concurrency:
   group: security-${{ github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: read
 
 jobs:
   suite:
@@ -73,8 +75,18 @@ jobs:
       # limits during the suite.
       MAX_SESSIONS_PER_USER: "60"
       MAX_SESSIONS_GLOBAL: "200"
+      BACKEND_IMAGE: ${{ inputs.backend_image_ref || '' }}
+      RUNNER_IMAGE: ${{ inputs.runner_image_ref || '' }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Log in to GHCR for immutable candidates
+        if: inputs.backend_image_ref != '' && inputs.runner_image_ref != ''
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
@@ -92,7 +104,15 @@ jobs:
           sudo -n tcpdump --version
 
       - name: Boot docker-compose stack
-        run: docker compose up -d backend frontend
+        run: |
+          if [ -n "$BACKEND_IMAGE" ] && [ -n "$RUNNER_IMAGE" ]; then
+            docker pull "$BACKEND_IMAGE"
+            docker pull "$RUNNER_IMAGE"
+            docker compose build frontend
+            docker compose up -d --no-build backend frontend
+          else
+            docker compose up -d backend frontend
+          fi
 
       - name: Install e2e deps
         working-directory: e2e

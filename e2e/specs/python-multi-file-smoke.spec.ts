@@ -1,7 +1,7 @@
 // Phase 22F2A — B4: multi-file Python lesson smoke.
 //
 // The `_internal-python-smoke` course was added in 22F2A to prove that the
-// multi-file lesson chain (scaffolder → starter/_index.json → frontend
+// multi-file lesson chain (scaffolder → starterFilePaths metadata → frontend
 // loader → backend writeFiles → runner Python imports) works end-to-end.
 // Without this coverage, 22F2's `modules-and-imports` lesson would be
 // authored against an unverified path; if the runner mishandled the
@@ -44,7 +44,7 @@ test.describe("python multi-file smoke course (Phase 22F2A — B4)", () => {
     ).toHaveCount(0);
   });
 
-  test("direct-URL load hydrates main.py from starter (multi-file _index.json honored)", async ({
+  test("direct-URL load hydrates main.py from metadata-declared multi-file starter", async ({
     page,
   }) => {
     await loadProfile(page, "empty");
@@ -52,7 +52,7 @@ test.describe("python multi-file smoke course (Phase 22F2A — B4)", () => {
     await waitForMonacoReady(page);
 
     // The starter main.py imports from helper.py — proves the loader
-    // followed _index.json and pulled both files. Monaco shows the active
+    // followed starterFilePaths and pulled both files. Monaco shows the active
     // entry (main.py) so we assert against its content.
     const starter = await getMonacoValue(page);
     expect(starter).toContain("from helper import greet");
@@ -82,7 +82,7 @@ test.describe("python multi-file smoke course (Phase 22F2A — B4)", () => {
     await page.goto(`/learn/course/${COURSE_ID}/lesson/${LESSON_ID}`);
     await waitForMonacoReady(page);
 
-    // Both tabs should be visible (multi-file _index.json: main.py + helper.py).
+    // Both metadata-declared starter tabs should be visible.
     await expect(page.locator('[aria-label="main.py"]')).toBeVisible({
       timeout: 5_000,
     });

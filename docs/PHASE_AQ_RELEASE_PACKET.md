@@ -12,7 +12,7 @@
 - Review range: `dd4bfe4..dev/phase-aq-quality-pass`.
 - Database migrations: none in Phase A-Q.
 - Existing operational controls remain in place, including the anonymous-lesson and share create/render/public kill switches.
-- Backend deployment keeps the existing health-checked rollback path in `.github/workflows/deploy.yml`.
+- Backend deployment keeps the health-checked rollback path now owned by `.github/workflows/release.yml` and `infra/scripts/vm-promote-candidate.sh`.
 
 ## What changed
 

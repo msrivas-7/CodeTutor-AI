@@ -136,6 +136,22 @@ export const lessonMetaSchema = z.object({
   description: nonEmptyString,
   order: z.number().int().positive(),
   language: languageEnum,
+  // Multi-file lessons declare their starter files in metadata so the browser
+  // never has to probe a normally-missing _index.json (a 404 in production).
+  // Content lint keeps this list identical to starter/_index.json, which is
+  // still consumed by authoring and golden-solution tooling.
+  starterFilePaths: z
+    .array(
+      z
+        .string()
+        .min(1)
+        .regex(
+          /^[a-z0-9][a-z0-9._-]*$/i,
+          "must be a safe starter filename without path separators",
+        ),
+    )
+    .min(1)
+    .optional(),
   estimatedMinutes: z.number().int().positive(),
   objectives: z.array(z.string()).min(1),
   teachesConceptTags: z.array(z.string()).default([]),

@@ -88,6 +88,7 @@ export interface LessonMeta {
   description: string;
   order: number;
   language: Language;
+  starterFilePaths?: string[];
   estimatedMinutes: number;
   objectives: string[];
   teachesConceptTags: string[];
@@ -158,4 +159,3 @@ export interface ValidationResult {
   // care about the distinction get expected behavior).
   passedExceptRetrieval: boolean;
 }
-

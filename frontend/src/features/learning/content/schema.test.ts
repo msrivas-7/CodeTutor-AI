@@ -162,6 +162,25 @@ describe("content schemas", () => {
     expect(() => lessonMetaSchema.parse(base)).toThrow();
   });
 
+  it("lessonMetaSchema rejects unsafe starter file paths", () => {
+    const base = {
+      id: "a",
+      courseId: "c",
+      title: "T",
+      description: "D",
+      order: 1,
+      language: "python",
+      starterFilePaths: ["../secret.py"],
+      estimatedMinutes: 10,
+      objectives: ["learn"],
+      teachesConceptTags: [],
+      usesConceptTags: [],
+      completionRules: [{ type: "expected_stdout", expected: "hi" }],
+      prerequisiteLessonIds: [],
+    };
+    expect(() => lessonMetaSchema.parse(base)).toThrow();
+  });
+
   it("functionTestsRule requires at least one test", () => {
     expect(() =>
       completionRuleSchema.parse({ type: "function_tests", tests: [] }),

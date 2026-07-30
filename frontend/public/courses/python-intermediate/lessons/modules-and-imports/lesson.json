@@ -5,6 +5,7 @@
   "description": "Split your code across multiple files. Import functions from a helper module and learn what __name__ == '__main__' actually does.",
   "order": 5,
   "language": "python",
+  "starterFilePaths": ["main.py", "wordstats.py"],
   "estimatedMinutes": 20,
   "objectives": [
     "Split a script into a main file and a helper module",

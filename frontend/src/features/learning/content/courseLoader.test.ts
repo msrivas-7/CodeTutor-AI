@@ -3,6 +3,7 @@ import {
   LessonLoaderError,
   isCourseCompleted,
   listAllCourses,
+  loadStarterFiles,
 } from "./courseLoader";
 
 // QA-M1 + QA-M2 coverage. Two behaviors are pinned here:
@@ -67,6 +68,37 @@ describe("LessonLoaderError", () => {
     expect(se.kind).toBe("schema_error");
     expect(se.issues).toHaveLength(2);
     expect(se.issues[0]).toContain("order");
+  });
+});
+
+describe("loadStarterFiles", () => {
+  it("loads a single-file entrypoint without probing a missing index", async () => {
+    const requested: string[] = [];
+    fetchHandler = async (url) => {
+      requested.push(url);
+      return new Response('print("hello")\n', { status: 200 });
+    };
+
+    await expect(loadStarterFiles("course", "lesson", "python")).resolves.toEqual([
+      { path: "main.py", content: 'print("hello")\n' },
+    ]);
+    expect(requested).toEqual([
+      "/courses/course/lessons/lesson/starter/main.py",
+    ]);
+  });
+
+  it("loads every metadata-declared file for a multi-file lesson", async () => {
+    fetchHandler = async (url) =>
+      new Response(url.endsWith("main.py") ? "import helper\n" : "VALUE = 1\n", {
+        status: 200,
+      });
+
+    await expect(
+      loadStarterFiles("course", "lesson", "python", ["main.py", "helper.py"]),
+    ).resolves.toEqual([
+      { path: "main.py", content: "import helper\n" },
+      { path: "helper.py", content: "VALUE = 1\n" },
+    ]);
   });
 });
 

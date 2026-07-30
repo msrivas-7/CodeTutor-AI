@@ -488,6 +488,25 @@ function lintLesson(
               });
             }
           }
+          if (!lesson.starterFilePaths) {
+            issues.push({
+              severity: "error",
+              file: relLesson,
+              pointer: "starterFilePaths",
+              message:
+                "multi-file starter/_index.json requires matching lesson.json starterFilePaths",
+            });
+          } else if (
+            JSON.stringify(lesson.starterFilePaths) !== JSON.stringify(files)
+          ) {
+            issues.push({
+              severity: "error",
+              file: relLesson,
+              pointer: "starterFilePaths",
+              message:
+                "starterFilePaths must exactly match starter/_index.json order and filenames",
+            });
+          }
           // Orphan files in starter/ that aren't in the index (warn only).
           for (const entry of starterEntries) {
             if (entry === "_index.json") continue;
@@ -510,6 +529,14 @@ function lintLesson(
         });
       }
     } else {
+      if (lesson.starterFilePaths) {
+        issues.push({
+          severity: "error",
+          file: relLesson,
+          pointer: "starterFilePaths",
+          message: "starterFilePaths requires a matching starter/_index.json",
+        });
+      }
       const hasFile = starterEntries.some((name) => {
         const p = join(starterDir, name);
         return statSync(p).isFile();

@@ -169,13 +169,9 @@ export async function loadStarterFiles(
   courseId: string,
   lessonId: string,
   language: Language,
+  starterFilePaths?: string[],
 ): Promise<{ path: string; content: string }[]> {
-  const indexRes = await fetch(
-    `${COURSE_BASE}/${courseId}/lessons/${lessonId}/starter/_index.json`
-  );
-  const isJson = indexRes.ok &&
-    (indexRes.headers.get("content-type") ?? "").includes("application/json");
-  if (!isJson) {
+  if (!starterFilePaths) {
     const entry = LANGUAGE_ENTRYPOINT[language];
     const fallback = await fetch(
       `${COURSE_BASE}/${courseId}/lessons/${lessonId}/starter/${entry}`
@@ -185,9 +181,9 @@ export async function loadStarterFiles(
     if (text.trimStart().startsWith("<!")) return [];
     return [{ path: entry, content: text }];
   }
-  const filenames: string[] = await indexRes.json();
+
   const files = await Promise.all(
-    filenames.map(async (name) => {
+    starterFilePaths.map(async (name) => {
       const r = await fetch(
         `${COURSE_BASE}/${courseId}/lessons/${lessonId}/starter/${name}`
       );
@@ -207,7 +203,12 @@ export async function loadFullLesson(
   const meta = await loadLessonMeta(courseId, lessonId);
   const [content, starterFiles] = await Promise.all([
     loadLessonContent(courseId, lessonId),
-    loadStarterFiles(courseId, lessonId, meta.language),
+    loadStarterFiles(
+      courseId,
+      lessonId,
+      meta.language,
+      meta.starterFilePaths,
+    ),
   ]);
   return { ...meta, content, starterFiles };
 }

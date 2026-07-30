@@ -1,15 +1,41 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
+  workflow_call:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
+  release-safety:
+    name: Release manifest + rollback contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+      - name: Test immutable manifest and VM promotion rollback
+        run: node --test .github/scripts/release-manifest.test.mjs .github/scripts/vm-promote-candidate.test.mjs
+      - name: Parse promotion scripts
+        run: bash -n infra/scripts/vm-promote-candidate.sh
+      - name: Validate GitHub Actions workflows
+        run: |
+          lint_dir=$(mktemp -d)
+          archive=actionlint_1.7.12_linux_amd64.tar.gz
+          curl --fail --silent --show-error --location \
+            "https://github.com/rhysd/actionlint/releases/download/v1.7.12/$archive" \
+            --output "$lint_dir/$archive"
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $lint_dir/$archive" \
+            | sha256sum --check
+          tar -xzf "$lint_dir/$archive" -C "$lint_dir" actionlint
+          "$lint_dir/actionlint" -color
+
   build:
     name: Build (${{ matrix.os }})
     strategy:

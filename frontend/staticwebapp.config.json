@@ -2,6 +2,14 @@
   "platform": {
     "apiRuntime": "node:22"
   },
+  "routes": [
+    {
+      "route": "/release.json",
+      "headers": {
+        "Cache-Control": "no-store"
+      }
+    }
+  ],
   "navigationFallback": {
     "rewrite": "/index.html",
     "exclude": ["/assets/*", "/courses/*", "/*.{css,js,svg,png,ico,json,webp,map}"]

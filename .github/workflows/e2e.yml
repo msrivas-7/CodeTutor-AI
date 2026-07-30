@@ -12,23 +12,32 @@ name: E2E
 # not block the fast-feedback signal on unit tests.
 
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - '.github/ISSUE_TEMPLATE/**'
-      - 'LICENSE'
   pull_request:
     paths-ignore:
       - '**.md'
       - 'docs/**'
       - '.github/ISSUE_TEMPLATE/**'
       - 'LICENSE'
+  workflow_call:
+    inputs:
+      backend_image_ref:
+        description: Immutable backend digest to test; empty builds locally
+        required: false
+        default: ''
+        type: string
+      runner_image_ref:
+        description: Immutable runner digest to test; empty builds locally
+        required: false
+        default: ''
+        type: string
 
 concurrency:
   group: e2e-${{ github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: read
 
 jobs:
   e2e:
@@ -95,8 +104,18 @@ jobs:
       MAX_SESSIONS_PER_USER: "60"
       MAX_SESSIONS_GLOBAL: "200"
       DOCKER_EXEC_CONCURRENCY: "16"
+      BACKEND_IMAGE: ${{ inputs.backend_image_ref || '' }}
+      RUNNER_IMAGE: ${{ inputs.runner_image_ref || '' }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Log in to GHCR for immutable candidates
+        if: inputs.backend_image_ref != '' && inputs.runner_image_ref != ''
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
@@ -105,7 +124,15 @@ jobs:
           cache-dependency-path: e2e/package-lock.json
 
       - name: Boot docker-compose stack
-        run: docker compose up -d backend frontend
+        run: |
+          if [ -n "$BACKEND_IMAGE" ] && [ -n "$RUNNER_IMAGE" ]; then
+            docker pull "$BACKEND_IMAGE"
+            docker pull "$RUNNER_IMAGE"
+            docker compose build frontend
+            docker compose up -d --no-build backend frontend
+          else
+            docker compose up -d backend frontend
+          fi
 
       - name: Install e2e deps
         working-directory: e2e
@@ -182,8 +209,18 @@ jobs:
       MAX_SESSIONS_PER_USER: "20"
       MAX_SESSIONS_GLOBAL: "80"
       DOCKER_EXEC_CONCURRENCY: "8"
+      BACKEND_IMAGE: ${{ inputs.backend_image_ref || '' }}
+      RUNNER_IMAGE: ${{ inputs.runner_image_ref || '' }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Log in to GHCR for immutable candidates
+        if: inputs.backend_image_ref != '' && inputs.runner_image_ref != ''
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
@@ -192,7 +229,15 @@ jobs:
           cache-dependency-path: e2e/package-lock.json
 
       - name: Boot docker-compose stack
-        run: docker compose up -d backend frontend
+        run: |
+          if [ -n "$BACKEND_IMAGE" ] && [ -n "$RUNNER_IMAGE" ]; then
+            docker pull "$BACKEND_IMAGE"
+            docker pull "$RUNNER_IMAGE"
+            docker compose build frontend
+            docker compose up -d --no-build backend frontend
+          else
+            docker compose up -d backend frontend
+          fi
 
       - name: Install e2e deps
         working-directory: e2e

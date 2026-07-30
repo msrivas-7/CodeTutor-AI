@@ -28,6 +28,7 @@ Build locally:
 docker build -t codetutor-ai-runner ./runner-image
 ```
 
-In prod, images are built by `.github/workflows/deploy.yml` and pushed to
-GHCR under both `:<github.sha>` and `:latest`. The VM pulls the specific
-SHA tag and retags locally so compose always runs immutable.
+In prod, images are built by `.github/workflows/release.yml`, pushed under
+the candidate SHA, and recorded by immutable registry digest. The VM pulls
+that tested digest and retags it locally; the workflow never promotes a
+floating GHCR `:latest` tag.

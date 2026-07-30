@@ -2,12 +2,13 @@
   "id": "multi-file-test",
   "courseId": "_internal-python-smoke",
   "title": "Multi-file smoke",
-  "description": "Internal: validates _index.json multi-file lesson loading via Python imports.",
+  "description": "Internal: validates metadata-declared multi-file lesson loading via Python imports.",
   "order": 1,
   "language": "python",
+  "starterFilePaths": ["main.py", "helper.py"],
   "estimatedMinutes": 5,
   "objectives": [
-    "Confirm starter/_index.json is loaded by the frontend course loader",
+    "Confirm starterFilePaths is loaded by the frontend course loader",
     "Confirm both files reach /workspace via writeFiles",
     "Confirm Python `from helper import greet` resolves at runtime"
   ],

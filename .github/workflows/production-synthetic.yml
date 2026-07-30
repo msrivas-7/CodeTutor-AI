@@ -57,6 +57,8 @@ jobs:
 
           node -e 'const b=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); if(b.stdout!=="Hello, Synthetic!\n"||b.exitCode!==0) process.exit(1)' \
             "$synthetic_dir/run.json"
+          # ${seconds} below is a JavaScript template literal, not a shell expansion.
+          # shellcheck disable=SC2016
           node -e 'const seconds=Number(process.argv[1]); if(!Number.isFinite(seconds)||seconds>30) { console.error(`Anonymous run took ${seconds}s; budget is 30s`); process.exit(1) }' \
             "$total_seconds"
           echo "Anonymous first output completed in ${total_seconds}s"

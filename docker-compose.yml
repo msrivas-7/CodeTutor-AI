@@ -4,8 +4,8 @@ services:
   # waits for it via service_completed_successfully.
   #
   # M-5 (bucket 7): `:latest` here is NOT floating — the deploy workflow
-  # (`.github/workflows/deploy.yml` build-runner job) pulls the SHA-pinned
-  # GHCR tag and retags it to `:latest` on the VM's local daemon before
+  # (`.github/workflows/release.yml`) verifies the digest-pinned candidate
+  # and retags that digest to `:latest` on the VM's local daemon before
   # compose picks it up. So the effective image is immutable per deploy,
   # and `:latest` only drifts if something outside the deploy pipeline
   # runs `docker pull ghcr.io/.../codetutor-runner:latest` on the VM.
@@ -48,6 +48,10 @@ services:
         max-file: "3"
 
   backend:
+    # Release 0P supplies an immutable GHCR digest here for main-branch
+    # candidate verification. Local development keeps the familiar image
+    # name and build block below.
+    image: ${BACKEND_IMAGE:-codetutor-ai-backend:latest}
     build:
       context: .
       dockerfile: backend/Dockerfile
