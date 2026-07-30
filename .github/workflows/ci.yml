@@ -153,7 +153,11 @@ jobs:
 
   performance-budget:
     name: Lab performance budgets
-    runs-on: ubuntu-latest
+    # GitHub's Linux images currently fail to emit Chrome paint events for
+    # this navigation (NO_FCP) with both system Chrome and pinned Chromium.
+    # Keep the strict Lighthouse gate on the macOS environment where the same
+    # pinned browser produces complete traces; do not weaken the budgets.
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -167,7 +171,7 @@ jobs:
         working-directory: e2e
         run: |
           npm ci
-          npx playwright install --with-deps chromium
+          npx playwright install chromium
       - name: Build the production frontend
         working-directory: frontend
         run: |
