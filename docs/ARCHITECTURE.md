@@ -213,7 +213,7 @@ Defense-in-depth on top of the `ExecutionBackend` + socket-proxy seam. The table
 | Auth | Supabase Auth (GoTrue). Backend verifies access tokens via JWKS with `jose.createRemoteJWKSet` and attaches `req.userId` from `sub`. Asymmetric — no shared secret. Frontend wraps every non-public route in `<RequireAuth>`; `api/client.ts` attaches `Bearer` on every call; global 401 → signOut + redirect to `/login`. |
 | Session ownership | Every routed handler that takes `sessionId` goes through `requireOwnedSession(id, req.userId)`. `/ping` returns 404 for both "not found" and "not yours" (no ownership oracle); `/rebind` + `/end` return 403. |
 | Rate limiting | `express-rate-limit` on `/api/ai/*`, `/api/session*`, `/api/project/snapshot`, `/api/execute*`, keyed per-user. Session-create keeps an IP floor alongside the user bucket so account-churn can't bypass it. |
-| CSRF | Every mutating route requires `X-Requested-With: codetutor` (forces CORS preflight) **plus** an `Origin` that matches `config.corsOrigin` — blocks cross-origin POSTs from pages the learner happens to visit. |
+| CSRF | Every mutating route requires `X-Requested-With: codetutor` (forces CORS preflight) **plus** an `Origin` that matches the canonical frontend or this CodeTutor SWA resource's exact production/PR-preview hostname pattern — blocks cross-origin POSTs from other sites and other SWA tenants. |
 | HTTP headers | `helmet()` with a strict CSP. |
 | Error leakage | 500 fallback returns `{error: "Internal error"}`; full stack logged server-side only. |
 | LAN exposure | Ports bound to `127.0.0.1` only. |

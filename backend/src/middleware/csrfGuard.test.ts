@@ -9,6 +9,8 @@ import { csrfGuard } from "./csrfGuard.js";
 // with a missing or foreign `Origin`. GETs are allowed through untouched.
 
 const ALLOWED_ORIGIN = "http://localhost:5173";
+const ALLOWED_PR_PREVIEW =
+  "https://gentle-flower-093ba7e0f-10.eastus2.7.azurestaticapps.net";
 
 async function listen(): Promise<{
   url: string;
@@ -84,6 +86,22 @@ describe("csrfGuard", () => {
     }
   });
 
+  it("accepts POST requests from this CodeTutor SWA pull-request preview", async () => {
+    const srv = await listen();
+    try {
+      const res = await fetch(`${srv.url}/probe`, {
+        method: "POST",
+        headers: {
+          "X-Requested-With": "codetutor",
+          Origin: ALLOWED_PR_PREVIEW,
+        },
+      });
+      expect(res.status).toBe(200);
+    } finally {
+      await srv.close();
+    }
+  });
+
   it("rejects POST requests missing the Origin header (Phase 20-P1 strict mode)", async () => {
     const srv = await listen();
     try {
@@ -107,6 +125,22 @@ describe("csrfGuard", () => {
         headers: {
           "X-Requested-With": "codetutor",
           Origin: "http://attacker.example.com",
+        },
+      });
+      expect(res.status).toBe(403);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  it("rejects a different Azure Static Web Apps tenant", async () => {
+    const srv = await listen();
+    try {
+      const res = await fetch(`${srv.url}/probe`, {
+        method: "POST",
+        headers: {
+          "X-Requested-With": "codetutor",
+          Origin: "https://attacker-app.eastus2.7.azurestaticapps.net",
         },
       });
       expect(res.status).toBe(403);

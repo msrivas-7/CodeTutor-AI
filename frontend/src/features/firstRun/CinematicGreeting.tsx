@@ -331,7 +331,7 @@ export function CinematicGreeting(props: CinematicGreetingProps) {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: skipDelayS, duration: 0.4 }}
-          className="absolute bottom-6 right-6 rounded-md px-2 py-1 text-[11px] text-muted/60 transition hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="absolute bottom-6 right-6 inline-flex min-h-11 min-w-11 items-center justify-center rounded-md px-2 text-[11px] text-muted/60 transition hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           aria-label="Skip introduction"
         >
           Skip
@@ -812,7 +812,7 @@ function ReducedMotionFallback({
             firedRef.current = true;
             onSkip();
           }}
-          className="absolute bottom-6 right-6 rounded-md px-2 py-1 text-[11px] text-muted/60 hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="absolute bottom-6 right-6 inline-flex min-h-11 min-w-11 items-center justify-center rounded-md px-2 text-[11px] text-muted/60 hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
           Skip
         </button>

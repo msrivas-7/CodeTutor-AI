@@ -689,7 +689,7 @@ export default function LessonPage({
       <header className="relative z-30 flex items-center gap-3 border-b border-border bg-panel/80 px-4 py-2 backdrop-blur">
         <button
           onClick={() => nav(`/learn/course/${courseId}`)}
-          className="rounded px-2 py-1 text-xs text-muted transition hover:bg-elevated hover:text-ink"
+          className="inline-flex min-h-11 min-w-11 items-center justify-center rounded px-2 text-xs text-muted transition hover:bg-elevated hover:text-ink"
           aria-label="Back to course"
         >
           ← Back
@@ -870,7 +870,7 @@ export default function LessonPage({
             <button
               type="button"
               onClick={() => onAnonSave?.()}
-              className="rounded-lg border border-border px-3 py-1 text-xs font-medium text-muted transition hover:bg-elevated hover:text-ink"
+              className="inline-flex min-h-11 items-center justify-center rounded-lg border border-border px-3 text-xs font-medium text-muted transition hover:bg-elevated hover:text-ink"
             >
               Sign up to save
             </button>
@@ -1067,7 +1067,7 @@ export default function LessonPage({
               <div className="mx-3 mt-2">
                 <button
                   onClick={runner.handleExplainError}
-                  className="flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-accent/15 text-xs font-medium text-accent ring-1 ring-accent/40 transition hover:bg-accent/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  className="flex h-11 w-full items-center justify-center gap-1.5 rounded-lg bg-accent/15 text-xs font-medium text-accent ring-1 ring-accent/40 transition hover:bg-accent/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                   aria-label="Ask the tutor what went wrong"
                 >
                   What went wrong?

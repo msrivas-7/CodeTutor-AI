@@ -23,6 +23,7 @@
 - Enforced responsive hierarchy, touch targets, light/reduced-motion behavior, zoom resilience, and public-entry performance budgets.
 - Added Chromium visual coverage and focused Firefox/WebKit critical-journey coverage.
 - Added a scheduled production synthetic with an actionable issue owner.
+- Added a resource-scoped CORS/CSRF origin policy so deployed SWA pull-request previews can exercise the real anonymous journey without trusting other Azure Static Web Apps tenants.
 
 ## Release-gate evidence
 
@@ -33,7 +34,7 @@
 | G2 — Responsive integrity | **Automated pass; physical-device proof pending** | `phase-aq-visual-quality.spec.ts` covers 360×800, 390×844, phone landscape, tablet portrait/landscape, 1024×768, 1440×900, 200% zoom, and software-keyboard height. Physical iOS and Android runs still need recording. |
 | G3 — Accessibility | **Automated/manual browser pass; physical mobile pending** | Axe has zero serious/critical findings on the critical surfaces; keyboard/focus, reduced motion, light theme, zoom, and touch-target tests pass. Physical mobile assistive/keyboard checks remain part of G2. |
 | G4 — Interaction consistency | **Pass** | Shared `Modal` contract plus settings, completion/share stacking, Escape, focus trap, focus restoration, route-transition inert cleanup, and dialog regressions. |
-| G5 — Journey continuity | **Pass — automated/browser** | Full Chromium E2E and focused WebKit/Firefox gate cover public discovery through signup; anon handoff tests cover lesson-2 continuation and failure recovery. |
+| G5 — Journey continuity | **Automated/local browser pass; deployed-preview promotion check pending** | Full Chromium E2E and focused WebKit/Firefox gates cover public discovery through signup; anon handoff tests cover lesson-2 continuation and failure recovery. The final deployed-preview audit found that the production backend's single canonical CORS origin blocked the preview's automatic first run. The branch now contains a resource-scoped CORS/CSRF policy, but the live journey can only be reconfirmed after the backend promotion from `main`. |
 | G6 — Distribution artifact | **Live crawler-transport pass; real-destination visual proof pending** | The SWA crawler function, server lookup, canonical metadata, privacy defaults, image rendering, mobile share page, and revoke/not-found tests pass. A synthetic completion was created against the deployed service on 2026-07-30 and the PR preview returned `200` plus the correct public canonical/OG URL, personalized title/description, `summary_large_image`, and rendered OG image to generic, Slack, Discord, LinkedIn, and iMessage-style crawler user agents. Record visual unfurls inside the real destination apps before exit. |
 | G7 — Human comprehension | **Pending external sessions** | Run five unfamiliar phone-first sessions and three laptop-continuation sessions using the pre-registered observation sheet. No production cohort is required, but these cannot be replaced by automated tests. |
 | G8 — Performance | **Pass — pre-traffic lab** | Repeated Lighthouse lab runs passed for `/` and `/why-not-chatgpt`; deterministic production asset budgets pass with Monaco/editor excluded from the public entry. Field p75 remains a post-traffic measurement. |
@@ -44,13 +45,14 @@
 
 - Frontend: 38 files, 370 tests passed.
 - Frontend production build: passed.
-- Backend: 898 tests passed, 16 intentional skips.
+- Backend: 913 tests passed, 16 intentional skips.
 - SWA share function: 8 tests passed, including public-host preservation and Host-header-poisoning defenses.
-- Production asset budgets: passed (396,235 bytes total shipped JS gzip; 66,004-byte largest JS chunk; 12,464-byte CSS; 1,194-byte HTML; no Monaco/editor preload).
-- Full Chromium E2E: 303 passed, 12 intentional skips, zero retries, 17.9 minutes.
+- Production asset budgets: passed (396,209 bytes total shipped JS gzip; 66,000-byte largest JS chunk; 12,461-byte CSS; 1,192-byte HTML; no Monaco/editor preload).
+- Full Chromium E2E: 304 passed, 12 intentional skips, zero retries, 18.1 minutes.
 - WebKit critical journey: desktop and phone passed locally with zero retries.
 - Firefox: the pinned macOS browser process could not establish its Playwright control channel on this host; this is not counted as a local pass. The Linux CI job is the required authoritative Firefox result.
 - Manual in-app browser audit: 1440×900 and 390×844 passed with no horizontal overflow or fresh console warnings/errors.
+- Final deployed-preview browser audit: landing and cinematic lesson entry rendered correctly at 1440×900, then the automatic anonymous run surfaced `Request failed: Failed to fetch`. A matching preflight probe proved the deployed backend returned `Access-Control-Allow-Origin: https://codetutor.msrivas.com` to the PR-preview origin. The branch fix allows only the canonical frontend and this CodeTutor SWA resource's exact primary/numbered-preview hostname shape; foreign SWA tenants, alternate regions, HTTP, paths, and nonstandard ports remain rejected.
 
 ## Live share-unfurl probe
 

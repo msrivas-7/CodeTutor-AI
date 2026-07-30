@@ -53,6 +53,31 @@ test.describe("Phase A-Q — visual viewport matrix", () => {
           expect(box?.height, `${action} touch target height`).toBeGreaterThanOrEqual(44);
           expect(box?.width, `${action} touch target width`).toBeGreaterThanOrEqual(44);
         }
+
+        for (const action of [
+          "Back to course",
+          "Sign up to save",
+          "combined",
+          "stdout",
+          "stderr",
+          "stdin",
+        ]) {
+          const role: "tab" | "button" = [
+            "combined",
+            "stdout",
+            "stderr",
+            "stdin",
+          ].includes(action)
+            ? "tab"
+            : "button";
+          const control = page.getByRole(
+            role,
+            { name: action, exact: true },
+          );
+          const box = await control.boundingBox();
+          expect(box?.height, `${action} touch target height`).toBeGreaterThanOrEqual(44);
+          expect(box?.width, `${action} touch target width`).toBeGreaterThanOrEqual(44);
+        }
       }
 
       await expect(page).toHaveScreenshot(`${viewport.name}.png`, {
@@ -99,5 +124,20 @@ test.describe("Phase A-Q — visual viewport matrix", () => {
     await expect(tutorInput).toBeFocused();
     await expect(page.getByRole("button", { name: /run/i }).first()).toBeVisible();
     await expectNoHorizontalOverflow(page);
+  });
+
+  test("phone cinematic skip affordance is a 44px touch target", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(PATH);
+    const skip = page.getByRole("button", {
+      name: "Skip introduction",
+      exact: true,
+    });
+    await expect(skip).toBeVisible({ timeout: 5_000 });
+    const box = await skip.boundingBox();
+    expect(box?.height).toBeGreaterThanOrEqual(44);
+    expect(box?.width).toBeGreaterThanOrEqual(44);
   });
 });

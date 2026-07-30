@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction } from "express";
-import { config } from "../config.js";
+import { isFrontendOriginAllowed } from "./frontendOrigin.js";
 
 /**
  * CSRF guard for state-changing routes.
@@ -22,11 +22,11 @@ import { config } from "../config.js";
  *      `Access-Control-Allow-Origin` for the offending origin. Our own
  *      frontend attaches this header on every mutating fetch.
  *
- *   2. `Origin` header match against `config.corsOrigin`. Browsers always
- *      set Origin on cross-origin POSTs and — as of Phase 20-P1 — we require
- *      it on same-origin mutations too (Fetch spec ships Origin on every
- *      non-GET/HEAD in modern browsers). Rejecting missing Origin closes the
- *      narrow window where a crafted same-host tool could spoof the custom
+ *   2. `Origin` header match against the narrow frontend allowlist. Browsers
+ *      always set Origin on cross-origin POSTs and — as of Phase 20-P1 — we
+ *      require it on same-origin mutations too (Fetch spec ships Origin on
+ *      every non-GET/HEAD in modern browsers). Rejecting missing Origin closes
+ *      the narrow window where a crafted same-host tool could spoof the custom
  *      header without setting Origin.
  *
  * Applied only to mutating methods (POST/PUT/PATCH/DELETE). GETs are safe
@@ -48,7 +48,7 @@ export function csrfGuard(req: Request, res: Response, next: NextFunction) {
   // only enforced the match when Origin was set, which left a same-host
   // loophole — any non-browser caller could omit Origin and still mutate.
   const origin = req.get("origin");
-  if (!origin || origin !== config.corsOrigin) {
+  if (!origin || !isFrontendOriginAllowed(origin)) {
     return res.status(403).json({ error: "origin not allowed" });
   }
 
