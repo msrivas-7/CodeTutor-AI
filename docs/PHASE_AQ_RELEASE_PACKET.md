@@ -22,7 +22,7 @@
 - Corrected Markdown rendering, retrieval-pending feedback, attempt/mastery credibility, public share metadata, trust destinations, and immediate share-page comprehension.
 - Enforced responsive hierarchy, touch targets, light/reduced-motion behavior, zoom resilience, and public-entry performance budgets.
 - Added Chromium visual coverage and focused Firefox/WebKit critical-journey coverage.
-- Kept strict macOS and Linux visual goldens so native fallback-font metrics cannot create false positives or force a loose cross-platform threshold.
+- Kept strict macOS, Playwright-container Linux, and GitHub-Ubuntu visual goldens so native fallback-font metrics cannot create false positives or force a loose cross-platform threshold.
 - Added a scheduled production synthetic with an actionable issue owner.
 - Added a resource-scoped CORS/CSRF origin policy so deployed SWA pull-request previews can exercise the real anonymous journey without trusting other Azure Static Web Apps tenants.
 - Reconciled completed lesson records into the course summary during hydration, preventing a delayed companion write from falsely relocking completed curriculum or bouncing a returning learner out of a deep link.
@@ -68,7 +68,7 @@
 
 ## Visual evidence
 
-Committed macOS and Linux screenshot baselines live beside `e2e/specs/phase-aq-visual-quality.spec.ts` for:
+Committed macOS, Playwright-container Linux, and GitHub-Ubuntu screenshot baselines live beside `e2e/specs/phase-aq-visual-quality.spec.ts` for:
 
 - 360×800 phone
 - 390×844 phone

@@ -21,6 +21,13 @@ const BASE_URL = process.env.E2E_BASE_URL ?? "http://localhost:5173";
 const API_URL = process.env.E2E_API_URL ?? "http://localhost:4000";
 const IS_CI = !!process.env.CI;
 const CROSS_BROWSER = process.env.E2E_CROSS_BROWSER === "1";
+// GitHub-hosted Ubuntu and Playwright's official Linux container ship
+// different native fallback-font sets. Both are valid release renderers, but
+// their glyph metrics differ enough on phone layouts that one shared "linux"
+// golden would require a loose threshold. Keep each reviewed environment
+// strict instead. The override is useful for reproducing either set locally.
+const SNAPSHOT_ENVIRONMENT =
+  process.env.E2E_SNAPSHOT_ENV ?? (IS_CI ? "gha-linux" : process.platform);
 
 const browserProjects = [
   {
@@ -67,14 +74,14 @@ export default defineConfig({
   reporter: IS_CI
     ? [["html", { open: "never" }], ["github"], ["list"]]
     : [["html", { open: "never" }], ["list"]],
-  // Keep strict visual baselines per operating system. The production app
-  // deliberately falls back to native fonts while its optional brand-font
-  // stylesheet loads, so macOS and Linux have meaningfully different glyph
-  // metrics and line wrapping even when the layout is correct. Platform-
-  // specific goldens preserve the 3% regression threshold on each renderer
-  // instead of weakening it enough to hide clipping or spacing regressions.
+  // Keep strict visual baselines per reviewed rendering environment. The
+  // production app deliberately falls back to native fonts while its optional
+  // brand-font stylesheet loads, so macOS, Playwright-container Linux, and
+  // GitHub-hosted Ubuntu have meaningfully different glyph metrics and line
+  // wrapping even when the layout is correct. Environment-specific goldens
+  // preserve the 3% threshold instead of weakening it enough to hide clipping.
   snapshotPathTemplate:
-    "{testDir}/{testFilePath}-snapshots/{arg}-{platform}-{projectName}{ext}",
+    `{testDir}/{testFilePath}-snapshots/{arg}-${SNAPSHOT_ENVIRONMENT}-{projectName}{ext}`,
 
   globalSetup: path.resolve(__dirname, "fixtures/boot.ts"),
   globalTeardown: path.resolve(__dirname, "fixtures/teardown.ts"),
