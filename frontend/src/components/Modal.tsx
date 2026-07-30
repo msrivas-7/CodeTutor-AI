@@ -84,6 +84,7 @@ export function Modal({
 }: ModalProps) {
   const backdropRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const closeFinishedRef = useRef(false);
 
   // Cinema Kit Continuity Pass — modal exit animation. Existing
   // callers do `{open && <Modal onClose={() => setOpen(false)}>}`,
@@ -101,10 +102,27 @@ export function Modal({
   // those paths still pop out cold. Most product modals close via
   // user-initiated dismiss, so this covers the visible majority.
   const [exiting, setExiting] = useState(false);
+  const finishClose = useCallback(() => {
+    if (closeFinishedRef.current) return;
+    closeFinishedRef.current = true;
+    onClose();
+  }, [onClose]);
   const closeWithExit = useCallback(() => {
     if (exiting) return;
     setExiting(true);
   }, [exiting]);
+
+  useEffect(() => {
+    if (!exiting) return;
+
+    // The state transition must not depend on the browser producing another
+    // animation frame. WebKit can pause frame callbacks in background tabs or
+    // under heavy load, which would otherwise leave an invisible exiting
+    // dialog mounted forever. Normal exits finish through AnimatePresence;
+    // this deadline is a guarded fallback just beyond the 160 ms animation.
+    const fallback = window.setTimeout(finishClose, 300);
+    return () => window.clearTimeout(fallback);
+  }, [exiting, finishClose]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -247,7 +265,7 @@ export function Modal({
     : { opacity: 0, scale: 0.96, y: 4 };
 
   return createPortal(
-    <AnimatePresence onExitComplete={onClose}>
+    <AnimatePresence onExitComplete={finishClose}>
       {!exiting && (
         <motion.div
           ref={backdropRef}

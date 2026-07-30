@@ -22,8 +22,11 @@
 - Corrected Markdown rendering, retrieval-pending feedback, attempt/mastery credibility, public share metadata, trust destinations, and immediate share-page comprehension.
 - Enforced responsive hierarchy, touch targets, light/reduced-motion behavior, zoom resilience, and public-entry performance budgets.
 - Added Chromium visual coverage and focused Firefox/WebKit critical-journey coverage.
+- Kept strict macOS and Linux visual goldens so native fallback-font metrics cannot create false positives or force a loose cross-platform threshold.
 - Added a scheduled production synthetic with an actionable issue owner.
 - Added a resource-scoped CORS/CSRF origin policy so deployed SWA pull-request previews can exercise the real anonymous journey without trusting other Azure Static Web Apps tenants.
+- Reconciled completed lesson records into the course summary during hydration, preventing a delayed companion write from falsely relocking completed curriculum or bouncing a returning learner out of a deep link.
+- Made modal dismissal and the post-share signup handoff independent of animation frames, so WebKit/background throttling cannot strand the learner between dialogs.
 
 ## Release-gate evidence
 
@@ -43,14 +46,14 @@
 
 ## Latest local verification
 
-- Frontend: 38 files, 370 tests passed.
+- Frontend: 38 files, 372 tests passed.
 - Frontend production build: passed.
 - Backend: 913 tests passed, 16 intentional skips.
 - SWA share function: 8 tests passed, including public-host preservation and Host-header-poisoning defenses.
-- Production asset budgets: passed (396,209 bytes total shipped JS gzip; 66,000-byte largest JS chunk; 12,461-byte CSS; 1,192-byte HTML; no Monaco/editor preload).
-- Full Chromium E2E: 304 passed, 12 intentional skips, zero retries, 18.1 minutes.
-- WebKit critical journey: desktop and phone passed locally with zero retries.
-- Firefox: the pinned macOS browser process could not establish its Playwright control channel on this host; this is not counted as a local pass. The Linux CI job is the required authoritative Firefox result.
+- Production asset budgets: passed (396,457 bytes total shipped JS gzip; 66,004-byte largest JS chunk; 12,461-byte CSS; 1,192-byte HTML; no Monaco/editor preload).
+- Full Chromium E2E: 304 passed, 12 intentional skips, zero retries, 18.4 minutes.
+- WebKit critical journey: desktop and phone passed locally with zero retries; the desktop share/signup journey also passed five consecutive runs.
+- Firefox critical journey: desktop and phone passed in the pinned Linux runtime with zero retries.
 - Manual in-app browser audit: 1440×900 and 390×844 passed with no horizontal overflow or fresh console warnings/errors.
 - Final deployed-preview browser audit: landing and cinematic lesson entry rendered correctly at 1440×900, then the automatic anonymous run surfaced `Request failed: Failed to fetch`. A matching preflight probe proved the deployed backend returned `Access-Control-Allow-Origin: https://codetutor.msrivas.com` to the PR-preview origin. The branch fix allows only the canonical frontend and this CodeTutor SWA resource's exact primary/numbered-preview hostname shape; foreign SWA tenants, alternate regions, HTTP, paths, and nonstandard ports remain rejected.
 
@@ -65,7 +68,7 @@
 
 ## Visual evidence
 
-Committed screenshot baselines live beside `e2e/specs/phase-aq-visual-quality.spec.ts` for:
+Committed macOS and Linux screenshot baselines live beside `e2e/specs/phase-aq-visual-quality.spec.ts` for:
 
 - 360×800 phone
 - 390×844 phone

@@ -108,6 +108,16 @@ export default function AnonLessonPage() {
     url: string;
   }>({ open: false, url: "" });
   const anonShareTriggerRef = useRef<HTMLElement | null>(null);
+  const postShareWallTimerRef = useRef<number | null>(null);
+
+  useEffect(
+    () => () => {
+      if (postShareWallTimerRef.current !== null) {
+        window.clearTimeout(postShareWallTimerRef.current);
+      }
+    },
+    [],
+  );
 
   // Phase 27-v2.2 Fix 6 — funnel telemetry: anon_page_view fires at
   // most once per browser session per /try/ visit. Backend hashes the
@@ -319,12 +329,16 @@ export default function AnonLessonPage() {
           url={anonShare.url}
           onDismiss={() => {
             // Let the share Modal unmount and restore focus to its trigger
-            // before mounting the conversion wall. If both replacements are
-            // committed in the same beat, the wall records a soon-disconnected
-            // share-dialog control as its restoration target and keyboard
-            // focus is lost after the wall closes.
+            // before mounting the conversion wall. A zero-delay task gives
+            // React and the Modal cleanup a deterministic commit boundary.
+            // requestAnimationFrame is intentionally avoided here: WebKit can
+            // defer animation frames in headless/background tabs, which used
+            // to leave users with neither dialog nor conversion prompt.
             setAnonShare((s) => ({ ...s, open: false }));
-            window.requestAnimationFrame(() => openWall("share"));
+            postShareWallTimerRef.current = window.setTimeout(() => {
+              postShareWallTimerRef.current = null;
+              openWall("share");
+            }, 0);
           }}
         />
       )}

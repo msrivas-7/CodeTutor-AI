@@ -171,6 +171,48 @@ function freshCourse(learnerId: string, courseId: string): CourseProgress {
   };
 }
 
+/**
+ * Lesson completion and its course-level summary are persisted by separate
+ * idempotent requests. The detailed lesson row is the durable proof that a
+ * lesson was completed; if the companion course PATCH is delayed or fails,
+ * trusting only `course_progress.completed_lesson_ids` would falsely relock
+ * the curriculum on the next hydrate. Merge completed lesson rows into the
+ * in-memory course aggregate so the learner keeps access. Opening the lesson
+ * later sends the reconciled aggregate back through `startLesson`, naturally
+ * repairing the server summary as well.
+ */
+function reconcileCompletedLessons(
+  courseMap: Record<string, CourseProgress>,
+  lessonMap: Record<string, LessonProgress>,
+  learnerId: string,
+): void {
+  for (const lesson of Object.values(lessonMap)) {
+    if (lesson.status !== "completed") continue;
+
+    const course = courseMap[lesson.courseId];
+    if (!course) {
+      courseMap[lesson.courseId] = {
+        ...freshCourse(learnerId, lesson.courseId),
+        status: "in_progress",
+        startedAt: lesson.startedAt,
+        updatedAt: lesson.updatedAt,
+        lastLessonId: lesson.lessonId,
+        completedLessonIds: [lesson.lessonId],
+      };
+      continue;
+    }
+
+    if (course.completedLessonIds.includes(lesson.lessonId)) continue;
+    courseMap[lesson.courseId] = {
+      ...course,
+      status: course.status === "not_started" ? "in_progress" : course.status,
+      startedAt: course.startedAt ?? lesson.startedAt,
+      lastLessonId: course.lastLessonId ?? lesson.lessonId,
+      completedLessonIds: [...course.completedLessonIds, lesson.lessonId],
+    };
+  }
+}
+
 export const useProgressStore = create<ProgressState>()((set, get) => {
   function patchLesson(
     courseId: string,
@@ -220,6 +262,7 @@ export const useProgressStore = create<ProgressState>()((set, get) => {
             learnerId,
           );
         }
+        reconcileCompletedLessons(courseMap, lessonMap, learnerId);
         set({ courseProgress: courseMap, lessonProgress: lessonMap, hydrated: true });
       } catch (err) {
         if (gen !== undefined && gen !== currentGen()) return;

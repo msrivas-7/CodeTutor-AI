@@ -241,5 +241,17 @@ test.describe("Phase 27-v2.1 — SignupWallDialog reasons coverage", () => {
     await expect(page.getByText(/Sign up to save\?/i)).toHaveCount(0);
     await expect(page.getByText(/Lesson 2 is queued up/i)).toHaveCount(0);
     await expect(page.getByText(/You're getting it\./i)).toHaveCount(0);
+
+    // Backdrop dismissal follows the same deterministic share -> wall
+    // transition as Escape and Done. Click the exposed corner of the top
+    // backdrop so the event target is the backdrop itself, not the panel.
+    await page.getByRole("button", { name: /maybe later/i }).click();
+    await celebrationShareButton.click();
+    await expect(shareDialog).toBeVisible({ timeout: 5_000 });
+    await page.locator('[data-modal-layer="60"]').click({ position: { x: 2, y: 2 } });
+    await expect(shareDialog).toHaveCount(0);
+    await expect(page.getByText(/Your share link is ready/i)).toBeVisible({
+      timeout: 5_000,
+    });
   });
 });

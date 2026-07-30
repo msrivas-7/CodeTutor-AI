@@ -125,6 +125,107 @@ describe("progressStore.hydrate", () => {
     expect(s.lessonProgress[KEY].lastCode).toEqual({ "main.py": "print()" });
   });
 
+  it("reconciles a lagging course summary from completed lesson rows", async () => {
+    listCourseProgress.mockResolvedValueOnce({
+      courses: [
+        {
+          courseId: COURSE,
+          status: "not_started",
+          startedAt: null,
+          completedAt: null,
+          updatedAt: "t1",
+          lastLessonId: null,
+          completedLessonIds: [],
+        },
+      ],
+    });
+    listLessonProgress.mockResolvedValueOnce({
+      lessons: [
+        {
+          courseId: COURSE,
+          lessonId: "completed-lesson",
+          status: "completed",
+          startedAt: "t0",
+          completedAt: "t2",
+          updatedAt: "t2",
+          attemptCount: 1,
+          runCount: 1,
+          hintCount: 0,
+          timeSpentMs: 1000,
+          lastCode: null,
+          lastOutput: null,
+          practiceCompletedIds: [],
+        },
+        {
+          courseId: COURSE,
+          lessonId: "unfinished-lesson",
+          status: "in_progress",
+          startedAt: "t2",
+          completedAt: null,
+          updatedAt: "t3",
+          attemptCount: 0,
+          runCount: 0,
+          hintCount: 0,
+          timeSpentMs: 0,
+          lastCode: null,
+          lastOutput: null,
+          practiceCompletedIds: [],
+        },
+      ],
+    });
+
+    await useProgressStore.getState().hydrate();
+
+    const course = useProgressStore.getState().courseProgress[COURSE];
+    expect(course.status).toBe("in_progress");
+    expect(course.startedAt).toBe("t0");
+    expect(course.lastLessonId).toBe("completed-lesson");
+    expect(course.completedLessonIds).toEqual(["completed-lesson"]);
+
+    patchCourseProgress.mockClear();
+    useProgressStore.getState().startLesson(LEARNER, COURSE, "next-lesson");
+    expect(patchCourseProgress).toHaveBeenCalledWith(
+      COURSE,
+      expect.objectContaining({
+        completedLessonIds: ["completed-lesson"],
+        lastLessonId: "next-lesson",
+      }),
+    );
+  });
+
+  it("reconstructs an in-memory course when only completed lessons survived", async () => {
+    listLessonProgress.mockResolvedValueOnce({
+      lessons: [
+        {
+          courseId: COURSE,
+          lessonId: LESSON,
+          status: "completed",
+          startedAt: "t1",
+          completedAt: "t2",
+          updatedAt: "t2",
+          attemptCount: 1,
+          runCount: 1,
+          hintCount: 0,
+          timeSpentMs: 1000,
+          lastCode: null,
+          lastOutput: null,
+          practiceCompletedIds: [],
+        },
+      ],
+    });
+
+    await useProgressStore.getState().hydrate();
+
+    expect(useProgressStore.getState().courseProgress[COURSE]).toEqual(
+      expect.objectContaining({
+        courseId: COURSE,
+        status: "in_progress",
+        lastLessonId: LESSON,
+        completedLessonIds: [LESSON],
+      }),
+    );
+  });
+
   it("leaves hydrated=false and records hydrateError when the fetch rejects", async () => {
     listCourseProgress.mockRejectedValueOnce(new Error("boom"));
     await useProgressStore.getState().hydrate();

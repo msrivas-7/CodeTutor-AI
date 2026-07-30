@@ -80,6 +80,24 @@ test.describe("Phase A-Q — visual viewport matrix", () => {
         }
       }
 
+      // `boundingBox()` may scroll the nearest overflow container just enough
+      // to expose a control. On the 360px viewport the output tabs sit close
+      // to the fold, so small platform font differences can leave Linux CI
+      // scrolled while macOS remains at the top. Compare the same intentional
+      // product state everywhere instead of snapshotting that incidental
+      // locator side effect.
+      await page.locator("#main-content > div").first().evaluate((container) => {
+        container.scrollTo({ top: 0, left: 0, behavior: "instant" });
+      });
+      await expect
+        .poll(() =>
+          page
+            .locator("#main-content > div")
+            .first()
+            .evaluate((container) => container.scrollTop),
+        )
+        .toBe(0);
+
       await expect(page).toHaveScreenshot(`${viewport.name}.png`, {
         animations: "disabled",
         caret: "hide",
