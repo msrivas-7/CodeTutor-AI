@@ -524,7 +524,12 @@ export interface AdminAnonSummary {
   /** Per-IP cap and combined L4 daily cap (for context). */
   perIpDailyCap: number;
   /** Cumulative abuse signals since process boot (Counter snapshot). */
-  abuseSignals: { anon_lesson_not_allowed: number; model_rejection: number };
+  abuseSignals: {
+    anon_lesson_not_allowed: number;
+    model_rejection: number;
+    /** Phase A — A4: fabricated-API tripwire hits (all tutor routes). */
+    tutor_suspect_api: number;
+  };
   /** Cumulative funnel events since the table started recording. Useful
    *  for "did the page get hit / wall open / signup happen" sanity. */
   funnelEvents: {

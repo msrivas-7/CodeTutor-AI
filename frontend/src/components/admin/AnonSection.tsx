@@ -162,6 +162,15 @@ function AbuseTile({ snap }: { snap: AdminAnonSummary }) {
           tone={a.model_rejection > 0 ? "warn" : "ok"}
           hint="model not on per-route allowlist"
         />
+        {/* Phase A — A4: not abuse but the same "non-zero ⇒ look" story —
+            the tutor named an API that isn't stdlib or in the user's
+            file. Symbols are in the tutor_suspect_api log lines. */}
+        <Row
+          label="tutor_suspect_api"
+          value={(a.tutor_suspect_api ?? 0).toLocaleString()}
+          tone={(a.tutor_suspect_api ?? 0) > 0 ? "warn" : "ok"}
+          hint="tutor named an unrecognized API"
+        />
       </div>
       {total === 0 ? (
         <div className="mt-2 text-[10px] leading-relaxed text-success/80">

@@ -56,6 +56,7 @@ import { writeAnonUsageRow } from "../db/usageLedger.js";
 import { incrementAnonRunCount } from "../db/anonRunCounts.js";
 import { getEffectiveAnonDailyRunsPerIp } from "../services/ai/effectiveCaps.js";
 import { hashClientIp } from "../services/ai/ipHash.js";
+import { flagSuspectApis } from "../services/ai/suspectApi.js";
 import {
   registerAbortController,
   unregisterAbortController,
@@ -640,6 +641,17 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
               priceVersion,
               status: "finish",
               requestId,
+            });
+            // Phase A — A4: fabricated-API tripwire. Fire-and-forget
+            // scan of the finished response; emits tutor_suspect_api
+            // (log + counter) on unrecognized call symbols. Never
+            // touches the stream.
+            flagSuspectApis({
+              responseText: raw,
+              userFiles: parsed.data.files,
+              userQuestion: parsed.data.question,
+              language: ctx.language === "python" ? "python" : "javascript",
+              route: "anon_ask_stream",
             });
             if (closed) return;
             send({ done: true, raw, sections, usage });
