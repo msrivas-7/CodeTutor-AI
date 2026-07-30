@@ -1,0 +1,329 @@
+name: Production release
+
+# Release 0P: build immutable candidates once, run every confidence gate
+# against the candidate SHA (and the exact backend/runner image digests), then
+# promote only the artifacts recorded in release-manifest.json.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - 'swa-api/**'
+      - 'runner-image/**'
+      - 'e2e/**'
+      - 'supabase/migrations/**'
+      - 'docker-compose.yml'
+      - 'docker-compose.prod.yml'
+      - 'infra/scripts/**'
+      - '.github/scripts/**'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/e2e.yml'
+      - '.github/workflows/security.yml'
+      - '.github/workflows/release.yml'
+      - '.github/workflows/rollback-release.yml'
+      - '.github/workflows/azure-static-web-apps.yml'
+
+concurrency:
+  group: production-release
+  cancel-in-progress: false
+
+permissions:
+  actions: read
+  contents: read
+  id-token: write
+  packages: write
+
+env:
+  BACKEND_IMAGE: ghcr.io/msrivas-7/codetutor-backend
+  RUNNER_IMAGE: ghcr.io/msrivas-7/codetutor-runner
+  AZURE_RG: codetutor-ai-prod-rg
+  AZURE_VM: codetutor-ai-vm
+
+jobs:
+  changes:
+    name: Resolve promotion scope
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      runner: ${{ steps.filter.outputs.runner }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 2
+      - uses: dorny/paths-filter@d1c1ffe0248fe513906c8e24db8ea791d46f8590 # v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+              - 'frontend/public/courses/**'
+              - 'supabase/migrations/**'
+              - 'docker-compose*.yml'
+              - 'infra/scripts/**'
+              - '.github/scripts/**'
+              - '.github/workflows/{ci,e2e,security,release,rollback-release}.yml'
+            runner:
+              - 'runner-image/**'
+              - 'docker-compose*.yml'
+              - 'infra/scripts/vm-promote-candidate.sh'
+              - '.github/scripts/**'
+              - '.github/workflows/{e2e,security,release,rollback-release}.yml'
+            frontend:
+              - 'frontend/**'
+              - 'swa-api/**'
+              - '.github/scripts/**'
+              - '.github/workflows/{ci,e2e,release,rollback-release,azure-static-web-apps}.yml'
+
+  candidate:
+    name: Build immutable candidate
+    needs: changes
+    runs-on: ubuntu-latest
+    outputs:
+      backend_ref: ${{ steps.refs.outputs.backend_ref }}
+      runner_ref: ${{ steps.refs.outputs.runner_ref }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build + publish backend candidate
+        id: backend
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: ./backend/Dockerfile
+          push: true
+          tags: ${{ env.BACKEND_IMAGE }}:${{ github.sha }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,scope=backend,mode=max
+
+      - name: Build + publish runner candidate
+        id: runner
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: ./runner-image
+          push: true
+          tags: ${{ env.RUNNER_IMAGE }}:${{ github.sha }}
+          cache-from: type=gha,scope=runner
+          cache-to: type=gha,scope=runner,mode=max
+
+      - name: Export immutable image references
+        id: refs
+        run: |
+          echo "backend_ref=$BACKEND_IMAGE@${{ steps.backend.outputs.digest }}" >> "$GITHUB_OUTPUT"
+          echo "runner_ref=$RUNNER_IMAGE@${{ steps.runner.outputs.digest }}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            swa-api/package-lock.json
+
+      - name: Build and inspect production frontend artifact
+        working-directory: frontend
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL_PROD }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY_PROD }}
+          VITE_API_BASE_URL: https://codetutor-ai-vm.eastus2.cloudapp.azure.com
+          VITE_APP_SHA: ${{ github.sha }}
+        run: |
+          npm ci
+          npm run build
+          cp staticwebapp.config.json dist/staticwebapp.config.json
+          node -e 'require("fs").writeFileSync("dist/release.json", JSON.stringify({gitSha: process.env.VITE_APP_SHA, workflowRunId: process.env.GITHUB_RUN_ID}) + "\n")'
+          npm run test:static-performance-budget
+          if grep -r -E '"role"\s*:\s*"service_role"|SUPABASE_SERVICE_ROLE_KEY' dist/; then
+            echo "::error::Frontend bundle contains a service-role marker. Refuse to ship."
+            exit 1
+          fi
+
+      - name: Build managed API artifact once
+        working-directory: swa-api
+        run: |
+          npm ci --omit=dev --ignore-scripts
+          node --check src/sharePage.js
+          node --check src/functions/share.js
+
+      - name: Package frontend + managed API exactly once
+        run: |
+          mkdir -p release/frontend-dist
+          cp -R frontend/dist/. release/frontend-dist/
+          cp -R swa-api release/swa-api
+          tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner \
+            -czf production-swa-bundle.tar.gz -C release frontend-dist swa-api
+
+      - name: Create candidate manifest
+        run: |
+          node .github/scripts/release-manifest.mjs create \
+            --sha "${{ github.sha }}" \
+            --run-id "${{ github.run_id }}" \
+            --backend-ref "${{ steps.refs.outputs.backend_ref }}" \
+            --runner-ref "${{ steps.refs.outputs.runner_ref }}" \
+            --frontend-archive production-swa-bundle.tar.gz \
+            --backend-changed "${{ needs.changes.outputs.backend }}" \
+            --runner-changed "${{ needs.changes.outputs.runner }}" \
+            --frontend-changed "${{ needs.changes.outputs.frontend }}" \
+            --output release-manifest.json
+          node .github/scripts/release-manifest.mjs verify \
+            --manifest release-manifest.json \
+            --frontend-archive production-swa-bundle.tar.gz \
+            --sha "${{ github.sha }}"
+
+      - name: Upload immutable release candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: production-release-candidate-${{ github.sha }}
+          path: |
+            production-swa-bundle.tar.gz
+            release-manifest.json
+          retention-days: 30
+          if-no-files-found: error
+
+  ci:
+    name: CI gate
+    uses: ./.github/workflows/ci.yml
+    secrets: inherit
+
+  e2e:
+    name: E2E gate
+    needs: candidate
+    uses: ./.github/workflows/e2e.yml
+    with:
+      backend_image_ref: ${{ needs.candidate.outputs.backend_ref }}
+      runner_image_ref: ${{ needs.candidate.outputs.runner_ref }}
+    secrets: inherit
+
+  security:
+    name: Security gate
+    needs: candidate
+    uses: ./.github/workflows/security.yml
+    with:
+      backend_image_ref: ${{ needs.candidate.outputs.backend_ref }}
+      runner_image_ref: ${{ needs.candidate.outputs.runner_ref }}
+    secrets: inherit
+
+  promote:
+    name: Promote tested candidate
+    needs: [changes, candidate, ci, e2e, security]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Download immutable release candidate
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: production-release-candidate-${{ github.sha }}
+          path: candidate
+
+      - name: Verify manifest and artifact integrity
+        run: |
+          node .github/scripts/release-manifest.mjs verify \
+            --manifest candidate/release-manifest.json \
+            --frontend-archive candidate/production-swa-bundle.tar.gz \
+            --sha "${{ github.sha }}" \
+            > candidate/verified-manifest.json
+
+      - name: Verify Supabase migrations are already applied
+        if: needs.changes.outputs.backend == 'true'
+        env:
+          PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+        run: |
+          if [ -z "$PROD_DATABASE_URL" ]; then
+            echo "::error::PROD_DATABASE_URL is required for production promotion."
+            exit 1
+          fi
+          latest=$(find supabase/migrations -maxdepth 1 -type f -print \
+            | sed -E 's#^.*/([0-9]+).*#\1#' | sort | tail -1)
+          applied=$(PGCONNECT_TIMEOUT=10 psql "$PROD_DATABASE_URL" -At \
+            -c "SELECT coalesce(max(version), '0') FROM supabase_migrations.schema_migrations")
+          if ! echo "$applied" | grep -qE '^[0-9]+$' || [ "$applied" != "$latest" ]; then
+            echo "::error::Migration drift: applied=$applied, latest=$latest. Apply migrations before promotion."
+            exit 1
+          fi
+
+      - name: Azure login (OIDC)
+        if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.runner == 'true'
+        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Promote VM image digests with rollback
+        if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.runner == 'true'
+        timeout-minutes: 12
+        env:
+          CANDIDATE_SHA: ${{ github.sha }}
+          BACKEND_REF: ${{ needs.changes.outputs.backend == 'true' && needs.candidate.outputs.backend_ref || '-' }}
+          RUNNER_REF: ${{ needs.changes.outputs.runner == 'true' && needs.candidate.outputs.runner_ref || '-' }}
+        run: |
+          out=$(az vm run-command invoke \
+            -g "$AZURE_RG" -n "$AZURE_VM" \
+            --command-id RunShellScript \
+            --scripts "set -eu; cd /opt/codetutor; if ! sudo -u codetutor git diff --quiet HEAD; then echo 'PROMOTION_FAILED: dirty VM worktree'; sudo -u codetutor git status --short; exit 1; fi; PREV_SHA=\$(sudo -u codetutor git rev-parse HEAD); sudo -u codetutor git fetch origin main; sudo -u codetutor git cat-file -e '$CANDIDATE_SHA^{commit}'; sudo -u codetutor git reset --hard '$CANDIDATE_SHA'; bash infra/scripts/vm-promote-candidate.sh \"\$PREV_SHA\" '$CANDIDATE_SHA' '$BACKEND_REF' '$RUNNER_REF'" \
+            --query "value[0].message" -o tsv)
+          echo "$out" | tee candidate/vm-promotion.txt
+          echo "$out" | grep -q "PROMOTION_OK candidate_sha=$CANDIDATE_SHA" || {
+            echo "::error::VM promotion sentinel missing"
+            exit 1
+          }
+
+      - name: Extract tested SWA artifact
+        if: needs.changes.outputs.frontend == 'true'
+        run: |
+          mkdir -p candidate/extracted
+          tar -xzf candidate/production-swa-bundle.tar.gz -C candidate/extracted
+
+      - name: Promote exact frontend artifact to SWA
+        if: needs.changes.outputs.frontend == 'true'
+        uses: Azure/static-web-apps-deploy@1a947af9992250f3bc2e68ad0754c0b0c11566c9 # v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: upload
+          app_location: candidate/extracted/frontend-dist
+          api_location: candidate/extracted/swa-api
+          output_location: ''
+          skip_app_build: true
+          skip_api_build: true
+
+      - name: Verify deployed candidate identity and readiness
+        env:
+          CANDIDATE_SHA: ${{ github.sha }}
+        run: |
+          if [ "${{ needs.changes.outputs.backend }}" = "true" ]; then
+            curl --fail --silent --show-error --max-time 20 \
+              https://codetutor-ai-vm.eastus2.cloudapp.azure.com/api/health/deep \
+              > candidate/backend-health.json
+          fi
+          if [ "${{ needs.changes.outputs.frontend }}" = "true" ]; then
+            curl --fail --silent --show-error --max-time 20 \
+              https://codetutor.msrivas.com/release.json \
+              > candidate/frontend-release.json
+            node -e 'const x=require("./candidate/frontend-release.json"); if(x.gitSha!==process.env.CANDIDATE_SHA) process.exit(1)'
+          fi
+
+      - name: Upload promotion evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: production-promotion-evidence-${{ github.sha }}
+          path: |
+            candidate/release-manifest.json
+            candidate/verified-manifest.json
+            candidate/vm-promotion.txt
+            candidate/backend-health.json
+            candidate/frontend-release.json
+          retention-days: 30
+          if-no-files-found: warn

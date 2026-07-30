@@ -1,0 +1,162 @@
+name: Roll back production release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_run_id:
+        description: Successful Production release run containing the last-known-good candidate
+        required: true
+        type: string
+      candidate_sha:
+        description: Full Git SHA recorded by that release
+        required: true
+        type: string
+      acknowledgement:
+        description: Type ROLLBACK_PRODUCTION to confirm the production rollback
+        required: true
+        type: string
+
+concurrency:
+  group: production-release
+  cancel-in-progress: false
+
+permissions:
+  actions: read
+  contents: read
+  id-token: write
+
+env:
+  AZURE_RG: codetutor-ai-prod-rg
+  AZURE_VM: codetutor-ai-vm
+
+jobs:
+  rollback:
+    name: Promote last-known-good candidate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate explicit rollback request
+        env:
+          ACKNOWLEDGEMENT: ${{ inputs.acknowledgement }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          if [ "$ACKNOWLEDGEMENT" != "ROLLBACK_PRODUCTION" ]; then
+            echo "::error::acknowledgement must be exactly ROLLBACK_PRODUCTION"
+            exit 1
+          fi
+          if ! echo "$CANDIDATE_SHA" | grep -qE '^[0-9a-f]{40}$'; then
+            echo "::error::candidate_sha must be a full lowercase Git SHA"
+            exit 1
+          fi
+
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ inputs.candidate_sha }}
+
+      - name: Prove source run is a successful production release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          run_json=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RELEASE_RUN_ID")
+          echo "$run_json" > source-release-run.json
+          actual_name=$(echo "$run_json" | jq -r '.name')
+          actual_sha=$(echo "$run_json" | jq -r '.head_sha')
+          conclusion=$(echo "$run_json" | jq -r '.conclusion')
+          if [ "$actual_name" != "Production release" ] \
+            || [ "$actual_sha" != "$CANDIDATE_SHA" ] \
+            || [ "$conclusion" != "success" ]; then
+            echo "::error::Run $RELEASE_RUN_ID is not a successful Production release for $CANDIDATE_SHA"
+            exit 1
+          fi
+
+      - name: Download last-known-good immutable candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          mkdir -p candidate
+          gh run download "$RELEASE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "production-release-candidate-$CANDIDATE_SHA" \
+            --dir candidate
+          node .github/scripts/release-manifest.mjs verify \
+            --manifest candidate/release-manifest.json \
+            --frontend-archive candidate/production-swa-bundle.tar.gz \
+            --sha "$CANDIDATE_SHA" \
+            > candidate/verified-manifest.json
+
+      - name: Read immutable refs from verified manifest
+        id: manifest
+        run: |
+          echo "backend_ref=$(jq -r '.artifacts.backend.ref' candidate/release-manifest.json)" >> "$GITHUB_OUTPUT"
+          echo "runner_ref=$(jq -r '.artifacts.runner.ref' candidate/release-manifest.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Azure login (OIDC)
+        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Roll VM back to recorded image digests
+        timeout-minutes: 12
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          BACKEND_REF: ${{ steps.manifest.outputs.backend_ref }}
+          RUNNER_REF: ${{ steps.manifest.outputs.runner_ref }}
+        run: |
+          out=$(az vm run-command invoke \
+            -g "$AZURE_RG" -n "$AZURE_VM" \
+            --command-id RunShellScript \
+            --scripts "set -eu; cd /opt/codetutor; if ! sudo -u codetutor git diff --quiet HEAD; then echo 'PROMOTION_FAILED: dirty VM worktree'; exit 1; fi; PREV_SHA=\$(sudo -u codetutor git rev-parse HEAD); sudo -u codetutor git fetch origin main; sudo -u codetutor git cat-file -e '$CANDIDATE_SHA^{commit}'; sudo -u codetutor git reset --hard '$CANDIDATE_SHA'; bash infra/scripts/vm-promote-candidate.sh \"\$PREV_SHA\" '$CANDIDATE_SHA' '$BACKEND_REF' '$RUNNER_REF'" \
+            --query "value[0].message" -o tsv)
+          echo "$out" | tee candidate/vm-rollback.txt
+          echo "$out" | grep -q "PROMOTION_OK candidate_sha=$CANDIDATE_SHA" || {
+            echo "::error::VM rollback promotion sentinel missing"
+            exit 1
+          }
+
+      - name: Extract last-known-good SWA artifact
+        run: |
+          mkdir -p candidate/extracted
+          tar -xzf candidate/production-swa-bundle.tar.gz -C candidate/extracted
+
+      - name: Roll frontend back to recorded artifact
+        uses: Azure/static-web-apps-deploy@1a947af9992250f3bc2e68ad0754c0b0c11566c9 # v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: upload
+          app_location: candidate/extracted/frontend-dist
+          api_location: candidate/extracted/swa-api
+          output_location: ''
+          skip_app_build: true
+          skip_api_build: true
+
+      - name: Verify rolled-back identity and readiness
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          curl --fail --silent --show-error --max-time 20 \
+            https://codetutor-ai-vm.eastus2.cloudapp.azure.com/api/health/deep \
+            > candidate/backend-health.json
+          curl --fail --silent --show-error --max-time 20 \
+            https://codetutor.msrivas.com/release.json \
+            > candidate/frontend-release.json
+          node -e 'const x=require("./candidate/frontend-release.json"); if(x.gitSha!==process.env.CANDIDATE_SHA) process.exit(1)'
+
+      - name: Preserve rollback evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: production-rollback-evidence-${{ inputs.candidate_sha }}
+          path: |
+            source-release-run.json
+            candidate/release-manifest.json
+            candidate/verified-manifest.json
+            candidate/vm-rollback.txt
+            candidate/backend-health.json
+            candidate/frontend-release.json
+          retention-days: 30
+          if-no-files-found: warn

@@ -1,7 +1,7 @@
 #!/bin/bash
 # /usr/local/bin/refresh-env — re-render /opt/codetutor/.env from Key Vault.
 #
-# Sourced from this repo on every deploy (vm-deploy-backend.sh) so adding a
+# Sourced from this repo on every deploy (vm-promote-candidate.sh) so adding a
 # new KV secret propagates without VM reprovision. Per-VM identity values
 # (KV_NAME, image tags, FQDN, admin email) live in /etc/codetutor/env.conf,
 # which is written once at first-boot via cloud-init template substitution.

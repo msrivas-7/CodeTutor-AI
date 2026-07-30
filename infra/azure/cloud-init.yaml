@@ -292,7 +292,7 @@ runcmd:
 
   # --- Install refresh-env from repo (deploy-synced source of truth) ---
   # Replaces the prior write_files inline. Future deploys copy this same
-  # file via vm-deploy-backend.sh so adding a fetch_optional line lands
+  # file via vm-promote-candidate.sh so adding a fetch_optional line lands
   # without a VM reprovision. env.conf above feeds it KV_NAME + identity.
   - install -m 0755 -o root -g root /opt/codetutor/infra/scripts/refresh-env.sh /usr/local/bin/refresh-env
 

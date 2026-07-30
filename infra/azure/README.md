@@ -320,11 +320,13 @@ When the custom domain lands, rewire `healthEndpoint` in `main.bicep` to
 
 ## Image pinning
 
-The deploy workflow pushes each backend/runner build to GHCR under both
-`:<github.sha>` and `:latest`. On the VM, `infra/scripts/vm-deploy-backend.sh`
-pulls the specific SHA tag and retags it to `:latest` locally so compose
-always runs an immutable image. Rollback pulls `${IMAGE}:${PREV_SHA}`
-directly — no reliance on local cache surviving a VM rebuild.
+The production release workflow pushes backend/runner candidates under the
+candidate SHA and records their registry digests in `release-manifest.json`.
+CI, E2E, and the security suite must pass before
+`infra/scripts/vm-promote-candidate.sh` pulls those exact digest references
+and retags them to `:latest` locally. Both prior local aliases are snapshotted
+as `:rollback`; a failed deep-health or identity check restores the prior
+repository SHA and both images without depending on GHCR availability.
 
 ## Runbooks (bucket 7)
 
@@ -503,7 +505,7 @@ minute-long recreate.
 
 - **VM provisioning** (cloud-init, systemd units, Caddy compose service) —
   see `infra/azure/cloud-init.yaml` + compose overrides.
-- **CI/CD** — see `.github/workflows/deploy.yml`.
+- **CI/CD** — see `.github/workflows/release.yml`.
 - **SWA → repo linking** — use the portal's GitHub App flow after deploy;
   it auto-generates the deployment workflow.
 - **Custom domain** — `codetutor.msrivas.com` is the user-facing URL. Both

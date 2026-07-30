@@ -1,17 +1,13 @@
-name: Deploy frontend (SWA)
+name: Deploy frontend preview (SWA)
 
+# PR preview environments only. Production is promoted from the immutable
+# bundle recorded by .github/workflows/release.yml after CI/E2E/security pass.
 # Builds frontend/ via Vite and uploads to Azure Static Web Apps.
 # VITE_* build args are baked into the bundle at build time, so they must
 # be set on this workflow — SWA "Application settings" are runtime-only
 # (for linked Functions / managed APIs), not build-time for static assets.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'frontend/**'
-      - 'swa-api/**'
-      - '.github/workflows/azure-static-web-apps.yml'
   pull_request:
     types: [opened, synchronize, reopened, closed]
     branches: [main]
@@ -19,15 +15,9 @@ on:
       - 'frontend/**'
       - 'swa-api/**'
       - '.github/workflows/azure-static-web-apps.yml'
-  workflow_dispatch:
 
 concurrency:
-  # Per-event-type group: prevents push (prod deploy) and pull_request:closed
-  # (preview-env teardown) from cancelling each other when they fire at the
-  # same instant on PR merge. Both used to share `swa-refs/heads/main` →
-  # whichever GitHub registered second cancelled the first; in PR #4 the prod
-  # push lost the race and the SettingsPanel email-toggle never deployed
-  # until a manual workflow_dispatch caught it.
+  # Keep preview build/update and preview teardown from racing each other.
   group: swa-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
