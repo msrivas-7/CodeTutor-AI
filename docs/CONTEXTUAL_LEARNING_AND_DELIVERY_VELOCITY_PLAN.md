@@ -490,7 +490,10 @@ skipped). The fresh-browser journey is covered independently at desktop and
 click-without-focus behavior: the share opener is now passed explicitly so
 Escape restores focus across engines. The focused Chromium suite passes 7/7
 and the WebKit critical journey passes 2/2 locally. Cinematic duration remains
-unchanged by explicit product decision.
+unchanged by explicit product decision. The deployed PR preview returns 200,
+has zero observed console/page errors or horizontal overflow at desktop and
+390×844, routes both primary CTAs to the anonymous lesson, mounts the lesson
+workspace, and restores focus to the share opener after Escape.
 
 Deliver:
 

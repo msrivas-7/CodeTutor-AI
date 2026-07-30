@@ -239,6 +239,8 @@ test.describe("Phase 27-v2.2 Fix 6 — funnel telemetry", () => {
       .click();
     const shareDialog = page.getByRole("dialog", { name: /your first one/i });
     await expect(shareDialog).toBeVisible({ timeout: 5_000 });
+    // Done is a truthful dismissal. Only the separately labelled save action
+    // creates conversion intent and therefore emits the share-wall event.
     await shareDialog
       .getByRole("button", { name: /save this progress with a free account/i })
       .click();
