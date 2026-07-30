@@ -6,7 +6,9 @@ import * as path from "node:path";
 import * as dotenv from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 import {
+  reapAbandonedCiTestUsers,
   requireCurrentRunSuffix,
+  shouldReapAbandonedCiUsers,
   teardownCurrentRunTestUsers,
 } from "./testIdentity";
 
@@ -34,6 +36,16 @@ export default async function globalTeardown() {
         `[auth teardown] deleted ${report.deleted} users in namespace ${suffix}; ` +
           `skipped ${report.foreignSkipped} foreign users`,
       );
+    }
+    if (shouldReapAbandonedCiUsers(suffix)) {
+      const abandoned = await reapAbandonedCiTestUsers(admin);
+      if (abandoned.deleted > 0 || abandoned.truncated) {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[auth teardown] reaped ${abandoned.deleted} abandoned CI users older than 24h; ` +
+            `${abandoned.eligible} eligible${abandoned.truncated ? " (bounded batch; more remain)" : ""}`,
+        );
+      }
     }
   } catch (err) {
     // eslint-disable-next-line no-console

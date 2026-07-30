@@ -69,6 +69,7 @@ jobs:
       VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       BYOK_ENCRYPTION_KEY: ${{ secrets.BYOK_ENCRYPTION_KEY }}
+      E2E_USER_SUFFIX: security-run${{ github.run_id }}-attempt${{ github.run_attempt }}
       METRICS_TOKEN: e2e-test-metrics-token
       # Match the e2e worker-level session caps — security scenarios
       # exercise fewer sessions but we don't want to trip generic rate

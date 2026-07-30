@@ -4,6 +4,11 @@ const TEST_DOMAIN = "codetutor.test";
 const MAX_LIST_PAGES = 50;
 const MAX_EMAIL_LOCAL_PART = 64;
 const SAFE_SEGMENT = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
+const MIN_ABANDONED_AGE_MS = 24 * 60 * 60 * 1000;
+const MAX_ABANDONED_DELETES = 100;
+const CI_RUN_SUFFIX =
+  /^(?:shard-[1-4]|cross-browser-(?:firefox|webkit)|security)-run\d+-attempt\d+$/;
+const JANITOR_LEADER_SUFFIX = /^shard-1-run\d+-attempt\d+$/;
 
 export type TestUserIdentity = Pick<User, "id" | "email">;
 
@@ -12,6 +17,13 @@ export type TeardownReport = {
   matched: number;
   deleted: number;
   foreignSkipped: number;
+};
+
+export type AbandonedReapReport = {
+  scanned: number;
+  eligible: number;
+  deleted: number;
+  truncated: boolean;
 };
 
 export function requireCurrentRunSuffix(
@@ -63,17 +75,48 @@ export function isCurrentRunTestEmail(
   email: string | null | undefined,
   suffix = requireCurrentRunSuffix(),
 ): boolean {
-  if (typeof email !== "string") return false;
+  const safeSuffix = requireCurrentRunSuffix(suffix);
+  return extractTestRunSuffix(email) === safeSuffix;
+}
+
+export function extractTestRunSuffix(
+  email: string | null | undefined,
+): string | null {
+  if (typeof email !== "string") return null;
   const separator = email.lastIndexOf("@");
-  if (separator < 1 || email.indexOf("@") !== separator) return false;
+  if (separator < 1 || email.indexOf("@") !== separator) return null;
   const localPart = email.slice(0, separator);
   const domain = email.slice(separator + 1);
-  const safeSuffix = requireCurrentRunSuffix(suffix);
-  return (
-    domain === TEST_DOMAIN &&
-    localPart.startsWith("e2e-") &&
-    localPart.endsWith(`-${safeSuffix.length}-${safeSuffix}`)
-  );
+  if (domain !== TEST_DOMAIN || !localPart.startsWith("e2e-")) return null;
+
+  const marker = /-(\d+)-/g;
+  const matches: string[] = [];
+  for (
+    let match = marker.exec(localPart);
+    match;
+    match = marker.exec(localPart)
+  ) {
+    const suffix = localPart.slice(match.index + match[0].length);
+    const identity = localPart.slice("e2e-".length, match.index);
+    if (
+      identity.length > 0 &&
+      Number(match[1]) === suffix.length &&
+      SAFE_SEGMENT.test(suffix)
+    ) {
+      matches.push(suffix);
+    }
+  }
+  return matches.length === 1 ? matches[0] : null;
+}
+
+export function isRecognizedCiRunSuffix(suffix: string): boolean {
+  return SAFE_SEGMENT.test(suffix) && CI_RUN_SUFFIX.test(suffix);
+}
+
+export function shouldReapAbandonedCiUsers(
+  suffix = requireCurrentRunSuffix(),
+): boolean {
+  return JANITOR_LEADER_SUFFIX.test(requireCurrentRunSuffix(suffix));
 }
 
 export function assertCurrentRunTestIdentity(
@@ -130,5 +173,68 @@ export async function teardownCurrentRunTestUsers(
     matched: victims.length,
     deleted: victims.length,
     foreignSkipped: users.length - victims.length,
+  };
+}
+
+export async function reapAbandonedCiTestUsers(
+  admin: SupabaseClient,
+  options: {
+    now?: Date;
+    minimumAgeMs?: number;
+    maxDeletes?: number;
+  } = {},
+): Promise<AbandonedReapReport> {
+  const now = options.now ?? new Date();
+  const minimumAgeMs = options.minimumAgeMs ?? MIN_ABANDONED_AGE_MS;
+  const maxDeletes = options.maxDeletes ?? MAX_ABANDONED_DELETES;
+  if (!Number.isFinite(now.getTime())) {
+    throw new Error("Abandoned-user cleanup refused: now must be a valid date");
+  }
+  if (
+    !Number.isSafeInteger(minimumAgeMs) ||
+    minimumAgeMs < MIN_ABANDONED_AGE_MS
+  ) {
+    throw new Error(
+      "Abandoned-user cleanup refused: minimum age must be at least 24 hours",
+    );
+  }
+  if (
+    !Number.isSafeInteger(maxDeletes) ||
+    maxDeletes < 1 ||
+    maxDeletes > MAX_ABANDONED_DELETES
+  ) {
+    throw new Error(
+      `Abandoned-user cleanup refused: maxDeletes must be between 1 and ${MAX_ABANDONED_DELETES}`,
+    );
+  }
+
+  const users = await listAllUsers(admin);
+  const eligible = users.filter((user) => {
+    const suffix = extractTestRunSuffix(user.email);
+    const createdAt = Date.parse(user.created_at);
+    return (
+      suffix !== null &&
+      isRecognizedCiRunSuffix(suffix) &&
+      Number.isFinite(createdAt) &&
+      now.getTime() - createdAt >= minimumAgeMs
+    );
+  });
+  const victims = eligible.slice(0, maxDeletes);
+
+  for (const user of victims) {
+    const suffix = extractTestRunSuffix(user.email);
+    if (!suffix || !isRecognizedCiRunSuffix(suffix)) {
+      throw new Error(
+        "Abandoned-user cleanup refused: identity changed during selection",
+      );
+    }
+    await deleteCurrentRunTestUser(admin, user, suffix);
+  }
+
+  return {
+    scanned: users.length,
+    eligible: eligible.length,
+    deleted: victims.length,
+    truncated: eligible.length > victims.length,
   };
 }

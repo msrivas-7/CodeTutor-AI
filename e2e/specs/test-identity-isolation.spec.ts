@@ -3,8 +3,11 @@ import type { SupabaseClient, User } from "@supabase/supabase-js";
 import {
   buildCurrentRunTestEmail,
   deleteCurrentRunTestUser,
+  extractTestRunSuffix,
   isCurrentRunTestEmail,
+  reapAbandonedCiTestUsers,
   requireCurrentRunSuffix,
+  shouldReapAbandonedCiUsers,
   teardownCurrentRunTestUsers,
 } from "../fixtures/testIdentity";
 
@@ -13,8 +16,12 @@ type FakeAdmin = {
   deletedIds: string[];
 };
 
-function fakeUser(id: string, email: string): User {
-  return { id, email } as User;
+function fakeUser(
+  id: string,
+  email: string,
+  createdAt = "2026-07-29T00:00:00.000Z",
+): User {
+  return { id, email, created_at: createdAt } as User;
 }
 
 function createFakeAdmin(users: User[]): FakeAdmin {
@@ -81,6 +88,87 @@ test.describe("test identity namespace guard", () => {
       isCurrentRunTestEmail(`learner-${suffix}@codetutor.test`, suffix),
     ).toBe(false);
     expect(() => requireCurrentRunSuffix("")).toThrow(/deletion refused/i);
+    expect(extractTestRunSuffix(email)).toBe(suffix);
+    expect(extractTestRunSuffix(`e2e-w0-${suffix}@codetutor.test`)).toBeNull();
+  });
+
+  test("only the shard-1 CI leader runs the abandoned-user janitor", () => {
+    expect(shouldReapAbandonedCiUsers("shard-1-run100-attempt1")).toBe(true);
+    expect(shouldReapAbandonedCiUsers("shard-2-run100-attempt1")).toBe(false);
+    expect(shouldReapAbandonedCiUsers("security-run100-attempt1")).toBe(false);
+    expect(shouldReapAbandonedCiUsers("local-100")).toBe(false);
+  });
+
+  test("reaps only recognized CI users older than 24 hours", async () => {
+    const old = "2026-07-28T00:00:00.000Z";
+    const recent = "2026-07-29T18:00:00.000Z";
+    const staleShard = fakeUser(
+      "stale-shard",
+      buildCurrentRunTestEmail("w0", "shard-3-run80-attempt1"),
+      old,
+    );
+    const staleSecurity = fakeUser(
+      "stale-security",
+      buildCurrentRunTestEmail("w0", "security-run81-attempt2"),
+      old,
+    );
+    const recentCi = fakeUser(
+      "recent-ci",
+      buildCurrentRunTestEmail("w0", "shard-4-run82-attempt1"),
+      recent,
+    );
+    const staleLocal = fakeUser(
+      "stale-local",
+      buildCurrentRunTestEmail("w0", "security-local-123-abc"),
+      old,
+    );
+    const foreign = fakeUser("foreign", "learner@codetutor.test", old);
+    const fake = createFakeAdmin([
+      staleShard,
+      staleSecurity,
+      recentCi,
+      staleLocal,
+      foreign,
+    ]);
+
+    const report = await reapAbandonedCiTestUsers(fake.client, {
+      now: new Date("2026-07-30T00:00:00.000Z"),
+    });
+
+    expect(report).toEqual({
+      scanned: 5,
+      eligible: 2,
+      deleted: 2,
+      truncated: false,
+    });
+    expect(fake.deletedIds).toEqual([staleShard.id, staleSecurity.id]);
+  });
+
+  test("abandoned-user janitor enforces its age floor and batch ceiling", async () => {
+    const users = Array.from({ length: 3 }, (_, index) =>
+      fakeUser(
+        `stale-${index}`,
+        buildCurrentRunTestEmail(`w${index}`, `shard-2-run${90 + index}-attempt1`),
+        "2026-07-20T00:00:00.000Z",
+      ),
+    );
+    const fake = createFakeAdmin(users);
+
+    await expect(
+      reapAbandonedCiTestUsers(fake.client, { minimumAgeMs: 1 }),
+    ).rejects.toThrow(/at least 24 hours/i);
+
+    const report = await reapAbandonedCiTestUsers(fake.client, {
+      now: new Date("2026-07-30T00:00:00.000Z"),
+      maxDeletes: 2,
+    });
+    expect(report).toEqual({
+      scanned: 3,
+      eligible: 3,
+      deleted: 2,
+      truncated: true,
+    });
+    expect(fake.deletedIds).toHaveLength(2);
   });
 
   test("600 varied overlapping namespaces record zero cross-run deletions", async () => {
