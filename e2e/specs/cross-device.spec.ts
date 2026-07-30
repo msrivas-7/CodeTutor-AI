@@ -22,6 +22,7 @@ import { mockAllAI } from "../fixtures/aiMocks";
 import { setMonacoValue, waitForMonacoReady } from "../fixtures/monaco";
 import * as S from "../utils/selectors";
 import { seedAuthedRetrievalPass } from "../fixtures/retrievalGate";
+import { waitForJsonApiResponse } from "../fixtures/persistenceEvidence";
 
 const COURSE_ID = "python-fundamentals";
 
@@ -40,16 +41,28 @@ test.describe("cross-device persistence (Phase 18b)", () => {
       await page.goto("/start");
       await S.openSettings(page, "profile");
       await expect(page.locator('[role="dialog"]')).toBeVisible();
+      const saveAck = waitForJsonApiResponse<
+        { theme: string },
+        { theme?: string }
+      >(page, {
+        method: "PATCH",
+        pathname: "/api/user/preferences",
+        requestMatches: (body) => body?.theme === "light",
+      });
       await page.getByRole("button", { name: /^light$/i }).click();
       await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
-      // Buffer for the background PATCH to land.
-      await page.waitForTimeout(500);
+      expect((await saveAck).responseBody.theme).toBe("light");
 
       // 2. Open a fresh context (device B) and log in as the same user.
       const contextB = await browser.newContext();
       const pageB = await contextB.newPage();
       await loginAsTestUser(pageB, testInfo.workerIndex);
-      await pageB.goto("/");
+      const hydrateAck = waitForJsonApiResponse<{ theme: string }>(pageB, {
+        method: "GET",
+        pathname: "/api/user/preferences",
+      });
+      await pageB.goto("/start");
+      expect((await hydrateAck).responseBody.theme).toBe("light");
       // 3. Server-backed theme hydrates into <html data-theme>.
       await expect(pageB.locator("html")).toHaveAttribute("data-theme", "light", {
         timeout: 10_000,
@@ -84,20 +97,68 @@ test.describe("cross-device persistence (Phase 18b)", () => {
       // click "Check My Work" to trigger the output-match verdict. Wait for
       // it to enable (gated on a successful run), then click it.
       await expect(S.checkMyWorkButton(page)).toBeEnabled({ timeout: 15_000 });
+      const lessonSaveAck = waitForJsonApiResponse<
+        { status: string; lessonId: string },
+        { status?: string }
+      >(page, {
+        method: "PATCH",
+        pathname: `/api/user/lessons/${COURSE_ID}/hello-world`,
+        requestMatches: (body) => body?.status === "completed",
+      });
+      const courseSaveAck = waitForJsonApiResponse<
+        { completedLessonIds: string[] },
+        { completedLessonIds?: string[] }
+      >(page, {
+        method: "PATCH",
+        pathname: `/api/user/courses/${COURSE_ID}`,
+        requestMatches: (body) =>
+          body?.completedLessonIds?.includes("hello-world") === true,
+      });
       await S.checkMyWorkButton(page).click();
+      const [lessonSaved, courseSaved] = await Promise.all([
+        lessonSaveAck,
+        courseSaveAck,
+      ]);
+      expect(lessonSaved.responseBody.status).toBe("completed");
+      expect(courseSaved.responseBody.completedLessonIds).toContain("hello-world");
       // Completion opens a "Lesson Complete!" alertdialog. Scope to that
       // specifically — there are multiple "Next lesson" buttons in the DOM
       // (recap panel + course nav) once complete.
       await expect(
         page.getByRole("dialog", { name: /lesson complete/i }),
       ).toBeVisible({ timeout: 30_000 });
-      await page.waitForTimeout(500);
 
       // 2. Device B: fresh context, same user.
       const contextB = await browser.newContext();
       const pageB = await contextB.newPage();
       await loginAsTestUser(pageB, testInfo.workerIndex);
+      const courseHydrateAck = waitForJsonApiResponse<{
+        courses: Array<{ courseId: string; completedLessonIds: string[] }>;
+      }>(pageB, {
+        method: "GET",
+        pathname: "/api/user/courses",
+      });
+      const lessonHydrateAck = waitForJsonApiResponse<{
+        lessons: Array<{ courseId: string; lessonId: string; status: string }>;
+      }>(pageB, {
+        method: "GET",
+        pathname: "/api/user/lessons",
+      });
       await pageB.goto(`/learn/course/${COURSE_ID}`);
+      const [courses, lessons] = await Promise.all([
+        courseHydrateAck,
+        lessonHydrateAck,
+      ]);
+      expect(
+        courses.responseBody.courses.find((course) => course.courseId === COURSE_ID)
+          ?.completedLessonIds,
+      ).toContain("hello-world");
+      expect(
+        lessons.responseBody.lessons.find(
+          (lesson) =>
+            lesson.courseId === COURSE_ID && lesson.lessonId === "hello-world",
+        )?.status,
+      ).toBe("completed");
 
       // 3. Course overview shows "1/N lessons" on the new device,
       //    confirming server hydration picked up the completed lesson.
@@ -117,10 +178,17 @@ test.describe("cross-device persistence (Phase 18b)", () => {
       const contextB = await browser.newContext();
       const pageB = await contextB.newPage();
       await loginAsTestUser(pageB, testInfo.workerIndex);
-      await pageB.goto("/");
+      const hydrateAck = waitForJsonApiResponse<{ welcomeDone: boolean }>(pageB, {
+        method: "GET",
+        pathname: "/api/user/preferences",
+      });
+      await pageB.goto("/start");
+      expect((await hydrateAck).responseBody.welcomeDone).toBe(true);
       // The spotlight "Skip onboarding" button never shows because the
       // welcomeDone flag hydrated from server state.
-      await pageB.waitForTimeout(1_000);
+      await expect(
+        pageB.getByRole("button", { name: /user menu/i }),
+      ).toBeVisible();
       await expect(
         pageB.getByRole("button", { name: /skip onboarding/i }),
       ).toHaveCount(0);
@@ -135,16 +203,37 @@ test.describe("cross-device persistence (Phase 18b)", () => {
       const IDENTIFIABLE = `print("persisted-editor-${stamp}")\n`;
       await page.goto("/editor");
       await waitForMonacoReady(page);
+      const saveAck = waitForJsonApiResponse<
+        { files: Record<string, string> },
+        { files?: Record<string, string> }
+      >(page, {
+        method: "PUT",
+        pathname: "/api/user/editor-project",
+        requestMatches: (body) =>
+          Object.values(body?.files ?? {}).join("\n").includes(
+            `persisted-editor-${stamp}`,
+          ),
+      });
       await setMonacoValue(page, IDENTIFIABLE);
-      // Editor persistence hook debounces 800ms; give it time to flush.
-      await page.waitForTimeout(1_500);
+      expect(
+        Object.values((await saveAck).responseBody.files).join("\n"),
+      ).toContain(`persisted-editor-${stamp}`);
 
       const contextB = await browser.newContext();
       const pageB = await contextB.newPage();
       await loginAsTestUser(pageB, testInfo.workerIndex);
       const cleanupPageBSessions = trackSessionCleanup(pageB, testInfo.workerIndex);
       try {
+        const hydrateAck = waitForJsonApiResponse<{
+          files: Record<string, string>;
+        }>(pageB, {
+          method: "GET",
+          pathname: "/api/user/editor-project",
+        });
         await pageB.goto("/editor");
+        expect(
+          Object.values((await hydrateAck).responseBody.files).join("\n"),
+        ).toContain(`persisted-editor-${stamp}`);
         await waitForMonacoReady(pageB);
 
         await expect
@@ -174,9 +263,17 @@ test.describe("cross-device persistence (Phase 18b)", () => {
       // Flip theme + sign out.
       await page.goto("/start");
       await S.openSettings(page, "profile");
+      const saveAck = waitForJsonApiResponse<
+        { theme: string },
+        { theme?: string }
+      >(page, {
+        method: "PATCH",
+        pathname: "/api/user/preferences",
+        requestMatches: (body) => body?.theme === "light",
+      });
       await page.getByRole("button", { name: /^light$/i }).click();
       await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
-      await page.waitForTimeout(500);
+      expect((await saveAck).responseBody.theme).toBe("light");
       await page.keyboard.press("Escape");
 
       await page.getByRole("button", { name: /user menu/i }).click();
@@ -185,7 +282,12 @@ test.describe("cross-device persistence (Phase 18b)", () => {
 
       // Sign in again (re-inject session and navigate).
       await loginAsTestUser(page, testInfo.workerIndex);
+      const hydrateAck = waitForJsonApiResponse<{ theme: string }>(page, {
+        method: "GET",
+        pathname: "/api/user/preferences",
+      });
       await page.goto("/start");
+      expect((await hydrateAck).responseBody.theme).toBe("light");
       await expect(page.locator("html")).toHaveAttribute("data-theme", "light", {
         timeout: 10_000,
       });

@@ -5,6 +5,10 @@
 import * as path from "node:path";
 import * as dotenv from "dotenv";
 import { createClient } from "@supabase/supabase-js";
+import {
+  requireCurrentRunSuffix,
+  teardownCurrentRunTestUsers,
+} from "./testIdentity";
 
 // Mirror playwright.config.ts: pull SUPABASE_SERVICE_ROLE_KEY out of ../.env
 // if present. globalSetup runs in the same node context, so env is usually
@@ -22,30 +26,14 @@ export default async function globalTeardown() {
   });
 
   try {
-    // List every user; filter by our e2e- prefix so we never touch a real
-    // account accidentally left over in the local dashboard.
-    let page = 1;
-    const victims: string[] = [];
-    // The admin listUsers endpoint paginates; walk until empty page.
-    for (;;) {
-      const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 200 });
-      if (error) break;
-      if (!data.users.length) break;
-      for (const u of data.users) {
-        const email = u.email ?? "";
-        if (/^e2e-w/.test(email) && /@codetutor\.test$/.test(email)) {
-          victims.push(u.id);
-        }
-      }
-      if (data.users.length < 200) break;
-      page += 1;
-    }
-    for (const id of victims) {
-      await admin.auth.admin.deleteUser(id).catch(() => {});
-    }
-    if (victims.length) {
+    const suffix = requireCurrentRunSuffix();
+    const report = await teardownCurrentRunTestUsers(admin, suffix);
+    if (report.deleted > 0) {
       // eslint-disable-next-line no-console
-      console.log(`[auth teardown] deleted ${victims.length} test users`);
+      console.log(
+        `[auth teardown] deleted ${report.deleted} users in namespace ${suffix}; ` +
+          `skipped ${report.foreignSkipped} foreign users`,
+      );
     }
   } catch (err) {
     // eslint-disable-next-line no-console

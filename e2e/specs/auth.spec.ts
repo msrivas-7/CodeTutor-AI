@@ -18,6 +18,7 @@
 
 import { expect, request, test } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
+import { buildCurrentRunTestEmail } from "../fixtures/testIdentity";
 
 const BACKEND = process.env.E2E_API_URL ?? "http://localhost:4000";
 const ORIGIN = process.env.E2E_APP_ORIGIN ?? "http://localhost:5173";
@@ -30,7 +31,8 @@ const PASSWORD = "AuthSpec-Passw0rd!";
 // Generate a unique email per test run so parallel workers never collide
 // and an earlier failed run can't leave a stale account that blocks signup.
 function uniqueEmail(tag: string): string {
-  return `e2e-w-auth-${tag}-${process.pid}-${Math.floor(Math.random() * 1e9)}@codetutor.test`;
+  const random = Math.floor(Math.random() * 1e9).toString(36);
+  return buildCurrentRunTestEmail(`auth-${random}-${tag}-${process.pid}`);
 }
 
 test.describe("auth flow", () => {
