@@ -141,19 +141,16 @@ async function startStaticServer() {
 
 async function collect(url, reportPath) {
   let lastError;
-  const useHeadfulChrome = process.env.LIGHTHOUSE_HEADFUL === "1";
 
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     const chrome = await launch({
+      ...(process.env.LIGHTHOUSE_CHROME_PATH
+        ? { chromePath: process.env.LIGHTHOUSE_CHROME_PATH }
+        : {}),
       chromeFlags: [
-        ...(useHeadfulChrome ? [] : ["--headless=new"]),
+        "--headless",
         "--no-sandbox",
         "--disable-dev-shm-usage",
-        "--disable-gpu",
-        "--disable-background-timer-throttling",
-        "--disable-backgrounding-occluded-windows",
-        "--disable-renderer-backgrounding",
-        "--disable-features=CalculateNativeWinOcclusion",
         "--no-first-run",
         "--no-default-browser-check",
         "--window-size=1440,900",

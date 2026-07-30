@@ -160,7 +160,14 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: |
+            e2e/package-lock.json
+            frontend/package-lock.json
+      - name: Install the pinned audit browser
+        working-directory: e2e
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
       - name: Build the production frontend
         working-directory: frontend
         run: |
@@ -168,10 +175,9 @@ jobs:
           npm run build
       - name: Run repeated Lighthouse lab checks
         working-directory: frontend
-        # Chrome 150 can intermittently report NO_FCP in hosted-runner headless
-        # mode. Xvfb gives Lighthouse a real foreground window while keeping the
-        # same isolated Linux environment and strict median assertions.
-        run: xvfb-run --auto-servernum --server-args="-screen 0 1440x900x24" env LIGHTHOUSE_HEADFUL=1 npm run test:lighthouse-budget
+        run: |
+          audit_browser="$(cd ../e2e && node -e "process.stdout.write(require('playwright').chromium.executablePath())")"
+          LIGHTHOUSE_CHROME_PATH="$audit_browser" npm run test:lighthouse-budget
       - name: Upload Lighthouse reports
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
