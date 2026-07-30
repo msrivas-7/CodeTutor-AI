@@ -18,8 +18,10 @@ param appInsightsId string
 @description('Full URL the availability test hits for the backend deep-health probe.')
 param healthEndpoint string
 
-@description('Full URL the availability test hits for the SWA root.')
-param swaEndpoint string
+// NOT NEEDED FOR NOW: swaEndpoint feeds the commented-out swa-root
+// webtest below. Un-comment (here and in main.bicep) when re-enabling.
+// @description('Full URL the availability test hits for the SWA root.')
+// param swaEndpoint string
 
 @description('P0-5a: ACI NSG resource ID. Used by the NSG-drift Activity Log alert that fires whenever someone modifies the security rules on the ACI subnet NSG. Empty string skips the alert (e.g., test deploys without ACI infra).')
 param aciNsgId string = ''
@@ -28,80 +30,76 @@ var actions = {
   actionGroups: [ actionGroupId ]
 }
 
-// Sustained high memory → OOM is imminent. 90% used on 4 GB leaves ~400 MB
-// which is the plan's stated ceiling. 10m window + 1 failing period means a
-// single one-off backup pass won't page.
-// Phase 22A retime: 5min → 15min eval. Memory leaks build over hours;
-// catching them within a 15-min window gives equivalent fidelity at a
-// third of the alert-rule cost.
-resource memAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
-  name: 'codetutor-vm-memory-high'
-  location: location
-  tags: tags
-  properties: {
-    enabled: true
-    severity: 2
-    scopes: [ workspaceId ]
-    evaluationFrequency: 'PT15M'
-    windowSize: 'PT15M'
-    criteria: {
-      allOf: [
-        {
-          query: 'Perf | where ObjectName == "Memory" and CounterName == "% Used Memory" | summarize AggregatedValue = avg(CounterValue) by bin(TimeGenerated, 5m)'
-          timeAggregation: 'Average'
-          metricMeasureColumn: 'AggregatedValue'
-          operator: 'GreaterThan'
-          threshold: 90
-          failingPeriods: {
-            minFailingPeriodsToAlert: 1
-            numberOfEvaluationPeriods: 1
-          }
-        }
-      ]
-    }
-    autoMitigate: true
-    actions: actions
-  }
-}
-
-// Phase 22A audit re-add: vm-cpu-high at 85% over 10min. Originally
-// dropped post-22A.4 because B2s baseline was 1.7% avg / 4.4% peak. SRE
-// audit flagged the regret: with launch-day traffic on a 2-vCPU SKU
-// (B2s/B2ms) and runner workloads, sustained CPU pressure becomes a
-// real failure mode and we'd otherwise diagnose latency from user
-// complaints. The 85% threshold is high enough to dodge baseline noise,
-// low enough to catch genuine saturation. Severity 2: degraded, not
-// down. Phase 24B-resize: back on B2s — the alert matters even more,
-// since ACI overflow kicks in on session-count not CPU pressure.
-resource cpuAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
-  name: 'codetutor-vm-cpu-high'
-  location: location
-  tags: tags
-  properties: {
-    enabled: true
-    severity: 2
-    scopes: [ workspaceId ]
-    evaluationFrequency: 'PT5M'
-    windowSize: 'PT10M'
-    criteria: {
-      allOf: [
-        {
-          query: 'Perf | where ObjectName == "Processor" and CounterName == "% Processor Time" and InstanceName == "_Total" | summarize AggregatedValue = avg(CounterValue) by bin(TimeGenerated, 5m)'
-          timeAggregation: 'Average'
-          metricMeasureColumn: 'AggregatedValue'
-          operator: 'GreaterThan'
-          threshold: 85
-          failingPeriods: {
-            minFailingPeriodsToAlert: 1
-            numberOfEvaluationPeriods: 1
-          }
-        }
-      ]
-    }
-    autoMitigate: true
-    actions: actions
-  }
-}
+// ── NOT NEEDED FOR NOW (July-2026 credit-exhaustion cut) ─────────────
+// vm-memory-high + vm-cpu-high: commented out, re-enable once traffic is
+// real. The sub hit its $150 monthly cap and Azure force-deallocated the
+// VM; founder directive is to keep only outcome-signal alerts. oom-killed
+// covers the memory outcome; heartbeat-missing + http-error-rate cover
+// the CPU-saturation outcome. This shelves the Phase 22A SRE-audit
+// re-add of cpu-high. Live rules must also be deleted in Azure (bicep
+// incremental deploys don't remove them) — see the cleanup commands in
+// the deploy notes.
+//
+// resource memAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
+//   name: 'codetutor-vm-memory-high'
+//   location: location
+//   tags: tags
+//   properties: {
+//     enabled: true
+//     severity: 2
+//     scopes: [ workspaceId ]
+//     evaluationFrequency: 'PT15M'
+//     windowSize: 'PT15M'
+//     criteria: {
+//       allOf: [
+//         {
+//           query: 'Perf | where ObjectName == "Memory" and CounterName == "% Used Memory" | summarize AggregatedValue = avg(CounterValue) by bin(TimeGenerated, 5m)'
+//           timeAggregation: 'Average'
+//           metricMeasureColumn: 'AggregatedValue'
+//           operator: 'GreaterThan'
+//           threshold: 90
+//           failingPeriods: {
+//             minFailingPeriodsToAlert: 1
+//             numberOfEvaluationPeriods: 1
+//           }
+//         }
+//       ]
+//     }
+//     autoMitigate: true
+//     actions: actions
+//   }
+// }
+//
+// resource cpuAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
+//   name: 'codetutor-vm-cpu-high'
+//   location: location
+//   tags: tags
+//   properties: {
+//     enabled: true
+//     severity: 2
+//     scopes: [ workspaceId ]
+//     evaluationFrequency: 'PT5M'
+//     windowSize: 'PT10M'
+//     criteria: {
+//       allOf: [
+//         {
+//           query: 'Perf | where ObjectName == "Processor" and CounterName == "% Processor Time" and InstanceName == "_Total" | summarize AggregatedValue = avg(CounterValue) by bin(TimeGenerated, 5m)'
+//           timeAggregation: 'Average'
+//           metricMeasureColumn: 'AggregatedValue'
+//           operator: 'GreaterThan'
+//           threshold: 85
+//           failingPeriods: {
+//             minFailingPeriodsToAlert: 1
+//             numberOfEvaluationPeriods: 1
+//           }
+//         }
+//       ]
+//     }
+//     autoMitigate: true
+//     actions: actions
+//   }
+// }
+// ── end NOT NEEDED FOR NOW ───────────────────────────────────────────
 
 // OS disk at 80% leaves ~6 GB headroom on a 32 GB disk — enough runway to
 // triage (usually stale session workspaces or journald) before compose or
@@ -149,8 +147,11 @@ resource oomAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = 
     enabled: true
     severity: 1
     scopes: [ workspaceId ]
-    evaluationFrequency: 'PT5M'
-    windowSize: 'PT10M'
+    // July-2026 cost cut: 5min → 15min eval. OOM recovery needs an operator
+    // restart either way; the 10-min detection delta doesn't change the
+    // response, and 15-min runs at a third of the rule cost.
+    evaluationFrequency: 'PT15M'
+    windowSize: 'PT15M'
     criteria: {
       allOf: [
         {
@@ -224,43 +225,42 @@ resource heartbeatAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-previ
 // signup / reset dead-ends. Metric alerts live at `global` location
 // regardless of the scoped resource's region. Gated by communicationServiceId
 // so this module still deploys cleanly in environments without ACS.
-// Phase 22A audit re-add: vm-disk-warning at 70% over 30min. Originally
-// dropped post-22A.4 as redundant with the 80% disk-high. QA audit
-// flagged the regret: VM disk is unchanged across SKU resizes (32GB OS
-// disk). Postgres logs / container logs / daily_usage ledger / share
-// artifacts all live there. Heartbeat doesn't help — the VM stays
-// reachable while disk fills to 100%. The 70% lead indicator gives
-// triage runway before disk-high pages and before docker pulls /
-// compose start failing. Severity 3: warning, not critical.
-resource diskWarningAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
-  name: 'codetutor-vm-disk-warning'
-  location: location
-  tags: tags
-  properties: {
-    enabled: true
-    severity: 3
-    scopes: [ workspaceId ]
-    evaluationFrequency: 'PT15M'
-    windowSize: 'PT30M'
-    criteria: {
-      allOf: [
-        {
-          query: 'Perf | where ObjectName == "Logical Disk" and CounterName == "% Used Space" and InstanceName == "_Total" | summarize AggregatedValue = avg(CounterValue) by bin(TimeGenerated, 15m)'
-          timeAggregation: 'Average'
-          metricMeasureColumn: 'AggregatedValue'
-          operator: 'GreaterThan'
-          threshold: 70
-          failingPeriods: {
-            minFailingPeriodsToAlert: 1
-            numberOfEvaluationPeriods: 1
-          }
-        }
-      ]
-    }
-    autoMitigate: true
-    actions: actions
-  }
-}
+//
+// ── NOT NEEDED FOR NOW (July-2026 credit-exhaustion cut) ─────────────
+// vm-disk-warning (70% lead indicator, a Phase 22A QA-audit re-add):
+// commented out, re-enable once traffic is real. disk-high at 80%
+// remains as the single disk signal, still leaving ~6 GB of runway.
+//
+// resource diskWarningAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
+//   name: 'codetutor-vm-disk-warning'
+//   location: location
+//   tags: tags
+//   properties: {
+//     enabled: true
+//     severity: 3
+//     scopes: [ workspaceId ]
+//     evaluationFrequency: 'PT15M'
+//     windowSize: 'PT30M'
+//     criteria: {
+//       allOf: [
+//         {
+//           query: 'Perf | where ObjectName == "Logical Disk" and CounterName == "% Used Space" and InstanceName == "_Total" | summarize AggregatedValue = avg(CounterValue) by bin(TimeGenerated, 15m)'
+//           timeAggregation: 'Average'
+//           metricMeasureColumn: 'AggregatedValue'
+//           operator: 'GreaterThan'
+//           threshold: 70
+//           failingPeriods: {
+//             minFailingPeriodsToAlert: 1
+//             numberOfEvaluationPeriods: 1
+//           }
+//         }
+//       ]
+//     }
+//     autoMitigate: true
+//     actions: actions
+//   }
+// }
+// ── end NOT NEEDED FOR NOW ───────────────────────────────────────────
 
 // S-18 (bucket 6): BYOK decrypt failures. byok.ts emits a structured JSON
 // error line `{"err":"byok_decrypt_failed",...}` on every GCM tag-verify
@@ -356,7 +356,9 @@ resource authRejectAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-prev
     enabled: true
     severity: 2
     scopes: [ workspaceId ]
-    evaluationFrequency: 'PT5M'
+    // July-2026 cost cut: 5min → 15min eval; window unchanged, so no
+    // detection gap — worst case the email arrives 10 min later.
+    evaluationFrequency: 'PT15M'
     windowSize: 'PT15M'
     criteria: {
       allOf: [
@@ -399,7 +401,8 @@ resource rejectedAttemptAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15
     enabled: true
     severity: 2
     scopes: [ workspaceId ]
-    evaluationFrequency: 'PT5M'
+    // July-2026 cost cut: 5min → 15min eval; window unchanged.
+    evaluationFrequency: 'PT15M'
     windowSize: 'PT15M'
     criteria: {
       allOf: [
@@ -420,13 +423,17 @@ resource rejectedAttemptAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15
   }
 }
 
-// S-6 (bucket 6): backend deep-health availability. Hits /api/health/deep
-// every 5 minutes from five Azure regions; alert fires when 2+ regions
-// fail over a 10-minute window (debounce flakes — single-region egress
-// hiccups are common and don't mean we're actually down). `ParseDependent`
-// must be true so the test validates TLS cert + body; we've had the probe
-// return 200-OK-with-body-"upstream-unavailable" once, pure status-code
-// would miss that.
+// S-6 (bucket 6): backend deep-health availability — the one external
+// probe that catches DNS/TLS/Caddy failures a VM-internal heartbeat
+// can't see.
+//
+// July-2026 credit-exhaustion retune: 5-min × 5 locations → 15-min ×
+// 2 locations (coast-diverse). Standard web tests bill $0.001/execution;
+// the old shape was ~$15/mo for this test alone, the new one is ~$5.8/mo.
+// The availability alert below still requires BOTH locations failing, so
+// a single flaky probe region doesn't page — the tradeoff is that an
+// outage visible from only one coast won't fire (heartbeat-missing and
+// http-error-rate are the backstops there).
 resource healthWebtest 'Microsoft.Insights/webtests@2022-06-15' = {
   name: 'codetutor-api-health'
   location: location
@@ -440,16 +447,13 @@ resource healthWebtest 'Microsoft.Insights/webtests@2022-06-15' = {
     SyntheticMonitorId: 'codetutor-api-health'
     Name: 'codetutor-api-health'
     Enabled: true
-    Frequency: 300
+    Frequency: 900
     Timeout: 30
     Kind: 'standard'
     RetryEnabled: true
     Locations: [
       { Id: 'us-ca-sjc-azr' }
-      { Id: 'us-tx-sn1-azr' }
-      { Id: 'us-il-ch1-azr' }
       { Id: 'us-va-ash-azr' }
-      { Id: 'us-fl-mia-edge' }
     ]
     Request: {
       RequestUrl: healthEndpoint
@@ -464,49 +468,86 @@ resource healthWebtest 'Microsoft.Insights/webtests@2022-06-15' = {
   }
 }
 
-// S-7 (bucket 6): SWA root availability. Catches the case where the CDN
-// edge is serving stale or errored content — less likely than backend
-// trouble but a full outage if it does happen. Same debounce + location
-// pattern as the backend probe.
-resource swaWebtest 'Microsoft.Insights/webtests@2022-06-15' = {
-  name: 'codetutor-swa-root'
-  location: location
-  tags: union(tags, {
-    'hidden-link:${appInsightsId}': 'Resource'
-  })
-  kind: 'standard'
-  properties: {
-    SyntheticMonitorId: 'codetutor-swa-root'
-    Name: 'codetutor-swa-root'
-    Enabled: true
-    Frequency: 300
-    Timeout: 30
-    Kind: 'standard'
-    RetryEnabled: true
-    Locations: [
-      { Id: 'us-ca-sjc-azr' }
-      { Id: 'us-tx-sn1-azr' }
-      { Id: 'us-il-ch1-azr' }
-      { Id: 'us-va-ash-azr' }
-      { Id: 'us-fl-mia-edge' }
-    ]
-    Request: {
-      RequestUrl: swaEndpoint
-      HttpVerb: 'GET'
-      ParseDependentRequests: false
-    }
-    ValidationRules: {
-      ExpectedHttpStatusCode: 200
-      SSLCheck: true
-      SSLCertRemainingLifetimeCheck: 7
-    }
-  }
-}
+// ── NOT NEEDED FOR NOW (July-2026 credit-exhaustion cut) ─────────────
+// swa-root webtest + availability alert (~$15/mo): commented out,
+// re-enable once traffic is real. The Static Web App is Microsoft-managed
+// with its own SLA — we were paying to synthetically probe Microsoft's
+// edge. Restoring also needs the swaEndpoint param below + its arg in
+// main.bicep un-commented.
+//
+// resource swaWebtest 'Microsoft.Insights/webtests@2022-06-15' = {
+//   name: 'codetutor-swa-root'
+//   location: location
+//   tags: union(tags, {
+//     'hidden-link:${appInsightsId}': 'Resource'
+//   })
+//   kind: 'standard'
+//   properties: {
+//     SyntheticMonitorId: 'codetutor-swa-root'
+//     Name: 'codetutor-swa-root'
+//     Enabled: true
+//     Frequency: 300
+//     Timeout: 30
+//     Kind: 'standard'
+//     RetryEnabled: true
+//     Locations: [
+//       { Id: 'us-ca-sjc-azr' }
+//       { Id: 'us-tx-sn1-azr' }
+//       { Id: 'us-il-ch1-azr' }
+//       { Id: 'us-va-ash-azr' }
+//       { Id: 'us-fl-mia-edge' }
+//     ]
+//     Request: {
+//       RequestUrl: swaEndpoint
+//       HttpVerb: 'GET'
+//       ParseDependentRequests: false
+//     }
+//     ValidationRules: {
+//       ExpectedHttpStatusCode: 200
+//       SSLCheck: true
+//       SSLCertRemainingLifetimeCheck: 7
+//     }
+//   }
+// }
+//
+// resource swaAvailabilityAlert 'Microsoft.Insights/metricAlerts@2018-03-01' = {
+//   name: 'codetutor-swa-root-availability'
+//   location: 'global'
+//   tags: tags
+//   properties: {
+//     enabled: true
+//     severity: 1
+//     scopes: [
+//       swaWebtest.id
+//       appInsightsId
+//     ]
+//     evaluationFrequency: 'PT1M'
+//     windowSize: 'PT5M'
+//     criteria: {
+//       'odata.type': 'Microsoft.Azure.Monitor.WebtestLocationAvailabilityCriteria'
+//       webTestId: swaWebtest.id
+//       componentId: appInsightsId
+//       failedLocationCount: 2
+//     }
+//     autoMitigate: true
+//     actions: [
+//       { actionGroupId: actionGroupId }
+//     ]
+//   }
+// }
+// ── end NOT NEEDED FOR NOW ───────────────────────────────────────────
 
-// Metric alert tied to the webtest availability signal. Fires on 2+
-// failing locations over a 5-minute window. Webtest metric alerts live at
-// `global` and scope across the webtest resource + its App Insights
-// parent (Azure requires both or the portal refuses to show state).
+// Metric alert tied to the webtest availability signal. Webtest metric
+// alerts live at `global` and scope across the webtest resource + its
+// App Insights parent (Azure requires both or the portal refuses to
+// show state).
+//
+// July-2026 retune: with the webtest now at 15-min × 2 locations, the
+// old PT1M/PT5M shape would evaluate windows containing zero samples.
+// PT5M eval over a PT30M window guarantees both locations report at
+// least once per window; worst-case detection is ~30 min — acceptable
+// for the lean posture, with heartbeat-missing (5-min) as the fast
+// VM-down signal.
 resource healthAvailabilityAlert 'Microsoft.Insights/metricAlerts@2018-03-01' = {
   name: 'codetutor-api-health-availability'
   location: 'global'
@@ -518,8 +559,8 @@ resource healthAvailabilityAlert 'Microsoft.Insights/metricAlerts@2018-03-01' = 
       healthWebtest.id
       appInsightsId
     ]
-    evaluationFrequency: 'PT1M'
-    windowSize: 'PT5M'
+    evaluationFrequency: 'PT5M'
+    windowSize: 'PT30M'
     criteria: {
       'odata.type': 'Microsoft.Azure.Monitor.WebtestLocationAvailabilityCriteria'
       webTestId: healthWebtest.id
@@ -533,111 +574,71 @@ resource healthAvailabilityAlert 'Microsoft.Insights/metricAlerts@2018-03-01' = 
   }
 }
 
-resource swaAvailabilityAlert 'Microsoft.Insights/metricAlerts@2018-03-01' = {
-  name: 'codetutor-swa-root-availability'
-  location: 'global'
-  tags: tags
-  properties: {
-    enabled: true
-    severity: 1
-    scopes: [
-      swaWebtest.id
-      appInsightsId
-    ]
-    evaluationFrequency: 'PT1M'
-    windowSize: 'PT5M'
-    criteria: {
-      'odata.type': 'Microsoft.Azure.Monitor.WebtestLocationAvailabilityCriteria'
-      webTestId: swaWebtest.id
-      componentId: appInsightsId
-      failedLocationCount: 2
-    }
-    autoMitigate: true
-    actions: [
-      { actionGroupId: actionGroupId }
-    ]
-  }
-}
-
-// Phase 23 P1 #8: TLS cert-expiry early warning.
+// ── NOT NEEDED FOR NOW (July-2026 credit-exhaustion cut) ─────────────
+// tls-cert-14d early-warning webtest + alert (Phase 23 P1 #8): commented
+// out, re-enable once traffic is real. The surviving api-health webtest
+// keeps `SSLCertRemainingLifetimeCheck: 7`, so a silently-failing Caddy
+// renewal still trips the sev-1 availability alert with ~7 days of runway
+// (Caddy renews at 30 days out) — we lose the extra 7-day sev-3 heads-up,
+// not the safety net.
 //
-// The existing health/swa webtests already enforce `SSLCertRemainingLifetimeCheck: 7`,
-// so a cert <7 days from expiry trips the sev-1 availability alert.
-// That's "house already on fire" — Caddy renews 30 days before expiry,
-// so a cert reaching 7 days remaining means the renewal job has been
-// failing silently for ~3 weeks.
+// resource certExpiryWarningWebtest 'Microsoft.Insights/webtests@2022-06-15' = {
+//   name: 'codetutor-tls-cert-14d'
+//   location: location
+//   tags: union(tags, {
+//     'hidden-link:${appInsightsId}': 'Resource'
+//   })
+//   kind: 'standard'
+//   properties: {
+//     SyntheticMonitorId: 'codetutor-tls-cert-14d'
+//     Name: 'codetutor-tls-cert-14d'
+//     Enabled: true
+//     Frequency: 900
+//     Timeout: 30
+//     Kind: 'standard'
+//     RetryEnabled: true
+//     Locations: [
+//       { Id: 'us-va-ash-azr' }
+//     ]
+//     Request: {
+//       RequestUrl: healthEndpoint
+//       HttpVerb: 'GET'
+//       ParseDependentRequests: false
+//     }
+//     ValidationRules: {
+//       ExpectedHttpStatusCode: 200
+//       SSLCheck: true
+//       SSLCertRemainingLifetimeCheck: 14
+//     }
+//   }
+// }
 //
-// This webtest is a separate 14-day-threshold probe — it fails (and
-// sev-3 emails) when the cert drops below 14 days. That's a 7-day
-// runway before the sev-1 fires, plenty of time to investigate the
-// renewal job (Caddy logs, ACME challenge, DNS, etc.) without an
-// outage clock running.
-//
-// Single location (Virginia) on purpose: cert validity is a property
-// of OUR origin's TLS handshake, not a per-region reachability signal.
-// Multi-location debouncing here would just multiply noise from
-// transient network errors that have nothing to do with cert expiry.
-//
-// Frequency 900s (15 min) is the slowest webtest cadence Azure allows.
-// The metric alert wraps it with PT1H eval / PT6H window so the
-// operator gets at most a few emails per day if the threshold is held —
-// closer to "weekly check" than the 5-min webtest cadence implies.
-resource certExpiryWarningWebtest 'Microsoft.Insights/webtests@2022-06-15' = {
-  name: 'codetutor-tls-cert-14d'
-  location: location
-  tags: union(tags, {
-    'hidden-link:${appInsightsId}': 'Resource'
-  })
-  kind: 'standard'
-  properties: {
-    SyntheticMonitorId: 'codetutor-tls-cert-14d'
-    Name: 'codetutor-tls-cert-14d'
-    Enabled: true
-    Frequency: 900
-    Timeout: 30
-    Kind: 'standard'
-    RetryEnabled: true
-    Locations: [
-      { Id: 'us-va-ash-azr' }
-    ]
-    Request: {
-      RequestUrl: healthEndpoint
-      HttpVerb: 'GET'
-      ParseDependentRequests: false
-    }
-    ValidationRules: {
-      ExpectedHttpStatusCode: 200
-      SSLCheck: true
-      SSLCertRemainingLifetimeCheck: 14
-    }
-  }
-}
-
-resource certExpiryWarningAlert 'Microsoft.Insights/metricAlerts@2018-03-01' = {
-  name: 'codetutor-tls-cert-expiry-warning'
-  location: 'global'
-  tags: tags
-  properties: {
-    enabled: true
-    severity: 3
-    scopes: [
-      certExpiryWarningWebtest.id
-      appInsightsId
-    ]
-    evaluationFrequency: 'PT1H'
-    windowSize: 'PT6H'
-    criteria: {
-      'odata.type': 'Microsoft.Azure.Monitor.WebtestLocationAvailabilityCriteria'
-      webTestId: certExpiryWarningWebtest.id
-      componentId: appInsightsId
-      failedLocationCount: 1
-    }
-    autoMitigate: true
-    actions: [
-      { actionGroupId: actionGroupId }
-    ]
-  }
-}
+// resource certExpiryWarningAlert 'Microsoft.Insights/metricAlerts@2018-03-01' = {
+//   name: 'codetutor-tls-cert-expiry-warning'
+//   location: 'global'
+//   tags: tags
+//   properties: {
+//     enabled: true
+//     severity: 3
+//     scopes: [
+//       certExpiryWarningWebtest.id
+//       appInsightsId
+//     ]
+//     evaluationFrequency: 'PT1H'
+//     windowSize: 'PT6H'
+//     criteria: {
+//       'odata.type': 'Microsoft.Azure.Monitor.WebtestLocationAvailabilityCriteria'
+//       webTestId: certExpiryWarningWebtest.id
+//       componentId: appInsightsId
+//       failedLocationCount: 1
+//     }
+//     autoMitigate: true
+//     actions: [
+//       { actionGroupId: actionGroupId }
+//     ]
+//   }
+// }
+// ── end NOT NEEDED FOR NOW ───────────────────────────────────────────
 
 // S-12 (bucket 6): platform AI spend anomaly. The backend emits a
 // structured log line once an hour with the rolling-hour platform cost in
@@ -918,7 +919,10 @@ resource aciCostCapAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-prev
   location: location
   tags: tags
   properties: {
-    enabled: true
+    // July-2026 cost cut: disabled while ACI overflow is dormant
+    // (ENABLE_ACI_OVERFLOW=0). Re-enable as part of the Phase 24B
+    // activation runbook.
+    enabled: false
     severity: 2
     scopes: [ workspaceId ]
     evaluationFrequency: 'PT1H'
@@ -1029,7 +1033,9 @@ resource aciCounterDriftAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15
   location: location
   tags: tags
   properties: {
-    enabled: true
+    // July-2026 cost cut: disabled while ACI overflow is dormant.
+    // Re-enable as part of the Phase 24B activation runbook.
+    enabled: false
     severity: 2
     scopes: [ workspaceId ]
     evaluationFrequency: 'PT5M'
@@ -1069,7 +1075,9 @@ resource aciSpawnFailureRateAlert 'Microsoft.Insights/scheduledQueryRules@2023-0
   location: location
   tags: tags
   properties: {
-    enabled: true
+    // July-2026 cost cut: disabled while ACI overflow is dormant.
+    // Re-enable as part of the Phase 24B activation runbook.
+    enabled: false
     severity: 2
     scopes: [ workspaceId ]
     evaluationFrequency: 'PT5M'
@@ -1110,7 +1118,9 @@ resource aciOpConfigWatchdogAlert 'Microsoft.Insights/scheduledQueryRules@2023-0
   location: location
   tags: tags
   properties: {
-    enabled: true
+    // July-2026 cost cut: disabled while ACI overflow is dormant.
+    // Re-enable as part of the Phase 24B activation runbook.
+    enabled: false
     severity: 2
     scopes: [ workspaceId ]
     evaluationFrequency: 'PT5M'
