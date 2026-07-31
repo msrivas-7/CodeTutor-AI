@@ -8,6 +8,7 @@ const { db } = await import("../db/client.js");
 const { createTelemetryRouter } = await import("./telemetry.js");
 const { errorHandler } = await import("../middleware/errorHandler.js");
 const { hashShareRef } = await import("../services/ai/ipHash.js");
+const { registry, shareInteractions } = await import("../services/metrics.js");
 
 let server: Server;
 let base = "";
@@ -57,6 +58,67 @@ function post(body: unknown, ip = "10.73.0.1") {
     body: JSON.stringify(body),
   });
 }
+
+function postShareOutcome(body: unknown, ip = "10.74.0.1") {
+  return fetch(`${base}/api/telemetry/share-outcome`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-forwarded-for": ip,
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+describe("POST /api/telemetry/share-outcome", () => {
+  it("records four explicit outcomes with bounded surfaces", async () => {
+    shareInteractions.reset();
+    for (const [index, outcome] of [
+      "copied",
+      "share_completed",
+      "cancelled",
+      "dismissed",
+    ].entries()) {
+      const response = await postShareOutcome(
+        {
+          outcome,
+          surface: index % 2 === 0 ? "anonymous" : "authenticated",
+        },
+        `10.74.0.${index + 1}`,
+      );
+      expect(response.status).toBe(204);
+    }
+    const metrics = await registry.metrics();
+    expect(metrics).toMatch(
+      /share_interactions_total\{outcome="copied",surface="anonymous"\} 1/,
+    );
+    expect(metrics).toMatch(
+      /share_interactions_total\{outcome="share_completed",surface="authenticated"\} 1/,
+    );
+    expect(metrics).toMatch(
+      /share_interactions_total\{outcome="cancelled",surface="anonymous"\} 1/,
+    );
+    expect(metrics).toMatch(
+      /share_interactions_total\{outcome="dismissed",surface="authenticated"\} 1/,
+    );
+  });
+
+  it("rejects arbitrary outcome, surface, and extra dimensions", async () => {
+    for (const body of [
+      { outcome: "clicked", surface: "anonymous" },
+      { outcome: "copied", surface: "admin" },
+      {
+        outcome: "copied",
+        surface: "anonymous",
+        shareToken: "abc234def567",
+      },
+    ]) {
+      const response = await postShareOutcome(body, "10.74.1.1");
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: "invalid_share_outcome" });
+    }
+  });
+});
 
 describe("POST /api/telemetry/event distribution contract", () => {
   it("rejects arbitrary analytics dimensions before any database write", async () => {

@@ -98,6 +98,7 @@ const KEY_BOUNDS: Record<
   share_public_disabled: { type: "boolean" },
   share_create_disabled: { type: "boolean" },
   share_render_disabled: { type: "boolean" },
+  share_preview_disabled: { type: "boolean" },
   // Phase 24B ACI operational knobs.
   // - aci_overflow_enabled: runtime kill switch. False stops new ACI
   //   spawns (existing sessions ride out their lifetimes) and shrinks
@@ -177,6 +178,8 @@ function envDefaultFor(key: SystemConfigKey): boolean | number {
       return config.share.createDisabled;
     case "share_render_disabled":
       return config.share.renderDisabled;
+    case "share_preview_disabled":
+      return config.share.previewDisabled;
     case "aci_overflow_enabled":
       return config.aci.enabled;
     case "aci_daily_usd_cap":

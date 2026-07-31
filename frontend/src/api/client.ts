@@ -496,6 +496,7 @@ export type SystemConfigKey =
   | "share_public_disabled"
   | "share_create_disabled"
   | "share_render_disabled"
+  | "share_preview_disabled"
   // Phase 24B operational knobs — admin-toggleable for fast spike
   // response. `aci_overflow_enabled = false` is the runtime kill switch
   // (no new ACI spawns; cap shrinks to local-only). Daily $ cap and
@@ -1693,6 +1694,23 @@ export const api = {
       }),
     }).catch(() => {
       /* swallow — telemetry must not break the UX */
+    });
+  },
+
+  // Release 0A: explicit distribution outcomes. These are deliberately
+  // separate from link creation: `share_completed` means the native share
+  // sheet resolved, while copied/cancelled/dismissed retain their own signal.
+  // The backend accepts only these two bounded enums and no token or code.
+  postShareOutcome: (
+    outcome: "copied" | "share_completed" | "cancelled" | "dismissed",
+    surface: "authenticated" | "anonymous",
+  ): void => {
+    void fetch(`${API_BASE}/api/telemetry/share-outcome`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ outcome, surface }),
+    }).catch(() => {
+      /* telemetry is never part of the share UX success path */
     });
   },
 };

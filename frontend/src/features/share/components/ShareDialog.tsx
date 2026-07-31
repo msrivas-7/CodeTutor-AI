@@ -10,6 +10,7 @@ import { publicShareUrl } from "../shareUrl";
 import { useAuthStore } from "../../../auth/authStore";
 import { resolveFirstName } from "../../firstRun/resolveFirstName";
 import { ShareCardPreviewScaled } from "./ShareCardPreview";
+import { isNativeShareCancellation } from "../shareTelemetry";
 
 // "5 minutes ago" / "yesterday" / "on Apr 22" — used in the dialog
 // header when the user is reopening an existing share. Renders an
@@ -111,6 +112,7 @@ export function ShareDialog({ open, onClose, payload }: ShareDialogProps) {
   // created token. Using a ref so the latch is observable inside the
   // async lookup closure without re-triggering the effect.
   const lookupSupersededRef = useRef(false);
+  const dismissReportedRef = useRef(false);
 
   // Reset machine whenever we reopen — the prior creation result
   // shouldn't persist across opens of the same lesson.
@@ -126,6 +128,7 @@ export function ShareDialog({ open, onClose, payload }: ShareDialogProps) {
     setStoryWaitGaveUp(false);
     setExistingCreatedAt(null);
     lookupSupersededRef.current = false;
+    dismissReportedRef.current = false;
   }, [open]);
 
   // On open, check whether the user already has a share for this
@@ -263,10 +266,19 @@ export function ShareDialog({ open, onClose, payload }: ShareDialogProps) {
     ? publicShareUrl(shareToken, window.location.origin)
     : null;
 
+  const handleDismiss = () => {
+    if (!dismissReportedRef.current) {
+      dismissReportedRef.current = true;
+      api.postShareOutcome("dismissed", "authenticated");
+    }
+    onClose();
+  };
+
   const handleCopy = async () => {
     if (!shareUrl) return;
     try {
       await navigator.clipboard.writeText(shareUrl);
+      api.postShareOutcome("copied", "authenticated");
       setCopyState("copied");
       if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
       copyTimerRef.current = setTimeout(() => setCopyState("idle"), 2000);
@@ -284,14 +296,18 @@ export function ShareDialog({ open, onClose, payload }: ShareDialogProps) {
         text: `Just finished ${payload.preview.lessonTitle} on CodeTutor.`,
         url: shareUrl,
       });
-    } catch {
-      /* user cancelled or platform refused — silent */
+      api.postShareOutcome("share_completed", "authenticated");
+    } catch (error) {
+      if (isNativeShareCancellation(error)) {
+        api.postShareOutcome("cancelled", "authenticated");
+      }
+      /* cancellation/platform refusal stays silent in the product */
     }
   };
 
   return (
     <Modal
-      onClose={onClose}
+      onClose={handleDismiss}
       role="dialog"
       labelledBy="share-dialog-title"
       describedBy="share-dialog-desc"
@@ -324,7 +340,7 @@ export function ShareDialog({ open, onClose, payload }: ShareDialogProps) {
           </p>
         </div>
         <button
-          onClick={onClose}
+          onClick={handleDismiss}
           className="-mr-2 -mt-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           aria-label="Close share dialog"
         >
@@ -403,7 +419,7 @@ export function ShareDialog({ open, onClose, payload }: ShareDialogProps) {
 
           <div className="flex flex-col-reverse items-stretch gap-2 sm:flex-row sm:items-center sm:justify-end">
             <button
-              onClick={onClose}
+              onClick={handleDismiss}
               className="min-h-11 rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               Cancel

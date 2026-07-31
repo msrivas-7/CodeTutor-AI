@@ -129,6 +129,36 @@ export const aciSpawnDuration = new Histogram({
   registers: [registry],
 });
 
+// Release 0A: crawler preview traffic is a separate operational surface from
+// the public reader route. These bounded labels let on-call distinguish bad
+// credentials, replay attempts, budget pressure, and backend degradation
+// without logging signatures, raw share tokens, or crawler IPs.
+export const sharePreviewRequests = new Counter({
+  name: "share_preview_requests_total",
+  help: "Internal share-preview requests by bounded outcome.",
+  labelNames: ["outcome"] as const,
+  registers: [registry],
+});
+
+export const sharePreviewDuration = new Histogram({
+  name: "share_preview_duration_seconds",
+  help: "Internal share-preview route latency by bounded outcome.",
+  labelNames: ["outcome"] as const,
+  buckets: [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2],
+  registers: [registry],
+});
+
+// Release 0A distribution outcomes. This deliberately carries only two
+// low-cardinality enums; no share token, user id, code, or referrer reaches
+// telemetry. `share_completed` means the native share sheet resolved—not
+// merely that a public link was created.
+export const shareInteractions = new Counter({
+  name: "share_interactions_total",
+  help: "Learner share actions by outcome and surface.",
+  labelNames: ["outcome", "surface"] as const,
+  registers: [registry],
+});
+
 // Phase 23 P0 #5: HTTP response counter. Drives the `429 + 503 rate >
 // 5% sustained 10 min` alert. `status` label is the response status
 // code as a string (e.g., "200", "429"). Cardinality is bounded — we

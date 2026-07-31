@@ -100,6 +100,15 @@ services:
       # endpoint accepts `Authorization: Bearer <token>`. E2E sets it so
       # metrics.spec can exercise the authed path.
       METRICS_TOKEN: "${METRICS_TOKEN:-}"
+      # Release 0A: purpose-specific HMAC for the SWA crawler/unfurl adapter.
+      # Empty in ordinary local dev means only the internal preview route is
+      # unavailable; public human share reads remain unaffected.
+      SHARE_PREVIEW_DISABLED: "${SHARE_PREVIEW_DISABLED:-0}"
+      SHARE_PREVIEW_HMAC_CURRENT_KEY_ID: "${SHARE_PREVIEW_HMAC_CURRENT_KEY_ID:-v1}"
+      SHARE_PREVIEW_HMAC_CURRENT_SECRET: "${SHARE_PREVIEW_HMAC_CURRENT_SECRET:-}"
+      SHARE_PREVIEW_HMAC_PREVIOUS_KEY_ID: "${SHARE_PREVIEW_HMAC_PREVIOUS_KEY_ID:-}"
+      SHARE_PREVIEW_HMAC_PREVIOUS_SECRET: "${SHARE_PREVIEW_HMAC_PREVIOUS_SECRET:-}"
+      SHARE_PREVIEW_RATE_LIMIT_MAX: "${SHARE_PREVIEW_RATE_LIMIT_MAX:-600}"
       # Phase 20-P4: free AI tier on the operator's OpenAI key. OFF by
       # default so a fresh deploy doesn't start burning spend on first
       # boot. Flip to "1" in prod compose only after the 24h post-merge

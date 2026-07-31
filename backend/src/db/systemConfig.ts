@@ -25,6 +25,7 @@ export const KNOWN_KEYS = [
   "share_public_disabled",
   "share_create_disabled",
   "share_render_disabled",
+  "share_preview_disabled",
   // Phase 24B operational knobs — admin-toggleable so an operator can
   // turn ACI overflow off, raise/lower the daily cap, or shrink the
   // overflow ceiling at 2am during a spike WITHOUT a redeploy. The env

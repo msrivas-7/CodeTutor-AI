@@ -12,10 +12,12 @@
 // anon happy path (link + copy + native-share + dismiss) is faster
 // AND keeps the authed dialog's regression surface unchanged.
 
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { api } from "../../../api/client";
 import { isApiError } from "../../../api/ApiError";
 import { Modal } from "../../../components/Modal";
 import { publicShareUrl } from "../../share/shareUrl";
+import { isNativeShareCancellation } from "../../share/shareTelemetry";
 
 export interface AnonShareDialogProps {
   /** Server-returned URL `/s/:token` — relative path; we build the
@@ -33,6 +35,7 @@ export interface AnonShareDialogProps {
 
 export function AnonShareDialog({ url, warn, onDismiss, onSaveProgress }: AnonShareDialogProps) {
   const [copied, setCopied] = useState(false);
+  const dismissReportedRef = useRef(false);
   const token = url.split("/").filter(Boolean).at(-1) ?? "";
   const absoluteUrl =
     typeof window !== "undefined" && token
@@ -42,6 +45,7 @@ export function AnonShareDialog({ url, warn, onDismiss, onSaveProgress }: AnonSh
   async function handleCopy() {
     try {
       await navigator.clipboard.writeText(absoluteUrl);
+      api.postShareOutcome("copied", "anonymous");
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1800);
     } catch {
@@ -62,15 +66,26 @@ export function AnonShareDialog({ url, warn, onDismiss, onSaveProgress }: AnonSh
         text: "Check out my first lesson on CodeTutor.",
         url: absoluteUrl,
       });
-    } catch {
-      // User cancelled or share unavailable — silent. Copy stays
-      // available as a deliberate alternate path.
+      api.postShareOutcome("share_completed", "anonymous");
+    } catch (error) {
+      if (isNativeShareCancellation(error)) {
+        api.postShareOutcome("cancelled", "anonymous");
+      }
+      // Cancellation/share unavailability stays silent. Copy remains.
     }
+  }
+
+  function handleDismiss() {
+    if (!dismissReportedRef.current) {
+      dismissReportedRef.current = true;
+      api.postShareOutcome("dismissed", "anonymous");
+    }
+    onDismiss();
   }
 
   return (
     <Modal
-      onClose={onDismiss}
+      onClose={handleDismiss}
       labelledBy="anon-share-title"
       describedBy="anon-share-description"
       position="center"
@@ -123,7 +138,7 @@ export function AnonShareDialog({ url, warn, onDismiss, onSaveProgress }: AnonSh
           ) : null}
           <button
             type="button"
-            onClick={onDismiss}
+            onClick={handleDismiss}
             className="inline-flex min-h-11 items-center justify-center rounded-md px-4 py-2 text-sm font-medium text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-panel sm:ml-auto"
           >
             Done

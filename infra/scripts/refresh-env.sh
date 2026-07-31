@@ -78,6 +78,15 @@ fetch_optional() {
   # the endpoint is loopback-only (fine for prod today — no external
   # scraper). Seed it in KV when wiring in Prometheus.
   echo "METRICS_TOKEN=$(fetch_optional METRICS-TOKEN)"
+  # Release 0A: purpose-specific HMAC for SWA crawler metadata. Current +
+  # previous pairs provide a zero-downtime rotation overlap. The preview
+  # route remains fail-closed (503) when no current secret is configured;
+  # public browser share reads are independent and stay live.
+  echo "SHARE_PREVIEW_HMAC_CURRENT_KEY_ID=$(fetch_optional SHARE-PREVIEW-HMAC-CURRENT-KEY-ID)"
+  echo "SHARE_PREVIEW_HMAC_CURRENT_SECRET=$(fetch_optional SHARE-PREVIEW-HMAC-CURRENT-SECRET)"
+  echo "SHARE_PREVIEW_HMAC_PREVIOUS_KEY_ID=$(fetch_optional SHARE-PREVIEW-HMAC-PREVIOUS-KEY-ID)"
+  echo "SHARE_PREVIEW_HMAC_PREVIOUS_SECRET=$(fetch_optional SHARE-PREVIEW-HMAC-PREVIOUS-SECRET)"
+  echo "SHARE_PREVIEW_DISABLED=$(fetch_optional SHARE-PREVIEW-DISABLED)"
   # Phase 20-P4: Free AI tier. All six are fetched as optional so a
   # first boot without these KV secrets (older envs, or a rebuild
   # before P4 ships) still comes up cleanly — absent values just mean

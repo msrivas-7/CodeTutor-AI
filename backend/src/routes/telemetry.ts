@@ -38,6 +38,7 @@ import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { z } from "zod";
 import { db } from "../db/client.js";
 import { hashClientIp, hashShareRef } from "../services/ai/ipHash.js";
+import { shareInteractions } from "../services/metrics.js";
 
 // Funnel event labels — the six canonical journey signals.
 // Anything else gets 400'd at the zod parse. Keep this in sync with
@@ -94,6 +95,18 @@ const eventBody = z
   })
   .strict();
 
+const shareOutcomeBody = z
+  .object({
+    outcome: z.enum([
+      "copied",
+      "share_completed",
+      "cancelled",
+      "dismissed",
+    ]),
+    surface: z.enum(["authenticated", "anonymous"]),
+  })
+  .strict();
+
 // Per-IP rate limit. One legitimate anon journey emits at most six
 // events; a 60/min/IP ceiling allows ten complete journeys per minute,
 // which is well above any real learner pace. Hostile bots
@@ -107,8 +120,34 @@ const telemetryRateLimit = rateLimit({
   message: { error: "Too many telemetry events; please slow down." },
 });
 
+// Share actions can legitimately cluster (copy, open native sheet, cancel,
+// dismiss), so keep their telemetry budget independent from the six-event
+// anonymous funnel. Dropped telemetry remains fail-soft and never affects UI.
+const shareTelemetryRateLimit = rateLimit({
+  windowMs: 60_000,
+  limit: 120,
+  keyGenerator: (req) => `share-telem:${ipKeyGenerator(req.ip ?? "")}`,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "Too many telemetry events; please slow down." },
+});
+
 export function createTelemetryRouter(): Router {
   const router = Router();
+
+  router.post(
+    "/share-outcome",
+    shareTelemetryRateLimit,
+    (req: Request, res: Response): void => {
+      const parsed = shareOutcomeBody.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ error: "invalid_share_outcome" });
+        return;
+      }
+      shareInteractions.inc(parsed.data);
+      res.status(204).end();
+    },
+  );
 
   router.post(
     "/event",

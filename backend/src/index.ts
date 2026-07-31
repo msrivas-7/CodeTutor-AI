@@ -14,6 +14,7 @@ import { userDataRouter } from "./routes/userData.js";
 import { aiStatusRouter } from "./routes/aiStatus.js";
 import { adminRouter, adminStatusRouter } from "./routes/admin.js";
 import { sharesAuthedRouter, sharesPublicRouter } from "./routes/shares.js";
+import { sharePreviewRouter } from "./routes/sharePreview.js";
 import { emailRouter } from "./routes/email.js";
 import { adminGuard } from "./middleware/adminGuard.js";
 import { feedbackRouter } from "./routes/feedback.js";
@@ -504,6 +505,14 @@ async function main() {
   // POST + DELETE are owner-only and use the standard chain. Public GET
   // is mounted FIRST so Express's path-matching reaches it before the
   // authed router (which would 401 the anon caller).
+  // Release 0A: the SWA crawler adapter uses a narrowly authenticated,
+  // non-counting route. It is mounted outside user auth by design, but owns
+  // HMAC freshness/replay checks and a budget independent of public readers.
+  app.use(
+    "/api/internal/share-previews",
+    bodyLimit(1024),
+    sharePreviewRouter,
+  );
   app.use(
     "/api/shares",
     bodyLimit(4 * 1024),

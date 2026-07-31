@@ -100,7 +100,7 @@ Three layers, each catching a different class of bug:
 
 ## API Surface
 
-Every route requires `Authorization: Bearer <supabase-access-token>` — `authMiddleware` verifies it via JWKS and attaches `req.userId` downstream — unless explicitly listed as public. Public exceptions are the health probes, bounded anonymous lesson/share flows, strict fire-and-forget funnel telemetry, public share reads, and `/api/metrics` (loopback-only unless `METRICS_TOKEN` is set, in which case it takes a scraper token rather than a user JWT).
+Every route requires `Authorization: Bearer <supabase-access-token>` — `authMiddleware` verifies it via JWKS and attaches `req.userId` downstream — unless explicitly listed as public or service-authenticated. Public exceptions are the health probes, bounded anonymous lesson/share flows, strict fire-and-forget funnel/share telemetry, public share reads, and `/api/metrics` (loopback-only unless `METRICS_TOKEN` is set, in which case it takes a scraper token rather than a user JWT). The sole service-authenticated exception is the purpose-bound, replay-protected share-preview route described in `ADR_0A_SHARE_PREVIEW_AUTH.md`; it is not a general internal bypass.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
@@ -110,6 +110,8 @@ Every route requires `Authorization: Bearer <supabase-access-token>` — `authMi
 | `POST` | `/api/admin/unstick-platform-auth` | Loopback-only break-glass (SSH onto VM and curl 127.0.0.1) for the case where the admin is locked out / JWT expired. Phase 26 dropped the prior `METRICS_TOKEN` dual-use to avoid trust-tier conflation |
 | `GET`  | `/api/metrics` | Prometheus exposition (loopback-only by default; Bearer-gated when `METRICS_TOKEN` is set) |
 | `POST` | `/api/telemetry/event` | Public, rate-limited anonymous journey signal. Accepts six allowlisted events plus privacy-bounded direct/organic/share first-touch fields; raw referrers, share tokens, arbitrary dimensions, and request failures never enter product UX. |
+| `POST` | `/api/telemetry/share-outcome` | Public, fire-and-forget share signal. Accepts only copied/completed/cancelled/dismissed × authenticated/anonymous; no token, code, user ID, or arbitrary dimensions. |
+| `GET` | `/api/internal/share-previews/:token` | SWA-only non-counting metadata read. Purpose-specific HMAC, freshness/replay checks, independent budget, minimal DTO, and dedicated kill switch; never consumes public reader buckets or increments views. |
 | `POST` | `/api/session` | Create session + runner container (owner = `req.userId`). Returns `backendBootId` — a per-process `nanoid` the frontend caches so a later 404 can be diagnosed as "individual session reaped" vs "whole process restarted" |
 | `POST` | `/api/session/ping` | Heartbeat — 404 for "not found" and "not yours" (privacy). 404 body carries `backendBootId` so the frontend can detect a process restart and show a replaced-session modal instead of storming rebind |
 | `POST` | `/api/session/rebind` | Reuse same ID after expiry — 403 on owner mismatch. Returns `backendBootId` refresh |

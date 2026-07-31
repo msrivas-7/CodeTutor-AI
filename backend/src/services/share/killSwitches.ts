@@ -22,6 +22,7 @@ async function readBool(
     | "share_public_disabled"
     | "share_create_disabled"
     | "share_render_disabled"
+    | "share_preview_disabled"
     | "anon_lesson_enabled"
     | "anon_laptop_invite_disabled",
   envFallback: boolean,
@@ -60,6 +61,12 @@ export function isShareCreateDisabled(): Promise<boolean> {
 
 export function isShareRenderDisabled(): Promise<boolean> {
   return readBool("share_render_disabled", config.share.renderDisabled);
+}
+
+/** Release 0A: drain only crawler/unfurl metadata traffic. Human public
+ * share reads remain available through `share_public_disabled=false`. */
+export function isSharePreviewDisabled(): Promise<boolean> {
+  return readBool("share_preview_disabled", config.share.previewDisabled);
 }
 
 // Phase 27-v2.2 Fix 7c — anon trial path kill switch in system_config.

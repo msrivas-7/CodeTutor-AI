@@ -342,6 +342,33 @@ export const config = {
     publicDisabled: process.env.SHARE_PUBLIC_DISABLED === "1",
     createDisabled: process.env.SHARE_CREATE_DISABLED === "1",
     renderDisabled: process.env.SHARE_RENDER_DISABLED === "1",
+    // Release 0A: the crawler/unfurl adapter has its own kill switch and
+    // purpose-specific HMAC credential. Keeping this separate from
+    // publicDisabled means on-call can drain preview traffic without taking
+    // the human-facing /api/shares/:token reader path down.
+    previewDisabled: process.env.SHARE_PREVIEW_DISABLED === "1",
+    previewAuth: {
+      currentKeyId:
+        process.env.SHARE_PREVIEW_HMAC_CURRENT_KEY_ID ?? "v1",
+      currentSecret:
+        process.env.SHARE_PREVIEW_HMAC_CURRENT_SECRET ?? "",
+      previousKeyId:
+        process.env.SHARE_PREVIEW_HMAC_PREVIOUS_KEY_ID ?? "",
+      previousSecret:
+        process.env.SHARE_PREVIEW_HMAC_PREVIOUS_SECRET ?? "",
+      maxSkewMs: num(process.env.SHARE_PREVIEW_HMAC_MAX_SKEW_MS, 30_000),
+      nonceCacheMax: num(
+        process.env.SHARE_PREVIEW_NONCE_CACHE_MAX,
+        10_000,
+      ),
+    },
+    previewRateLimit: {
+      windowMs: num(
+        process.env.SHARE_PREVIEW_RATE_LIMIT_WINDOW_MS,
+        60_000,
+      ),
+      max: num(process.env.SHARE_PREVIEW_RATE_LIMIT_MAX, 600),
+    },
     // The lesson catalog used to be fetched from the frontend over
     // HTTP, but post-audit we now bake `frontend/public/courses` into
     // the backend image at build time and read from disk — eliminates
@@ -455,6 +482,8 @@ delete process.env.ACS_CONNECTION_STRING;
 // is reachable from any module via process.env scans, so collapse the
 // surface area to the single `config.email.unsubscribeSecret` reference.
 delete process.env.EMAIL_UNSUBSCRIBE_SECRET;
+delete process.env.SHARE_PREVIEW_HMAC_CURRENT_SECRET;
+delete process.env.SHARE_PREVIEW_HMAC_PREVIOUS_SECRET;
 
 export function assertConfigValid(): void {
   if (!config.supabase.url || config.supabase.url.trim() === "") {
@@ -505,6 +534,78 @@ export function assertConfigValid(): void {
     throw new Error(
       `[config] BYOK_CURRENT_VERSION=${config.byokCurrentVersion} but no master key is configured for that version. ` +
         `Set BYOK_ENCRYPTION_KEY_V${config.byokCurrentVersion} (or BYOK_ENCRYPTION_KEY for V1).`,
+    );
+  }
+  const previewAuth = config.share.previewAuth;
+  const keyIdPattern = /^[a-z0-9][a-z0-9._-]{0,31}$/;
+  const validatePreviewSecret = (label: string, value: string): void => {
+    if (!/^[A-Za-z0-9+/]{43}=$/.test(value)) {
+      throw new Error(`[config] ${label} must use canonical base64.`);
+    }
+    const decoded = Buffer.from(value, "base64");
+    if (decoded.length !== 32) {
+      throw new Error(
+        `[config] ${label} must be a base64-encoded 32-byte secret (got ${decoded.length} bytes).`,
+      );
+    }
+  };
+  if (previewAuth.currentSecret) {
+    if (!keyIdPattern.test(previewAuth.currentKeyId)) {
+      throw new Error(
+        "[config] SHARE_PREVIEW_HMAC_CURRENT_KEY_ID has an invalid shape.",
+      );
+    }
+    validatePreviewSecret(
+      "SHARE_PREVIEW_HMAC_CURRENT_SECRET",
+      previewAuth.currentSecret,
+    );
+  }
+  const hasPreviousId = previewAuth.previousKeyId.length > 0;
+  const hasPreviousSecret = previewAuth.previousSecret.length > 0;
+  if (hasPreviousId !== hasPreviousSecret) {
+    throw new Error(
+      "[config] SHARE_PREVIEW_HMAC_PREVIOUS_KEY_ID and SHARE_PREVIEW_HMAC_PREVIOUS_SECRET must be configured together.",
+    );
+  }
+  if (hasPreviousSecret) {
+    if (!previewAuth.currentSecret) {
+      throw new Error(
+        "[config] A previous share-preview key cannot be configured without a current key.",
+      );
+    }
+    if (!keyIdPattern.test(previewAuth.previousKeyId)) {
+      throw new Error(
+        "[config] SHARE_PREVIEW_HMAC_PREVIOUS_KEY_ID has an invalid shape.",
+      );
+    }
+    if (previewAuth.previousKeyId === previewAuth.currentKeyId) {
+      throw new Error(
+        "[config] Current and previous share-preview key IDs must differ.",
+      );
+    }
+    validatePreviewSecret(
+      "SHARE_PREVIEW_HMAC_PREVIOUS_SECRET",
+      previewAuth.previousSecret,
+    );
+  }
+  if (
+    !Number.isFinite(previewAuth.maxSkewMs) ||
+    previewAuth.maxSkewMs <= 0 ||
+    !Number.isInteger(previewAuth.nonceCacheMax) ||
+    previewAuth.nonceCacheMax <= 0
+  ) {
+    throw new Error(
+      "[config] Share-preview freshness and nonce-cache limits must be positive.",
+    );
+  }
+  if (
+    !Number.isFinite(config.share.previewRateLimit.windowMs) ||
+    config.share.previewRateLimit.windowMs <= 0 ||
+    !Number.isInteger(config.share.previewRateLimit.max) ||
+    config.share.previewRateLimit.max <= 0
+  ) {
+    throw new Error(
+      "[config] Share-preview rate-limit window and max must be positive.",
     );
   }
   if (config.freeTier.enabled) {

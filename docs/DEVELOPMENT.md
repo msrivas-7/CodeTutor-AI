@@ -131,6 +131,11 @@ All optional — defaults work for local use. See [.env.example](../.env.example
 | `MAX_SESSIONS_GLOBAL` | see `.env.example` | Global ceiling on concurrent runner containers, sized to the VM's RAM budget. |
 | `DOCKER_EXEC_CONCURRENCY` | see `.env.example` | Semaphore on concurrent `docker exec` calls to keep interactive latency stable under load. |
 | `METRICS_TOKEN` | unset | When set, `/api/metrics` requires `Authorization: Bearer <token>`. When unset, `/api/metrics` accepts only loopback callers. |
+| `SHARE_PREVIEW_HMAC_CURRENT_KEY_ID` | `v1` | Identifier for the SWA → backend share-preview signing key. Must match the SWA `SHARE_PREVIEW_HMAC_KEY_ID` application setting when a current secret is configured. |
+| `SHARE_PREVIEW_HMAC_CURRENT_SECRET` | unset | Dedicated 32-byte base64 HMAC key for the non-counting internal preview route. Empty means that route fails closed while public share reads remain available. |
+| `SHARE_PREVIEW_HMAC_PREVIOUS_KEY_ID` / `SHARE_PREVIEW_HMAC_PREVIOUS_SECRET` | unset | Optional prior pair accepted only during zero-downtime rotation overlap. Both or neither must be set. |
+| `SHARE_PREVIEW_DISABLED` | `0` | Backend preview-only kill switch. `1` drains crawler metadata without disabling human public share reads. |
+| `SHARE_PREVIEW_RATE_LIMIT_MAX` | `600` | Authenticated preview admissions per key per minute; independent of public reader limits. |
 | `DEBUG_PROMPTS` | unset | When `1`, the AI provider logs full system + user turn text. Leave unset; learner code would otherwise reach the backend log. |
 
 ## Direct Docker Compose

@@ -37,6 +37,7 @@ const KEY_LABEL: Record<SystemConfigKey, string> = {
   share_public_disabled: "Block public share viewing",
   share_create_disabled: "Block new share creation",
   share_render_disabled: "Block share image rendering",
+  share_preview_disabled: "Block crawler share previews",
   // Phase 24B ACI overflow knobs. "Enabled" reads positively (the
   // overflow IS allowed) — opposite of the share kill switches
   // because turning ACI off reduces capacity rather than blocking a
@@ -69,6 +70,8 @@ const KEY_DESCRIPTION: Partial<Record<SystemConfigKey, string>> = {
     "503s POST /api/shares. New shares blocked; existing shares stay viewable.",
   share_render_disabled:
     "Skips Satori render+upload. Share row still gets created (URL works), images stay null, dialog falls back gracefully.",
+  share_preview_disabled:
+    "Drains only the authenticated crawler/unfurl metadata route. Human share pages and public reader capacity stay available; crawlers receive safe generic metadata.",
   aci_overflow_enabled:
     "Master gate. When off, the 15th+ concurrent session 503s instead of spilling over to ACI. Existing ACI sessions ride out their lifetimes. No new ACI cost while off.",
   aci_daily_usd_cap:
@@ -99,6 +102,7 @@ const KEY_BOUNDS: Record<
   share_public_disabled: { type: "boolean" },
   share_create_disabled: { type: "boolean" },
   share_render_disabled: { type: "boolean" },
+  share_preview_disabled: { type: "boolean" },
   aci_overflow_enabled: { type: "boolean" },
   aci_daily_usd_cap: { type: "number", min: 0, max: 100, step: "1" },
   aci_max_overflow: { type: "number", min: 0, max: 50, step: "1" },
