@@ -287,7 +287,7 @@ export default function LessonPage({
     // the runStore could still hold the previous run's output from
     // the learner's last time through — the cinematic promises a
     // fresh moment, so the panel should mirror that.
-    useRunStore.setState({ result: null, error: null });
+    useRunStore.getState().invalidateEvidence();
   }, [isFirstRun, courseId, lessonId, learnerId]);
 
   const loader = useLessonLoader({

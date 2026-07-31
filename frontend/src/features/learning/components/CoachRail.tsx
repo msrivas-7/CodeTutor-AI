@@ -86,11 +86,14 @@ export function pickNudge(
   const failedVisible = p.failedVisibleTests ?? 0;
   const failedHidden = p.failedHiddenTests ?? 0;
   const passedVisible = p.passedVisibleTests ?? 0;
+  const hasCurrentFailure = p.hasError || (p.hasChecked && !p.checkPassed);
 
   const rules: Array<Nudge & { condition: boolean }> = [
     {
       id: "completed-idle",
-      condition: p.lessonComplete,
+      // Completion is historical evidence. A failure from the current
+      // revision is more relevant and must never be covered by praise.
+      condition: p.lessonComplete && !hasCurrentFailure,
       icon: "🎯",
       message: "Nice work! You can practice more, or move on to the next lesson.",
     },

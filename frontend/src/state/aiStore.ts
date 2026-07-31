@@ -7,6 +7,7 @@ import type {
   TokenUsage,
   TutorSections,
 } from "../types";
+import type { ProjectVersion } from "./projectStore";
 import {
   usePreferencesStore,
   setPersona as setPersonaInPrefs,
@@ -26,6 +27,11 @@ import {
 // save/delete go through preferencesStore.saveOpenaiKey / forgetOpenaiKey.
 
 export type ModelsStatus = "idle" | "loading" | "loaded" | "error";
+
+export interface BoundEditorSelection {
+  selection: EditorSelection;
+  project: ProjectVersion;
+}
 
 interface AIState {
   models: AIModel[];
@@ -76,7 +82,7 @@ interface AIState {
   // Cmd+K handler and consumed + cleared by the next ask. `focusComposerNonce`
   // is a monotonic tick the composer watches so it can pull focus after a
   // selection is captured outside the panel.
-  activeSelection: EditorSelection | null;
+  activeSelection: BoundEditorSelection | null;
   focusComposerNonce: number;
 
   // Phase 5 — rolling token usage for the current conversation. Per-turn usage
@@ -96,7 +102,7 @@ interface AIState {
   commitSummary: (summary: string, throughIndex: number) => void;
   setSummarizing: (on: boolean) => void;
 
-  setActiveSelection: (sel: EditorSelection | null) => void;
+  setActiveSelection: (sel: BoundEditorSelection | null) => void;
   bumpFocusComposer: () => void;
 
   pushUser: (content: string) => void;
@@ -341,6 +347,7 @@ export const useAIStore = create<AIState>((set, get) => ({
 
     set({
       chatContext: contextKey,
+      asking: false,
       history: saved?.history ?? [],
       conversationSummary: saved?.conversationSummary ?? null,
       summarizedThrough: saved?.summarizedThrough ?? 0,
@@ -351,6 +358,7 @@ export const useAIStore = create<AIState>((set, get) => ({
       runsSinceLastTurn: 0,
       editsSinceLastTurn: 0,
       activeSelection: null,
+      pendingAsk: null,
       sessionUsage: saved?.sessionUsage ?? { inputTokens: 0, outputTokens: 0 },
     });
   },

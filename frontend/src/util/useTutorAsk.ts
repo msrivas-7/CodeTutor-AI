@@ -1,9 +1,15 @@
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { api, type AskStreamRequest } from "../api/client";
 import { useAIStore } from "../state/aiStore";
 import { usePreferencesStore } from "../state/preferencesStore";
-import { useProjectStore } from "../state/projectStore";
+import { useRunStore } from "../state/runStore";
+import {
+  beginProjectOperation,
+  isProjectOperationCurrent,
+  isProjectVersionCurrent,
+  useProjectStore,
+} from "../state/projectStore";
 import { useAIStatus, notePlatformQuestionConsumed } from "../state/useAIStatus";
 import type { EditorSelection, ProjectFile, AIMessage } from "../types";
 import { computeDiffSinceLast } from "./diffSinceLast";
@@ -85,7 +91,7 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
   // P-C1: shallow-compared reactive slice + stable action refs. A no-arg
   // `useAIStore()` re-runs this hook's body on every noteEdit/noteRun tick,
   // which fires during the stream loop (each delta triggers updateStream).
-  const { selectedModel, history, asking, lastTurnFiles, activeSelection } =
+  const { selectedModel, history, asking, lastTurnFiles, activeSelection, chatContext } =
     useAIStore(
       useShallow((s) => ({
         selectedModel: s.selectedModel,
@@ -93,6 +99,7 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
         asking: s.asking,
         lastTurnFiles: s.lastTurnFiles,
         activeSelection: s.activeSelection,
+        chatContext: s.chatContext,
       })),
     );
   const pushUser = useAIStore((s) => s.pushUser);
@@ -107,9 +114,20 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
 
   const hasKey = usePreferencesStore((s) => s.hasOpenaiKey);
   const snapshot = useProjectStore((s) => s.snapshot);
+  const projectRevision = useProjectStore((s) => s.revision);
+  const projectContext = useProjectStore((s) => s.projectContext);
+  const inputRevision = useRunStore((s) => s.inputRevision);
   const isAnon = opts.mode === "anon";
   const { status: aiStatus } = useAIStatus({ skip: isAnon });
   const abortRef = useRef<AbortController | null>(null);
+
+  // An edit or context switch makes every in-flight tutor chunk stale. Abort
+  // promptly to avoid spending tokens on a response that is no longer allowed
+  // to enter the current conversation; callback guards below remain the
+  // authoritative protection in case the transport races the abort.
+  useEffect(() => {
+    abortRef.current?.abort();
+  }, [projectRevision, projectContext, chatContext, inputRevision]);
 
   // Platform (free-tier) users have no BYOK key and no selectedModel — the
   // backend picks `gpt-4.1-nano` for them. Mirror the panel-level gate here
@@ -125,7 +143,13 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
     const trimmed = question.trim();
     if (!trimmed || !configured || asking) return;
 
-    const selectionForTurn = activeSelection;
+    const operation = beginProjectOperation();
+    const inputRevisionForTurn = inputRevision;
+    const conversationForTurn = chatContext;
+    const selectionForTurn =
+      activeSelection && isProjectVersionCurrent(activeSelection.project)
+        ? activeSelection.selection
+        : null;
     setActiveSelection(null);
     pushUser(trimmed);
     setAsking(true);
@@ -134,6 +158,17 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
 
     const controller = new AbortController();
     abortRef.current = controller;
+    let completionNotified = false;
+    const operationIsCurrent = (): boolean =>
+      abortRef.current === controller &&
+      useAIStore.getState().chatContext === conversationForTurn &&
+      useRunStore.getState().inputRevision === inputRevisionForTurn &&
+      isProjectOperationCurrent(operation);
+    const notifyCompletion = (ok: boolean): void => {
+      if (completionNotified) return;
+      completionNotified = true;
+      opts.onAskComplete?.({ ok });
+    };
     let raw = "";
     let committed = false;
 
@@ -159,6 +194,7 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
       if (pendingParse != null) return;
       const flush = (): void => {
         pendingParse = null;
+        if (!operationIsCurrent()) return;
         updateStream(raw, parsePartialTutor(raw));
       };
       if (typeof window !== "undefined" && "requestIdleCallback" in window) {
@@ -199,11 +235,13 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
         {
           signal: controller.signal,
           onDelta: (chunk) => {
+            if (!operationIsCurrent()) return;
             raw += chunk;
             scheduleParse();
           },
           onDone: (finalRaw, sections, usage) => {
             cancelPending();
+            if (!operationIsCurrent()) return;
             pushAssistant(finalRaw || raw, sections, usage);
             clearStream();
             committed = true;
@@ -217,6 +255,7 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
           },
           onError: (message) => {
             cancelPending();
+            if (!operationIsCurrent()) return;
             // Phase 27-v2.1 audit pass 1 fix #5: detect the L_anon
             // cap-exceeded error code and route to the wall instead
             // of showing a generic AskErrorView with a Retry button
@@ -266,21 +305,31 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
       // partial text so the student keeps the context rather than losing it.
       // An aborted ask still counts as "not ok" for outcome-bound side-effects
       // (e.g. hint rollback) — the student pressed Stop or walked away.
-      if (!committed && controller.signal.aborted && raw.trim()) {
+      if (!committed && controller.signal.aborted && raw.trim() && operationIsCurrent()) {
         cancelPending();
         pushAssistant(raw, parsePartialTutor(raw));
         clearStream();
       }
-      opts.onAskComplete?.({ ok: askOk });
+      if (operationIsCurrent()) notifyCompletion(askOk);
     } catch (err) {
       cancelPending();
-      setAskError((err as Error).message);
-      clearStream();
-      opts.onAskComplete?.({ ok: false });
+      if (operationIsCurrent()) {
+        setAskError((err as Error).message);
+        clearStream();
+        notifyCompletion(false);
+      }
     } finally {
       cancelPending();
-      setAsking(false);
-      abortRef.current = null;
+      if (abortRef.current === controller) {
+        notifyCompletion(false);
+        // Same conversation but edited source: clear the now-orphaned stream.
+        // A context switch already loaded its own clean stream state.
+        if (useAIStore.getState().chatContext === conversationForTurn) {
+          clearStream();
+          setAsking(false);
+        }
+        abortRef.current = null;
+      }
     }
   };
 

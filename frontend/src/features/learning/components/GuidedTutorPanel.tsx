@@ -502,7 +502,10 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
         ) : (
           <>
             {activeSelection && (
-              <SelectionPreview selection={activeSelection} onClear={() => setActiveSelection(null)} />
+              <SelectionPreview
+                selection={activeSelection.selection}
+                onClear={() => setActiveSelection(null)}
+              />
             )}
             <textarea
               ref={textareaRef}

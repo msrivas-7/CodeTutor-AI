@@ -179,9 +179,29 @@ describe("pickNudge", () => {
     expect(n?.message).toMatch(/Nice work/);
   });
 
-  it("completion nudge takes priority over other states", () => {
+  it("completion nudge takes priority over non-failure states", () => {
     const n = pickNudge({ ...base, lessonComplete: true, hasEdited: true, hasRun: true }, 60, 60, none);
     expect(n?.id).toBe("completed-idle");
+  });
+
+  it("current run failure outranks historical lesson completion", () => {
+    const n = pickNudge(
+      { ...base, lessonComplete: true, hasEdited: true, hasRun: true, hasError: true },
+      60,
+      35,
+      none,
+    );
+    expect(n?.id).toBe("ran-error");
+  });
+
+  it("current failed Check outranks historical lesson completion", () => {
+    const n = pickNudge(
+      { ...base, lessonComplete: true, hasEdited: true, hasRun: true, hasChecked: true },
+      60,
+      35,
+      none,
+    );
+    expect(n?.id).toBe("failed-check");
   });
 
   it("skips dismissed nudges", () => {

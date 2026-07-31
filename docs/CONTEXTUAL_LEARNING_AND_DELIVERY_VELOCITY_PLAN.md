@@ -569,6 +569,28 @@ If the provider may have accepted a call but the outcome is unknown, conservativ
 
 **Complexity:** two to four weeks.
 
+**Implementation status (2026-07-30):** locally complete on
+`dev/contextual-learning-roadmap`; draft-PR CI and review are the remaining
+release gates. The project store now owns a monotonic revision across source,
+language, reset, replacement, hydration/session, and project-context changes.
+Run, Check, and tutor work captures that identity plus a per-operation ID;
+stdin has a separate monotonic input revision. Results, errors, progress,
+celebration, and stream chunks publish only while the captured identity is
+current. Editor selections carry the revision they came from, and current Run
+or Check failure suppresses historical completion praise. Context switches
+also clear evidence-derived pending asks. The implementation adds no guidance,
+persisted telemetry, or AI request.
+
+Local evidence includes 398/398 frontend tests, frontend and E2E typechecks, a
+production build, and 3/3 retry-disabled Chromium lifecycle-fault cases that
+hold successful Run, Check, and tutor responses until after navigation or an
+edit. Eight existing retry-disabled Chromium regressions also pass across
+editor Run/stdin, lesson Check/completion/navigation, tutor streaming/cancel,
+and browser back/forward restoration of project and conversation state. The
+runtime dependency remains acyclic: `projectStore → runStore → aiStore`, while
+the only reverse reference from `aiStore` is a type-only project-version
+import removed from the emitted graph.
+
 Deliver:
 
 - project revision and async operation identity;

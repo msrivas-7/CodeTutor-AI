@@ -2,7 +2,12 @@ import { useCallback, useEffect, useRef, useState, type MutableRefObject, type R
 import { useSearchParams } from "react-router-dom";
 import type { Options as ConfettiOptions } from "canvas-confetti";
 import type { FunctionTest, Lesson, TestReport, ValidationResult } from "../types";
-import { useProjectStore } from "../../../state/projectStore";
+import {
+  beginProjectOperation,
+  isProjectOperationCurrent,
+  useProjectStore,
+  type ProjectOperationIdentity,
+} from "../../../state/projectStore";
 import { useRunStore } from "../../../state/runStore";
 import { useAIStore } from "../../../state/aiStore";
 import { useProgressStore } from "../stores/progressStore";
@@ -120,6 +125,7 @@ export function useLessonValidator({
   const [practiceValidation, setPracticeValidation] = useState<ValidationResult | null>(null);
   const [testReport, setTestReport] = useState<TestReport | null>(null);
   const [runningTests, setRunningTests] = useState(false);
+  const testOperationRef = useRef<ProjectOperationIdentity | null>(null);
   // Mirror the local `runningTests` flag into runStore so the global
   // Cmd+Enter handler in useLessonRunner can see it. Without this, Cmd+Enter
   // while the test harness is mid-run triggers a fresh snapshot that wipes
@@ -142,13 +148,27 @@ export function useLessonValidator({
   const saveCode = useProgressStore((s) => s.saveCode);
   const startLesson = useProgressStore((s) => s.startLesson);
   const setPendingAsk = useAIStore((s) => s.setPendingAsk);
-  const projectFiles = useProjectStore((s) => s.files);
+  const projectRevision = useProjectStore((s) => s.revision);
+
+  const beginTestOperation = (): ProjectOperationIdentity => {
+    const operation = beginProjectOperation();
+    testOperationRef.current = operation;
+    return operation;
+  };
+  const testOperationIsCurrent = (operation: ProjectOperationIdentity): boolean =>
+    testOperationRef.current?.id === operation.id &&
+    isProjectOperationCurrent(operation);
+  const finishTestOperation = (operation: ProjectOperationIdentity): void => {
+    if (testOperationRef.current?.id === operation.id) setRunningTests(false);
+  };
 
   // Fresh lesson mount → clear all per-lesson state. Mirrors the loader's
   // reset behaviour but for validator-owned signals.
   useEffect(() => {
     if (!courseId || !lessonId) return;
     autoEnteredPractice.current = false;
+    testOperationRef.current = null;
+    setRunningTests(false);
     setValidation(null);
     setShowComplete(false);
     setHasChecked(false);
@@ -165,11 +185,19 @@ export function useLessonValidator({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [courseId, lessonId]);
 
-  // Invalidate the test report when code changes — stale pass/fail marks
-  // would mislead (green ✓ on a card while the user just broke the function).
+  // Any executable-source revision invalidates every current Check artifact.
+  // Historical attempt counters remain useful, but pass/fail praise and late
+  // harness responses are not allowed to describe the new revision.
   useEffect(() => {
-    if (initializedRef.current) setTestReport(null);
-  }, [projectFiles, initializedRef]);
+    if (!initializedRef.current) return;
+    testOperationRef.current = null;
+    setRunningTests(false);
+    setTestReport(null);
+    setValidation(null);
+    setPracticeValidation(null);
+    setShowComplete(false);
+    setHasChecked(false);
+  }, [projectRevision, initializedRef]);
 
   // Collects every FunctionTest authored across function_tests rules on the
   // lesson (most have at most one such rule, but the schema allows multiple).
@@ -194,23 +222,28 @@ export function useLessonValidator({
     if (mode === "anon") return;
     if (!sessionId || sessionPhase !== "active" || runningTests || !courseId || !lessonId || !lesson) return;
     if (functionTests.length === 0) return;
+    const operation = beginTestOperation();
     setRunningTests(true);
     try {
       const files = useProjectStore.getState().snapshot();
       await api.snapshotProject(sessionId, files);
+      if (!testOperationIsCurrent(operation)) return;
       // Always batch visible + hidden in one harness run — a single harness
       // invocation carries the full overhead (docker exec, boot, runtime
       // init); the per-test cost inside is negligible.
       const res = await api.executeTests(sessionId, lesson.language, functionTests);
+      if (!testOperationIsCurrent(operation)) return;
       setTestReport(res.report);
     } catch (err) {
-      setTestReport({
-        results: [],
-        harnessError: (err as Error).message,
-        cleanStdout: "",
-      });
+      if (testOperationIsCurrent(operation)) {
+        setTestReport({
+          results: [],
+          harnessError: (err as Error).message,
+          cleanStdout: "",
+        });
+      }
     } finally {
-      setRunningTests(false);
+      finishTestOperation(operation);
     }
   }, [sessionId, sessionPhase, runningTests, courseId, lessonId, lesson, functionTests, mode]);
 
@@ -222,7 +255,8 @@ export function useLessonValidator({
     // the prop directly here would yield the stale `false`. The override
     // bridges that gap — we use it if provided, else fall back to the
     // closure-captured value (the normal Check-button path).
-    if (!lesson || !courseId || !lessonId) return;
+    if (!lesson || !courseId || !lessonId || runningTests) return;
+    const operation = beginTestOperation();
     const effectiveRetrievalAnswered =
       overrides?.retrievalAnswered ?? retrievalAnswered;
     const files = useProjectStore.getState().snapshot();
@@ -249,18 +283,23 @@ export function useLessonValidator({
         setRunningTests(true);
         try {
           await api.snapshotProject(sessionId, files);
+          if (!testOperationIsCurrent(operation)) return;
           const res = await api.executeTests(sessionId, lesson.language, practiceFnTests);
+          if (!testOperationIsCurrent(operation)) return;
           practiceReport = res.report;
         } catch (err) {
-          practiceReport = {
-            results: [],
-            harnessError: (err as Error).message,
-            cleanStdout: "",
-          };
+          if (testOperationIsCurrent(operation)) {
+            practiceReport = {
+              results: [],
+              harnessError: (err as Error).message,
+              cleanStdout: "",
+            };
+          }
         } finally {
-          setRunningTests(false);
+          finishTestOperation(operation);
         }
       }
+      if (!testOperationIsCurrent(operation)) return;
       const v = validateLesson(result, files, exercise.completionRules, {
         testReport: practiceReport,
         language: lesson.language,
@@ -285,21 +324,26 @@ export function useLessonValidator({
       setRunningTests(true);
       try {
         await api.snapshotProject(sessionId!, files);
+        if (!testOperationIsCurrent(operation)) return;
         const res = await api.executeTests(sessionId!, lesson.language, functionTests);
+        if (!testOperationIsCurrent(operation)) return;
         latestReport = res.report;
         setTestReport(res.report);
       } catch (err) {
-        latestReport = {
-          results: [],
-          harnessError: (err as Error).message,
-          cleanStdout: "",
-        };
-        setTestReport(latestReport);
+        if (testOperationIsCurrent(operation)) {
+          latestReport = {
+            results: [],
+            harnessError: (err as Error).message,
+            cleanStdout: "",
+          };
+          setTestReport(latestReport);
+        }
       } finally {
-        setRunningTests(false);
+        finishTestOperation(operation);
       }
     }
 
+    if (!testOperationIsCurrent(operation)) return;
     const v = validateLesson(result, files, lesson.completionRules, {
       testReport: latestReport,
       language: lesson.language,
@@ -367,6 +411,7 @@ export function useLessonValidator({
         "#f472b6", // rose pop
       ];
       window.setTimeout(() => {
+        if (!testOperationIsCurrent(operation)) return;
         celebrate({
           particleCount: 220,
           spread: 100,
@@ -375,6 +420,7 @@ export function useLessonValidator({
           colors: brandColors,
         });
         window.setTimeout(() => {
+          if (!testOperationIsCurrent(operation)) return;
           celebrate({
             particleCount: 100,
             angle: 60,
@@ -392,10 +438,11 @@ export function useLessonValidator({
             colors: brandColors,
           });
         }, 220);
+        if (!testOperationIsCurrent(operation)) return;
         setShowComplete(true);
       }, CINEMA_DURATIONS.sonarHold);
     }
-  }, [lesson, courseId, lessonId, completeLesson, learnerId, totalLessons, validation, practiceMode, practiceIndex, completePracticeExercise, sessionId, functionTests, testReport, lastFailedName, retrievalAnswered]);
+  }, [lesson, courseId, lessonId, completeLesson, learnerId, totalLessons, validation, practiceMode, practiceIndex, completePracticeExercise, sessionId, functionTests, testReport, lastFailedName, retrievalAnswered, runningTests]);
 
   const applyPracticeStarter = useCallback((exerciseIndex: number) => {
     if (!lesson?.practiceExercises || !courseId || !lessonId) return;
@@ -411,14 +458,12 @@ export function useLessonValidator({
       ? persisted
       : { [entry]: exercise.starterCode ?? "# Write your code here\n" };
     const order = Object.keys(files);
-    useProjectStore.setState({
+    useProjectStore.getState().replaceProject({
       files,
       order,
       activeFile: order[0] ?? entry,
       openTabs: [order[0] ?? entry],
     });
-    useRunStore.getState().setResult(null);
-    useRunStore.getState().setError(null);
     setPracticeValidation(null);
   }, [lesson, courseId, lessonId]);
 
@@ -472,7 +517,7 @@ export function useLessonValidator({
     setPracticeValidation(null);
     if (savedLessonCode.current) {
       const order = Object.keys(savedLessonCode.current);
-      useProjectStore.setState({
+      useProjectStore.getState().replaceProject({
         files: { ...savedLessonCode.current },
         order,
         activeFile: order[0],
@@ -480,8 +525,6 @@ export function useLessonValidator({
       });
       savedLessonCode.current = null;
     }
-    useRunStore.getState().setResult(null);
-    useRunStore.getState().setError(null);
   }, []);
 
   const handleSelectPracticeExercise = useCallback(
@@ -524,14 +567,12 @@ export function useLessonValidator({
       files[entry] = "# Write your code here\n";
       order.push(entry);
     }
-    useProjectStore.setState({
+    useProjectStore.getState().replaceProject({
       files,
       order,
       activeFile: order[0],
       openTabs: [order[0]],
     });
-    useRunStore.getState().setResult(null);
-    useRunStore.getState().setError(null);
     setValidation(null);
     setShowComplete(false);
     saveCode(courseId, lessonId, files);
@@ -579,9 +620,12 @@ export function useLessonValidator({
       files[entry] = "# Write your code here\n";
       order.push(entry);
     }
-    useProjectStore.setState({ files, order, activeFile: order[0], openTabs: [order[0]] });
-    useRunStore.getState().setResult(null);
-    useRunStore.getState().setError(null);
+    useProjectStore.getState().replaceProject({
+      files,
+      order,
+      activeFile: order[0],
+      openTabs: [order[0]],
+    });
     setValidation(null);
     setShowComplete(false);
     setConfirmResetLesson(false);

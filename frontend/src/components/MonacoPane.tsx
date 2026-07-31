@@ -1,7 +1,11 @@
 import Editor, { type Monaco, type OnMount } from "@monaco-editor/react";
 import { useEffect, useRef } from "react";
 import type { editor as MonacoEditor } from "monaco-editor";
-import { useProjectStore, type RevealTarget } from "../state/projectStore";
+import {
+  captureProjectVersion,
+  useProjectStore,
+  type RevealTarget,
+} from "../state/projectStore";
 import { useAIStore } from "../state/aiStore";
 import { monacoLangFor } from "../types";
 import { useEffectiveTheme } from "../util/theme";
@@ -158,10 +162,13 @@ export function MonacoPane() {
       const path = activeFile;
       if (sel && model && path && !sel.isEmpty()) {
         setActiveSelection({
-          path,
-          startLine: sel.startLineNumber,
-          endLine: sel.endLineNumber,
-          text: model.getValueInRange(sel),
+          selection: {
+            path,
+            startLine: sel.startLineNumber,
+            endLine: sel.endLineNumber,
+            text: model.getValueInRange(sel),
+          },
+          project: captureProjectVersion(),
         });
         return true;
       }
