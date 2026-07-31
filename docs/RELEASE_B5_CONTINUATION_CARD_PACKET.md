@@ -1,7 +1,7 @@
 # Release B5 continuation-card packet
 
-Status: local engineering and persona gates complete; phase commit, remote CI,
-deployed-preview verification, and PR review audit pending
+Status: engineering release gates complete at `d2b3c62`; real-user outcome
+evidence remains unavailable
 
 Branch: `dev/contextual-learning-roadmap`
 
@@ -99,6 +99,23 @@ the bounded first-name field. The learner may edit it before submission.
   direct-launch probes, including after forced reinstall. The harness records
   the environment incident; unchanged Linux Firefox CI remains required.
 
+## Remote release evidence
+
+- All 29 active PR checks pass at `d2b3c62`; the single skipped check is the
+  expected preview-close job while the PR remains open.
+- Six blocking Chromium shards, Linux Firefox, WebKit, the critical lane,
+  shadow evidence, security scenarios, three-OS build/test, content, release,
+  production dependency, preview deployment, asset, and secret checks pass.
+- The deployed desktop card stays on the lesson, contains one inline form,
+  starts with a disabled submit action, enables after valid synthetic input,
+  traps background interaction, restores focus to the signup trigger on Escape,
+  and emits no browser warning/error.
+- At 390x844, the deployed card scrolls from 810px client height through 982px
+  of content, has zero horizontal overflow, and keeps submit, Terms, and Privacy
+  targets at 44px. No form was submitted during the preview audit.
+- The thread-aware GitHub audit reports zero reviews and zero review threads;
+  the remaining conversation entries are deployment and security bot notices.
+
 ## Rollback
 
 Rollback is a normal frontend revert. There is no schema or data rollback. The
@@ -120,10 +137,10 @@ through B5 are ordinary accounts and remain valid across rollback.
 - [x] Full frontend suite, production build, E2E typecheck, focused Chromium,
   WebKit, and visual checks pass locally.
 - [x] The 18-lens persona audit is recorded with no local P0/P1 open.
-- [ ] Phase commit is pushed and the PR description is updated.
-- [ ] Full remote CI, Linux Firefox, and deployed preview are green.
-- [ ] Deployed desktop/phone browser verification passes.
-- [ ] Every actionable PR review thread is resolved.
+- [x] Phase commit is pushed and the PR description is updated.
+- [x] Full remote CI, Linux Firefox, and deployed preview are green.
+- [x] Deployed desktop/phone browser verification passes.
+- [x] Every actionable PR review thread is resolved.
 - [x] Harness doctor passes and the B5 session is finished.
 
 ## Claims deliberately not made

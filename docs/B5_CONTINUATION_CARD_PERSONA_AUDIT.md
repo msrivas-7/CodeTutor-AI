@@ -10,9 +10,9 @@ reason-specific copy, confirmation recovery, and desktop/phone accessibility.
 
 ## Verdict
 
-**Approve B5 for engineering release once the phase commit, remote CI,
-deployed-preview browser checks, and PR review threads are green.** No local P0
-or P1 persona finding remains open.
+**Approve B5 for engineering release.** The phase commit, remote CI,
+deployed-preview browser checks, and thread-aware PR review audit are green. No
+P0 or P1 persona finding remains open.
 
 The card now continues the learner's current scene instead of cutting to a
 generic signup page. It preserves an explicit dismissal path, makes no auth
@@ -73,6 +73,8 @@ retention, learning, or revenue improvement.
   software-compositor signature, including after reinstall and direct launch
   probes. This is recorded as an environment incident, not waived product
   coverage; Linux Firefox CI remains a release gate.
-- CI, deployed-preview verification, and PR-thread resolution remain required
-  after the B5 phase commit is pushed.
+- The pushed B5 commit passed all 29 active remote checks; the one skipped job
+  is the expected preview-close path for an open PR. The deployed desktop and
+  390x844 phone audit passed with no console warnings/errors, no horizontal
+  overflow, correct focus/inert cleanup, and 44px policy/action targets.
 - Cinematic duration remains paused and unchanged.

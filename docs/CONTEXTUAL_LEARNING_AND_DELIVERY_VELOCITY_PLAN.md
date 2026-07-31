@@ -1,6 +1,6 @@
 # Contextual Learning and Delivery Velocity Plan
 
-> **Status:** Engineering implementation is green through 0A/B3 on the active roadmap branch; B5 local implementation and persona gates are complete with remote release gates pending; the 1D shadow clock begins only after merge; the 1C entry gate is not met because the powered 1B learner experiment, two-human eval calibration, and named approvals are missing
+> **Status:** Engineering implementation is green through 0A/B5 on the active roadmap branch; the 1D shadow clock begins only after merge; the 1C entry gate is not met because the powered 1B learner experiment, two-human eval calibration, and named approvals are missing
 >
 > **Prepared:** 2026-07-30
 >
@@ -859,9 +859,9 @@ traffic outcome is claimed. Detailed release evidence lives in
 
 ### Parallel Release B5 — Continuation card
 
-**Local implementation status (2026-07-31):** complete on
-`dev/contextual-learning-roadmap`; phase commit, full remote CI, deployed
-preview, and PR-thread verification remain pending.
+**Engineering release status (2026-07-31):** complete at `d2b3c62` on
+`dev/contextual-learning-roadmap`; local, persona, full remote CI, Linux
+Firefox, deployed-preview desktop/phone, harness, and PR-thread gates pass.
 
 Deliver:
 
