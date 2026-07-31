@@ -81,7 +81,12 @@ test.describe("coach rail nudges", () => {
     const nudge = page.getByText(/Nice work! You can practice more/i).first();
     await expect(nudge).toBeVisible({ timeout: 15_000 });
     // Dismiss control lives on the same rail.
-    await page.getByRole("button", { name: /dismiss coach tip/i }).click();
+    const dismiss = page.getByRole("button", { name: /dismiss coach tip/i });
+    await expect.poll(async () => dismiss.boundingBox()).toMatchObject({
+      width: 44,
+      height: 44,
+    });
+    await dismiss.click();
     // The text should be gone from the CoachRail region specifically (it may
     // still appear elsewhere in completion panels etc, but at the rail's
     // position it's empty now).

@@ -66,7 +66,7 @@ export function CoachRail(props: CoachRailProps) {
       <span className="flex-1">{nudge.message}</span>
       <button
         onClick={() => setDismissed((s) => new Set(s).add(nudge.id))}
-        className="shrink-0 rounded px-1 text-[11px] leading-none text-muted transition hover:text-ink"
+        className="-my-2 -mr-2 flex h-11 w-11 shrink-0 items-center justify-center rounded text-base leading-none text-muted transition hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
         title="Dismiss this tip"
         aria-label="Dismiss coach tip"
       >
