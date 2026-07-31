@@ -77,6 +77,13 @@ test.describe("B4 public distribution surface", () => {
     await expect(page.getByRole("heading", { level: 1, name: "Variables" })).toBeVisible();
     await expect(page.getByRole("heading", { name: /what you'll learn/i })).toBeVisible();
     await expect(page.locator("pre code").first()).toBeVisible();
+    // The production webfont is wider than the fallback font. Wait for it so
+    // the assertion catches code blocks that only overflow after font swap.
+    await page.evaluate(() => document.fonts.ready);
+    const lessonOverflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(lessonOverflow).toBeLessThanOrEqual(1);
     await testInfo.attach("b4-lesson-phone", {
       body: await page.screenshot({ fullPage: true }),
       contentType: "image/png",
