@@ -84,10 +84,20 @@ interface AnonSummary {
   abuseSignals: AbuseSnapshot;
   funnelEvents: {
     anon_page_view: number;
+    anon_first_run: number;
+    anon_lesson_completed: number;
     anon_wall_opened: number;
     anon_signup_completed: number;
     anon_lesson2_reached: number;
   };
+  distributionChannels: Array<{
+    source: "direct" | "organic" | "share";
+    anon_page_view: number;
+    anon_first_run: number;
+    anon_lesson_completed: number;
+    anon_signup_completed: number;
+    anon_lesson2_reached: number;
+  }>;
   killSwitch: {
     enabled: boolean;
     source: "override" | "env";
@@ -153,6 +163,8 @@ adminAnonSummaryRouter.get("/anon-summary", async (_req, res, next) => {
     `.then((rows) => {
       const out: AnonSummary["funnelEvents"] = {
         anon_page_view: 0,
+        anon_first_run: 0,
+        anon_lesson_completed: 0,
         anon_wall_opened: 0,
         anon_signup_completed: 0,
         anon_lesson2_reached: 0,
@@ -167,10 +179,58 @@ adminAnonSummaryRouter.get("/anon-summary", async (_req, res, next) => {
       if (err.code === "42P01") {
         return {
           anon_page_view: 0,
+          anon_first_run: 0,
+          anon_lesson_completed: 0,
           anon_wall_opened: 0,
           anon_signup_completed: 0,
           anon_lesson2_reached: 0,
         };
+      }
+      throw err;
+    });
+
+    const channelPromise = sql<
+      Array<{
+        source: "direct" | "organic" | "share";
+        event: string;
+        n: number;
+      }>
+    >`
+      SELECT acquisition_source AS source, event, COUNT(*)::int AS n
+        FROM public.phase27_funnel_events
+       WHERE occurred_at >= ${since}
+       GROUP BY acquisition_source, event
+    `.then((rows) => {
+      const bySource = new Map<
+        AnonSummary["distributionChannels"][number]["source"],
+        AnonSummary["distributionChannels"][number]
+      >();
+      for (const source of ["direct", "organic", "share"] as const) {
+        bySource.set(source, {
+          source,
+          anon_page_view: 0,
+          anon_first_run: 0,
+          anon_lesson_completed: 0,
+          anon_signup_completed: 0,
+          anon_lesson2_reached: 0,
+        });
+      }
+      for (const row of rows) {
+        const channel = bySource.get(row.source);
+        if (!channel || !(row.event in channel)) continue;
+        (channel as unknown as Record<string, string | number>)[row.event] = Number(row.n);
+      }
+      return [...bySource.values()];
+    }).catch((err: { code?: string }) => {
+      if (err.code === "42P01" || err.code === "42703") {
+        return (["direct", "organic", "share"] as const).map((source) => ({
+          source,
+          anon_page_view: 0,
+          anon_first_run: 0,
+          anon_lesson_completed: 0,
+          anon_signup_completed: 0,
+          anon_lesson2_reached: 0,
+        }));
       }
       throw err;
     });
@@ -202,9 +262,10 @@ adminAnonSummaryRouter.get("/anon-summary", async (_req, res, next) => {
       reason: null,
     }));
 
-    const [ledger, funnelEvents, killSwitch, abuseSignals] = await Promise.all([
+    const [ledger, funnelEvents, distributionChannels, killSwitch, abuseSignals] = await Promise.all([
       ledgerPromise,
       funnelPromise,
+      channelPromise,
       killSwitchPromise,
       snapshotAbuseSignals(),
     ]);
@@ -217,6 +278,7 @@ adminAnonSummaryRouter.get("/anon-summary", async (_req, res, next) => {
       perIpDailyCap: perIpCap,
       abuseSignals,
       funnelEvents,
+      distributionChannels,
       killSwitch,
     };
     res.json(summary);

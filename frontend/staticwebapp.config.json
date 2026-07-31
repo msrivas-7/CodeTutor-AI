@@ -12,7 +12,16 @@
   ],
   "navigationFallback": {
     "rewrite": "/index.html",
-    "exclude": ["/assets/*", "/courses/*", "/*.{css,js,svg,png,ico,json,webp,map}"]
+    "exclude": [
+      "/assets/*",
+      "/courses/*",
+      "/learn-to-code/*",
+      "/lessons/*",
+      "/lesson-og/*",
+      "/sitemap.xml",
+      "/robots.txt",
+      "/*.{css,js,svg,png,ico,json,webp,map}"
+    ]
   },
   "mimeTypes": {
     ".json": "application/json"

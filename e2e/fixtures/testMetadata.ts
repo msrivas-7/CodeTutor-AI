@@ -5,6 +5,7 @@ export type TestOwner =
   | "accessibility"
   | "auth"
   | "editor"
+  | "growth"
   | "learning"
   | "platform"
   | "security"

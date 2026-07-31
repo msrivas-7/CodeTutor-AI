@@ -160,6 +160,16 @@ test("blocks session completion until failed validation is classified", () => {
     "--resolution", "Intentional test fixture failure.",
   ]);
   assert.equal(resolved.status, 0, resolved.stderr);
+  const passing = run(root, [
+    "run",
+    "--session", session,
+    "--scope", "backend",
+    "--",
+    process.execPath,
+    "-e",
+    "process.exit(0)",
+  ]);
+  assert.equal(passing.status, 0, passing.stderr);
   fs.rmSync(path.join(root, "CLAUDE.md"));
   const blockedByDoctor = run(root, [
     "finish",
@@ -178,6 +188,35 @@ test("blocks session completion until failed validation is classified", () => {
     "--session", session,
     "--summary", "Verified the failure lifecycle.",
     "--tests", "Intentional failure was classified; harness doctor passed.",
+  ]);
+  assert.equal(finished.status, 0, finished.stderr);
+});
+
+test("blocks session completion until a passing validation is recorded", () => {
+  const root = fixture();
+  const started = run(root, ["start", "--feature", "empty evidence", "--scope", "frontend"]);
+  assert.equal(started.status, 0, started.stderr);
+  const session = started.stdout.match(/HARNESS_SESSION_ID=([0-9a-f-]+)/)?.[1];
+  assert.ok(session);
+
+  const premature = run(root, [
+    "finish",
+    "--session", session,
+    "--summary", "No validation was run.",
+    "--tests", "None.",
+  ]);
+  assert.notEqual(premature.status, 0);
+  assert.match(premature.stderr, /no passing validation/i);
+
+  const passing = run(root, [
+    "run", "--session", session, "--", process.execPath, "-e", "process.exit(0)",
+  ]);
+  assert.equal(passing.status, 0, passing.stderr);
+  const finished = run(root, [
+    "finish",
+    "--session", session,
+    "--summary", "Validated the empty-evidence guard.",
+    "--tests", "Recorded a passing validation.",
   ]);
   assert.equal(finished.status, 0, finished.stderr);
 });

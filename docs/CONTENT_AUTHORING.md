@@ -11,7 +11,7 @@ The authoring pipeline is:
 5. Run `npm run verify:solutions` — must be clean.
 6. Open a PR. CI re-runs both commands and fails if either breaks.
 
-Everything under `frontend/public/courses/<courseId>/` is plain JSON + Markdown + source files. No build step; files are fetched at runtime.
+Everything under `frontend/public/courses/<courseId>/` is plain JSON + Markdown + source files. The interactive app fetches it at runtime, and the production build also derives crawlable course/lesson pages, sitemap entries, and lesson social images from the same files.
 
 ## Languages
 
@@ -26,6 +26,17 @@ A course declares its `language` in `course.json`; every lesson inherits it via 
 `frontend/scripts/language.ts` is the scripts-side source of truth: `SCAFFOLD_LANGUAGES` (which languages `new-lesson`/`new-practice` accept), `entryFileFor(language)` (e.g., `main.py` / `main.js`), `fileExtForLanguage`, per-language `functionStub`, and `hasFunctionTestsHarnessLanguage(language)`. The per-language authoring floor lives in `FUNCTION_TESTS_ORDER_FLOOR_BY_LANGUAGE` inside `scripts/content-lint.ts` — it tracks when each course introduces the concept of user-defined functions. Templates live under `scripts/templates/<language>/`. When adding a new language, add SCAFFOLD entry + templates here, pick a floor, and register a backend `HarnessBackend` in `backend/src/services/execution/harness/` before attempting to author `function_tests` lessons.
 
 An `"internal": true` flag on `course.json` hides a course from learner-facing listings (`courseLoader.listPublicCourses()` filters these out) while keeping it visible to the dev content-health dashboard and all CI tooling. Use this for smoke-test courses like `_internal-js-smoke` that only exist to keep non-Python code paths exercised end-to-end.
+
+### Public discovery output
+
+Every non-internal course automatically produces:
+
+- `/learn-to-code/<courseId>/` for the course index;
+- `/lessons/<courseId>/<lessonId>/` for each lesson walkthrough;
+- `/lesson-og/<courseId>/<lessonId>.png` for its 1200 × 630 social image;
+- entries in `/sitemap.xml` and the public course registry.
+
+Titles, descriptions, objectives, concepts, order, time estimates, and Markdown are taken directly from `course.json`, `lesson.json`, and `content.md`. Do not author a separate SEO copy tree. Keep lesson titles and descriptions specific, and treat a public course as publishable material. Courses marked `"internal": true` are removed from production course assets as well as every discovery surface. `npm run build` is the end-to-end proof for this generated output.
 
 ---
 

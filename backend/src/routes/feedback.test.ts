@@ -264,11 +264,16 @@ describe("POST /api/feedback — mood-only (body-or-mood invariant)", () => {
   });
 });
 
-describe("feedback row survives account deletion (user_id SET NULL)", () => {
-  it("keeps the row with user_id = null after the owning user is deleted", async () => {
+describe("feedback row survives account deletion as an anonymized aggregate", () => {
+  it("clears identity-bearing content when the owning user is deleted", async () => {
     if (!dbReachable) return;
     const userId = await mkUser();
-    const res = await req(userId, { body: "outlive me", category: "other" });
+    const res = await req(userId, {
+      body: "outlive me",
+      category: "other",
+      diagnostics: { route: "/learn/course/private/lesson/hello-world" },
+      lessonId: "hello-world",
+    });
     expect(res.status).toBe(201);
     const json = (await res.json()) as { id: string };
     feedbackIds.push(json.id);
@@ -280,10 +285,17 @@ describe("feedback row survives account deletion (user_id SET NULL)", () => {
     if (idx !== -1) userIds.splice(idx, 1);
 
     const [row] = await db()<
-      Array<{ user_id: string | null; body: string }>
-    >`SELECT user_id, body FROM public.feedback WHERE id = ${json.id}`;
+      Array<{
+        user_id: string | null;
+        body: string;
+        diagnostics: Record<string, unknown>;
+        lesson_id: string | null;
+      }>
+    >`SELECT user_id, body, diagnostics, lesson_id FROM public.feedback WHERE id = ${json.id}`;
     expect(row).toBeDefined();
     expect(row.user_id).toBeNull();
-    expect(row.body).toBe("outlive me");
+    expect(row.body).toBe("[scrubbed on account deletion]");
+    expect(row.diagnostics).toEqual({});
+    expect(row.lesson_id).toBeNull();
   });
 });

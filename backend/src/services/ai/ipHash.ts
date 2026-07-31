@@ -49,3 +49,16 @@ export function hashEmail(email: string): string {
   const normalized = email.trim().toLowerCase();
   return createHash("sha256").update(`${EMAIL_HASH_LABEL}:${normalized}`).digest("hex");
 }
+
+// Release B4: a public share token may be carried through the acquisition
+// URL, but persisting it beside a pseudonymous IP hash would create a more
+// linkable dataset than channel reporting needs. Store a domain-separated
+// digest instead. The token is already server-validated before this function
+// is called; this is an identifier transform, not an authenticity check.
+const SHARE_REF_HASH_LABEL = "codetutor-distribution-share-ref-v1";
+
+export function hashShareRef(shareRef: string): string {
+  return createHash("sha256")
+    .update(`${SHARE_REF_HASH_LABEL}:${shareRef}`)
+    .digest("hex");
+}

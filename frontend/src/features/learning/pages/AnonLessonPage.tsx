@@ -296,6 +296,7 @@ export default function AnonLessonPage() {
         onAnonExhausted={onAnonExhausted}
         onAnonShare={onAnonShare}
         onAnonTrialPaused={onAnonTrialPaused}
+        onAnonFirstRun={() => api.postFunnelEvent("anon_first_run")}
         onAnonComplete={() => {
           // Phase A — A6: fire-and-forget concept-tag write on the
           // anon-completion beat. The authed-side write at handoff
@@ -306,6 +307,7 @@ export default function AnonLessonPage() {
             courseId: ANON_ALLOWED.courseId,
             lessonId: ANON_ALLOWED.lessonId,
           });
+          api.postFunnelEvent("anon_lesson_completed");
         }}
       />
       <SignupWallDialog

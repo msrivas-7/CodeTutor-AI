@@ -129,14 +129,22 @@ beforeAll(async () => {
 afterAll(async () => {
   if (srv) await new Promise<void>((r) => srv.close(() => r()));
   if (dbReachable) {
-    if (auditIds.length) {
-      await db()`DELETE FROM public.admin_audit_log WHERE id = ANY(${auditIds}::uuid[])`;
-    }
+    // Cleanup is the one intentional mutation of the append-only audit
+    // table. Use the same transaction-local purge gate as the retention
+    // runbook so the test never weakens the production trigger.
+    await db().begin(async (tx) => {
+      await tx`SELECT set_config('app.allow_admin_audit_log_purge', 'true', true)`;
+      if (auditIds.length) {
+        await tx`DELETE FROM public.admin_audit_log WHERE id = ANY(${auditIds}::uuid[])`;
+      }
+      if (userIds.length) {
+        await tx`DELETE FROM public.admin_audit_log WHERE actor_id = ANY(${userIds}::uuid[]) OR target_user_id = ANY(${userIds}::uuid[])`;
+      }
+    });
     if (userIds.length) {
       // CASCADE drops user_roles, ai_free_tier_overrides, and audit log
       // rows that reference these users. system_config rows have set_by
       // SET NULL, so they survive — sweep them by reason.
-      await db()`DELETE FROM public.admin_audit_log WHERE actor_id = ANY(${userIds}::uuid[]) OR target_user_id = ANY(${userIds}::uuid[])`;
       // P1-1: system_config writes need the per-transaction admin opt-in
       // because of the guard_system_config_writes BEFORE trigger.
       await db().begin(async (tx) => {

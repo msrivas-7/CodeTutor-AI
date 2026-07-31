@@ -744,12 +744,28 @@ Deliver:
 
 Actual organic traffic remains the locked outcome; pre-launch work proves crawler correctness only.
 
+**Implementation evidence (2026-07-30, pre-merge):** the build now derives 3
+public course pages, 38 lesson documents, 38 unique 1200 × 630 lesson images,
+`sitemap.xml`, `robots.txt`, and a public-only registry from the structured
+course tree. Raw HTML carries unique metadata and structured data; unknown or
+internal reserved paths fail closed with 404. Organic/category and share CTAs
+carry an allowlisted first touch through landing, first run, completion,
+signup, and lesson 2; the server stores only coarse enums/bounded slugs and a
+domain-separated share hash. The admin surface reports channel cohorts without
+raw referrer URLs or tokens. Unit/build checks, a real dev-database telemetry
+integration, the critical E2E contract, Chromium phone/accessibility proof, and
+the production dependency audit pass locally. Merge CI, deployment verification,
+indexing, and the locked organic-traffic observation window remain pending; no
+traffic outcome is claimed. Detailed release evidence lives in
+`docs/RELEASE_B4_DISTRIBUTION_PACKET.md`.
+
 ## 8. Test and CI strategy
 
 ### 8.1 Current baseline
 
-- 333 listed Playwright tests across 49 files as re-counted on 2026-07-30;
-- approximately 11,356 E2E spec lines as re-counted on 2026-07-30;
+- 336 listed Playwright tests across 50 files after the B4 distribution contract
+  was added on 2026-07-30;
+- 11,666 E2E spec lines as re-counted after the B4 contract on 2026-07-30;
 - six Chromium shards plus Firefox/WebKit critical jobs, selected by the
   same-commit 4/6/8 benchmark above;
 - two workers per shard;

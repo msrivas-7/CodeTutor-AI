@@ -679,6 +679,12 @@ function finishSession(options) {
   if (pending.length) {
     fail(`Session ${id} has unresolved failure(s): ${pending.map((item) => item.id).join(", ")}`);
   }
+  const passedValidations = session.validations.filter((validation) => validation.exitCode === 0);
+  if (!passedValidations.length) {
+    fail(
+      `Session ${id} has no passing validation. Run at least one relevant check through agent-harness.mjs run before finishing.`,
+    );
+  }
   session.summary = assertSafeText("summary", requireOption(options, "summary"), 1200);
   session.tests = assertSafeText("tests", requireOption(options, "tests"), 1200);
   runDoctor();

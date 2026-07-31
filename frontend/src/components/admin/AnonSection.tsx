@@ -12,8 +12,8 @@ import { useLivePolling } from "../../auth/useLivePolling";
 //   - today's anon question count + distinct IP count + exhausted IPs
 //   - process-cumulative abuse signals (anon_lesson_not_allowed,
 //     model_rejection) so a non-zero count surfaces fast
-//   - cumulative funnel events (page view → wall opened → signup →
-//     lesson 2) so the operator can see whether a launch landed
+//   - today's funnel events and first-touch distribution channels so
+//     the operator can see whether a launch landed and activated
 //   - kill-switch state pulled from system_config
 //
 // The kill-switch toggle itself lives in ProjectCapsSection (the
@@ -74,6 +74,7 @@ export function AnonSection() {
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
             <TrafficTile snap={data} />
             <FunnelTile snap={data} />
+            <DistributionTile snap={data} />
             <AbuseTile snap={data} />
             <KillSwitchTile snap={data} />
           </div>
@@ -121,25 +122,75 @@ function FunnelTile({ snap }: { snap: AdminAnonSummary }) {
       <div className="flex flex-col gap-1.5 text-[11px]">
         <FunnelRow label="Page view" value={fe.anon_page_view} />
         <FunnelRow
+          label="First run"
+          value={fe.anon_first_run}
+          conv={`${pct(fe.anon_first_run, fe.anon_page_view)} of landings`}
+        />
+        <FunnelRow
+          label="Lesson completed"
+          value={fe.anon_lesson_completed}
+          conv={`${pct(fe.anon_lesson_completed, fe.anon_first_run)} of runs`}
+        />
+        <FunnelRow
           label="Wall opened"
           value={fe.anon_wall_opened}
-          conv={pct(fe.anon_wall_opened, fe.anon_page_view)}
+          conv={`${pct(fe.anon_wall_opened, fe.anon_page_view)} of landings`}
         />
         <FunnelRow
           label="Signup completed"
           value={fe.anon_signup_completed}
-          conv={pct(fe.anon_signup_completed, fe.anon_wall_opened)}
+          conv={`${pct(fe.anon_signup_completed, fe.anon_wall_opened)} of walls`}
         />
         <FunnelRow
           label="Lesson 2 reached"
           value={fe.anon_lesson2_reached}
-          conv={pct(fe.anon_lesson2_reached, fe.anon_signup_completed)}
+          conv={`${pct(fe.anon_lesson2_reached, fe.anon_signup_completed)} of signups`}
         />
       </div>
       <div className="mt-2 text-[10px] leading-relaxed text-faint">
-        Today (UTC). % shows conversion from the previous stage. Resets
-        at midnight; for historical comparison query the table directly.
+        Today (UTC). Wall opens are measured from landings because they can
+        happen before completion; other percentages name their denominator.
+        Resets at midnight.
       </div>
+    </Tile>
+  );
+}
+
+function DistributionTile({ snap }: { snap: AdminAnonSummary }) {
+  return (
+    <Tile title="First-touch channel (today, UTC)">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[310px] text-right text-[10px]">
+          <thead className="text-faint">
+            <tr>
+              <th scope="col" className="pb-1.5 text-left font-medium">Source</th>
+              <th scope="col" className="pb-1.5 font-medium">Land</th>
+              <th scope="col" className="pb-1.5 font-medium">Run</th>
+              <th scope="col" className="pb-1.5 font-medium">Done</th>
+              <th scope="col" className="pb-1.5 font-medium">Sign up</th>
+              <th scope="col" className="pb-1.5 font-medium">L2</th>
+            </tr>
+          </thead>
+          <tbody className="font-mono text-ink">
+            {snap.distributionChannels.map((channel) => (
+              <tr key={channel.source} className="border-t border-border-soft/60">
+                <th scope="row" className="py-1.5 text-left font-sans font-medium capitalize text-muted">
+                  {channel.source}
+                </th>
+                <td>{channel.anon_page_view}</td>
+                <td>{channel.anon_first_run}</td>
+                <td>{channel.anon_lesson_completed}</td>
+                <td>{channel.anon_signup_completed}</td>
+                <td>{channel.anon_lesson2_reached}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-2 text-[10px] leading-relaxed text-faint">
+        Coarse first touch only: direct, organic lesson/category pages, or a
+        learner share. No raw referrer URL or share token is retained.
+      </p>
     </Tile>
   );
 }

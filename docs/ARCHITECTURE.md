@@ -54,7 +54,8 @@ Everything else (`VOLUMES`, `NETWORKS`, `INFO`, `BUILD`, `SERVICES`, `SECRETS`, 
 - **Zustand stores** — `projectStore`, `aiStore`, `sessionStore`, `runStore`, `preferencesStore`, `storageStore`, and `progressStore` (under `features/learning/stores/`). Editor + lesson contexts swap the first four in lockstep; `preferencesStore` is the single source of truth for every per-user preference (persona, OpenAI model, theme, onboarding flags, `uiLayout` bucket for panel widths). `useAIStatus` is a hook-level cache around `/api/user/ai-status`, subscribed by the tutor surfaces to show remaining-questions + source chips.
 - **Server-backed per-user state** — preferences, progress, editor project, and BYOK ciphertext all live in Supabase Postgres (tables `user_preferences`, `course_progress`, `lesson_progress`, `editor_project`, plus the `user_ai_costs` denorm of platform lifetime spend written in-transaction with `ai_usage_ledger`). Every store hydrates via `GET /api/user/…` on sign-in and mutates through optimistic in-memory writes + background `PATCH/PUT` — no localStorage bucket for progress or preferences. Sign-out clears the in-memory stores; nothing durable is ever written to `localStorage`.
 - **Shared tutor rendering** — `TutorResponseViews.tsx` is the single rendering surface for the tutor, reused by both the editor (`AssistantPanel`) and lessons (`GuidedTutorPanel`).
-- **Course content** — static JSON + Markdown in `frontend/public/courses/`. Loaded at runtime via fetch — no build step for authoring.
+- **Course content** — static JSON + Markdown in `frontend/public/courses/`. The interactive app loads it at runtime; the Vite build derives static public course/lesson documents, sitemap entries, a public-only registry, and per-lesson OG images from the same source.
+- **Distribution surface** — `/learn-to-code/`, `/learn-to-code/:courseId/`, and `/lessons/:courseId/:lessonId/` are raw, crawlable HTML rather than SPA fallbacks. Unknown reserved paths return 404, internal courses are removed from production assets, and CTA attribution is reduced to allowlisted first-touch enums/slugs before the URL is cleaned.
 - **Theme system** — `ThemePref` lives on `user_preferences.theme` and is read via `usePreferencesStore` → `data-theme` + `color-scheme` on `<html>`. Semantic Tailwind tokens resolve to CSS variables, so the app (Monaco included) swaps in lockstep.
 
 ## Backend
@@ -97,7 +98,7 @@ Three layers, each catching a different class of bug:
 
 ## API Surface
 
-Every route requires `Authorization: Bearer <supabase-access-token>` — `authMiddleware` verifies it via JWKS and attaches `req.userId` downstream. The only routes outside that gate are the health probes (`/api/health`, `/api/health/deep`) and `/api/metrics` (loopback-only unless `METRICS_TOKEN` is set, in which case it takes a Bearer token scoped to the scraper — not the user JWT).
+Every route requires `Authorization: Bearer <supabase-access-token>` — `authMiddleware` verifies it via JWKS and attaches `req.userId` downstream — unless explicitly listed as public. Public exceptions are the health probes, bounded anonymous lesson/share flows, strict fire-and-forget funnel telemetry, public share reads, and `/api/metrics` (loopback-only unless `METRICS_TOKEN` is set, in which case it takes a scraper token rather than a user JWT).
 
 | Method | Path | Purpose |
 | --- | --- | --- |
@@ -106,6 +107,7 @@ Every route requires `Authorization: Bearer <supabase-access-token>` — `authMi
 | `POST` | `/api/admin/platform-auth/unstick` | Production path — admin-JWT gated, phrase-confirmed, audit-logged. Clears the provider-auth kill flag set by a 401 on `/api/ai/ask` (auto-clears after 30 min otherwise) |
 | `POST` | `/api/admin/unstick-platform-auth` | Loopback-only break-glass (SSH onto VM and curl 127.0.0.1) for the case where the admin is locked out / JWT expired. Phase 26 dropped the prior `METRICS_TOKEN` dual-use to avoid trust-tier conflation |
 | `GET`  | `/api/metrics` | Prometheus exposition (loopback-only by default; Bearer-gated when `METRICS_TOKEN` is set) |
+| `POST` | `/api/telemetry/event` | Public, rate-limited anonymous journey signal. Accepts six allowlisted events plus privacy-bounded direct/organic/share first-touch fields; raw referrers, share tokens, arbitrary dimensions, and request failures never enter product UX. |
 | `POST` | `/api/session` | Create session + runner container (owner = `req.userId`). Returns `backendBootId` — a per-process `nanoid` the frontend caches so a later 404 can be diagnosed as "individual session reaped" vs "whole process restarted" |
 | `POST` | `/api/session/ping` | Heartbeat — 404 for "not found" and "not yours" (privacy). 404 body carries `backendBootId` so the frontend can detect a process restart and show a replaced-session modal instead of storming rebind |
 | `POST` | `/api/session/rebind` | Reuse same ID after expiry — 403 on owner mismatch. Returns `backendBootId` refresh |

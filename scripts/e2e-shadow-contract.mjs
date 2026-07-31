@@ -15,6 +15,7 @@ const ALLOWED = {
     "accessibility",
     "auth",
     "editor",
+    "growth",
     "learning",
     "platform",
     "security",

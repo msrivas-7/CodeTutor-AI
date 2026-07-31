@@ -1,7 +1,7 @@
 // Phase 21C: cinematic share route tests. Mirrors feedback.test.ts —
-// fake auth via x-test-user, real DB so RLS + constraints + the
-// SECURITY DEFINER functions are exercised end-to-end. Skips when
-// DATABASE_URL is unreachable.
+// fake auth via x-test-user, real DB so canonical catalog snapshots,
+// ownership predicates, RLS, and constraints are exercised end-to-end.
+// Skips when DATABASE_URL is unreachable.
 
 import express from "express";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -50,10 +50,6 @@ async function seedCompletedLesson(userId: string, courseId: string, lessonId: s
 const sampleBody = (overrides: Partial<Record<string, unknown>> = {}) => ({
   courseId: "python-fundamentals",
   lessonId: "hello-world",
-  lessonTitle: "Hello, world",
-  lessonOrder: 1,
-  courseTitle: "Python Fundamentals",
-  courseTotalLessons: 12,
   mastery: "strong" as const,
   timeSpentMs: 360_000,
   attemptCount: 1,
@@ -211,7 +207,7 @@ describe("POST /api/shares", () => {
       INSERT INTO public.shared_lesson_completions (
         share_token, user_id, course_id, lesson_id,
         lesson_title, lesson_order, course_title, course_total_lessons,
-        mastery, time_spent_ms, attempt_count, code_snippet, revoked_at
+        mastery, time_spent_ms, attempt_count, code_snippet, created_at, revoked_at
       )
       SELECT
         t,
@@ -226,6 +222,7 @@ describe("POST /api/shares", () => {
         360000,
         1,
         'print("hi")',
+        NOW() - INTERVAL '2 days',
         CASE WHEN t LIKE '%-revoked' THEN now() ELSE NULL END
       FROM unnest(${seedTokens}::text[]) AS t
     `;
@@ -251,7 +248,7 @@ describe("GET /api/shares/:token (public, anon-readable)", () => {
     expect(r.status).toBe(200);
     const body = await r.json();
     expect(body.shareToken).toBe(shareToken);
-    expect(body.lessonTitle).toBe("Hello, world");
+    expect(body.lessonTitle).toBe("Hello, World!");
     expect(body.codeSnippet).toBe('print("Hello, world!")');
     expect(body.displayName).toBe("Mehul");
     // user_id MUST NOT appear in the public payload.
@@ -265,10 +262,10 @@ describe("GET /api/shares/:token (public, anon-readable)", () => {
     expect(r.status).toBe(404);
   });
 
-  it("returns 400 for a malformed token", async () => {
+  it("returns 404 for a malformed token after reserved public routes pass through", async () => {
     if (!dbReachable) return;
     const r = await getPublic("not-a-real-token-format");
-    expect(r.status).toBe(400);
+    expect(r.status).toBe(404);
   });
 
   it("returns 404 after the share is revoked", async () => {
@@ -310,18 +307,15 @@ describe("DELETE /api/shares/:token", () => {
     const { shareToken } = await create.json();
     tokens.push(shareToken);
 
-    // The fake-auth header sets req.userId, which the SECURITY DEFINER
-    // revoke_share() reads via auth.uid(). In the test harness without
-    // a real Supabase JWT, auth.uid() returns NULL for the wrong user
-    // — the function's GUARD returns false → 404 from the route. This
-    // is the same behavior a real malicious caller would see.
+    // The server-side UPDATE includes user_id in its WHERE clause, so a
+    // different owner receives the same privacy-preserving 404 as a miss.
     const r = await deleteShare(other, shareToken);
     expect(r.status).toBe(404);
   });
 
   it("returns 401 for unauthenticated revoke", async () => {
     if (!dbReachable) return;
-    const r = await deleteShare(null, "aaaaaaaa");
+    const r = await deleteShare(null, "aaaaaaaaaaaa");
     expect(r.status).toBe(401);
   });
 });

@@ -119,10 +119,11 @@ specific enough to change a future action and narrow enough not to overfit.
 
 ### 5. Finish
 
-`finish` refuses to close a session with unresolved failed commands. It records
-the slice summary and tests, then runs `doctor`. Git remains the source of truth
-for code state; the harness handoff explains only the non-obvious operational
-context needed by the next session.
+`finish` refuses to close a session with unresolved failed commands or without
+at least one passing validation captured through `run`. It records the slice
+summary and tests, then runs `doctor`. Git remains the source of truth for code
+state; the harness handoff explains only the non-obvious operational context
+needed by the next session.
 
 ### 6. Garden
 

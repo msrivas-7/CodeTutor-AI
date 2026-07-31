@@ -536,7 +536,7 @@ function SharePageReady({ share }: SharePageReadyProps) {
             // within the embedder's own host. window.location.origin
             // resolves to codetutor.msrivas.com on the live site,
             // localhost:5173 in dev, etc.
-            href={`${window.location.origin}/?utm_source=share&utm_medium=lesson_share&utm_campaign=${share.shareToken}`}
+            href={`${window.location.origin}/?utm_source=share&utm_medium=lesson_share&utm_campaign=${encodeURIComponent(share.courseId)}&utm_content=${encodeURIComponent(share.lessonId)}&share_ref=${encodeURIComponent(share.shareToken)}`}
             label="Try this lesson — takes 4 minutes →"
             breathe={phase === "idle" && !reduce}
           />

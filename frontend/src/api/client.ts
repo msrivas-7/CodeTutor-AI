@@ -12,6 +12,7 @@ export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
 
 import { supabase } from "../auth/supabaseClient";
 import { ApiError } from "./ApiError";
+import { readDistributionAttribution } from "../features/distribution/attribution";
 
 // Read the response body once for an error path, then wrap it in ApiError.
 // We also `console.error` the raw so the detail survives in devtools even
@@ -529,10 +530,20 @@ export interface AdminAnonSummary {
    *  for "did the page get hit / wall open / signup happen" sanity. */
   funnelEvents: {
     anon_page_view: number;
+    anon_first_run: number;
+    anon_lesson_completed: number;
     anon_wall_opened: number;
     anon_signup_completed: number;
     anon_lesson2_reached: number;
   };
+  distributionChannels: Array<{
+    source: "direct" | "organic" | "share";
+    anon_page_view: number;
+    anon_first_run: number;
+    anon_lesson_completed: number;
+    anon_signup_completed: number;
+    anon_lesson2_reached: number;
+  }>;
   killSwitch: {
     /** True if /api/anon/* is currently enabled. */
     enabled: boolean;
@@ -1571,6 +1582,8 @@ export const api = {
   postFunnelEvent: (
     event:
       | "anon_page_view"
+      | "anon_first_run"
+      | "anon_lesson_completed"
       | "anon_wall_opened"
       | "anon_signup_completed"
       | "anon_lesson2_reached",
@@ -1587,7 +1600,11 @@ export const api = {
     void fetch(`${API_BASE}/api/telemetry/event`, {
       method: "POST",
       headers: JSON_HEADERS,
-      body: JSON.stringify({ event, reason }),
+      body: JSON.stringify({
+        event,
+        reason,
+        attribution: readDistributionAttribution(),
+      }),
     }).catch(() => {
       /* swallow — telemetry must not break the UX */
     });

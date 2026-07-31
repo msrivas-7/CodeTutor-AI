@@ -31,6 +31,17 @@ export function MarketingFooter() {
           <span aria-hidden="true" className="text-border">
             ·
           </span>
+          {/* Release B4 is a build-generated static document, so use a
+              normal anchor rather than React Router's client navigation. */}
+          <a
+            href="/learn-to-code/"
+            className="inline-flex min-h-11 items-center rounded px-2 transition hover:text-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+          >
+            Lessons
+          </a>
+          <span aria-hidden="true" className="text-border">
+            ·
+          </span>
           <Link
             to="/login"
             className="inline-flex min-h-11 items-center rounded px-2 transition hover:text-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"

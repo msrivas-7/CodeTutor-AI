@@ -138,6 +138,8 @@ interface LessonPageProps {
   onAnonExhausted?: () => void;
   onAnonShare?: (payload: AnonSharePayload, trigger: HTMLButtonElement) => void;
   onAnonTrialPaused?: () => void;
+  /** Fired once after the first anonymous Run commits a result. */
+  onAnonFirstRun?: () => void;
   /**
    * Phase A — A6 (memory v0): fired EXACTLY ONCE when the celebration
    * mounts on the anon path. AnonLessonPage uses it to fire the
@@ -159,6 +161,7 @@ export default function LessonPage({
   onAnonExhausted,
   onAnonShare,
   onAnonTrialPaused,
+  onAnonFirstRun,
   onAnonComplete,
 }: LessonPageProps = {}) {
   const params = useParams<{
@@ -446,6 +449,13 @@ export default function LessonPage({
   // is itself idempotent, but the network call is wasted on
   // dismiss/re-mount cycles.
   const anonCompleteFiredRef = useRef(false);
+  const anonFirstRunFiredRef = useRef(false);
+  useEffect(() => {
+    if (mode !== "anon" || !runner.hasRun || anonFirstRunFiredRef.current) return;
+    anonFirstRunFiredRef.current = true;
+    onAnonFirstRun?.();
+  }, [mode, runner.hasRun, onAnonFirstRun]);
+
   useEffect(() => {
     if (mode !== "anon") return;
     if (!validator.showComplete) return;
