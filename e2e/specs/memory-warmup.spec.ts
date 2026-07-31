@@ -208,8 +208,15 @@ test.describe("Phase B1 memory warm-up", () => {
     await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Continue to lesson" })).toBeVisible();
 
+    // React Strict Mode can let the initial effect reach the route once more
+    // before its development-only cleanup settles. The product contract is
+    // that the explicit retry adds exactly one request, not that the lifetime
+    // request count has a particular absolute value.
+    await page.waitForLoadState("networkidle");
+    const attemptsBeforeRetry = loadAttempts;
+    expect(attemptsBeforeRetry).toBeGreaterThanOrEqual(1);
     await page.getByRole("button", { name: "Try again" }).click();
-    await expect.poll(() => loadAttempts).toBe(2);
+    await expect.poll(() => loadAttempts).toBe(attemptsBeforeRetry + 1);
     await expect(page.getByText("Memory check unavailable")).toBeVisible();
 
     await page.getByRole("button", { name: "Continue to lesson" }).click();
