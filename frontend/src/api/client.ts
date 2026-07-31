@@ -410,6 +410,10 @@ export interface AskStreamRequest {
     lessonId: string;
     exerciseId?: string | null;
   } | null;
+  evalSamplingConsent?: {
+    version: 1;
+    subjectToken: string;
+  };
 }
 
 export interface AskStreamHandlers {
@@ -519,7 +523,8 @@ export type SystemConfigKey =
   // Phase A — A5 operational floor: anon-only global daily $ ceiling
   // and per-IP daily container-spawn cap on /api/anon/run.
   | "anon_daily_usd_cap"
-  | "anon_daily_runs_per_ip";
+  | "anon_daily_runs_per_ip"
+  | "ai_eval_sampling_enabled";
 
 export interface SystemConfigEntry {
   value: boolean | number;
@@ -720,6 +725,43 @@ export interface AdminBudgetWatcherState {
   lastFiredKey: string | null;
   dailyCapUsd: number;
   spentTodayUsd: number;
+}
+
+export interface AdminEvalSample {
+  id: string;
+  model: string;
+  language: string;
+  courseId: string;
+  lessonId: string;
+  intent: string;
+  tutorStage: string;
+  questionRedacted: string;
+  responseRedacted: string;
+  contentFingerprint: string;
+  fileCount: number;
+  sourceBytesBucket: string;
+  historyTurnCount: number;
+  hadRunResult: boolean;
+  runErrorType: string | null;
+  sectionKeys: string[];
+  redactionCounts: { code: number; sensitive: number; identifiers: number };
+  disposition: "pending_review" | "review_complete" | "synthesis_queued" | "rejected";
+  reviewCount: number;
+  distinctVerdictCount: number;
+  createdAt: string;
+  expiresAt: string;
+}
+
+export interface AdminEvalSynthesisQueueItem {
+  id: string;
+  sampleId: string;
+  sourceFingerprint: string;
+  reviewCount: number;
+  distinctVerdictCount: number;
+  state: "pending_synthesis" | "synthetic_case_authored" | "rejected";
+  syntheticCaseId: string | null;
+  createdAt: string;
+  resolvedAt: string | null;
 }
 
 export interface AdminPlatformAuthState {
@@ -970,6 +1012,9 @@ export const api = {
     }
     return (await res.json()) as RunResult;
   },
+
+  deleteAnonEvalSamples: (subjectToken: string) =>
+    delJson<{ ok: true }>("/api/anon/eval-samples", { subjectToken }),
 
   // Phase A — A2 (device contract): magic-link graduation handoff.
   // Returns the URL on success so the dialog can also render a QR that
@@ -1647,6 +1692,42 @@ export const api = {
       body,
     ),
 
+  adminListEvalSamples: (disposition = "pending_review") =>
+    get<{ samples: AdminEvalSample[]; nextCursor: string | null }>(
+      `/api/admin/eval-samples?limit=100&disposition=${encodeURIComponent(disposition)}`,
+    ),
+
+  adminReviewEvalSample: (
+    sampleId: string,
+    body: {
+      verdict: "pass" | "fail" | "ambiguous" | "reject_privacy";
+      issueCodes: Array<
+        | "factual_error"
+        | "unhelpful"
+        | "too_much_answer"
+        | "poor_grounding"
+        | "unsafe_content"
+        | "redaction_concern"
+        | "ambiguous_rubric"
+      >;
+      note?: string | null;
+    },
+  ) => put<{ ok: true }>(`/api/admin/eval-samples/${sampleId}/review`, body),
+
+  adminListEvalSynthesisQueue: () =>
+    get<{ items: AdminEvalSynthesisQueueItem[] }>(
+      "/api/admin/eval-synthesis-queue?limit=100",
+    ),
+
+  adminResolveEvalSynthesisQueue: (
+    queueId: string,
+    body: {
+      state: "synthetic_case_authored" | "rejected";
+      syntheticCaseId?: string | null;
+      reason: string;
+    },
+  ) => put<{ ok: true }>(`/api/admin/eval-synthesis-queue/${queueId}`, body),
+
   // Phase 27-v2: anon→authed handoff. Called from StartPage on first
   // mount after a freshly-signed-up user lands there from SignupPage
   // / AuthCallbackPage. Body comes from sessionStorage (see
@@ -1732,6 +1813,7 @@ export interface AnonHandoffBody {
     welcomeDone: boolean;
     workspaceCoachDone: boolean;
   };
+  evalSamplingSubjectToken?: string;
 }
 
 export interface AnonHandoffResponse {

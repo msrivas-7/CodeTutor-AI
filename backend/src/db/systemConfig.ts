@@ -81,6 +81,9 @@ export const KNOWN_KEYS = [
   //                             over the 30/min burst limiter).
   "anon_daily_usd_cap",
   "anon_daily_runs_per_ip",
+  // Phase B8: emergency drain for new eval samples. Existing rows still
+  // honor deletion and the 30-day expiry sweep while this is off.
+  "ai_eval_sampling_enabled",
 ] as const;
 export type SystemConfigKey = (typeof KNOWN_KEYS)[number];
 

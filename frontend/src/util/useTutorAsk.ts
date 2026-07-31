@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { api, type AskStreamRequest } from "../api/client";
+import { evalSamplingConsentForRequest } from "../features/anon/evalSamplingConsent";
 import { useAIStore } from "../state/aiStore";
 import { usePreferencesStore } from "../state/preferencesStore";
 import { useRunStore } from "../state/runStore";
@@ -239,6 +240,9 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
         }),
         requestId: crypto.randomUUID(),
         tutorProgressToken: tutorProgressToken ?? undefined,
+        evalSamplingConsent: isAnon
+          ? evalSamplingConsentForRequest()
+          : undefined,
       };
 
       let askOk = false;

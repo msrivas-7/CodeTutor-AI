@@ -13,7 +13,8 @@
     "eval:tutor": "tsx scripts/eval-tutor.ts",
     "eval:b3-models": "tsx scripts/compare-b3-models.ts",
     "eval:suspect-api": "tsx scripts/eval-suspect-api.ts",
-    "eval:verify-baseline": "tsx scripts/verify-eval-baseline.ts"
+    "eval:verify-baseline": "tsx scripts/verify-eval-baseline.ts",
+    "eval:verify-governance": "tsx scripts/verify-eval-governance.ts"
   },
   "dependencies": {
     "@azure/arm-containerinstance": "^9.1.0",

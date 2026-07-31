@@ -938,6 +938,53 @@ Detailed evidence lives in
 `docs/RELEASE_B7_SUSPECT_SYMBOL_TELEMETRY_PACKET.md`. The phase-specific
 persona verdict lives in `docs/B7_SUSPECT_SYMBOL_PERSONA_AUDIT.md`.
 
+### Parallel Release B8 — Governed anonymous eval sampling
+
+**Engineering release status (2026-07-31):** local implementation, real-
+database privacy/lifecycle tests, full backend/frontend regression, production
+builds, eval governance, database lint, Chromium/WebKit browser checks, and the
+18-lens audit pass. The phase commit, remote CI/preview matrix, and PR
+review-thread closeout remain pending.
+
+Deliver:
+
+- show a plain-language, explicit, off-by-default consent control only on the
+  anonymous platform-funded tutor;
+- select a deterministic 5% of successful turns without adding a model call or
+  learner-visible response latency;
+- project through a conservative pre-insert redactor into a bounded schema with
+  no source files, selections, terminal data, paths, IPs, raw history, or BYOK;
+- give the browser a high-entropy deletion capability, support retryable
+  turn-off/delete, link retained rows for user export/account cascade, and
+  enforce an exact 30-day maximum with an executable expiry job;
+- keep tables backend-only, admin reads/reviews audited, repeated patterns
+  deduplicated, and the two-independent-reviewer cap concurrency-safe;
+- close two-reviewer consensus and move only disagreement into a weekly
+  synthesis queue; delete privacy-rejected candidates immediately;
+- prohibit direct traffic promotion into the golden holdout and make explicit
+  expert/synthetic provenance, independent authoring, two reviewers, unique
+  source patterns, and duplicate-content checks part of CI;
+- provide an independent sampling kill switch that fails closed while tutor
+  delivery and existing-sample deletion/expiry continue.
+
+Exit:
+
+- unit, route, real-Postgres, concurrency, expiry, access, export/deletion,
+  admin-audit, and provenance tests cover every B8 invariant and unhappy path;
+- the full backend/frontend suites, typechecks, production builds, approved
+  baseline, governance verifier, suspect-symbol calibration, content/solution
+  checks, and asset budgets pass;
+- retry-disabled Chromium covers default-off, request-time consent, deletion,
+  retry failure, disclosure, privacy navigation, axe, keyboard, and 390px
+  reduced-motion layout; WebKit covers the critical phone/privacy journey;
+- linked Supabase migrations are at parity and schema lint is clean;
+- the 18-lens audit has no P0/P1 open, full PR CI/preview is green, every
+  actionable review thread is resolved, and the harness session is finished.
+
+Detailed evidence lives in
+`docs/RELEASE_B8_GOVERNED_EVAL_SAMPLING_PACKET.md`. The phase-specific persona
+verdict lives in `docs/B8_GOVERNED_EVAL_SAMPLING_PERSONA_AUDIT.md`.
+
 ## 8. Test and CI strategy
 
 ### 8.1 Current baseline

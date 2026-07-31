@@ -31,11 +31,12 @@
 //   - editor_project: the scratch editor's project store. Lesson
 //     code lives in lesson_progress.last_code, not editor_project.
 
-import { Router, type Request, type Response } from "express";
+import { Router, type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
 import { upsertLessonProgress, listLessonProgress } from "../db/lessonProgress.js";
 import { upsertCourseProgress } from "../db/courseProgress.js";
 import { upsertPreferences } from "../db/preferences.js";
+import { linkEvalSamplesToUser } from "../db/aiEvalSamples.js";
 
 const handoffBody = z.object({
   // Bounded to lesson 1 of python-fundamentals — same allowlist as
@@ -70,6 +71,10 @@ const handoffBody = z.object({
     welcomeDone: z.boolean(),
     workspaceCoachDone: z.boolean(),
   }),
+  // Optional B8 deletion capability from the signed-out browser. Linking by
+  // its stored hash makes account deletion cascade through any still-retained
+  // redacted samples. The raw token is never persisted.
+  evalSamplingSubjectToken: z.string().regex(/^[A-Za-z0-9_-]{43}$/).optional(),
 });
 
 export type HandoffBody = z.infer<typeof handoffBody>;
@@ -77,7 +82,7 @@ export type HandoffBody = z.infer<typeof handoffBody>;
 export function createAnonHandoffRouter(): Router {
   const router = Router();
 
-  router.post("/", async (req: Request, res: Response) => {
+  router.post("/", async (req: Request, res: Response, next: NextFunction) => {
     const userId = req.userId;
     if (!userId) {
       // authMiddleware should have populated req.userId; defensive
@@ -92,6 +97,18 @@ export function createAnonHandoffRouter(): Router {
         .json({ error: parsed.error.issues.map((i) => i.message).join("; ") });
     }
     const body = parsed.data;
+
+    // Do this before the lesson idempotency early-return: a refresh can find
+    // lesson 1 already complete while B8 samples still need ownership linked
+    // for export and account-deletion propagation.
+    if (body.evalSamplingSubjectToken) {
+      try {
+        await linkEvalSamplesToUser(body.evalSamplingSubjectToken, userId);
+      } catch (err) {
+        next(err);
+        return;
+      }
+    }
 
     // Idempotency check: did this user already complete lesson 1?
     // listLessonProgress already RLS-scopes by userId. If found

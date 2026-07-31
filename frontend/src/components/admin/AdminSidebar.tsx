@@ -20,6 +20,7 @@ const ENTRIES: AdminNavEntry[] = [
   { to: "/admin/audit", label: "Audit log", hint: "Admin actions" },
   // Phase 27-v2.2 Fix 7b — anon trial path observability tab.
   { to: "/admin/anon", label: "Trial path", hint: "Anon traffic + funnel" },
+  { to: "/admin/eval-quality", label: "Eval quality", hint: "Redacted review queue" },
 ];
 
 export function AdminSidebar() {

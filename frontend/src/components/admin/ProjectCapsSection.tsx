@@ -59,6 +59,7 @@ const KEY_LABEL: Record<SystemConfigKey, string> = {
   // Phase A — A5 operational floor.
   anon_daily_usd_cap: "Anon daily $ cap (global)",
   anon_daily_runs_per_ip: "Anon daily runs per IP",
+  ai_eval_sampling_enabled: "Anonymous eval sampling enabled",
 };
 
 // Inline help for each row — surfaced as a one-line description so the
@@ -88,6 +89,8 @@ const KEY_DESCRIPTION: Partial<Record<SystemConfigKey, string>> = {
     "503s POST /api/anon/laptop-link. The phone-graduation dialog falls back to the signup wall, so the funnel keeps a conversion lever. Use to drain magic-link abuse (token enumeration, mail-relay misuse) without killing the whole trial path.",
   anon_daily_runs_per_ip:
     "Per-IP daily cap on /api/anon/run container spawns (the expensive anon op). Bursts are bounded by the 30/min limiter; this stops sustained abuse. Over-cap requests get 429 ANON_RUN_CAP_EXCEEDED until UTC midnight. 0 drains the run surface without killing the whole trial.",
+  ai_eval_sampling_enabled:
+    "Master switch for new explicitly-consented, redacted 5% anonymous tutor samples. Existing samples still honor deletion and automatic expiry while this is off.",
 };
 
 const KEY_BOUNDS: Record<
@@ -120,6 +123,7 @@ const KEY_BOUNDS: Record<
   // server-side check is the load-bearing one).
   anon_daily_usd_cap: { type: "number", min: 0, max: 50, step: "0.01" },
   anon_daily_runs_per_ip: { type: "number", min: 0, max: 5000, step: "1" },
+  ai_eval_sampling_enabled: { type: "boolean" },
 };
 
 const PHRASE_DISABLE = "I understand this stops free AI for everyone";

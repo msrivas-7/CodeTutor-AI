@@ -1,4 +1,5 @@
 import { db } from "./client.js";
+import { listUserEvalSamples } from "./aiEvalSamples.js";
 
 // P-3 scaffold: user-owned data export. One entry point queries every table
 // the learner owns a row in, strips non-user fields (encrypted secrets,
@@ -45,6 +46,7 @@ export interface UserExportBundle {
   conceptEvidence: Array<Record<string, unknown>>;
   retrievalEpisodes: Array<Record<string, unknown>>;
   retrievalAnswers: Array<Record<string, unknown>>;
+  aiEvalSamples: Array<Record<string, unknown>>;
 }
 
 export async function buildUserExport(userId: string): Promise<UserExportBundle> {
@@ -66,6 +68,7 @@ export async function buildUserExport(userId: string): Promise<UserExportBundle>
     conceptEvidenceRows,
     retrievalEpisodeRows,
     retrievalAnswerRows,
+    aiEvalSampleRows,
   ] = await Promise.all([
     sql`
       SELECT persona, openai_model, theme, welcome_done, workspace_coach_done,
@@ -150,6 +153,7 @@ export async function buildUserExport(userId: string): Promise<UserExportBundle>
        WHERE user_id = ${userId}
        ORDER BY answered_at DESC
     `,
+    listUserEvalSamples(userId),
   ]);
 
   return {
@@ -167,5 +171,6 @@ export async function buildUserExport(userId: string): Promise<UserExportBundle>
     conceptEvidence: conceptEvidenceRows as Array<Record<string, unknown>>,
     retrievalEpisodes: retrievalEpisodeRows as Array<Record<string, unknown>>,
     retrievalAnswers: retrievalAnswerRows as Array<Record<string, unknown>>,
+    aiEvalSamples: aiEvalSampleRows,
   };
 }

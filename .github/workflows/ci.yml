@@ -158,6 +158,7 @@ jobs:
           npm ci
           npm test
           npm run eval:verify-baseline
+          npm run eval:verify-governance
       - name: Backend — suspect API calibration
         if: matrix.os == 'ubuntu-latest'
         working-directory: backend

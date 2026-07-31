@@ -32,7 +32,10 @@ import { Router, type Request, type Response } from "express";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { config } from "../config.js";
-import { isAnonLessonEnabled } from "../services/share/killSwitches.js";
+import {
+  isAiEvalSamplingEnabled,
+  isAnonLessonEnabled,
+} from "../services/share/killSwitches.js";
 import { anonLaptopInviteRouter } from "./anonLaptopInvite.js";
 import { anonShareRouter } from "./anonShare.js";
 import { anonConceptTagRouter } from "./anonConceptTag.js";
@@ -53,6 +56,10 @@ import {
   type CredentialNoneReason,
 } from "../services/ai/credential.js";
 import { incrementAnonRunCount } from "../db/anonRunCounts.js";
+import {
+  deleteEvalSamplesForSubjectToken,
+  insertEvalSample,
+} from "../db/aiEvalSamples.js";
 import {
   getEffectiveAnonDailyRunsPerIp,
   getEffectiveAnonDailyUsdCap,
@@ -77,7 +84,18 @@ import {
 import { resolveCanonicalAnonTutorContext } from "../services/ai/canonicalTutorContext.js";
 import { isContextualTutorModel } from "../services/ai/modelRegistry.js";
 import { routeTutorModel } from "../services/ai/modelRouting.js";
-import type { AIAskParams } from "../services/ai/provider.js";
+import type {
+  AIAskParams,
+  TutorIntent,
+  TutorSections,
+  TutorStage,
+} from "../services/ai/provider.js";
+import {
+  AI_EVAL_CONSENT_VERSION,
+  projectEvalSample,
+  shouldSampleEvalRequest,
+  type EvalSamplingConsent,
+} from "../services/ai/evalSampling.js";
 import {
   mintTutorProgressToken,
   resolveTutorStage,
@@ -183,7 +201,17 @@ const askStreamBody = z.object({
     lessonId: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/),
     exerciseId: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/).nullish(),
   }),
+  // B8 is explicit opt-in and anonymous-platform-only. The browser owns the
+  // opaque deletion token; only its domain-separated hash can be persisted.
+  evalSamplingConsent: z.object({
+    version: z.literal(AI_EVAL_CONSENT_VERSION),
+    subjectToken: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+  }).optional(),
 });
+
+const deleteEvalSamplesBody = z.object({
+  subjectToken: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+}).strict();
 
 function safePrice(
   model: string,
@@ -257,6 +285,22 @@ function respondAnonCredentialDenied(
 
 export function createAnonRouter(backend: ExecutionBackend): Router {
   const router = Router();
+
+  // Privacy controls stay available even when the trial product is drained.
+  // The token is 256 bits of browser-generated entropy and acts only as a
+  // delete capability; the server stores its hash and returns no row count.
+  router.delete("/eval-samples", async (req, res, next) => {
+    const parsed = deleteEvalSamplesBody.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: "INVALID_EVAL_DELETION_TOKEN" });
+    }
+    try {
+      await deleteEvalSamplesForSubjectToken(parsed.data.subjectToken);
+      return res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  });
 
   // Phase 27-v2 quick fix #5: kill switch. If ENABLE_ANON_LESSON=0,
   // every anon route short-circuits to 503 before doing any work
@@ -542,19 +586,27 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
       parsed.data.tutorProgressToken,
       progressIdentity,
     );
+    let routedIntent: TutorIntent;
     try {
-      providerParams.model = routeTutorModel({
+      const route = routeTutorModel({
         requestedModel: parsed.data.model,
         fundingSource: "platform",
         question: parsed.data.question,
         files: parsed.data.files,
         history: parsed.data.history,
         tutorStage: providerParams.tutorStage,
-      }).model;
+      });
+      providerParams.model = route.model;
+      routedIntent = route.intent;
     } catch (err) {
       console.error("[anon] model routing failed:", err);
       return res.status(503).json({ error: "AI_MODEL_ROUTING_UNAVAILABLE" });
     }
+    const evalSamplingEnabled =
+      parsed.data.evalSamplingConsent !== undefined &&
+      shouldSampleEvalRequest(parsed.data.requestId)
+        ? await isAiEvalSamplingEnabled()
+        : false;
     let estimate;
     try {
       estimate = estimateReservationForAsk(providerParams);
@@ -703,6 +755,26 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
               tutorProgressToken: mintTutorProgressToken(progressIdentity),
             });
             finish();
+            if (evalSamplingEnabled && parsed.data.evalSamplingConsent) {
+              // Optional quality collection begins only after the successful
+              // response is delivered. Pre-insert redaction runs immediately;
+              // the database write cannot extend learner-visible latency.
+              void safeCaptureEvalSample({
+                requestId: parsed.data.requestId,
+                consent: parsed.data.evalSamplingConsent,
+                model: providerParams.model,
+                language: ctx.language,
+                courseId: ctx.courseId,
+                lessonId: ctx.lessonId,
+                intent: routedIntent,
+                tutorStage: providerParams.tutorStage!,
+                question: parsed.data.question,
+                files: parsed.data.files,
+                history: parsed.data.history,
+                lastRun: parsed.data.lastRun ?? null,
+                sections,
+              });
+            }
           },
           onError: async (message, status) => {
             terminalFired = true;
@@ -814,4 +886,35 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
   router.use(anonConceptTagRouter);
 
   return router;
+}
+
+async function safeCaptureEvalSample(input: {
+  requestId: string;
+  consent: EvalSamplingConsent;
+  model: string;
+  language: string;
+  courseId: string;
+  lessonId: string;
+  intent: TutorIntent;
+  tutorStage: TutorStage;
+  question: string;
+  files: AIAskParams["files"];
+  history: NonNullable<AIAskParams["history"]>;
+  lastRun: { errorType: "none" | "compile" | "runtime" | "timeout" | "system" } | null;
+  sections: TutorSections;
+}): Promise<void> {
+  try {
+    await insertEvalSample(projectEvalSample(input));
+  } catch (err) {
+    // Sampling is never allowed to break or delay a completed tutor answer.
+    // Do not log raw content or the deletion token on this error path.
+    console.error(
+      JSON.stringify({
+        level: "error",
+        evt: "ai_eval_sample_insert_failed",
+        requestId: input.requestId,
+        msg: err instanceof Error ? err.message : String(err),
+      }),
+    );
+  }
 }

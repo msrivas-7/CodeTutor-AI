@@ -26,6 +26,7 @@ import { useShortcutLabels } from "../../../util/platform";
 import { useSavedTutorMessages } from "../hooks/useSavedTutorMessages";
 import { useProgressStore } from "../stores/progressStore";
 import type { LessonMeta, PracticeExercise } from "../types";
+import { EvalSamplingConsentControl } from "../../anon/EvalSamplingConsentControl";
 
 interface GuidedTutorPanelProps {
   lessonMeta: LessonMeta;
@@ -501,6 +502,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
           />
         ) : (
           <>
+            {mode === "anon" && <EvalSamplingConsentControl />}
             {activeSelection && (
               <SelectionPreview
                 selection={activeSelection.selection}

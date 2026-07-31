@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "policy": {
+    "trafficLane": "traffic_candidate",
+    "trustedLane": "repository_golden_holdout",
+    "directTrafficPromotionAllowed": false,
+    "minimumSyntheticReviewers": 2
+  },
+  "declarations": [
+    {
+      "caseIds": [
+        "g001", "g002", "g003", "g004", "g005", "g006", "g007", "g008", "g009", "g010",
+        "g011", "g012", "g013", "g014", "g015", "g016", "g017", "g018", "g019", "g020",
+        "g021", "g022", "g023", "g024", "g025", "g026", "g027", "g028", "g029", "g030"
+      ],
+      "origin": "expert-authored",
+      "authoredContext": "Phase A tutor-quality golden set"
+    },
+    {
+      "caseIds": [
+        "r001", "r002", "r003", "r004", "r005", "r006", "r007", "r008", "r009", "r010",
+        "r011", "r012", "r013", "r014", "r015", "r016", "r017", "r018", "r019", "r020",
+        "s001", "s002", "s003", "s004", "s005", "s006", "s007", "s008", "s009", "s010"
+      ],
+      "origin": "expert-authored",
+      "authoredContext": "Release 0D and B2 adversarial multi-turn regression set"
+    }
+  ]
+}
