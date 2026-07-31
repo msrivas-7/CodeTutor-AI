@@ -1,7 +1,7 @@
 # Release B7 suspect-symbol telemetry packet
 
-Status: local engineering gates complete; phase commit, remote CI, and review
-gates pending
+Status: engineering release gates complete at `8cf02ed`; production outcome
+evidence remains unavailable
 
 Branch: `dev/contextual-learning-roadmap`
 
@@ -141,9 +141,13 @@ B7 never mutates either.
 - [x] Full backend suite, typecheck, build, baseline verifier, and complete live
   model gate pass locally.
 - [x] The 18-lens persona audit has no local P0/P1 finding open.
-- [ ] Phase commit is pushed and the PR description is updated.
-- [ ] Full remote CI and the unchanged browser matrix are green.
-- [ ] Every actionable PR review thread is resolved.
+- [x] Phase commit is pushed and the PR description is updated.
+- [x] Full remote CI and the unchanged browser matrix are green: 29 checks
+  pass, including all six Chromium shards, Firefox, WebKit, the critical lane,
+  E2E shadow evidence, security, and preview deployment; only the expected
+  preview-close job is skipped while the PR remains open.
+- [x] Every actionable PR review thread is resolved; the thread-aware audit
+  found zero reviews and zero review threads.
 - [x] Harness doctor passes and the B7 session is finished.
 
 ## Claims deliberately not made

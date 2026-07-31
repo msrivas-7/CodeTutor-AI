@@ -898,10 +898,12 @@ The phase-specific persona verdict lives in
 
 ### Parallel Release B7 — Suspect-symbol telemetry
 
-**Local engineering status (2026-07-31):** implementation, calibration,
+**Engineering release status (2026-07-31):** implementation, calibration,
 persona, backend regression, typecheck, build, approved-baseline, and complete
-live model gates pass on `dev/contextual-learning-roadmap`. Phase commit,
-remote CI, and PR-thread gates remain pending.
+live model gates pass at `8cf02ed`. All 29 remote checks, including the full
+unchanged browser matrix and shadow evidence, pass; only the expected
+preview-close job is skipped while the PR remains open. The thread-aware audit
+found zero reviews and zero review threads.
 
 Deliver:
 
