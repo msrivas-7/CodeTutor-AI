@@ -139,6 +139,11 @@ export interface AIMessage {
 export interface AIModel {
   id: string;
   label: string;
+  qualityStatus: "evaluated" | "unevaluated";
+  contextualTutorEligible: boolean;
+  qualityLabel: string;
+  evalSetVersion: string | null;
+  registryVersion: string;
 }
 
 export interface AIAskResult {

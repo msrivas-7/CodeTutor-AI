@@ -23,7 +23,7 @@ export interface BuildBodyInput {
 
 export interface UseTutorAskOpts {
   // Compose the final AskStreamRequest from the shared inputs the hook gathers.
-  buildBody: (input: BuildBodyInput) => AskStreamRequest;
+  buildBody: (input: BuildBodyInput) => Omit<AskStreamRequest, "requestId">;
   // Pre-send hook — returns an optionally-adjusted history slice. The editor
   // panel uses this to plan a background summarize pass and ship a trimmed
   // window; guided mode omits it and ships the full turn-by-turn history.
@@ -179,13 +179,19 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
       const historyForSend =
         adjusted ?? history.map((m) => ({ role: m.role, content: m.content }));
 
-      const body = opts.buildBody({
-        question: trimmed,
-        files,
-        diffSinceLastTurn,
-        historyForSend,
-        selection: selectionForTurn,
-      });
+      // Release 0D: the server uses this as the idempotency key for the
+      // accepted action. A retry button is a new user action and therefore
+      // calls submitAsk again with a fresh UUID.
+      const body: AskStreamRequest = {
+        ...opts.buildBody({
+          question: trimmed,
+          files,
+          diffSinceLastTurn,
+          historyForSend,
+          selection: selectionForTurn,
+        }),
+        requestId: crypto.randomUUID(),
+      };
 
       let askOk = false;
       await api.askAIStream(

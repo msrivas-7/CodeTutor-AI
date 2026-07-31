@@ -99,7 +99,8 @@ test.describe("settings panel", () => {
     await openSettings(page, "tutor");
 
     // Type a key and save — mockAllAI's validate returns {valid:true} and
-    // models returns gpt-4o-mini + gpt-4o. The save button's accessible
+    // models returns one evaluated model plus two honest unevaluated options.
+    // The save button's accessible
     // name is "Validate and save API key" (dynamic aria-label).
     await page
       .locator('input[placeholder="sk-…"]')
@@ -111,13 +112,44 @@ test.describe("settings panel", () => {
     const modelSelect = page.getByRole("combobox", { name: /^model$/i });
     await expect(modelSelect).toBeVisible({ timeout: 10_000 });
 
-    // Both mocked options should be there.
-    await expect(modelSelect.locator("option")).toHaveCount(2);
+    await expect(modelSelect.locator("option")).toHaveCount(3);
+    await expect(modelSelect.locator("option").nth(0)).toHaveText(
+      "GPT-4.1 nano — evaluated",
+    );
+    await expect(modelSelect.locator("option").nth(1)).toHaveText(
+      "GPT-4o mini — not evaluated",
+    );
+    await expect(page.getByText(/evaluated for codetutor/i)).toBeVisible();
 
     // Change selection — the <select> reflects the new value synchronously;
     // cross-device persistence is covered in cross-device.spec.ts.
     await modelSelect.selectOption("gpt-4o");
     await expect(modelSelect).toHaveValue("gpt-4o");
+    await expect(
+      page.getByText(/not evaluated for teaching quality.*contextual lesson guidance is disabled/i),
+    ).toBeVisible();
+  });
+
+  test("Model quality labels remain readable at 390px", async ({ page }) => {
+    await seedApiKey(page, {
+      key: "sk-quality-label-padding-1234567890",
+      model: "gpt-4.1-nano",
+    });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/start");
+    await openSettings(page, "tutor");
+
+    const dialog = page.locator('[role="dialog"]');
+    const modelSelect = page.getByRole("combobox", { name: /^model$/i });
+    await expect(modelSelect).toBeVisible();
+    await expect(page.getByText(/evaluated for codetutor/i)).toBeVisible();
+    await expect(modelSelect.locator("option").nth(1)).toHaveText(
+      "GPT-4o mini — not evaluated",
+    );
+    const overflow = await dialog.evaluate(
+      (element) => element.scrollWidth - element.clientWidth,
+    );
+    expect(overflow).toBeLessThanOrEqual(1);
   });
 
   test("Invalid key surfaces the error and leaves the saved key untouched", async ({ page }) => {

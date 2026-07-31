@@ -328,8 +328,36 @@ export async function mockListModels(page: Page): Promise<void> {
       contentType: "application/json",
       body: JSON.stringify({
         models: [
-          { id: "gpt-4o-mini", label: "GPT-4o mini", supportsStream: true },
-          { id: "gpt-4o", label: "GPT-4o", supportsStream: true },
+          {
+            id: "gpt-4.1-nano",
+            label: "GPT-4.1 nano",
+            supportsStream: true,
+            qualityStatus: "evaluated",
+            contextualTutorEligible: true,
+            qualityLabel: "Evaluated for CodeTutor",
+            evalSetVersion: "2.0.0+evaluator.2.1.0",
+            registryVersion: "2026-07-31.v2",
+          },
+          {
+            id: "gpt-4o-mini",
+            label: "GPT-4o mini",
+            supportsStream: true,
+            qualityStatus: "unevaluated",
+            contextualTutorEligible: false,
+            qualityLabel: "Not evaluated for teaching quality",
+            evalSetVersion: null,
+            registryVersion: "2026-07-31.v2",
+          },
+          {
+            id: "gpt-4o",
+            label: "GPT-4o",
+            supportsStream: true,
+            qualityStatus: "unevaluated",
+            contextualTutorEligible: false,
+            qualityLabel: "Not evaluated for teaching quality",
+            evalSetVersion: null,
+            registryVersion: "2026-07-31.v2",
+          },
         ],
       }),
     });

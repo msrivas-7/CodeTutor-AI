@@ -33,6 +33,10 @@ temp/sessions/
 .agents/
 .codex/
 
+# Machine-local agent learning loop. The tracked AGENTS.md and harness utility
+# bootstrap this directory; accumulated incidents and project memory stay local.
+.agent-harness/
+
 # Playwright E2E artifacts (e2e/ has its own .gitignore; these catch stray
 # outputs when playwright is invoked from the repo root).
 test-results/

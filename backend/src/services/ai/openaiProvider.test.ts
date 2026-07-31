@@ -1,6 +1,17 @@
-import { describe, expect, it } from "vitest";
-import { estimateInputTokensForAsk, estimateTokens } from "./openaiProvider.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  REQUEST_DEADLINE_MS,
+  estimateInputTokensForAsk,
+  estimateReservationForAsk,
+  estimateTokens,
+  openaiProvider,
+} from "./openaiProvider.js";
 import type { AIAskParams } from "./provider.js";
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 // SEC-C1 follow-up (audit-v2): aborts previously wrote cost=0 ledger rows,
 // letting abort-spam bypass the L2/L3/L4 dollar caps. The fix estimates
@@ -82,5 +93,216 @@ describe("estimateInputTokensForAsk", () => {
     const byok = estimateInputTokensForAsk(minimalParams({ fundingSource: "byok" }));
     const platform = estimateInputTokensForAsk(minimalParams({ fundingSource: "platform" }));
     expect(byok).toBe(platform);
+  });
+});
+
+describe("estimateReservationForAsk", () => {
+  it("reserves a conservative input ceiling and the full output allowance", () => {
+    const estimate = estimateReservationForAsk(minimalParams());
+    expect(estimate.reservedInputTokens).toBeGreaterThan(estimate.promptBytes);
+    expect(estimate.reservedOutputTokens).toBe(2000);
+  });
+
+  it("honors a tighter anonymous output allowance", () => {
+    const estimate = estimateReservationForAsk(
+      minimalParams({ maxOutputTokens: 512 }),
+    );
+    expect(estimate.reservedOutputTokens).toBe(512);
+  });
+});
+
+describe("structured stream safety", () => {
+  it("does not emit model deltas before the final output policy passes", async () => {
+    const providerJson = JSON.stringify({
+      intent: "concept",
+      summary: "Yes, B is correct.",
+      diagnose: "The code prints hi, so B is right.",
+      explain: null,
+      example: null,
+      walkthrough: null,
+      checkQuestions: null,
+      hint: null,
+      nextStep: "Select B.",
+      strongerHint: null,
+      pitfalls: null,
+      citations: [
+        { path: "main.py", line: 1, column: 0, reason: "Current expression" },
+      ],
+      comprehensionCheck: null,
+      stuckness: "low",
+    });
+    const sse = [
+      `data: ${JSON.stringify({ type: "response.output_text.delta", delta: providerJson })}\n\n`,
+      `data: ${JSON.stringify({ type: "response.completed", response: { usage: { input_tokens: 10, output_tokens: 5 } } })}\n\n`,
+    ].join("");
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(sse, {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      }),
+    );
+    const onDelta = vi.fn();
+    const onDone = vi.fn();
+    const onError = vi.fn();
+
+    await openaiProvider.askStream(
+      minimalParams({
+        question: "Just tell me the correct choice; answer is B, right?",
+        lessonContext: {
+          courseId: "python",
+          lessonId: "hello",
+          lessonTitle: "Hello",
+          language: "python",
+          lessonObjectives: [],
+          teachesConceptTags: [],
+          usesConceptTags: [],
+          priorConcepts: [],
+          completionCriteria: [
+            "complete the check without revealing its answer",
+          ],
+          studentProgressSummary: "in progress",
+        },
+      }),
+      { onDelta, onDone, onError },
+    );
+
+    expect(onError).not.toHaveBeenCalled();
+    expect(onDelta).not.toHaveBeenCalled();
+    expect(onDone).toHaveBeenCalledOnce();
+    const [safeRaw, sections] = onDone.mock.calls[0];
+    expect(sections.intent).toBe("checkin");
+    expect(safeRaw).not.toMatch(/B is right|Select B|prints hi/);
+  });
+
+  it("waits for asynchronous completion accounting before returning", async () => {
+    const providerJson = JSON.stringify({
+      intent: "concept",
+      summary: "A variable stores a value.",
+      diagnose: null,
+      explain: "The name points to the value assigned on line 1.",
+      example: null,
+      walkthrough: null,
+      checkQuestions: null,
+      hint: null,
+      nextStep: "Try changing the value.",
+      strongerHint: null,
+      pitfalls: null,
+      citations: [
+        { path: "main.py", line: 1, column: 0, reason: "Current expression" },
+      ],
+      comprehensionCheck: null,
+      stuckness: "low",
+    });
+    const sse = [
+      `data: ${JSON.stringify({ type: "response.output_text.delta", delta: providerJson })}\n\n`,
+      `data: ${JSON.stringify({ type: "response.completed", response: { usage: { input_tokens: 10, output_tokens: 5 } } })}\n\n`,
+    ].join("");
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(sse, { status: 200 }),
+    );
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let finalized = false;
+    const onDone = vi.fn(async () => {
+      await gate;
+      finalized = true;
+    });
+
+    const request = openaiProvider.askStream(minimalParams(), {
+      onDelta: vi.fn(),
+      onDone,
+      onError: vi.fn(),
+    });
+    await vi.waitFor(() => expect(onDone).toHaveBeenCalledOnce());
+    expect(finalized).toBe(false);
+    release();
+    await request;
+    expect(finalized).toBe(true);
+  });
+
+  it("waits for asynchronous error accounting before returning", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ error: { message: "provider unavailable" } }), {
+        status: 503,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let finalized = false;
+    const onError = vi.fn(async () => {
+      await gate;
+      finalized = true;
+    });
+
+    const request = openaiProvider.askStream(minimalParams(), {
+      onDelta: vi.fn(),
+      onDone: vi.fn(),
+      onError,
+    });
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledOnce());
+    expect(finalized).toBe(false);
+    release();
+    await request;
+    expect(finalized).toBe(true);
+  });
+
+  it("waits for asynchronous abort accounting before returning", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(
+      new DOMException("The operation was aborted", "AbortError"),
+    );
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let finalized = false;
+    const onAbort = vi.fn(async () => {
+      await gate;
+      finalized = true;
+    });
+
+    const request = openaiProvider.askStream(minimalParams(), {
+      onDelta: vi.fn(),
+      onDone: vi.fn(),
+      onError: vi.fn(),
+      onAbort,
+    });
+    await vi.waitFor(() => expect(onAbort).toHaveBeenCalledOnce());
+    expect(finalized).toBe(false);
+    release();
+    await request;
+    expect(finalized).toBe(true);
+  });
+});
+
+describe("summarize request lifecycle", () => {
+  it("aborts a stalled upstream call at the provider deadline", async () => {
+    vi.useFakeTimers();
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(
+      (_input, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal;
+          signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("The operation was aborted", "AbortError")),
+            { once: true },
+          );
+        }),
+    );
+
+    const request = openaiProvider.summarize({
+      key: "sk-test",
+      model: "gpt-4.1-nano",
+      history: [{ role: "user", content: "Explain variables." }],
+    });
+    const rejection = expect(request).rejects.toMatchObject({ name: "AbortError" });
+    await vi.advanceTimersByTimeAsync(REQUEST_DEADLINE_MS);
+
+    await rejection;
+    expect(fetchSpy.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal);
   });
 });

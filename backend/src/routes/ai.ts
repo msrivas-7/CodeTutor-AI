@@ -1,7 +1,10 @@
 import { Router, type Request, type Response } from "express";
-import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { estimateInputTokensForAsk, openaiProvider } from "../services/ai/openaiProvider.js";
+import {
+  estimateReservationForAsk,
+  estimateReservationForSummary,
+  openaiProvider,
+} from "../services/ai/openaiProvider.js";
 import { languageSchema } from "../services/execution/commands.js";
 import {
   validateKeyUserRateLimit,
@@ -9,7 +12,6 @@ import {
 } from "../middleware/aiRateLimit.js";
 import { getOpenAIKey } from "../db/preferences.js";
 import { config } from "../config.js";
-import { completionRuleSchema } from "../schema/lessonRuleSchema.js";
 import {
   resolveAICredential,
   invalidateUsageCaches,
@@ -23,7 +25,6 @@ import {
   isPlatformAllowedModel,
   priceUsd,
 } from "../services/ai/pricing.js";
-import { writeUsageRow } from "../db/usageLedger.js";
 import {
   aiPlatformRequests,
   aiPlatformAbuseSignals,
@@ -34,6 +35,23 @@ import {
 } from "../services/shutdown/abortRegistry.js";
 import { hashUserId } from "../services/crypto/logHash.js";
 import { updateUserStreak } from "../db/userStreak.js";
+import {
+  finalizeAIRequest,
+  fingerprintAIRequest,
+  releaseAIRequest,
+  reserveAIRequest,
+  type AIAdmissionDeniedReason,
+  type FinalizeAIRequestInput,
+  type ReserveAIRequestResult,
+} from "../db/aiReservations.js";
+import {
+  getEffectiveDailyQuestionsCap,
+  getEffectiveDailyUsdCap,
+  getEffectiveDailyUsdCapPerUser,
+  getEffectiveLifetimeUsdCapPerUser,
+} from "../services/ai/effectiveCaps.js";
+import { resolveCanonicalTutorContext } from "../services/ai/canonicalTutorContext.js";
+import { isContextualTutorModel } from "../services/ai/modelRegistry.js";
 
 // Wire a per-request AbortController to (a) a config-driven deadline and
 // (b) the response's `close` event, so OpenAI calls stop burning tokens
@@ -212,22 +230,92 @@ function enforceModelAllowlist(
   return true;
 }
 
-// Wrap the writeUsageRow call so route handlers don't have to swallow DB
-// errors inline; a failed ledger write shouldn't take the whole response
-// down, but it MUST be logged and flagged — an unlogged platform call is a
-// hole in the cap enforcement.
-async function safeWriteUsage(
+async function safeFinalizeUsage(
   userId: string,
-  row: Omit<Parameters<typeof writeUsageRow>[0], "userId">,
+  route: "ask" | "ask_stream" | "summarize",
+  input: FinalizeAIRequestInput,
 ): Promise<void> {
   try {
-    await writeUsageRow({ userId, ...row });
-    if (row.fundingSource === "platform") {
-      invalidateUsageCaches(userId);
-    }
+    await finalizeAIRequest(input);
+    invalidateUsageCaches(userId);
   } catch (err) {
-    console.error(`[ai] ledger write failed user=${hashUserId(userId)} route=${row.route}:`, err);
+    // The reservation remains active and crash recovery will conservatively
+    // finalize it at the reserved maximum. Never create an unaccounted call.
+    console.error(`[ai] reservation finalize failed user=${hashUserId(userId)} route=${route}:`, err);
   }
+}
+
+function reservationTtlMs(): number {
+  return Math.min(config.aiRequestTimeoutMs, 60_000);
+}
+
+async function reserveUserAction(args: {
+  userId: string;
+  cred: Exclude<AICredential, { source: "none" }>;
+  requestId: string;
+  fingerprint: string;
+  model: string;
+  route: "ask" | "ask_stream" | "summarize";
+  countsTowardQuota: boolean;
+  reservedInputTokens: number;
+  reservedOutputTokens: number;
+}): Promise<ReserveAIRequestResult> {
+  const priced = safePrice(
+    args.model,
+    args.reservedInputTokens,
+    args.reservedOutputTokens,
+    args.cred.source,
+  );
+  const caps =
+    args.cred.source === "platform"
+      ? {
+          globalDailyUsd: await getEffectiveDailyUsdCap(),
+          userDailyQuestions: await getEffectiveDailyQuestionsCap(args.userId),
+          userDailyUsd: await getEffectiveDailyUsdCapPerUser(args.userId),
+          userLifetimeUsd: await getEffectiveLifetimeUsdCapPerUser(args.userId),
+        }
+      : undefined;
+  return reserveAIRequest({
+    actorKind: "user",
+    userId: args.userId,
+    requestId: args.requestId,
+    requestFingerprint: args.fingerprint,
+    fundingSource: args.cred.source,
+    model: args.model,
+    route: args.route,
+    countsTowardQuota: args.countsTowardQuota,
+    reservedInputTokens: args.reservedInputTokens,
+    reservedOutputTokens: args.reservedOutputTokens,
+    reservedCostUsd: priced.costUsd,
+    priceVersion: priced.priceVersion,
+    expiresInMs: reservationTtlMs(),
+    caps,
+  });
+}
+
+function respondReservationResult(
+  res: Response,
+  result: Exclude<ReserveAIRequestResult, { ok: true }>,
+): void {
+  if (result.kind === "duplicate") {
+    res.status(409).json({ error: "AI_REQUEST_ALREADY_ACCEPTED", state: result.state });
+    return;
+  }
+  if (result.kind === "conflict") {
+    res.status(409).json({ error: "AI_REQUEST_ID_CONFLICT" });
+    return;
+  }
+  const statusByReason: Record<AIAdmissionDeniedReason, number> = {
+    free_exhausted: 429,
+    anon_exhausted: 429,
+    daily_usd_per_user_hit: 503,
+    lifetime_usd_per_user_hit: 503,
+    usd_cap_hit: 503,
+  };
+  const error = result.reason === "free_exhausted"
+    ? "FREE_TIER_EXHAUSTED"
+    : "PLATFORM_AI_PAUSED";
+  res.status(statusByReason[result.reason]).json({ error, reason: result.reason });
 }
 
 // Cheap platform-route diagnostic: a user hit the per-user daily $ cap
@@ -312,6 +400,7 @@ const selectionSchema = z.object({
 });
 
 const askBody = z.object({
+  requestId: z.string().uuid(),
   model: z.string().min(1),
   question: z.string().min(1),
   files: z.array(projectFileSchema).max(50),
@@ -326,22 +415,14 @@ const askBody = z.object({
   persona: z.enum(["beginner", "intermediate", "advanced"]).optional(),
   selection: selectionSchema.nullish(),
   lessonContext: z.object({
-    courseId: z.string(),
-    lessonId: z.string(),
-    lessonTitle: z.string(),
-    language: languageSchema,
-    lessonObjectives: z.array(z.string()),
-    teachesConceptTags: z.array(z.string()),
-    usesConceptTags: z.array(z.string()),
-    priorConcepts: z.array(z.string()),
-    completionRules: z.array(completionRuleSchema),
-    studentProgressSummary: z.string(),
-    lessonOrder: z.number().int().optional(),
-    totalLessons: z.number().int().optional(),
+    courseId: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/),
+    lessonId: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/),
+    exerciseId: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/).nullish(),
   }).nullish(),
 });
 
 const summarizeBody = z.object({
+  requestId: z.string().uuid(),
   model: z.string().min(1),
   history: historySchema,
 });
@@ -354,52 +435,97 @@ aiRouter.post("/ask", async (req, res, next) => {
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.issues.map((i) => i.message).join("; ") });
   }
-  // Platform users are locked to the nano allowlist even if the client
-  // sends a bigger model. BYOK users use whatever they want.
   if (!enforceModelAllowlist(cred, parsed.data.model, res, "ask")) return;
-  const requestId = randomUUID();
-  const abort = requestAbortSignal(res, userId);
+
+  let canonicalLessonContext = null;
   try {
-    const result = await openaiProvider.ask({
-      key: cred.key,
+    if (parsed.data.lessonContext) {
+      if (!isContextualTutorModel(parsed.data.model)) {
+        return res.status(403).json({ error: "MODEL_NOT_EVALUATED_FOR_CONTEXTUAL_TUTOR" });
+      }
+      canonicalLessonContext = await resolveCanonicalTutorContext(
+        userId,
+        parsed.data.lessonContext,
+      );
+      if (!canonicalLessonContext) {
+        return res.status(404).json({ error: "LESSON_CONTEXT_NOT_FOUND" });
+      }
+    }
+  } catch (err) {
+    console.error(`[ai] canonical context failed user=${hashUserId(userId)} route=ask:`, err);
+    return res.status(503).json({ error: "LESSON_CONTEXT_UNAVAILABLE" });
+  }
+
+  const providerParams = {
+    key: cred.key,
+    model: parsed.data.model,
+    fundingSource: cred.source,
+    question: parsed.data.question,
+    files: parsed.data.files,
+    activeFile: parsed.data.activeFile,
+    language: parsed.data.language,
+    lastRun: parsed.data.lastRun ?? null,
+    history: parsed.data.history,
+    stdin: parsed.data.stdin ?? null,
+    diffSinceLastTurn: parsed.data.diffSinceLastTurn ?? null,
+    runsSinceLastTurn: parsed.data.runsSinceLastTurn,
+    editsSinceLastTurn: parsed.data.editsSinceLastTurn,
+    persona: parsed.data.persona,
+    selection: parsed.data.selection ?? null,
+    lessonContext: canonicalLessonContext,
+  };
+  let estimate;
+  try {
+    estimate = estimateReservationForAsk(providerParams);
+  } catch (err) {
+    return next(err);
+  }
+  let reservation: ReserveAIRequestResult;
+  try {
+    reservation = await reserveUserAction({
+      userId,
+      cred,
+      requestId: parsed.data.requestId,
+      fingerprint: fingerprintAIRequest({ ...parsed.data, lessonContext: canonicalLessonContext }),
       model: parsed.data.model,
-      fundingSource: cred.source,
-      question: parsed.data.question,
-      files: parsed.data.files,
-      activeFile: parsed.data.activeFile,
-      language: parsed.data.language,
-      lastRun: parsed.data.lastRun ?? null,
-      history: parsed.data.history,
-      stdin: parsed.data.stdin ?? null,
-      diffSinceLastTurn: parsed.data.diffSinceLastTurn ?? null,
-      runsSinceLastTurn: parsed.data.runsSinceLastTurn,
-      editsSinceLastTurn: parsed.data.editsSinceLastTurn,
-      persona: parsed.data.persona,
-      selection: parsed.data.selection ?? null,
-      lessonContext: parsed.data.lessonContext ?? null,
-      signal: abort.signal,
+      route: "ask",
+      countsTowardQuota: cred.source === "platform",
+      ...estimate,
     });
-    // Ledger write on success. For /ask both BYOK and platform rows land
-    // here; BYOK is for debugging/audit only, platform rows gate the caps.
-    const inTok = result.usage?.inputTokens ?? 0;
-    const outTok = result.usage?.outputTokens ?? 0;
-    const { costUsd, priceVersion } = safePrice(
+  } catch (err) {
+    console.error(`[ai] reservation failed user=${hashUserId(userId)} route=ask:`, err);
+    return res.status(503).json({ error: "AI_ADMISSION_UNAVAILABLE" });
+  }
+  if (!reservation.ok) {
+    respondReservationResult(res, reservation);
+    return;
+  }
+
+  const abort = requestAbortSignal(res, userId);
+  let providerStarted = false;
+  try {
+    providerStarted = true;
+    const result = await openaiProvider.ask({ ...providerParams, signal: abort.signal });
+    // Successful provider payloads normally include exact usage. If that
+    // metadata is absent, charge the admission ceiling rather than turning a
+    // telemetry omission into an unmetered platform call.
+    const usageKnown = result.usage !== undefined;
+    const inTok = result.usage?.inputTokens ?? estimate.reservedInputTokens;
+    const outTok = result.usage?.outputTokens ?? estimate.reservedOutputTokens;
+    const { costUsd } = safePrice(
       parsed.data.model,
       inTok,
       outTok,
       cred.source,
     );
-    await safeWriteUsage(userId, {
-      model: parsed.data.model,
-      fundingSource: cred.source,
-      route: "ask",
+    await safeFinalizeUsage(userId, "ask", {
+      requestId: parsed.data.requestId,
       countsTowardQuota: cred.source === "platform",
       inputTokens: inTok,
       outputTokens: outTok,
       costUsd,
-      priceVersion,
-      status: "finish",
-      requestId,
+      ledgerStatus: "finish",
+      providerOutcomeUncertain: !usageKnown,
     });
     // Phase A — A4: fabricated-API tripwire (measure-only).
     flagSuspectApis({
@@ -422,53 +548,26 @@ aiRouter.post("/ask", async (req, res, next) => {
     ) {
       markPlatformAuthFailed();
     }
-    // Client-close: response is already gone, no point forwarding to the
-    // error handler. Timeout: pass through so the client sees a 5xx.
-    // SEC-C1 follow-up (audit-v2): before returning on client-close,
-    // estimate the cost and write a ledger row. OpenAI bills input tokens
-    // once the request is accepted, even if the response is never read.
-    // `countsTowardQuota: false` — learner saw nothing useful, so the
-    // visible 30/day counter doesn't drain. But L2/L3/L4 dollar caps
-    // SEE the spend via SUM(cost_usd).
-    if (abort.reason() === "client-close") {
-      const estInputTokens = estimateInputTokensForAsk({
-        key: cred.key,
-        model: parsed.data.model,
-        fundingSource: cred.source,
-        question: parsed.data.question,
-        files: parsed.data.files,
-        activeFile: parsed.data.activeFile,
-        language: parsed.data.language,
-        lastRun: parsed.data.lastRun ?? null,
-        history: parsed.data.history,
-        stdin: parsed.data.stdin ?? null,
-        diffSinceLastTurn: parsed.data.diffSinceLastTurn ?? null,
-        runsSinceLastTurn: parsed.data.runsSinceLastTurn,
-        editsSinceLastTurn: parsed.data.editsSinceLastTurn,
-        persona: parsed.data.persona,
-        selection: parsed.data.selection ?? null,
-        lessonContext: parsed.data.lessonContext ?? null,
-      });
-      const { costUsd, priceVersion } = safePrice(
+    if (providerStarted) {
+      const { costUsd } = safePrice(
         parsed.data.model,
-        estInputTokens,
-        0,
+        estimate.reservedInputTokens,
+        estimate.reservedOutputTokens,
         cred.source,
       );
-      await safeWriteUsage(userId, {
-        model: parsed.data.model,
-        fundingSource: cred.source,
-        route: "ask",
+      await safeFinalizeUsage(userId, "ask", {
+        requestId: parsed.data.requestId,
         countsTowardQuota: false,
-        inputTokens: estInputTokens,
-        outputTokens: 0,
+        inputTokens: estimate.reservedInputTokens,
+        outputTokens: estimate.reservedOutputTokens,
         costUsd,
-        priceVersion,
-        status: "aborted",
-        requestId,
+        ledgerStatus: "aborted",
+        providerOutcomeUncertain: true,
       });
-      return;
+    } else {
+      await releaseAIRequest(parsed.data.requestId);
     }
+    if (abort.reason() === "client-close") return;
     next(err);
   } finally {
     abort.cleanup();
@@ -484,7 +583,72 @@ aiRouter.post("/ask/stream", async (req, res) => {
     return res.status(400).json({ error: parsed.error.issues.map((i) => i.message).join("; ") });
   }
   if (!enforceModelAllowlist(cred, parsed.data.model, res, "ask_stream")) return;
-  const requestId = randomUUID();
+
+  let canonicalLessonContext = null;
+  try {
+    if (parsed.data.lessonContext) {
+      if (!isContextualTutorModel(parsed.data.model)) {
+        return res.status(403).json({ error: "MODEL_NOT_EVALUATED_FOR_CONTEXTUAL_TUTOR" });
+      }
+      canonicalLessonContext = await resolveCanonicalTutorContext(
+        userId,
+        parsed.data.lessonContext,
+      );
+      if (!canonicalLessonContext) {
+        return res.status(404).json({ error: "LESSON_CONTEXT_NOT_FOUND" });
+      }
+    }
+  } catch (err) {
+    console.error(`[ai] canonical context failed user=${hashUserId(userId)} route=ask_stream:`, err);
+    return res.status(503).json({ error: "LESSON_CONTEXT_UNAVAILABLE" });
+  }
+
+  const providerParams = {
+    key: cred.key,
+    model: parsed.data.model,
+    fundingSource: cred.source,
+    question: parsed.data.question,
+    files: parsed.data.files,
+    activeFile: parsed.data.activeFile,
+    language: parsed.data.language,
+    lastRun: parsed.data.lastRun ?? null,
+    history: parsed.data.history,
+    stdin: parsed.data.stdin ?? null,
+    diffSinceLastTurn: parsed.data.diffSinceLastTurn ?? null,
+    runsSinceLastTurn: parsed.data.runsSinceLastTurn,
+    editsSinceLastTurn: parsed.data.editsSinceLastTurn,
+    persona: parsed.data.persona,
+    selection: parsed.data.selection ?? null,
+    lessonContext: canonicalLessonContext,
+  };
+  let estimate;
+  try {
+    estimate = estimateReservationForAsk(providerParams);
+  } catch (err) {
+    return res.status(err instanceof AIProviderError && err.status ? err.status : 400)
+      .json({ error: err instanceof Error ? err.message : "INVALID_AI_REQUEST" });
+  }
+  let reservation: ReserveAIRequestResult;
+  try {
+    reservation = await reserveUserAction({
+      userId,
+      cred,
+      requestId: parsed.data.requestId,
+      fingerprint: fingerprintAIRequest({ ...parsed.data, lessonContext: canonicalLessonContext }),
+      model: parsed.data.model,
+      route: "ask_stream",
+      countsTowardQuota: cred.source === "platform",
+      reservedInputTokens: estimate.reservedInputTokens,
+      reservedOutputTokens: estimate.reservedOutputTokens,
+    });
+  } catch (err) {
+    console.error(`[ai] reservation failed user=${hashUserId(userId)} route=ask_stream:`, err);
+    return res.status(503).json({ error: "AI_ADMISSION_UNAVAILABLE" });
+  }
+  if (!reservation.ok) {
+    respondReservationResult(res, reservation);
+    return;
+  }
 
   // Phase 21B: a substantive tutor question is a qualifying streak signal.
   // Fire-and-forget so the SSE stream isn't blocked on streak math; the
@@ -531,25 +695,7 @@ aiRouter.post("/ask/stream", async (req, res) => {
 
   try {
     await openaiProvider.askStream(
-      {
-        key: cred.key,
-        model: parsed.data.model,
-        fundingSource: cred.source,
-        question: parsed.data.question,
-        files: parsed.data.files,
-        activeFile: parsed.data.activeFile,
-        language: parsed.data.language,
-        lastRun: parsed.data.lastRun ?? null,
-        history: parsed.data.history,
-        stdin: parsed.data.stdin ?? null,
-        diffSinceLastTurn: parsed.data.diffSinceLastTurn ?? null,
-        runsSinceLastTurn: parsed.data.runsSinceLastTurn,
-        editsSinceLastTurn: parsed.data.editsSinceLastTurn,
-        persona: parsed.data.persona,
-        selection: parsed.data.selection ?? null,
-        lessonContext: parsed.data.lessonContext ?? null,
-        signal: abort.signal,
-      },
+      { ...providerParams, signal: abort.signal },
       {
         onDelta: (chunk) => {
           if (closed) return;
@@ -557,25 +703,23 @@ aiRouter.post("/ask/stream", async (req, res) => {
         },
         onDone: async (raw, sections, usage) => {
           terminalFired = true;
-          const inTok = usage?.inputTokens ?? 0;
-          const outTok = usage?.outputTokens ?? 0;
-          const { costUsd, priceVersion } = safePrice(
+          const usageKnown = usage !== undefined;
+          const inTok = usage?.inputTokens ?? estimate.reservedInputTokens;
+          const outTok = usage?.outputTokens ?? estimate.reservedOutputTokens;
+          const { costUsd } = safePrice(
             parsed.data.model,
             inTok,
             outTok,
             cred.source,
           );
-          await safeWriteUsage(userId, {
-            model: parsed.data.model,
-            fundingSource: cred.source,
-            route: "ask_stream",
+          await safeFinalizeUsage(userId, "ask_stream", {
+            requestId: parsed.data.requestId,
             countsTowardQuota: cred.source === "platform",
             inputTokens: inTok,
             outputTokens: outTok,
             costUsd,
-            priceVersion,
-            status: "finish",
-            requestId,
+            ledgerStatus: "finish",
+            providerOutcomeUncertain: !usageKnown,
           });
           // Phase A — A4: fabricated-API tripwire (measure-only).
           flagSuspectApis({
@@ -597,17 +741,20 @@ aiRouter.post("/ask/stream", async (req, res) => {
           if (cred.source === "platform" && status === 401) {
             markPlatformAuthFailed();
           }
-          await safeWriteUsage(userId, {
-            model: parsed.data.model,
-            fundingSource: cred.source,
-            route: "ask_stream",
+          const reservedPrice = safePrice(
+            parsed.data.model,
+            estimate.reservedInputTokens,
+            estimate.reservedOutputTokens,
+            cred.source,
+          );
+          await safeFinalizeUsage(userId, "ask_stream", {
+            requestId: parsed.data.requestId,
             countsTowardQuota: false,
-            inputTokens: 0,
-            outputTokens: 0,
-            costUsd: 0,
-            priceVersion: 1,
-            status: "error",
-            requestId,
+            inputTokens: estimate.reservedInputTokens,
+            outputTokens: estimate.reservedOutputTokens,
+            costUsd: reservedPrice.costUsd,
+            ledgerStatus: "error",
+            providerOutcomeUncertain: true,
           });
           if (closed) return;
           send({ error: message });
@@ -622,23 +769,20 @@ aiRouter.post("/ask/stream", async (req, res) => {
           // — the learner saw nothing useful, so the visible 30/day
           // counter doesn't drain. But the dollar caps SEE the spend.
           terminalFired = true;
-          const { costUsd, priceVersion } = safePrice(
+          const { costUsd } = safePrice(
             parsed.data.model,
             estUsage.inputTokens,
             estUsage.outputTokens,
             cred.source,
           );
-          await safeWriteUsage(userId, {
-            model: parsed.data.model,
-            fundingSource: cred.source,
-            route: "ask_stream",
+          await safeFinalizeUsage(userId, "ask_stream", {
+            requestId: parsed.data.requestId,
             countsTowardQuota: false,
             inputTokens: estUsage.inputTokens,
             outputTokens: estUsage.outputTokens,
             costUsd,
-            priceVersion,
-            status: "aborted",
-            requestId,
+            ledgerStatus: "aborted",
+            providerOutcomeUncertain: true,
           });
         },
       }
@@ -647,18 +791,45 @@ aiRouter.post("/ask/stream", async (req, res) => {
     // happen now that onAbort covers both abort paths, but write a
     // zero-cost marker so the request is traceable if it ever does.
     if (!terminalFired) {
-      await safeWriteUsage(userId, {
-        model: parsed.data.model,
-        fundingSource: cred.source,
-        route: "ask_stream",
+      const reservedPrice = safePrice(
+        parsed.data.model,
+        estimate.reservedInputTokens,
+        estimate.reservedOutputTokens,
+        cred.source,
+      );
+      await safeFinalizeUsage(userId, "ask_stream", {
+        requestId: parsed.data.requestId,
         countsTowardQuota: false,
-        inputTokens: 0,
-        outputTokens: 0,
-        costUsd: 0,
-        priceVersion: 1,
-        status: "aborted",
-        requestId,
+        inputTokens: estimate.reservedInputTokens,
+        outputTokens: estimate.reservedOutputTokens,
+        costUsd: reservedPrice.costUsd,
+        ledgerStatus: "aborted",
+        providerOutcomeUncertain: true,
       });
+    }
+  } catch (err) {
+    if (!terminalFired) {
+      terminalFired = true;
+      const reservedPrice = safePrice(
+        parsed.data.model,
+        estimate.reservedInputTokens,
+        estimate.reservedOutputTokens,
+        cred.source,
+      );
+      await safeFinalizeUsage(userId, "ask_stream", {
+        requestId: parsed.data.requestId,
+        countsTowardQuota: false,
+        inputTokens: estimate.reservedInputTokens,
+        outputTokens: estimate.reservedOutputTokens,
+        costUsd: reservedPrice.costUsd,
+        ledgerStatus: "error",
+        providerOutcomeUncertain: true,
+      });
+    }
+    console.error(`[ai] stream failed user=${hashUserId(userId)}:`, err);
+    if (!closed) {
+      send({ error: "internal_error" });
+      done();
     }
   } finally {
     abort.cleanup();
@@ -680,17 +851,46 @@ aiRouter.post("/summarize", async (req, res, next) => {
     return res.json({ summary: "" });
   }
   if (!enforceModelAllowlist(cred, parsed.data.model, res, "summarize")) return;
-  const requestId = randomUUID();
+  let estimate;
+  try {
+    estimate = estimateReservationForSummary(parsed.data.history);
+  } catch (err) {
+    return next(err);
+  }
+  let reservation: ReserveAIRequestResult;
+  try {
+    reservation = await reserveUserAction({
+      userId,
+      cred,
+      requestId: parsed.data.requestId,
+      fingerprint: fingerprintAIRequest(parsed.data),
+      model: parsed.data.model,
+      route: "summarize",
+      countsTowardQuota: false,
+      reservedInputTokens: estimate.reservedInputTokens,
+      reservedOutputTokens: estimate.reservedOutputTokens,
+    });
+  } catch (err) {
+    console.error(`[ai] reservation failed user=${hashUserId(userId)} route=summarize:`, err);
+    return res.status(503).json({ error: "AI_ADMISSION_UNAVAILABLE" });
+  }
+  if (!reservation.ok) {
+    respondReservationResult(res, reservation);
+    return;
+  }
+  const abort = requestAbortSignal(res, userId);
   try {
     const result = await openaiProvider.summarize({
       key: cred.key,
       model: parsed.data.model,
       fundingSource: cred.source,
       history: parsed.data.history,
+      signal: abort.signal,
     });
-    const inTok = result.usage?.inputTokens ?? 0;
-    const outTok = result.usage?.outputTokens ?? 0;
-    const { costUsd, priceVersion } = safePrice(
+    const usageKnown = result.usage !== undefined;
+    const inTok = result.usage?.inputTokens ?? estimate.reservedInputTokens;
+    const outTok = result.usage?.outputTokens ?? estimate.reservedOutputTokens;
+    const { costUsd } = safePrice(
       parsed.data.model,
       inTok,
       outTok,
@@ -700,17 +900,14 @@ aiRouter.post("/summarize", async (req, res, next) => {
     // visible 30/day question budget. Users don't see summarize calls —
     // counting them would feel like cheating the learner out of their
     // budget. Caps L2/L3/L4 still apply through cost_usd.
-    await safeWriteUsage(userId, {
-      model: parsed.data.model,
-      fundingSource: cred.source,
-      route: "summarize",
+    await safeFinalizeUsage(userId, "summarize", {
+      requestId: parsed.data.requestId,
       countsTowardQuota: false,
       inputTokens: inTok,
       outputTokens: outTok,
       costUsd,
-      priceVersion,
-      status: "finish",
-      requestId,
+      ledgerStatus: "finish",
+      providerOutcomeUncertain: !usageKnown,
     });
     res.json({ summary: result.summary });
   } catch (err) {
@@ -723,7 +920,24 @@ aiRouter.post("/summarize", async (req, res, next) => {
     ) {
       markPlatformAuthFailed();
     }
-    next(err);
+    const reservedPrice = safePrice(
+      parsed.data.model,
+      estimate.reservedInputTokens,
+      estimate.reservedOutputTokens,
+      cred.source,
+    );
+    await safeFinalizeUsage(userId, "summarize", {
+      requestId: parsed.data.requestId,
+      countsTowardQuota: false,
+      inputTokens: estimate.reservedInputTokens,
+      outputTokens: estimate.reservedOutputTokens,
+      costUsd: reservedPrice.costUsd,
+      ledgerStatus: "error",
+      providerOutcomeUncertain: true,
+    });
+    if (abort.reason() !== "client-close") next(err);
+  } finally {
+    abort.cleanup();
   }
 });
 

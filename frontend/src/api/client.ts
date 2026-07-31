@@ -332,6 +332,8 @@ export interface EditorProjectResponse extends EditorProjectPayload {
 }
 
 export interface AskStreamRequest {
+  /** One identifier per user-accepted action; never reused for a new action. */
+  requestId: string;
   model: string;
   question: string;
   files: ProjectFile[];
@@ -348,16 +350,7 @@ export interface AskStreamRequest {
   lessonContext?: {
     courseId: string;
     lessonId: string;
-    lessonTitle: string;
-    language: Language;
-    lessonObjectives: string[];
-    teachesConceptTags: string[];
-    usesConceptTags: string[];
-    priorConcepts: string[];
-    completionRules: CompletionRule[];
-    studentProgressSummary: string;
-    lessonOrder?: number;
-    totalLessons?: number;
+    exerciseId?: string | null;
   } | null;
 }
 
@@ -1138,7 +1131,10 @@ export const api = {
   // Phase 18e: the key is stored server-side now; these routes look it up
   // via the authenticated userId, so the client no longer forwards one.
   summarizeHistory: (body: { model: string; history: AIMessage[] }) =>
-    post<{ summary: string }>("/api/ai/summarize", body),
+    post<{ summary: string }>("/api/ai/summarize", {
+      ...body,
+      requestId: crypto.randomUUID(),
+    }),
   listOpenAIModels: () => get<{ models: AIModel[] }>("/api/ai/models"),
 
   // Phase 20-P1: global feedback channel. Body-or-mood is required (backend

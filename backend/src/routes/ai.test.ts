@@ -16,11 +16,11 @@ vi.mock("../db/preferences.js", () => ({
   getOpenAIKey: vi.fn(),
 }));
 
-// Phase 20-P4: the route writes a ledger row on finish. In unit tests
-// there's no DATABASE_URL; the route's safeWriteUsage catches and logs,
-// but we mock it here so the spec output stays clean.
-vi.mock("../db/usageLedger.js", () => ({
-  writeUsageRow: vi.fn(async () => undefined),
+vi.mock("../db/aiReservations.js", () => ({
+  fingerprintAIRequest: vi.fn(() => "fingerprint"),
+  reserveAIRequest: vi.fn(async () => ({ ok: true, remainingToday: null })),
+  finalizeAIRequest: vi.fn(async () => "finalized"),
+  releaseAIRequest: vi.fn(async () => "released"),
 }));
 
 // Credential resolver depends on the ledger + denylist. Mock to a passthrough
@@ -83,6 +83,15 @@ vi.mock("../middleware/authMiddleware.js", () => ({
 }));
 
 vi.mock("../services/ai/openaiProvider.js", () => ({
+  estimateReservationForAsk: vi.fn(() => ({
+    reservedInputTokens: 100,
+    reservedOutputTokens: 50,
+    promptBytes: 100,
+  })),
+  estimateReservationForSummary: vi.fn(() => ({
+    reservedInputTokens: 100,
+    reservedOutputTokens: 50,
+  })),
   openaiProvider: {
     validateKey: vi.fn(async () => ({ valid: true })),
     listModels: vi.fn(async () => [{ id: "gpt-4.1", label: "gpt-4.1" }]),
@@ -95,6 +104,7 @@ vi.mock("../services/ai/openaiProvider.js", () => ({
 const { aiRouter } = await import("./ai.js");
 const { getOpenAIKey } = await import("../db/preferences.js");
 const { openaiProvider } = await import("../services/ai/openaiProvider.js");
+const { reserveAIRequest, finalizeAIRequest } = await import("../db/aiReservations.js");
 const { errorHandler } = await import("../middleware/errorHandler.js");
 
 let srv: Server;
@@ -109,6 +119,7 @@ function req(userId: string | null, path: string, init: RequestInit = {}) {
 
 function validAskBody(overrides: Record<string, unknown> = {}) {
   return {
+    requestId: "00000000-0000-4000-8000-000000000001",
     model: "gpt-4.1",
     question: "why is this code wrong?",
     files: [{ path: "main.py", content: "print('hi')" }],
@@ -145,6 +156,10 @@ beforeEach(() => {
   vi.mocked(openaiProvider.summarize).mockReset();
   vi.mocked(openaiProvider.validateKey).mockReset();
   vi.mocked(getOpenAIKey).mockReset();
+  vi.mocked(reserveAIRequest).mockReset();
+  vi.mocked(reserveAIRequest).mockResolvedValue({ ok: true, remainingToday: null });
+  vi.mocked(finalizeAIRequest).mockReset();
+  vi.mocked(finalizeAIRequest).mockResolvedValue("finalized");
 });
 
 describe("POST /api/ai/ask — KEY_MISSING", () => {
@@ -207,6 +222,18 @@ describe("POST /api/ai/ask — schema validation", () => {
     expect(res.status).toBe(400);
   });
 
+  it("returns 400 when the caller omits the accepted-action id", async () => {
+    vi.mocked(getOpenAIKey).mockResolvedValueOnce("sk-test");
+    const { requestId: _omitted, ...body } = validAskBody();
+    const res = await req("u-1", "/api/ai/ask", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    expect(res.status).toBe(400);
+    expect(vi.mocked(reserveAIRequest)).not.toHaveBeenCalled();
+    expect(vi.mocked(openaiProvider.ask)).not.toHaveBeenCalled();
+  });
+
   it("returns 400 when question is empty", async () => {
     vi.mocked(getOpenAIKey).mockResolvedValueOnce("sk-test");
     const res = await req("u-1", "/api/ai/ask", {
@@ -259,6 +286,42 @@ describe("POST /api/ai/ask — schema validation", () => {
     const call = vi.mocked(openaiProvider.ask).mock.calls[0][0];
     expect(call.key).toBe("sk-test");
     expect(call.signal).toBeDefined();
+    expect(vi.mocked(reserveAIRequest)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(finalizeAIRequest)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(finalizeAIRequest)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inputTokens: 100,
+        outputTokens: 50,
+        ledgerStatus: "finish",
+        providerOutcomeUncertain: true,
+      }),
+    );
+  });
+
+  it("makes zero provider calls when the reservation store is unavailable", async () => {
+    vi.mocked(getOpenAIKey).mockResolvedValueOnce("sk-test");
+    vi.mocked(reserveAIRequest).mockRejectedValueOnce(new Error("db down"));
+    const res = await req("u-1", "/api/ai/ask", {
+      method: "POST",
+      body: JSON.stringify(validAskBody()),
+    });
+    expect(res.status).toBe(503);
+    expect(vi.mocked(openaiProvider.ask)).not.toHaveBeenCalled();
+  });
+
+  it("rejects a duplicate action without calling the provider again", async () => {
+    vi.mocked(getOpenAIKey).mockResolvedValueOnce("sk-test");
+    vi.mocked(reserveAIRequest).mockResolvedValueOnce({
+      ok: false,
+      kind: "duplicate",
+      state: "reserved",
+    });
+    const res = await req("u-1", "/api/ai/ask", {
+      method: "POST",
+      body: JSON.stringify(validAskBody()),
+    });
+    expect(res.status).toBe(409);
+    expect(vi.mocked(openaiProvider.ask)).not.toHaveBeenCalled();
   });
 });
 
@@ -309,12 +372,41 @@ describe("POST /api/ai/summarize — empty history short-circuit", () => {
     vi.mocked(openaiProvider.summarize).mockClear();
     const res = await req("u-1", "/api/ai/summarize", {
       method: "POST",
-      body: JSON.stringify({ model: "gpt-4.1", history: [] }),
+      body: JSON.stringify({
+        requestId: "00000000-0000-4000-8000-000000000002",
+        model: "gpt-4.1",
+        history: [],
+      }),
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { summary: string };
     expect(body.summary).toBe("");
     expect(vi.mocked(openaiProvider.summarize)).not.toHaveBeenCalled();
+  });
+
+  it("uses the reservation ceiling when successful usage metadata is missing", async () => {
+    vi.mocked(getOpenAIKey).mockResolvedValueOnce("sk-test");
+    vi.mocked(openaiProvider.summarize).mockResolvedValueOnce({
+      summary: "Earlier context",
+    });
+    const res = await req("u-1", "/api/ai/summarize", {
+      method: "POST",
+      body: JSON.stringify({
+        requestId: "00000000-0000-4000-8000-000000000003",
+        model: "gpt-4.1",
+        history: [{ role: "user", content: "Explain variables." }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(finalizeAIRequest)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inputTokens: 100,
+        outputTokens: 50,
+        ledgerStatus: "finish",
+        providerOutcomeUncertain: true,
+      }),
+    );
   });
 });
 

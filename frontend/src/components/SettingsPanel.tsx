@@ -760,7 +760,7 @@ function BYOKStatusCard() {
               >
                 {models.map((m) => (
                   <option key={m.id} value={m.id}>
-                    {m.label}
+                    {m.label} — {m.qualityStatus === "evaluated" ? "evaluated" : "not evaluated"}
                   </option>
                 ))}
               </select>
@@ -769,6 +769,20 @@ function BYOKStatusCard() {
               </span>
             </div>
           )}
+          {modelsStatus === "loaded" && selectedModel && (() => {
+            const selected = models.find((model) => model.id === selectedModel);
+            if (!selected) return null;
+            return (
+              <p
+                className={`text-[10px] leading-relaxed ${
+                  selected.qualityStatus === "evaluated" ? "text-success" : "text-warnInk"
+                }`}
+              >
+                {selected.qualityLabel}. Unevaluated models can still be used in the
+                general editor tutor, but contextual lesson guidance is disabled.
+              </p>
+            );
+          })()}
           {modelsStatus === "loaded" && models.length === 0 && (
             <span className="text-[11px] text-muted">
               This key doesn't have access to any chat models — check your OpenAI plan.

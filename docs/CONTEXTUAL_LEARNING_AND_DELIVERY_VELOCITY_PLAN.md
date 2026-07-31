@@ -519,6 +519,30 @@ Exit:
 
 **Complexity:** two to four weeks.
 
+**Implementation status (2026-07-30):** locally complete on
+`dev/contextual-learning-roadmap`; draft-PR CI, review, and application of the
+forward-only Supabase migration are the remaining release gates. The platform
+tutor now reserves capacity transactionally before a provider call, finalizes
+usage idempotently (including conservative accounting when provider usage is
+unknown), and reclaims bounded expired reservations after crashes. Lesson and
+mastery context is reconstructed by the server, prompts use an explicit
+trusted/untrusted projection, tutor intent and text-only output are validated,
+and contextual BYOK is limited to the versioned evaluated-model registry. The
+tracked eval contract pins its dataset, evaluator, quality-contract hashes,
+approved model, per-intent floors, and observed baseline so a reduced or stale
+gate cannot masquerade as approval.
+
+Local evidence includes 983 passing backend tests (21 intentional skips), 386
+passing frontend tests, backend/frontend typechecks, 5/5 real PostgreSQL
+reservation and identity-isolation integration cases against the actual
+migrations, 50/50 full live-model eval cases with zero hidden errors and all
+intent/posture floors at 100%, 6/6 agent-harness lifecycle tests, and 2/2
+retry-disabled Chromium model-quality journeys at desktop and 390×844. A
+production-dependency gate has zero unreviewed high/critical findings; its one
+RSC-only exception is exact-version pinned, documented, and time bounded. The
+release workflow independently blocks promotion when remote migration history
+does not match the candidate.
+
 Deliver:
 
 - atomic reservation/finalization for platform-funded admission: one idempotency key per accepted action; transactional `reserved → finalized | released | expired` states; provider call only after reservation; retries reuse the key only when the provider guarantees idempotency; TTL is bounded by request timeout; crash recovery reconciles expired reservations without granting duplicate capacity;

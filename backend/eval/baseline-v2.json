@@ -1,0 +1,38 @@
+{
+  "datasetVersion": "2.0.0",
+  "datasetFingerprint": "2f0c718b34302b553e340542d271e2f138561d109ee7cba5232476f789b0188e",
+  "evaluatorVersion": "2.1.0",
+  "approvedModel": "gpt-4.1-nano",
+  "approvedAt": "2026-07-31T01:37:43.524Z",
+  "qualityContractFingerprint": "a0e0ee2f10f5937ddfc1676f2ca9e7b83105d0d7f383838a9f88da2ae2bdcf1a",
+  "postureOverall": 1,
+  "postureByIntent": {
+    "debug": 1,
+    "concept": 1,
+    "howto": 1,
+    "walkthrough": 1,
+    "checkin": 1
+  },
+  "helpfulCorrectByIntent": {
+    "debug": 1,
+    "concept": 1,
+    "howto": 1,
+    "walkthrough": 1,
+    "checkin": 1
+  },
+  "observedPostureOverall": 1,
+  "observedPostureByIntent": {
+    "debug": 1,
+    "concept": 1,
+    "howto": 1,
+    "walkthrough": 1,
+    "checkin": 1
+  },
+  "observedHelpfulCorrectByIntent": {
+    "debug": 1,
+    "concept": 1,
+    "howto": 1,
+    "walkthrough": 1,
+    "checkin": 1
+  }
+}

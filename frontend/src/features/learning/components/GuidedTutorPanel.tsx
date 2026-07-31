@@ -217,28 +217,10 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
       lessonContext: {
         courseId: lessonMeta.courseId,
         lessonId: lessonMeta.id,
-        // In practice mode, override the three fields the backend
-        // prompt actually uses (lessonTitle, lessonObjectives,
-        // completionRules) with the active exercise's framing so the
-        // tutor reasons about THIS exercise, not the lesson's main
-        // goal. Other fields (concept tags, priorConcepts, lessonOrder,
-        // totalLessons) stay — they're the same broader context.
-        lessonTitle: activePracticeExercise
-          ? `${lessonMeta.title} → Practice: ${activePracticeExercise.title}`
-          : lessonMeta.title,
-        language: lessonMeta.language,
-        lessonObjectives: activePracticeExercise
-          ? [activePracticeExercise.prompt, `Goal: ${activePracticeExercise.goal}`]
-          : lessonMeta.objectives,
-        teachesConceptTags: lessonMeta.teachesConceptTags,
-        usesConceptTags: lessonMeta.usesConceptTags,
-        priorConcepts,
-        completionRules: activePracticeExercise
-          ? activePracticeExercise.completionRules
-          : lessonMeta.completionRules,
-        studentProgressSummary: progressSummary,
-        lessonOrder: lessonMeta.order,
-        totalLessons,
+        // Identity is the only browser-owned guided context. The backend
+        // reloads goals, concepts, completion categories, and learner
+        // progress from server-authoritative sources.
+        exerciseId: activePracticeExercise?.id ?? null,
       },
     }),
   });

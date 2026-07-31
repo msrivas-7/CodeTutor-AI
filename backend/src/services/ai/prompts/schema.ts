@@ -45,6 +45,7 @@ export const TUTOR_RESPONSE_SCHEMA = {
     },
     walkthrough: {
       type: ["array", "null"],
+      maxItems: 6,
       description:
         "Ordered steps explaining the student's code. At most 6 steps. For walkthrough intent only.",
       items: {
@@ -66,6 +67,7 @@ export const TUTOR_RESPONSE_SCHEMA = {
     },
     checkQuestions: {
       type: ["array", "null"],
+      maxItems: 3,
       description:
         "Up to 3 diagnostic questions FOR the student to answer (not for you). Debug intent.",
       items: { type: "string" },
@@ -89,6 +91,7 @@ export const TUTOR_RESPONSE_SCHEMA = {
     },
     citations: {
       type: ["array", "null"],
+      maxItems: 20,
       description:
         "Every file:line location you reference. Rendered as clickable chips.",
       items: {

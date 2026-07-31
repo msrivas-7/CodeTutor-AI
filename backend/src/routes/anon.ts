@@ -41,7 +41,7 @@ import { languageSchema } from "../services/execution/commands.js";
 import type { ExecutionBackend, RuntimeSpec } from "../services/execution/backends/index.js";
 import { execDuration } from "../services/metrics.js";
 import { sessionCreateLimit } from "../middleware/mutationRateLimit.js";
-import { openaiProvider } from "../services/ai/openaiProvider.js";
+import { estimateReservationForAsk, openaiProvider } from "../services/ai/openaiProvider.js";
 import {
   isPlatformAllowedModel,
   priceUsd,
@@ -52,9 +52,12 @@ import {
   markPlatformAuthFailed,
   type CredentialNoneReason,
 } from "../services/ai/credential.js";
-import { writeAnonUsageRow } from "../db/usageLedger.js";
 import { incrementAnonRunCount } from "../db/anonRunCounts.js";
-import { getEffectiveAnonDailyRunsPerIp } from "../services/ai/effectiveCaps.js";
+import {
+  getEffectiveAnonDailyRunsPerIp,
+  getEffectiveAnonDailyUsdCap,
+  getEffectiveDailyUsdCap,
+} from "../services/ai/effectiveCaps.js";
 import { hashClientIp } from "../services/ai/ipHash.js";
 import { flagSuspectApis } from "../services/ai/suspectApi.js";
 import {
@@ -65,7 +68,14 @@ import {
   aiPlatformRequests,
   aiPlatformAbuseSignals,
 } from "../services/metrics.js";
-import { completionRuleSchema } from "../schema/lessonRuleSchema.js";
+import {
+  finalizeAIRequest,
+  fingerprintAIRequest,
+  reserveAIRequest,
+  type FinalizeAIRequestInput,
+} from "../db/aiReservations.js";
+import { resolveCanonicalAnonTutorContext } from "../services/ai/canonicalTutorContext.js";
+import { isContextualTutorModel } from "../services/ai/modelRegistry.js";
 
 // Anon AI is locked to lesson 1 of python-fundamentals. The marketing
 // surface (/try/lesson/...) only links to this one lesson; this server-
@@ -95,61 +105,6 @@ let anonAciActive = 0;
 export function getAnonSessionCounts() {
   return { local: anonLocalActive, aci: anonAciActive };
 }
-
-// Phase 27-v2.2 audit fix C3 (staff-security): canonical lessonContext
-// pinned server-side. Pre-fix, the request body carried unbounded
-// client-supplied strings (`lessonObjectives[]`, `studentProgressSummary`,
-// `lessonTitle`, `completionRules.expected/pattern`) interpolated raw
-// into the system prompt. An attacker keeping a valid courseId/lessonId
-// tuple could stuff `studentProgressSummary` with prompt-override text
-// and the LLM would produce arbitrary output within the 512-token cap —
-// converting the trial into an LLM faucet. We now ignore everything
-// the client sends except courseId/lessonId; the body schema accepts
-// the rest only for backwards-compatible parsing, but the values are
-// discarded server-side. Source: lesson.json at
-// frontend/public/courses/python-fundamentals/lessons/hello-world.
-const ANON_PINNED_LESSON_CONTEXT = {
-  courseId: "python-fundamentals",
-  lessonId: "hello-world",
-  lessonTitle: "Hello, World!",
-  language: "python" as const,
-  lessonObjectives: [
-    "Run a Python program",
-    "Use the print() function",
-    "Understand strings and quotes",
-  ],
-  teachesConceptTags: ["print", "strings", "syntax"],
-  usesConceptTags: [] as string[],
-  priorConcepts: [] as string[],
-  completionRules: [
-    { type: "expected_stdout" as const, expected: "Hello, " },
-    // Phase A — A1: lesson 1 starter is now an empty shell — there's no
-    // placeholder identifier left to forbid. The forbidden token here
-    // rejects a literal copy of the example call shown in the starter
-    // comment, so the learner has to type SOMETHING of their own to pass.
-    { type: "forbidden_in_stdout" as const, pattern: "Hello, World!" },
-    // Phase A — A1: must mirror lesson.json for this lesson — otherwise the
-    // server-pinned context the tutor reads diverges from what the validator
-    // checks, and the gate is invisible to the AI's situation block.
-    {
-      type: "retrieval_check" as const,
-      question:
-        'When this code runs:\n\n    print("Hello, World!")\n\nWhat shows up on the screen?',
-      choices: [
-        'print("Hello, World!")',
-        "Hello, World!",
-        '"Hello, World!"',
-        "Nothing — the quotes hide the text",
-      ],
-      correctIndex: 1,
-      explanation:
-        "print() shows the text BETWEEN the quotes. The quotes themselves don't appear in the output — they just tell the computer where the text starts and ends.",
-    },
-  ],
-  studentProgressSummary: "first attempt",
-  lessonOrder: 1,
-  totalLessons: undefined as number | undefined,
-};
 
 // File-shape validation mirrored from authed AI route. Only Python is
 // expected on this surface; the languageSchema gate at the executor
@@ -195,6 +150,7 @@ const runBody = z.object({
 // Ask-stream body. Subset of authed askBody — anon doesn't have BYOK,
 // streaks, or per-user history syncing.
 const askStreamBody = z.object({
+  requestId: z.string().uuid(),
   model: z.string().min(1),
   question: z.string().min(1).max(4_000),
   files: z.array(projectFileSchema).max(10),
@@ -215,18 +171,9 @@ const askStreamBody = z.object({
   // hello-world lesson. Authed callers can omit it for the editor
   // tutor, but anon has no editor-tutor path.
   lessonContext: z.object({
-    courseId: z.string(),
-    lessonId: z.string(),
-    lessonTitle: z.string(),
-    language: languageSchema,
-    lessonObjectives: z.array(z.string()),
-    teachesConceptTags: z.array(z.string()),
-    usesConceptTags: z.array(z.string()),
-    priorConcepts: z.array(z.string()),
-    completionRules: z.array(completionRuleSchema),
-    studentProgressSummary: z.string(),
-    lessonOrder: z.number().int().optional(),
-    totalLessons: z.number().int().optional(),
+    courseId: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/),
+    lessonId: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/),
+    exerciseId: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/).nullish(),
   }),
 });
 
@@ -242,20 +189,22 @@ function safePrice(
   }
 }
 
-async function safeWriteAnonUsage(
-  args: Omit<Parameters<typeof writeAnonUsageRow>[0], "ipHash"> & {
-    ipHash: string;
-  },
+async function safeFinalizeAnonUsage(
+  input: FinalizeAIRequestInput,
 ): Promise<void> {
   try {
-    await writeAnonUsageRow(args);
+    await finalizeAIRequest(input);
     invalidateAnonUsageCaches();
   } catch (err) {
     console.error(
-      `[anon] ledger write failed route=${args.route}:`,
+      `[anon] reservation finalize failed request=${input.requestId}:`,
       (err as Error).message,
     );
   }
+}
+
+function reservationTtlMs(): number {
+  return Math.min(config.aiRequestTimeoutMs, 60_000);
 }
 
 // Map the resolver's "none" reason onto an HTTP response. Mirrors the
@@ -500,7 +449,6 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
       );
       return res.status(403).json({ error: "LESSON_NOT_ALLOWED_ANON" });
     }
-    const ctx = ANON_PINNED_LESSON_CONTEXT;
     // Platform model allowlist: anon never overrides the curated list.
     if (!isPlatformAllowedModel(parsed.data.model)) {
       aiPlatformRequests.inc({ outcome: "model_rejected", route: "ask_stream" });
@@ -514,6 +462,19 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
         }),
       );
       return res.status(403).json({ error: "MODEL_NOT_ALLOWED" });
+    }
+    if (!isContextualTutorModel(parsed.data.model)) {
+      return res.status(403).json({ error: "MODEL_NOT_EVALUATED_FOR_CONTEXTUAL_TUTOR" });
+    }
+    let ctx;
+    try {
+      ctx = await resolveCanonicalAnonTutorContext(clientCtx);
+    } catch (err) {
+      console.error("[anon] canonical lesson context failed:", err);
+      return res.status(503).json({ error: "LESSON_CONTEXT_UNAVAILABLE" });
+    }
+    if (!ctx) {
+      return res.status(404).json({ error: "LESSON_CONTEXT_NOT_FOUND" });
     }
 
     // Phase 27-v2.2 audit fix (staff-security P2 + bug-hunter P3):
@@ -550,7 +511,85 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
     }
     aiPlatformRequests.inc({ outcome: "served", route: "ask_stream" });
 
-    const requestId = randomUUID();
+    const providerParams = {
+      key: cred.key,
+      model: parsed.data.model,
+      fundingSource: "platform" as const,
+      question: parsed.data.question,
+      files: parsed.data.files,
+      activeFile: parsed.data.activeFile,
+      language: ctx.language,
+      lastRun: parsed.data.lastRun ?? null,
+      history: parsed.data.history,
+      stdin: parsed.data.stdin ?? null,
+      runsSinceLastTurn: parsed.data.runsSinceLastTurn,
+      editsSinceLastTurn: parsed.data.editsSinceLastTurn,
+      lessonContext: ctx,
+      maxOutputTokens: config.freeTier.anonMaxOutputTokens,
+    };
+    let estimate;
+    try {
+      estimate = estimateReservationForAsk(providerParams);
+    } catch (err) {
+      const status = err instanceof Error && "status" in err
+        ? Number((err as { status?: number }).status) || 400
+        : 400;
+      return res.status(status).json({
+        error: err instanceof Error ? err.message : "INVALID_AI_REQUEST",
+      });
+    }
+    const reservedPrice = safePrice(
+      parsed.data.model,
+      estimate.reservedInputTokens,
+      estimate.reservedOutputTokens,
+    );
+    let reservation;
+    try {
+      const [globalDailyUsd, anonDailyUsd] = await Promise.all([
+        getEffectiveDailyUsdCap(),
+        getEffectiveAnonDailyUsdCap(),
+      ]);
+      reservation = await reserveAIRequest({
+        actorKind: "anonymous",
+        ipHash,
+        requestId: parsed.data.requestId,
+        requestFingerprint: fingerprintAIRequest({
+          ...parsed.data,
+          lessonContext: ctx,
+        }),
+        fundingSource: "platform",
+        model: parsed.data.model,
+        route: "ask_stream",
+        countsTowardQuota: true,
+        reservedInputTokens: estimate.reservedInputTokens,
+        reservedOutputTokens: estimate.reservedOutputTokens,
+        reservedCostUsd: reservedPrice.costUsd,
+        priceVersion: reservedPrice.priceVersion,
+        expiresInMs: reservationTtlMs(),
+        caps: {
+          globalDailyUsd,
+          anonDailyQuestions: config.freeTier.anonDailyQuestionsPerIp,
+          anonDailyUsd,
+        },
+      });
+    } catch (err) {
+      console.error("[anon] reservation failed:", err);
+      return res.status(503).json({ error: "AI_ADMISSION_UNAVAILABLE" });
+    }
+    if (!reservation.ok) {
+      if (reservation.kind === "duplicate") {
+        return res.status(409).json({
+          error: "AI_REQUEST_ALREADY_ACCEPTED",
+          state: reservation.state,
+        });
+      }
+      if (reservation.kind === "conflict") {
+        return res.status(409).json({ error: "AI_REQUEST_ID_CONFLICT" });
+      }
+      respondAnonCredentialDenied(res, reservation.reason, "ask_stream");
+      return;
+    }
+
     res.status(200);
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache, no-transform");
@@ -592,30 +631,7 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
 
     try {
       await openaiProvider.askStream(
-        {
-          key: cred.key,
-          model: parsed.data.model,
-          fundingSource: "platform",
-          question: parsed.data.question,
-          files: parsed.data.files,
-          activeFile: parsed.data.activeFile,
-          // Anon language pinned via lessonContext.language; the
-          // top-level optional was dropped from the schema to prevent
-          // inconsistent inputs.
-          language: ctx.language,
-          lastRun: parsed.data.lastRun ?? null,
-          history: parsed.data.history,
-          stdin: parsed.data.stdin ?? null,
-          runsSinceLastTurn: parsed.data.runsSinceLastTurn,
-          editsSinceLastTurn: parsed.data.editsSinceLastTurn,
-          lessonContext: ctx,
-          signal: controller.signal,
-          // Phase 27 §3b — anon callers ask for a tighter cap than
-          // authed (512 vs 2000). The provider clamps to
-          // min(supplied, MAX_OUTPUT_TOKENS) so the global ceiling
-          // still applies as a final guard.
-          maxOutputTokens: config.freeTier.anonMaxOutputTokens,
-        },
+        { ...providerParams, signal: controller.signal },
         {
           onDelta: (chunk) => {
             if (closed) return;
@@ -623,24 +639,22 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
           },
           onDone: async (raw, sections, usage) => {
             terminalFired = true;
-            const inTok = usage?.inputTokens ?? 0;
-            const outTok = usage?.outputTokens ?? 0;
-            const { costUsd, priceVersion } = safePrice(
+            const usageKnown = usage !== undefined;
+            const inTok = usage?.inputTokens ?? estimate.reservedInputTokens;
+            const outTok = usage?.outputTokens ?? estimate.reservedOutputTokens;
+            const { costUsd } = safePrice(
               parsed.data.model,
               inTok,
               outTok,
             );
-            await safeWriteAnonUsage({
-              ipHash,
-              model: parsed.data.model,
-              route: "ask_stream",
+            await safeFinalizeAnonUsage({
+              requestId: parsed.data.requestId,
               countsTowardQuota: true,
               inputTokens: inTok,
               outputTokens: outTok,
               costUsd,
-              priceVersion,
-              status: "finish",
-              requestId,
+              ledgerStatus: "finish",
+              providerOutcomeUncertain: !usageKnown,
             });
             // Phase A — A4: fabricated-API tripwire. Fire-and-forget
             // scan of the finished response; emits tutor_suspect_api
@@ -660,17 +674,14 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
           onError: async (message, status) => {
             terminalFired = true;
             if (status === 401) markPlatformAuthFailed();
-            await safeWriteAnonUsage({
-              ipHash,
-              model: parsed.data.model,
-              route: "ask_stream",
+            await safeFinalizeAnonUsage({
+              requestId: parsed.data.requestId,
               countsTowardQuota: false,
-              inputTokens: 0,
-              outputTokens: 0,
-              costUsd: 0,
-              priceVersion: 1,
-              status: "error",
-              requestId,
+              inputTokens: estimate.reservedInputTokens,
+              outputTokens: estimate.reservedOutputTokens,
+              costUsd: reservedPrice.costUsd,
+              ledgerStatus: "error",
+              providerOutcomeUncertain: true,
             });
             if (closed) return;
             send({ error: message });
@@ -678,15 +689,13 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
           },
           onAbort: async (_raw, estUsage) => {
             terminalFired = true;
-            const { costUsd, priceVersion } = safePrice(
+            const { costUsd } = safePrice(
               parsed.data.model,
               estUsage.inputTokens,
               estUsage.outputTokens,
             );
-            await safeWriteAnonUsage({
-              ipHash,
-              model: parsed.data.model,
-              route: "ask_stream",
+            await safeFinalizeAnonUsage({
+              requestId: parsed.data.requestId,
               // countsTowardQuota=false: learner saw nothing useful,
               // so the per-IP daily counter doesn't drain. L4 still
               // sees the spend via cost_usd.
@@ -694,25 +703,21 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
               inputTokens: estUsage.inputTokens,
               outputTokens: estUsage.outputTokens,
               costUsd,
-              priceVersion,
-              status: "aborted",
-              requestId,
+              ledgerStatus: "aborted",
+              providerOutcomeUncertain: true,
             });
           },
         },
       );
       if (!terminalFired) {
-        await safeWriteAnonUsage({
-          ipHash,
-          model: parsed.data.model,
-          route: "ask_stream",
+        await safeFinalizeAnonUsage({
+          requestId: parsed.data.requestId,
           countsTowardQuota: false,
-          inputTokens: 0,
-          outputTokens: 0,
-          costUsd: 0,
-          priceVersion: 1,
-          status: "aborted",
-          requestId,
+          inputTokens: estimate.reservedInputTokens,
+          outputTokens: estimate.reservedOutputTokens,
+          costUsd: reservedPrice.costUsd,
+          ledgerStatus: "aborted",
+          providerOutcomeUncertain: true,
         });
       }
     } catch (err) {
@@ -725,17 +730,14 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
       // to the existing onError callback: write an aborted-status
       // ledger row, send {error}, finish.
       if (!terminalFired) {
-        await safeWriteAnonUsage({
-          ipHash,
-          model: parsed.data.model,
-          route: "ask_stream",
+        await safeFinalizeAnonUsage({
+          requestId: parsed.data.requestId,
           countsTowardQuota: false,
-          inputTokens: 0,
-          outputTokens: 0,
-          costUsd: 0,
-          priceVersion: 1,
-          status: "error",
-          requestId,
+          inputTokens: estimate.reservedInputTokens,
+          outputTokens: estimate.reservedOutputTokens,
+          costUsd: reservedPrice.costUsd,
+          ledgerStatus: "error",
+          providerOutcomeUncertain: true,
         });
       }
       console.error(

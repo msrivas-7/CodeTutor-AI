@@ -1,6 +1,10 @@
 import { readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { z } from "zod";
+import { languageSchema, type Language } from "../execution/commands.js";
+import { completionRuleSchema } from "../../schema/lessonRuleSchema.js";
 
 // Phase 21C (post-audit, round 2): authoritative lesson title + course
 // context lookup for share creation. Reads from disk now — the lesson
@@ -30,18 +34,46 @@ interface CourseJson {
   id: string;
   title: string;
   lessonOrder: string[];
+  baseVocabulary?: string[];
 }
 
-interface LessonJson {
-  id: string;
-  title: string;
-  order: number;
-  // Phase A — A6: concept-tag write side. The lesson.json declares
-  // which concepts the lesson teaches (new to the learner) vs uses
-  // (assumed prior knowledge). Optional in the JSON shape because
-  // older lessons predate the tagging convention.
-  teachesConceptTags?: string[];
-  usesConceptTags?: string[];
+const practiceExerciseSchema = z.object({
+  id: z.string().min(1).max(64),
+  title: z.string().min(1).max(200),
+  prompt: z.string().min(1).max(4_000),
+  goal: z.string().min(1).max(1_000),
+  completionRules: z.array(completionRuleSchema).min(1),
+});
+
+const catalogLessonSchema = z.object({
+  id: z.string().min(1).max(64),
+  courseId: z.string().min(1).max(64),
+  title: z.string().min(1).max(200),
+  order: z.number().int().positive(),
+  language: languageSchema,
+  objectives: z.array(z.string().min(1).max(1_000)).min(1).max(20),
+  teachesConceptTags: z.array(z.string().min(1).max(64)).default([]),
+  usesConceptTags: z.array(z.string().min(1).max(64)).default([]),
+  completionRules: z.array(completionRuleSchema).min(1),
+  practiceExercises: z.array(practiceExerciseSchema).default([]),
+});
+
+type LessonJson = z.infer<typeof catalogLessonSchema>;
+
+export interface TutorLessonSnapshot {
+  courseId: string;
+  lessonId: string;
+  exerciseId: string | null;
+  lessonTitle: string;
+  language: Language;
+  lessonObjectives: string[];
+  teachesConceptTags: string[];
+  usesConceptTags: string[];
+  priorConcepts: string[];
+  /** Safe task categories only; no hidden expected values or test bodies. */
+  completionCriteria: string[];
+  lessonOrder: number;
+  totalLessons: number;
 }
 
 // Resolve the catalog root once. In the runtime container, this file
@@ -51,9 +83,11 @@ interface LessonJson {
 // shape from src/services/share.
 function catalogRoot(): string {
   const here = fileURLToPath(import.meta.url);
-  // backend/dist/services/share/lessonCatalog.js or
-  // backend/src/services/share/lessonCatalog.ts → ../../../courses
-  return path.resolve(path.dirname(here), "../../../courses");
+  // Production image: /app/dist/services/share -> /app/courses.
+  const baked = path.resolve(path.dirname(here), "../../../courses");
+  if (existsSync(baked)) return baked;
+  // Workspace tests/dev: backend/src/services/share -> frontend/public/courses.
+  return path.resolve(path.dirname(here), "../../../../frontend/public/courses");
 }
 
 async function readJson<T>(filePath: string): Promise<T | null> {
@@ -71,6 +105,29 @@ async function readJson<T>(filePath: string): Promise<T | null> {
     }
     throw err;
   }
+}
+
+async function readCatalogLesson(
+  root: string,
+  courseId: string,
+  lessonId: string,
+): Promise<LessonJson | null> {
+  const raw = await readJson<unknown>(
+    path.join(root, courseId, "lessons", lessonId, "lesson.json"),
+  );
+  if (raw === null) return null;
+  const parsed = catalogLessonSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new Error(
+      `invalid lesson catalog entry ${courseId}/${lessonId}: ${parsed.error.issues
+        .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+        .join("; ")}`,
+    );
+  }
+  if (parsed.data.id !== lessonId || parsed.data.courseId !== courseId) {
+    return null;
+  }
+  return parsed.data;
 }
 
 // Slug guard — refuse anything outside [a-z0-9_-] so a path-traversal
@@ -169,8 +226,101 @@ export async function getLessonConceptTags(
   return tags;
 }
 
+function safeCompletionCriteria(
+  rules: z.infer<typeof completionRuleSchema>[],
+): string[] {
+  return rules.map((rule) => {
+    switch (rule.type) {
+      case "expected_stdout":
+        return "produce the lesson's required output";
+      case "forbidden_in_stdout":
+        return "replace the authored placeholder output with the learner's own result";
+      case "required_file_contains":
+        return rule.file
+          ? `use the required lesson construct in ${rule.file}`
+          : "use the required lesson construct in the entry file";
+      case "function_tests":
+        return "define the required function at module scope and satisfy the authored behavior";
+      case "retrieval_check":
+        return "complete a short comprehension check after the code is correct; never reveal its answer";
+      default:
+        return "satisfy the lesson's authored validation";
+    }
+  });
+}
+
+const tutorCache = new Map<string, TutorLessonSnapshot>();
+
+/**
+ * Release 0D canonical prompt authority. Only identity comes from the client;
+ * every instructional field is reloaded from the catalog baked into the
+ * backend image. Hidden validator values are projected into safe categories.
+ */
+export async function getTutorLessonSnapshot(
+  courseId: string,
+  lessonId: string,
+  exerciseId?: string | null,
+): Promise<TutorLessonSnapshot | null> {
+  if (!SLUG_RE.test(courseId) || !SLUG_RE.test(lessonId)) return null;
+  if (exerciseId && !SLUG_RE.test(exerciseId)) return null;
+  const cacheKey = `${courseId}/${lessonId}/${exerciseId ?? "lesson"}`;
+  const cached = tutorCache.get(cacheKey);
+  if (cached) return cached;
+
+  const root = catalogRoot();
+  const course = await readJson<CourseJson>(path.join(root, courseId, "course.json"));
+  if (!course || course.id !== courseId || !course.lessonOrder.includes(lessonId)) {
+    return null;
+  }
+  const lessonIndex = course.lessonOrder.indexOf(lessonId);
+  const [lesson, ...priorLessons] = await Promise.all([
+    readCatalogLesson(root, courseId, lessonId),
+    ...course.lessonOrder
+      .slice(0, lessonIndex)
+      .map((priorId) => readCatalogLesson(root, courseId, priorId)),
+  ]);
+  if (!lesson) return null;
+  const exercise = exerciseId
+    ? lesson.practiceExercises.find((item) => item.id === exerciseId)
+    : null;
+  if (exerciseId && !exercise) return null;
+
+  const priorConcepts = Array.from(
+    new Set([
+      ...(course.baseVocabulary ?? []),
+      ...priorLessons.flatMap((prior) =>
+        prior
+          ? [...prior.teachesConceptTags, ...prior.usesConceptTags]
+          : [],
+      ),
+    ]),
+  );
+  const rules = exercise?.completionRules ?? lesson.completionRules;
+  const snapshot: TutorLessonSnapshot = {
+    courseId,
+    lessonId,
+    exerciseId: exercise?.id ?? null,
+    lessonTitle: exercise
+      ? `${lesson.title} → Practice: ${exercise.title}`
+      : lesson.title,
+    language: lesson.language,
+    lessonObjectives: exercise
+      ? [exercise.prompt, `Goal: ${exercise.goal}`]
+      : lesson.objectives,
+    teachesConceptTags: lesson.teachesConceptTags,
+    usesConceptTags: lesson.usesConceptTags,
+    priorConcepts,
+    completionCriteria: safeCompletionCriteria(rules),
+    lessonOrder: lesson.order,
+    totalLessons: course.lessonOrder.length,
+  };
+  tutorCache.set(cacheKey, snapshot);
+  return snapshot;
+}
+
 /** Test-only: clear the caches between vitest cases. */
 export function _resetLessonCatalogCache(): void {
   cache.clear();
   tagsCache.clear();
+  tutorCache.clear();
 }

@@ -15,7 +15,7 @@ const lessonCtx: LessonContext = {
   teachesConceptTags: ["print", "strings"],
   usesConceptTags: ["syntax"],
   priorConcepts: [],
-  completionRules: [{ type: "expected_stdout", expected: "Hello, World!" }],
+  completionCriteria: ["produce the lesson's required output"],
   studentProgressSummary: "attempt 2, 1 run, 0 hints",
   lessonOrder: 1,
   totalLessons: 10,
@@ -90,7 +90,7 @@ describe("buildGuidedSystemPrompt", () => {
 
   it("includes completion criteria description", () => {
     const prompt = buildGuidedSystemPrompt(noHistory, "hi", lessonCtx);
-    expect(prompt).toMatch(/produce stdout containing "Hello, World!"/);
+    expect(prompt).toMatch(/produce the lesson's required output/);
   });
 
   it("includes student progress summary", () => {

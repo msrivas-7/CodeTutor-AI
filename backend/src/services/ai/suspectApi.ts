@@ -72,6 +72,15 @@ const JS_ALLOWED = new Set([
   "finally", "resolve", "reject", "Promise", "fetch",
 ]);
 
+/** Exact standard-library membership for policy checks that must not treat a
+ * symbol as trustworthy merely because untrusted learner text mentioned it. */
+export function isStandardApiSymbol(
+  language: "python" | "javascript",
+  symbol: string,
+): boolean {
+  return (language === "python" ? PYTHON_ALLOWED : JS_ALLOWED).has(symbol);
+}
+
 // Pull code-formatted spans only: fenced blocks first, then inline
 // backticks. Prose mentions of made-up functions are lower-signal —
 // the damaging hallucination is the one presented AS code.

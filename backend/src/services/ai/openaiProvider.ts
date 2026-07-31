@@ -21,6 +21,10 @@ import {
 } from "./guidedPromptBuilder.js";
 import type { AIMessage } from "./provider.js";
 import { aiTokensConsumed } from "../metrics.js";
+import { parseTutorOutput } from "./tutorOutput.js";
+import { decorateModel, rankByTeachingQuality } from "./modelRegistry.js";
+import { classifyTutorIntent } from "./tutorIntent.js";
+import { applyTutorOutputPolicy } from "./tutorPolicy.js";
 
 const OPENAI_BASE = "https://api.openai.com/v1";
 
@@ -32,7 +36,7 @@ const OPENAI_BASE = "https://api.openai.com/v1";
 // tutor exchange that needs more. Phase 27: callers may pass
 // AIAskParams.maxOutputTokens to request a TIGHTER cap (e.g. anonymous
 // users get 512); the provider clamps to min(supplied, MAX_OUTPUT_TOKENS).
-const MAX_OUTPUT_TOKENS = 2000;
+export const MAX_OUTPUT_TOKENS = 2000;
 
 // Phase 27 precondition: server-side request deadline. Caps any single AI
 // call so a stalled upstream / runaway stream / client that walked away
@@ -40,7 +44,7 @@ const MAX_OUTPUT_TOKENS = 2000;
 // streaming tutor response (typical: 4–8s for nano on tutor sections);
 // callers needing a tighter SLA can pass their own AbortSignal in
 // params.signal — the two are merged.
-const REQUEST_DEADLINE_MS = 25_000;
+export const REQUEST_DEADLINE_MS = 25_000;
 
 // Phase 27 precondition: pre-flight input-size guard. Refuses to send if
 // the rendered prompt (instructions + userTurn) exceeds this byte count.
@@ -51,7 +55,7 @@ const REQUEST_DEADLINE_MS = 25_000;
 // rapid retries). At this layer we fail fast with a 413 rather than
 // truncate silently — silent truncation can change the prompt's
 // meaning in ways that are worse than a clear refusal.
-const MAX_PROMPT_BYTES = 250_000;
+export const MAX_PROMPT_BYTES = 250_000;
 
 /**
  * Merge a caller-supplied AbortSignal with a server-side deadline timer.
@@ -157,6 +161,67 @@ export function estimateInputTokensForAsk(params: AIAskParams): number {
   return estimateTokens(instructions) + estimateTokens(JSON.stringify(userTurn));
 }
 
+export interface AIAskReservationEstimate {
+  reservedInputTokens: number;
+  reservedOutputTokens: number;
+  promptBytes: number;
+}
+
+// Chat message framing and provider-side schema bookkeeping are not present
+// in the rendered prompt strings. Reserve a fixed ceiling in addition to the
+// byte fallback so reported input usage cannot cross the admission estimate.
+const RESERVATION_INPUT_OVERHEAD_TOKENS = 512;
+
+/**
+ * Fail-safe token ceiling for pre-provider budget reservation. UTF-8 bytes are
+ * a conservative upper bound for tokenizer output (byte fallback is the worst
+ * case), unlike the chars/4 estimate used only for post-abort accounting.
+ * Calling this before reserve also guarantees an oversized prompt is rejected
+ * before it can consume reservation capacity.
+ */
+export function estimateReservationForAsk(
+  params: AIAskParams,
+): AIAskReservationEstimate {
+  const { userTurn, instructions } = buildPromptInputs(params);
+  const promptBytes =
+    Buffer.byteLength(instructions, "utf8") +
+    Buffer.byteLength(userTurn, "utf8");
+  if (promptBytes > MAX_PROMPT_BYTES) {
+    throw new AIProviderError(
+      `prompt too large (${promptBytes} bytes; cap ${MAX_PROMPT_BYTES})`,
+      413,
+    );
+  }
+  return {
+    reservedInputTokens: promptBytes + RESERVATION_INPUT_OVERHEAD_TOKENS,
+    reservedOutputTokens: Math.min(
+      params.maxOutputTokens ?? MAX_OUTPUT_TOKENS,
+      MAX_OUTPUT_TOKENS,
+    ),
+    promptBytes,
+  };
+}
+
+export function estimateReservationForSummary(history: AIMessage[]): {
+  reservedInputTokens: number;
+  reservedOutputTokens: number;
+} {
+  const input = buildSummarizeInput(history);
+  const promptBytes =
+    Buffer.byteLength(SUMMARIZE_SYSTEM_PROMPT, "utf8") +
+    Buffer.byteLength(input, "utf8");
+  if (promptBytes > MAX_PROMPT_BYTES) {
+    throw new AIProviderError(
+      `prompt too large (${promptBytes} bytes; cap ${MAX_PROMPT_BYTES})`,
+      413,
+    );
+  }
+  return {
+    reservedInputTokens: promptBytes,
+    reservedOutputTokens: MAX_OUTPUT_TOKENS,
+  };
+}
+
 function isAbortError(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
   const e = err as { name?: string; cause?: { name?: string }; message?: string };
@@ -185,6 +250,7 @@ function buildPromptInputs(params: AIAskParams): {
   mode: "first-turn" | "stuck" | "follow-up";
   priorTutorTurns: number;
   stuck: boolean;
+  intent: import("./provider.js").TutorIntent;
 } {
   const guided = !!params.lessonContext;
   const common = {
@@ -209,15 +275,22 @@ function buildPromptInputs(params: AIAskParams): {
     editsSinceLastTurn: params.editsSinceLastTurn,
     persona: params.persona,
   };
-  const instructions = guided
+  const baseInstructions = guided
     ? buildGuidedSystemPrompt(params.history, params.question, params.lessonContext!, promptOpts)
     : buildSystemPrompt(params.history, params.question, promptOpts);
+
+  const intent = classifyTutorIntent({
+    question: params.question,
+    files: params.files,
+    history: params.history,
+  });
+  const instructions = `${baseInstructions}\n\nTRUSTED SERVER CLASSIFICATION:\nThe turn intent is ${intent}. This value is authoritative. Return intent=${intent} and fill only the ${intent.toUpperCase()} fields described above.`;
 
   const priorTutorTurns = params.history.filter((m) => m.role === "assistant").length;
   const stuck = studentSeemsStuck(params.question);
   const mode = priorTutorTurns === 0 && !stuck ? "first-turn" : stuck ? "stuck" : "follow-up";
 
-  return { userTurn, instructions, mode, priorTutorTurns, stuck };
+  return { userTurn, instructions, mode, priorTutorTurns, stuck, intent };
 }
 
 export const openaiProvider: AIProvider = {
@@ -255,12 +328,12 @@ export const openaiProvider: AIProvider = {
         if (ra !== rb) return ra - rb;
         return a.id.localeCompare(b.id);
       })
-      .map((m) => ({ id: m.id, label: m.id }));
-    return models;
+      .map((m) => decorateModel({ id: m.id, label: m.id }));
+    return rankByTeachingQuality(models);
   },
 
   async ask(params: AIAskParams): Promise<AIAskResult> {
-    const { userTurn, instructions, mode, priorTutorTurns, stuck } = buildPromptInputs(params);
+    const { userTurn, instructions, mode, priorTutorTurns, stuck, intent } = buildPromptInputs(params);
 
     console.log(`\n[openai] ask start -----------------------------`);
     console.log(`[openai]   model=${params.model}  fingerprint=${keyFingerprint(params.key)}`);
@@ -281,7 +354,9 @@ export const openaiProvider: AIProvider = {
     // Phase 27 precondition: pre-flight prompt-size guard. Refuse oversize
     // payloads at this layer rather than silently sending; cheap defense
     // against a malicious client smuggling a multi-MB context.
-    const promptBytes = instructions.length + userTurn.length;
+    const promptBytes =
+      Buffer.byteLength(instructions, "utf8") +
+      Buffer.byteLength(userTurn, "utf8");
     if (promptBytes > MAX_PROMPT_BYTES) {
       console.log(`[openai] ask refused: promptBytes=${promptBytes} > MAX_PROMPT_BYTES=${MAX_PROMPT_BYTES}`);
       throw new AIProviderError(
@@ -356,16 +431,19 @@ export const openaiProvider: AIProvider = {
         .join("");
     }
 
-    let sections: TutorSections = {};
+    let sections: TutorSections;
     let parseOk = true;
     try {
-      sections = JSON.parse(raw) as TutorSections;
-    } catch {
+      sections = applyTutorOutputPolicy({
+        sections: parseTutorOutput(raw, params.files),
+        params,
+        intent,
+        priorTutorTurns,
+      });
+      raw = JSON.stringify(sections);
+    } catch (err) {
       parseOk = false;
-      // Model bypassed structured output (shouldn't happen with strict=true).
-      // Fall back to putting the whole reply in "summary" so the user sees
-      // something rather than an error.
-      sections = { summary: raw };
+      throw new AIProviderError((err as Error).message);
     }
 
     const elapsed = Date.now() - started;
@@ -374,7 +452,8 @@ export const openaiProvider: AIProvider = {
       .map(([k]) => k);
     console.log(`[openai]   --- response (${elapsed}ms, tokens in=${json.usage?.input_tokens ?? "?"} out=${json.usage?.output_tokens ?? "?"}) ---`);
     console.log(`[openai]   parseOk=${parseOk}  sectionsFilled=[${filled.join(", ") || "(none)"}]`);
-    console.log(`[openai]   raw: ${clip(raw, 1500)}`);
+    if (DEBUG_PROMPTS) console.log(`[openai]   raw: ${clip(raw, 1500)}`);
+    else console.log(`[openai]   responseChars=${raw.length}`);
     console.log(`[openai] ask end -------------------------------\n`);
 
     const usage =
@@ -400,34 +479,43 @@ export const openaiProvider: AIProvider = {
     model,
     fundingSource,
     history,
+    signal,
   }: {
     key: string;
     model: string;
     fundingSource?: "byok" | "platform";
     history: AIMessage[];
+    signal?: AbortSignal;
   }): Promise<{ summary: string; usage?: import("./provider.js").TokenUsage }> {
     if (history.length === 0) return { summary: "" };
     const input = buildSummarizeInput(history);
     console.log(`[openai] summarize model=${model} turns=${history.length}`);
-    const res = await openaiFetch("/responses", key, {
-      method: "POST",
-      body: JSON.stringify({
-        model,
-        instructions: SUMMARIZE_SYSTEM_PROMPT,
-        input,
-        max_output_tokens: MAX_OUTPUT_TOKENS,
-      }),
-    });
-    if (!res.ok) {
-      const err = await parseError(res);
-      console.log(`[openai] summarize error status=${res.status} body=${clip(err, 200)}`);
-      throw new AIProviderError(err, res.status);
-    }
-    const json = (await res.json()) as {
+    const deadline = buildSignalWithDeadline(signal, REQUEST_DEADLINE_MS);
+    let json: {
       output_text?: string;
       output?: { content?: { type?: string; text?: string }[] }[];
       usage?: { input_tokens?: number; output_tokens?: number };
     };
+    try {
+      const res = await openaiFetch("/responses", key, {
+        method: "POST",
+        body: JSON.stringify({
+          model,
+          instructions: SUMMARIZE_SYSTEM_PROMPT,
+          input,
+          max_output_tokens: MAX_OUTPUT_TOKENS,
+        }),
+        signal: deadline.signal,
+      });
+      if (!res.ok) {
+        const err = await parseError(res);
+        console.log(`[openai] summarize error status=${res.status} body=${clip(err, 200)}`);
+        throw new AIProviderError(err, res.status);
+      }
+      json = (await res.json()) as typeof json;
+    } finally {
+      deadline.cancel();
+    }
     let summary = json.output_text ?? "";
     if (!summary && json.output) {
       summary = json.output
@@ -454,7 +542,7 @@ export const openaiProvider: AIProvider = {
   },
 
   async askStream(params: AIAskParams, handlers: AIStreamHandlers): Promise<void> {
-    const { userTurn, instructions, mode, priorTutorTurns, stuck } = buildPromptInputs(params);
+    const { userTurn, instructions, mode, priorTutorTurns, stuck, intent } = buildPromptInputs(params);
 
     console.log(`\n[openai] stream start ---------------------------`);
     console.log(`[openai]   model=${params.model}  fingerprint=${keyFingerprint(params.key)}`);
@@ -466,10 +554,12 @@ export const openaiProvider: AIProvider = {
     }
 
     // Phase 27 precondition: pre-flight prompt-size guard.
-    const promptBytes = instructions.length + userTurn.length;
+    const promptBytes =
+      Buffer.byteLength(instructions, "utf8") +
+      Buffer.byteLength(userTurn, "utf8");
     if (promptBytes > MAX_PROMPT_BYTES) {
       console.log(`[openai] stream refused: promptBytes=${promptBytes} > MAX_PROMPT_BYTES=${MAX_PROMPT_BYTES}`);
-      handlers.onError(
+      await handlers.onError(
         `prompt too large (${promptBytes} bytes; cap ${MAX_PROMPT_BYTES})`,
         413,
       );
@@ -514,13 +604,13 @@ export const openaiProvider: AIProvider = {
         console.log(`[openai] stream aborted (${reason}) before headers`);
         // Even pre-headers, OpenAI may have received the request body and
         // billed input tokens. Record an estimated-cost ledger row.
-        handlers.onAbort?.("", {
+        await handlers.onAbort?.("", {
           inputTokens: estimateTokens(instructions) + estimateTokens(JSON.stringify(userTurn)),
           outputTokens: 0,
         });
         return;
       }
-      handlers.onError((err as Error).message);
+      await handlers.onError((err as Error).message);
       return;
     }
 
@@ -528,7 +618,7 @@ export const openaiProvider: AIProvider = {
       deadline.cancel();
       const err = await parseError(res);
       console.log(`[openai] stream error status=${res.status} body=${clip(err, 300)}`);
-      handlers.onError(err, res.status);
+      await handlers.onError(err, res.status);
       return;
     }
 
@@ -560,7 +650,10 @@ export const openaiProvider: AIProvider = {
       }
       if (evt.type === "response.output_text.delta" && typeof evt.delta === "string") {
         raw += evt.delta;
-        handlers.onDelta(evt.delta);
+        // Structured model text is buffered until it has passed schema,
+        // navigation, intent, and answer-leak policy. Streaming unvalidated
+        // JSON would briefly expose unsafe content before the final parser had
+        // a chance to remove it.
       } else if (evt.type === "response.failed" || evt.type === "response.error") {
         finalFailure = evt.response?.error?.message ?? "response failed";
       } else if (evt.type === "response.completed") {
@@ -604,28 +697,35 @@ export const openaiProvider: AIProvider = {
         // Input: full prompt is billed by OpenAI once the request was
         // accepted. Output: what we actually received via delta events
         // before the abort. Both are rough — see estimateTokens comment.
-        handlers.onAbort?.(raw, {
+        await handlers.onAbort?.(raw, {
           inputTokens: estimateTokens(instructions) + estimateTokens(JSON.stringify(userTurn)),
           outputTokens: estimateTokens(raw),
         });
         return;
       }
-      handlers.onError((err as Error).message);
+      await handlers.onError((err as Error).message);
       return;
     }
     // Stream loop exited normally — clear the deadline timer.
     deadline.cancel();
 
     if (finalFailure) {
-      handlers.onError(finalFailure);
+      await handlers.onError(finalFailure);
       return;
     }
 
-    let sections: TutorSections = {};
+    let sections: TutorSections;
     try {
-      sections = JSON.parse(raw) as TutorSections;
-    } catch {
-      sections = { summary: raw };
+      sections = applyTutorOutputPolicy({
+        sections: parseTutorOutput(raw, params.files),
+        params,
+        intent,
+        priorTutorTurns,
+      });
+      raw = JSON.stringify(sections);
+    } catch (err) {
+      await handlers.onError((err as Error).message);
+      return;
     }
 
     const elapsed = Date.now() - started;
@@ -633,6 +733,6 @@ export const openaiProvider: AIProvider = {
       ? ` in=${usage.inputTokens} out=${usage.outputTokens}`
       : "";
     console.log(`[openai] stream end (${elapsed}ms, ${raw.length} chars${usageLog})`);
-    handlers.onDone(raw, sections, usage);
+    await handlers.onDone(raw, sections, usage);
   },
 };

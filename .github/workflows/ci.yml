@@ -21,7 +21,11 @@ jobs:
         with:
           node-version: '20'
       - name: Test immutable manifest and VM promotion rollback
-        run: node --test .github/scripts/release-manifest.test.mjs .github/scripts/vm-promote-candidate.test.mjs
+        run: node --test .github/scripts/release-manifest.test.mjs .github/scripts/vm-promote-candidate.test.mjs scripts/agent-harness.test.mjs scripts/production-dependency-audit.test.mjs
+      - name: Validate agent harness contract
+        run: node scripts/agent-harness.mjs doctor --ci
+      - name: Audit production dependencies
+        run: node scripts/production-dependency-audit.mjs
       - name: Parse promotion scripts
         run: bash -n infra/scripts/vm-promote-candidate.sh
       - name: Validate GitHub Actions workflows
@@ -153,6 +157,7 @@ jobs:
         run: |
           npm ci
           npm test
+          npm run eval:verify-baseline
       - name: Frontend — install & test
         working-directory: frontend
         run: |

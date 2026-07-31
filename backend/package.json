@@ -10,7 +10,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "seed:dev-users": "tsx scripts/seed-dev-users.ts",
-    "eval:tutor": "tsx scripts/eval-tutor.ts"
+    "eval:tutor": "tsx scripts/eval-tutor.ts",
+    "eval:verify-baseline": "tsx scripts/verify-eval-baseline.ts"
   },
   "dependencies": {
     "@azure/arm-containerinstance": "^9.1.0",

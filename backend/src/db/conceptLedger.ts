@@ -16,7 +16,7 @@
 // (migration line 75). All writes here go through the service-role
 // pool (`db()`).
 
-import { db } from "./client.js";
+import { db, withRlsContext } from "./client.js";
 
 export type ConceptEventType = "taught" | "used" | "practiced";
 
@@ -32,6 +32,50 @@ export interface ConceptLedgerWriteInput {
   taught?: string[];
   used?: string[];
   practiced?: string[];
+}
+
+export interface TutorConceptEvidence {
+  conceptTag: string;
+  taught: boolean;
+  used: boolean;
+  practiced: boolean;
+}
+
+/**
+ * Server-only, user-scoped read for the contextual tutor. There is no client
+ * read route and the query always binds the authenticated user id; callers
+ * cannot nominate a different learner whose mastery should be loaded.
+ */
+export async function getTutorConceptEvidence(
+  userId: string,
+  conceptTags: string[],
+): Promise<TutorConceptEvidence[]> {
+  const tags = dedup(conceptTags).slice(0, 100);
+  if (tags.length === 0) return [];
+  const rows = await withRlsContext(userId, async (tx) => tx<
+    Array<{
+      concept_tag: string;
+      taught: boolean;
+      used: boolean;
+      practiced: boolean;
+    }>
+  >`
+    SELECT concept_tag,
+           bool_or(event_type = 'taught') AS taught,
+           bool_or(event_type = 'used') AS used,
+           bool_or(event_type = 'practiced') AS practiced
+      FROM public.learner_concept_ledger
+     WHERE user_id = ${userId}
+       AND concept_tag = ANY(${tags}::text[])
+     GROUP BY concept_tag
+     ORDER BY concept_tag
+  `);
+  return rows.map((row) => ({
+    conceptTag: row.concept_tag,
+    taught: row.taught,
+    used: row.used,
+    practiced: row.practiced,
+  }));
 }
 
 /**

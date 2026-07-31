@@ -66,6 +66,7 @@ import {
   getPlatformAuthStatus,
 } from "./services/ai/credential.js";
 import { corsOriginPolicy } from "./middleware/frontendOrigin.js";
+import { reconcileExpiredAIRequests } from "./db/aiReservations.js";
 
 async function main() {
   // Validate env-sourced config before any wiring. Prefer a loud, fast failure
@@ -635,6 +636,21 @@ async function main() {
   // wiring TBD (low priority — daily inspection is enough until volume
   // makes a paging rule worthwhile).
   startInvariantValidator();
+
+  // Release 0D: reservations normally reconcile during the next admission,
+  // but a quiet system still needs bounded crash recovery. Sweep once at
+  // boot and every minute; failures are visible and fail closed because the
+  // unreconciled reservation continues consuming capacity.
+  const reconcileAIReservations = () => {
+    void reconcileExpiredAIRequests()
+      .then((count) => {
+        if (count) console.warn(`[ai-reservations] reconciled ${count} expired request(s)`);
+      })
+      .catch((err) => console.error("[ai-reservations] reconciliation failed:", err));
+  };
+  reconcileAIReservations();
+  const aiReservationReaper = setInterval(reconcileAIReservations, 60_000);
+  aiReservationReaper.unref?.();
 
   // QA-M4: hourly reap of abandoned lesson_progress rows. A drive-by URL
   // visit calls startLesson, which writes an in_progress row even when the
