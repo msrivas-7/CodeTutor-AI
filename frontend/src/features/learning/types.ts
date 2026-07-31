@@ -81,6 +81,28 @@ export interface PracticeExercise {
   hints?: string[];
 }
 
+export type AssistanceEvidenceCode = "python-unclosed-parenthesis";
+
+export interface AssistanceMove {
+  id: string;
+  trigger: {
+    type: "repeated_error";
+    errorCode: AssistanceEvidenceCode;
+    minAttempts: 2;
+  };
+  learningMove: "observe";
+  conceptTags: string[];
+  question: string;
+  maxScaffoldLevel: 1;
+  productiveResponse: string;
+  endsWhen: "evidence_changes";
+}
+
+export interface AssistanceMoves {
+  version: 1;
+  moves: AssistanceMove[];
+}
+
 export interface LessonMeta {
   id: string;
   courseId: string;
@@ -98,6 +120,12 @@ export interface LessonMeta {
   recap?: string;
   practicePrompts?: string[];
   practiceExercises?: PracticeExercise[];
+  /**
+   * Versioned, reviewed deterministic teaching moves. These are selected only
+   * from allowlisted local evidence; authored content never initiates an AI
+   * request and cannot inject arbitrary model copy.
+   */
+  assistanceMoves?: AssistanceMoves;
   // Phase A — A7: optional "post-credits" beat shown on
   // LessonCompletePanel. Convention: "In the next lesson, you'll …"
   // Falls back to next lesson's first objective if unset.

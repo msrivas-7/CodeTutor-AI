@@ -143,3 +143,15 @@ code, pre, .font-mono {
     scroll-behavior: auto !important;
   }
 }
+
+/* Phase 1B contextual guidance: a stable, non-animated line target. The cue
+   stays in the normal layout and this tint keeps its point of action visible
+   without stealing focus or scrolling the learner automatically. */
+.monaco-editor .contextual-guide-editor-line {
+  background: rgb(var(--color-accent) / 0.13);
+  box-shadow: inset 2px 0 0 rgb(var(--color-accent));
+}
+
+.monaco-editor .contextual-guide-editor-glyph {
+  border-left: 2px solid rgb(var(--color-accent));
+}

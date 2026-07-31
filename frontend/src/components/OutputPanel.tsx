@@ -24,7 +24,14 @@ const TYPE_STYLE: Record<ErrorType, string> = {
 
 type Tab = "combined" | "stdout" | "stderr" | "stdin";
 
-export function OutputPanel() {
+interface OutputPanelProps {
+  /** A more specific current-result guide already owns this moment. */
+  suppressErrorEncouragement?: boolean;
+}
+
+export function OutputPanel({
+  suppressErrorEncouragement = false,
+}: OutputPanelProps = {}) {
   const { running, result, error, stdin, setStdin } = useRunStore();
   const { order, revealAt } = useProjectStore();
   const [tab, setTab] = useState<Tab>("combined");
@@ -178,7 +185,7 @@ export function OutputPanel() {
           ambient grain to signal "this is a moment, not noise."
           Grain is pointer-events:none so the pre below stays fully
           interactive (copy, linkifyRefs, etc.). */}
-      {tab !== "stdin" && hasStderr && !running && (
+      {tab !== "stdin" && hasStderr && !running && !suppressErrorEncouragement && (
         <div className="relative border-b border-danger/20 bg-danger/5 px-3 py-2">
           <FilmGrain intensity="ambient" />
           <p className="relative z-10 text-[12px] leading-relaxed text-ink/90">

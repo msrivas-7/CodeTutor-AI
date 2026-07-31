@@ -89,5 +89,24 @@
         "Strings can have any characters inside the quotes — including `*`."
       ]
     }
-  ]
+  ],
+  "assistanceMoves": {
+    "version": 1,
+    "moves": [
+      {
+        "id": "notice-unclosed-parenthesis",
+        "trigger": {
+          "type": "repeated_error",
+          "errorCode": "python-unclosed-parenthesis",
+          "minAttempts": 2
+        },
+        "learningMove": "observe",
+        "conceptTags": ["syntax", "print"],
+        "question": "Which opening parenthesis still needs a closing partner?",
+        "maxScaffoldLevel": 1,
+        "productiveResponse": "Close the unmatched opening parenthesis, then run the program again.",
+        "endsWhen": "evidence_changes"
+      }
+    ]
+  }
 }

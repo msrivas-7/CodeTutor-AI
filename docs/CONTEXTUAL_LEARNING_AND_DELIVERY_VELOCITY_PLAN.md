@@ -613,6 +613,40 @@ Exit:
 
 **Complexity:** two to four weeks.
 
+**Implementation status (2026-07-30):** locally complete on
+`dev/contextual-learning-roadmap` behind the default-off internal preview flag
+`?contextGuide=1`; draft-PR CI and review are the remaining engineering release
+gates. The proof recognizes only an allowlisted Python unclosed-parenthesis
+error tied to a current project file and line. It requires two learner-initiated
+attempts on distinct source revisions, selects reviewed lesson-authored copy,
+and never imports or invokes an AI/network path. The result bridge and editor
+line become one attention owner: generic coach/error encouragement and the
+manual tutor-error CTA yield while it is visible. Edit, rerun, dismissal,
+navigation, successful/non-matching Run, or changed evidence ends or resets the
+session-only episode according to the contract below.
+
+Local evidence includes 410/410 frontend tests, frontend and E2E typechecks,
+content lint with zero errors, a production build, and 3/3 retry-disabled
+Chromium plus 3/3 retry-disabled WebKit browser proofs. Those proofs cover desktop authored-copy selection,
+zero automatic AI requests, current-line focus, dismissal persistence and
+changed-evidence recovery; 390×844 reduced-motion cue/target co-visibility and
+44px actions; and a 390×500 software-keyboard viewport with Run/Check recovery
+still reachable. The active-guide state also passes an axe scan (with Monaco's
+separately audited canvas internals excluded), exposes a polite screen-reader
+status, and records named before-repeat/after-authored-move screenshots in the
+Playwright report. Fifteen adjacent retry-disabled Chromium journeys also pass
+across stale-context rejection, anonymous conversion, the supported viewport
+matrix, light/reduced-motion, 200% zoom, and software-keyboard behavior. Local
+Firefox did not reach test code because its macOS headless SWGL renderer failed
+to launch; the GitHub-hosted Linux Firefox job remains the authoritative
+Firefox release gate rather than treating a pre-page renderer failure as a
+product verdict.
+
+This is engineering and internal-dogfood evidence only. The five-session
+usability-falsification protocol remains pending, so the flag stays default-off
+and this release is not approved for moderated research, limited learner
+rollout, or broad rollout.
+
 Deliver one canonical experience:
 
 1. learner repeats the same unclosed-parenthesis error;

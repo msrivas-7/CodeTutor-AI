@@ -17,6 +17,8 @@ export interface CoachState {
   failedVisibleTests?: number;
   failedHiddenTests?: number;
   passedVisibleTests?: number;
+  /** A more specific attention owner is already visible in the workspace. */
+  suppressed?: boolean;
 }
 
 interface LessonInstructionsPanelProps {
@@ -151,7 +153,7 @@ export function LessonInstructionsPanel({
       <div className="flex-1 overflow-y-auto px-4 py-3" tabIndex={0}>
         {activeTab === "instructions" ? (
           <>
-            {coachState && <CoachRail {...coachState} />}
+            {coachState && !coachState.suppressed && <CoachRail {...coachState} />}
             {meta.order === 1 && !coachState?.lessonComplete && firstMove && (
               <section
                 aria-label="Your first move"

@@ -105,7 +105,16 @@ const reducedMotion =
   typeof window.matchMedia === "function" &&
   window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-export function MonacoPane() {
+export interface EditorAttentionTarget {
+  path: string;
+  line: number;
+}
+
+interface MonacoPaneProps {
+  attentionTarget?: EditorAttentionTarget | null;
+}
+
+export function MonacoPane({ attentionTarget = null }: MonacoPaneProps = {}) {
   // P-C1: scoped selectors — a no-arg `useProjectStore()` re-renders on every
   // file-tree reorder / tab change, dragging Monaco through a full re-render
   // storm on navigation. Files map is shallow-compared so only content edits
@@ -118,6 +127,7 @@ export function MonacoPane() {
   const setActiveSelection = useAIStore((s) => s.setActiveSelection);
   const bumpFocusComposer = useAIStore((s) => s.bumpFocusComposer);
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
+  const attentionDecorationsRef = useRef<MonacoEditor.IEditorDecorationsCollection | null>(null);
   const theme = useEffectiveTheme();
 
   // A14: track the last-applied reveal ticket so activeFile-driven re-runs of
@@ -136,6 +146,31 @@ export function MonacoPane() {
     if (focus) ed.focus();
   };
 
+  const syncAttentionDecoration = () => {
+    const editor = editorRef.current;
+    if (!editor || !attentionDecorationsRef.current) return;
+    if (!attentionTarget || attentionTarget.path !== activeFile) {
+      attentionDecorationsRef.current.clear();
+      return;
+    }
+    const line = Math.max(1, attentionTarget.line);
+    attentionDecorationsRef.current.set([
+      {
+        range: {
+          startLineNumber: line,
+          startColumn: 1,
+          endLineNumber: line,
+          endColumn: 1,
+        },
+        options: {
+          isWholeLine: true,
+          className: "contextual-guide-editor-line",
+          linesDecorationsClassName: "contextual-guide-editor-glyph",
+        },
+      },
+    ]);
+  };
+
   useEffect(() => {
     if (pendingReveal && pendingReveal.path === activeFile) {
       const isFresh = lastRevealTicket.current !== pendingReveal.ticket;
@@ -144,8 +179,22 @@ export function MonacoPane() {
     }
   }, [pendingReveal, activeFile]);
 
+  useEffect(() => {
+    syncAttentionDecoration();
+  }, [attentionTarget?.path, attentionTarget?.line, activeFile]);
+
+  useEffect(
+    () => () => {
+      attentionDecorationsRef.current?.clear();
+      attentionDecorationsRef.current = null;
+    },
+    [],
+  );
+
   const handleMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
+    attentionDecorationsRef.current = editor.createDecorationsCollection();
+    syncAttentionDecoration();
     // Apply any pending reveal recorded before this editor instance existed —
     // typical when clicking a ref that switches the active file, which
     // remounts the Editor (we key on activeFile). Fresh reveals still focus
@@ -249,7 +298,11 @@ export function MonacoPane() {
         cursorSmoothCaretAnimation: reducedMotion ? "off" : "on",
         // A4: name the editor region so SR announcements include the file
         // path, and let Monaco speak inline suggestions as the user types.
-        ariaLabel: `Code editor for ${activeFile}`,
+        ariaLabel: `Code editor for ${activeFile}${
+          attentionTarget?.path === activeFile
+            ? `; current guidance targets line ${attentionTarget.line}`
+            : ""
+        }`,
         screenReaderAnnounceInlineSuggestion: true,
         padding: { top: 12, bottom: 12 },
         scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 },

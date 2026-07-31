@@ -24,6 +24,8 @@ import { SkipToContent } from "../../../components/SkipToContent";
 import { Modal } from "../../../components/Modal";
 import { LessonCompletePanel } from "../components/LessonCompletePanel";
 import { RetrievalCheckPanel } from "../components/RetrievalCheckPanel";
+import { ContextualGuideBridge } from "../assistance/ContextualGuideBridge";
+import { useContextualGuide } from "../assistance/useContextualGuide";
 import { useSessionLifecycle } from "../../../hooks/useSessionLifecycle";
 import { useAuthStore } from "../../../auth/authStore";
 import { useAIStore } from "../../../state/aiStore";
@@ -187,8 +189,12 @@ export default function LessonPage({
   const lessonProgressMap = useProgressStore((s) => s.lessonProgress);
   const hasOpenaiKey = usePreferencesStore((s) => s.hasOpenaiKey);
   const selectedModel = useAIStore((s) => s.selectedModel);
+  const tutorAsking = useAIStore((s) => s.asking);
   const tutorConfigured = !!selectedModel && hasOpenaiKey;
   const keys = useShortcutLabels();
+  const projectRevision = useProjectStore((s) => s.revision);
+  const projectContext = useProjectStore((s) => s.projectContext);
+  const projectPaths = useProjectStore((s) => s.order);
 
   // Practice-mode state sits at the page level so both the loader (for the
   // auto-save key) and the validator (for the check/run/enter-practice
@@ -521,6 +527,41 @@ export default function LessonPage({
   // the flow. After "done" the product is fully back to normal.
   const tutorClearHidden = isChoreographed && firstRunStep !== "done";
 
+  // Phase 1B ships behind an explicit internal-preview URL flag. This keeps
+  // the proof deployable and browser-testable without exposing an unvalidated
+  // intervention to normal learners. The later rollout phase owns changing
+  // the default, not lesson content or this deterministic policy.
+  const contextualGuideEnabled =
+    searchParams.get("contextGuide") === "1" &&
+    !practiceMode &&
+    !!loader.lesson?.assistanceMoves;
+  const historicalLessonComplete =
+    courseId && lessonId
+      ? lessonProgressMap[`${courseId}/${lessonId}`]?.status === "completed"
+      : false;
+  const contextualGuide = useContextualGuide({
+    enabled: contextualGuideEnabled,
+    courseId: courseId ?? "",
+    lessonId: lessonId ?? "",
+    projectContext,
+    projectRevision,
+    projectPaths,
+    result: runner.lastResult,
+    assistanceMoves: loader.lesson?.assistanceMoves,
+    historicallyComplete: historicalLessonComplete,
+    blockingAttention:
+      validator.showComplete ||
+      (isChoreographed && firstRunStep !== "done"),
+    learnerRequestedTutor: tutorAsking,
+  });
+  const contextualGuideVisible =
+    contextualGuide.decision.kind === "result_bridge";
+  const viewContextualError = () => {
+    const evidence = contextualGuide.context.latestRunEvidence;
+    if (!evidence) return;
+    useProjectStore.getState().revealAt(evidence.path, evidence.line);
+  };
+
   // Phase 27-v2.1 — the praise turn parses the learner's typed name
   // out of the editor buffer (option d in the v2 plan). Authed users
   // get this from auth metadata via firstName; anon users have
@@ -632,6 +673,7 @@ export default function LessonPage({
     failedVisibleTests: validator.failedVisibleTests,
     failedHiddenTests: validator.failedHiddenTests,
     passedVisibleTests: validator.passedVisibleTests,
+    suppressed: contextualGuideVisible,
   };
 
   const nextLessonId = (() => {
@@ -1003,7 +1045,7 @@ export default function LessonPage({
                     <div className="p-4 text-sm text-muted">Loading editor…</div>
                   }
                 >
-                  <MonacoPane />
+                  <MonacoPane attentionTarget={contextualGuide.target} />
                 </Suspense>
               </div>
             </section>
@@ -1012,7 +1054,7 @@ export default function LessonPage({
               aria-label="Program output"
               className="h-[20vh] min-h-[110px] border-b border-border"
             >
-              <OutputPanel />
+              <OutputPanel suppressErrorEncouragement={contextualGuideVisible} />
             </section>
             {/* 4 — Tutor. Always open on phone (A2 part 1's default-open
                 promise) — a full-width section, not a side drawer. */}
@@ -1046,6 +1088,13 @@ export default function LessonPage({
               in ABOVE the bar so a failed check never hides the retry
               affordance. */}
           <div className="shrink-0 border-t border-border bg-panel/95 backdrop-blur">
+            <ContextualGuideBridge
+              compact
+              decision={contextualGuide.decision}
+              evidence={contextualGuide.context.latestRunEvidence}
+              onViewError={viewContextualError}
+              onDismiss={contextualGuide.dismiss}
+            />
             {!practiceMode
               && validator.validation
               && !validator.validation.passed
@@ -1063,7 +1112,7 @@ export default function LessonPage({
                 )}
               </div>
             )}
-            {runner.hasStderr && !runner.running && (
+            {runner.hasStderr && !runner.running && !contextualGuideVisible && (
               <div className="mx-3 mt-2">
                 <button
                   onClick={runner.handleExplainError}
@@ -1261,7 +1310,7 @@ export default function LessonPage({
             <EditorTabs mode="lesson" />
             <div className="min-h-0 flex-1">
               <Suspense fallback={<div className="p-4 text-sm text-muted">Loading editor…</div>}>
-                <MonacoPane />
+                <MonacoPane attentionTarget={contextualGuide.target} />
               </Suspense>
             </div>
             <Splitter
@@ -1276,7 +1325,7 @@ export default function LessonPage({
               style={{ height: layout.outputH }}
               className="min-h-0 shrink-0"
             >
-              <OutputPanel />
+              <OutputPanel suppressErrorEncouragement={contextualGuideVisible} />
             </div>
 
             {/* Run toolbar — 2 rows: primary actions (+ overflow menu),
@@ -1286,6 +1335,12 @@ export default function LessonPage({
                 a menu). Reset LESSON (destructive — wipes progress)
                 stays behind ⋯ so beginners can't trigger it accidentally. */}
             <div className="border-t border-border bg-panel/80">
+              <ContextualGuideBridge
+                decision={contextualGuide.decision}
+                evidence={contextualGuide.context.latestRunEvidence}
+                onViewError={viewContextualError}
+                onDismiss={contextualGuide.dismiss}
+              />
               {/* Row 1 — Primary actions */}
               <div className="flex items-center gap-2 px-4 py-1.5">
                 <span className="relative inline-flex">
@@ -1411,7 +1466,7 @@ export default function LessonPage({
                     (diagnostic) to "What went wrong?" (a question a real tutor
                     would ask) — same handler, warmer framing. */}
                 <div className="min-w-0 xl:min-w-[160px]">
-                  {runner.hasStderr && !runner.running && (
+                  {runner.hasStderr && !runner.running && !contextualGuideVisible && (
                     <button
                       onClick={runner.handleExplainError}
                       // Phase B: tone fix. Copy says "let me help" but
