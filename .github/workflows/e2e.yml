@@ -36,10 +36,126 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
+  actions: read
   contents: read
   packages: read
+  pull-requests: read
 
 jobs:
+  critical-shadow:
+    name: Playwright critical lane (advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Release 1D begins in shadow mode. The exhaustive Chromium shards below
+    # remain the blocking source of truth until the measured exit gate passes.
+    continue-on-error: true
+    outputs:
+      critical-outcome: ${{ steps.critical.outcome }}
+      contract-outcome: ${{ steps.contract.outcome }}
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      BYOK_ENCRYPTION_KEY: ${{ secrets.BYOK_ENCRYPTION_KEY }}
+      METRICS_TOKEN: e2e-test-metrics-token
+      E2E_USER_SUFFIX: critical-run${{ github.run_id }}-attempt${{ github.run_attempt }}
+      MAX_SESSIONS_PER_USER: "60"
+      MAX_SESSIONS_GLOBAL: "200"
+      DOCKER_EXEC_CONCURRENCY: "16"
+      BACKEND_IMAGE: ${{ inputs.backend_image_ref || '' }}
+      RUNNER_IMAGE: ${{ inputs.runner_image_ref || '' }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Log in to GHCR for immutable candidates
+        if: inputs.backend_image_ref != '' && inputs.runner_image_ref != ''
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+
+      - name: Boot docker-compose stack
+        run: |
+          if [ -n "$BACKEND_IMAGE" ] && [ -n "$RUNNER_IMAGE" ]; then
+            docker pull "$BACKEND_IMAGE"
+            docker pull "$RUNNER_IMAGE"
+            docker compose build frontend
+            docker compose up -d --no-build backend frontend
+          else
+            docker compose up -d backend frontend
+          fi
+
+      - name: Install e2e deps
+        working-directory: e2e
+        run: npm ci
+
+      - name: Validate critical metadata and frozen regression coverage
+        id: contract
+        run: |
+          set -euo pipefail
+          mkdir -p e2e/shadow-results
+          cd e2e
+          npx playwright test --list --grep @lane:critical --reporter=json > shadow-results/critical-inventory.json
+          cd ..
+          node scripts/e2e-shadow-contract.mjs --inventory e2e/shadow-results/critical-inventory.json
+
+      - name: Cache Playwright browser
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('e2e/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      - name: Install Playwright browser
+        working-directory: e2e
+        run: npx playwright install --with-deps chromium
+
+      - name: Run critical lane without retries
+        id: critical
+        continue-on-error: true
+        working-directory: e2e
+        run: npx playwright test --grep @lane:critical --project=chromium --retries=0
+
+      - name: Record advisory outcome
+        if: always()
+        env:
+          CONTRACT_OUTCOME: ${{ steps.contract.outcome }}
+          CRITICAL_OUTCOME: ${{ steps.critical.outcome }}
+        run: |
+          mkdir -p e2e/shadow-results
+          node -e 'const fs=require("fs"); fs.writeFileSync("e2e/shadow-results/outcome.json", JSON.stringify({schemaVersion:1, contract:process.env.CONTRACT_OUTCOME, critical:process.env.CRITICAL_OUTCOME, blocking:false, retries:0}, null, 2)+"\n")'
+
+      - name: Dump docker-compose logs on failure
+        if: steps.critical.outcome == 'failure' || steps.contract.outcome == 'failure'
+        run: docker compose logs --no-color --tail=300
+
+      - name: Upload critical shadow evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: playwright-critical-shadow
+          path: |
+            e2e/shadow-results
+            e2e/playwright-report
+            e2e/test-results
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Tear down docker-compose
+        if: always()
+        run: docker compose down -v
+
   e2e:
     name: Playwright (chromium)
     runs-on: ubuntu-latest
@@ -284,3 +400,56 @@ jobs:
       - name: Tear down docker-compose
         if: always()
         run: docker compose down -v
+
+  shadow-evidence:
+    name: E2E shadow evidence
+    if: always()
+    needs: [critical-shadow, e2e, cross-browser-core]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Collect run and job timing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p e2e/shadow-results
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" > e2e/shadow-results/run.json
+          gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?per_page=100" \
+            --slurp | node -e 'let d=""; process.stdin.on("data",c=>d+=c).on("end",()=>{const pages=JSON.parse(d); const jobs=pages.flatMap(page=>page.jobs||[]); process.stdout.write(JSON.stringify({jobs},null,2)+"\n")})' \
+            > e2e/shadow-results/jobs.json
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/${{ github.event.pull_request.number }}/files?per_page=100" \
+              --slurp | node -e 'let d=""; process.stdin.on("data",c=>d+=c).on("end",()=>process.stdout.write(JSON.stringify(JSON.parse(d).flat(),null,2)+"\n"))' \
+              > e2e/shadow-results/changed-files.json
+          else
+            printf '[]\n' > e2e/shadow-results/changed-files.json
+          fi
+
+      - name: Build versioned shadow evidence
+        env:
+          FULL_OUTCOME: ${{ needs.e2e.result }}
+          CROSS_BROWSER_OUTCOME: ${{ needs.cross-browser-core.result }}
+          CRITICAL_OUTCOME: ${{ needs.critical-shadow.outputs.critical-outcome }}
+          CONTRACT_OUTCOME: ${{ needs.critical-shadow.outputs.contract-outcome }}
+        run: |
+          node .github/scripts/e2e-shadow-evidence.mjs \
+            --run e2e/shadow-results/run.json \
+            --jobs e2e/shadow-results/jobs.json \
+            --changed-files e2e/shadow-results/changed-files.json \
+            --output e2e/shadow-results/evidence.json \
+            --full-outcome "$FULL_OUTCOME" \
+            --cross-browser-outcome "$CROSS_BROWSER_OUTCOME" \
+            --critical-outcome "$CRITICAL_OUTCOME" \
+            --contract-outcome "$CONTRACT_OUTCOME"
+          cat e2e/shadow-results/evidence.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload shadow evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: e2e-shadow-evidence
+          path: e2e/shadow-results
+          retention-days: 90
+          if-no-files-found: error

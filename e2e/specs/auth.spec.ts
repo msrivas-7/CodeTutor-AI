@@ -19,6 +19,7 @@
 import { expect, request, test } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
 import { buildCurrentRunTestEmail } from "../fixtures/testIdentity";
+import { criticalTest } from "../fixtures/testMetadata";
 
 const BACKEND = process.env.E2E_API_URL ?? "http://localhost:4000";
 const ORIGIN = process.env.E2E_APP_ORIGIN ?? "http://localhost:5173";
@@ -280,7 +281,16 @@ test.describe("auth flow", () => {
     expect(data).not.toHaveProperty("last_name");
   });
 
-  test("login persists across reload; signout clears it", async ({ page }) => {
+  test(
+    "login persists across reload; signout clears it",
+    criticalTest({
+      risk: "p1",
+      owner: "auth",
+      browsers: ["chromium"],
+      devices: ["desktop"],
+      quarantine: { state: "none" },
+    }),
+    async ({ page }) => {
     if (!SERVICE_KEY) {
       test.skip(true, "SUPABASE_SERVICE_ROLE_KEY required for admin-create");
       return;
@@ -334,7 +344,8 @@ test.describe("auth flow", () => {
       localStorage.getItem("codetutor-auth"),
     );
     expect(authBlob, "session should be cleared on sign-out").toBeFalsy();
-  });
+    },
+  );
 });
 
 test.describe("auth backend", () => {
@@ -363,7 +374,16 @@ test.describe("auth backend", () => {
     expect(res.status()).toBe(401);
   });
 
-  test("cross-user session access is silently ignored (no oracle)", async () => {
+  test(
+    "cross-user session access is silently ignored (no oracle)",
+    criticalTest({
+      risk: "p0",
+      owner: "auth",
+      browsers: ["chromium"],
+      devices: ["desktop"],
+      quarantine: { state: "none" },
+    }),
+    async () => {
     if (!SERVICE_KEY) {
       test.skip(true, "SUPABASE_SERVICE_ROLE_KEY required for admin-create");
       return;
@@ -478,5 +498,6 @@ test.describe("auth backend", () => {
       data: { sessionId },
     });
     await ctx.dispose();
-  });
+    },
+  );
 });

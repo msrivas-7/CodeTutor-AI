@@ -7,6 +7,7 @@
 
 import { expect, test, type Page } from "@playwright/test";
 import { waitForMonacoReady } from "../fixtures/monaco";
+import { criticalTest } from "../fixtures/testMetadata";
 
 const LESSON_PATH = "/try/lesson/python-fundamentals/hello-world";
 const RETRIEVAL_KEY =
@@ -57,7 +58,16 @@ async function openLesson(page: Page) {
   await expect(page.getByRole("button", { name: /run/i }).first()).toBeVisible();
 }
 
-test.describe("Phase A-Q — Firefox and WebKit critical journey", () => {
+test.describe(
+  "Phase A-Q — Firefox and WebKit critical journey",
+  criticalTest({
+    risk: "p1",
+    owner: "learning",
+    browsers: ["chromium", "firefox", "webkit"],
+    devices: ["desktop", "phone"],
+    quarantine: { state: "none" },
+  }),
+  () => {
   test("desktop discovery reaches a usable share artifact and signup", async ({ page }) => {
     await seedFirstRun(page, true);
     await mockSuccessfulRun(page);
@@ -179,4 +189,5 @@ test.describe("Phase A-Q — Firefox and WebKit critical journey", () => {
     ).toBeVisible();
     await expectNoHorizontalOverflow(page);
   });
-});
+  },
+);

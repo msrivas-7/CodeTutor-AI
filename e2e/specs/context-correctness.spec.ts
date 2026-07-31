@@ -8,6 +8,7 @@ import { mockAllAI } from "../fixtures/aiMocks";
 import { allPassing } from "../fixtures/harnessResults";
 import { setMonacoValue, waitForMonacoReady } from "../fixtures/monaco";
 import { loadProfile, markOnboardingDone, seedApiKey } from "../fixtures/profiles";
+import { criticalTest } from "../fixtures/testMetadata";
 import * as S from "../utils/selectors";
 
 const COURSE_ID = "python-fundamentals";
@@ -29,7 +30,16 @@ async function afterBrowserResponseTurn(page: Page): Promise<void> {
   );
 }
 
-test.describe("context correctness", () => {
+test.describe(
+  "context correctness",
+  criticalTest({
+    risk: "p0",
+    owner: "platform",
+    browsers: ["chromium"],
+    devices: ["desktop"],
+    quarantine: { state: "none" },
+  }),
+  () => {
   test.beforeEach(async ({ page }) => {
     await mockAllAI(page);
     await markOnboardingDone(page);
@@ -159,4 +169,5 @@ test.describe("context correctness", () => {
     await expect(S.checkMyWorkButton(page)).toBeEnabled({ timeout: 10_000 });
     await expect(page.getByRole("dialog", { name: /lesson complete/i })).toHaveCount(0);
   });
-});
+  },
+);

@@ -18,10 +18,20 @@
 //      doesn't re-prove it.
 
 import { expect, test } from "@playwright/test";
+import { criticalTest } from "../fixtures/testMetadata";
 
 const PATH = "/try/lesson/python-fundamentals/hello-world";
 
-test.describe("Phase A — A1 retrieval-check gate", () => {
+test.describe(
+  "Phase A — A1 retrieval-check gate",
+  criticalTest({
+    risk: "p1",
+    owner: "learning",
+    browsers: ["chromium"],
+    devices: ["desktop"],
+    quarantine: { state: "none" },
+  }),
+  () => {
   test.beforeEach(async ({ page }) => {
     // Skip cinematic + coach + walkthrough — the gate fires after Run +
     // Check, which is reachable on the working chrome.
@@ -197,4 +207,5 @@ test.describe("Phase A — A1 retrieval-check gate", () => {
       page.getByText(/what shows up on the screen/i),
     ).toHaveCount(0);
   });
-});
+  },
+);

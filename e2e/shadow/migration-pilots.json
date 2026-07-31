@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "status": "shadow",
+  "pilots": [
+    {
+      "id": "coach-selection-tutor-state",
+      "lowerLayerProof": [
+        {
+          "file": "frontend/src/features/learning/components/CoachRail.test.ts",
+          "testIncludes": "current run failure outranks historical lesson completion"
+        },
+        {
+          "file": "frontend/src/state/projectStore.test.ts",
+          "testIncludes": "invalidates run evidence and revision-bound selection on edit"
+        },
+        {
+          "file": "frontend/src/features/learning/assistance/policy.test.ts",
+          "testIncludes": "honors the internal flag, attention ownership, and dismissal"
+        }
+      ],
+      "retainedBrowserBoundary": {
+        "file": "contextual-guidance.spec.ts",
+        "titleIncludes": "without an automatic AI request"
+      },
+      "demotion": "none"
+    },
+    {
+      "id": "endpoint-only-unsubscribe",
+      "lowerLayerProof": [
+        {
+          "file": "backend/src/routes/email.test.ts",
+          "testIncludes": "contains database failures behind a generic retryable 500 page"
+        }
+      ],
+      "retainedBrowserBoundary": {
+        "file": "email-unsubscribe.spec.ts",
+        "titleIncludes": "valid token"
+      },
+      "demotion": "none"
+    },
+    {
+      "id": "settings-free-tier-matrix",
+      "lowerLayerProof": [
+        {
+          "file": "frontend/src/components/FreeTierPill.test.ts",
+          "testIncludes": "below-20-percent state"
+        },
+        {
+          "file": "frontend/src/state/preferencesStore.test.ts",
+          "testIncludes": "setUiLayout"
+        }
+      ],
+      "retainedBrowserBoundary": {
+        "file": "free-tier.spec.ts",
+        "titleIncludes": "renders FreeTierPill and decrements"
+      },
+      "demotion": "none"
+    }
+  ]
+}

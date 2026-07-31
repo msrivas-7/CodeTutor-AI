@@ -1,4 +1,5 @@
 import { expect, test, type Browser } from "@playwright/test";
+import { criticalTest } from "../fixtures/testMetadata";
 
 const TRIAL_PATH = "/try/lesson/python-fundamentals/hello-world";
 
@@ -49,11 +50,31 @@ async function verifyZeroStateJourney(
 }
 
 test.describe("release 0C — true zero-state first journey", () => {
-  test("desktop visitor reaches one clear first action without signup", async ({ browser }) => {
-    await verifyZeroStateJourney(browser, { width: 1440, height: 900 }, false);
-  });
+  test(
+    "desktop visitor reaches one clear first action without signup",
+    criticalTest({
+      risk: "p1",
+      owner: "learning",
+      browsers: ["chromium"],
+      devices: ["desktop"],
+      quarantine: { state: "none" },
+    }),
+    async ({ browser }) => {
+      await verifyZeroStateJourney(browser, { width: 1440, height: 900 }, false);
+    },
+  );
 
-  test("390px visitor reaches the same honest first action", async ({ browser }) => {
-    await verifyZeroStateJourney(browser, { width: 390, height: 844 }, true);
-  });
+  test(
+    "390px visitor reaches the same honest first action",
+    criticalTest({
+      risk: "p1",
+      owner: "learning",
+      browsers: ["chromium"],
+      devices: ["phone"],
+      quarantine: { state: "none" },
+    }),
+    async ({ browser }) => {
+      await verifyZeroStateJourney(browser, { width: 390, height: 844 }, true);
+    },
+  );
 });

@@ -1,6 +1,6 @@
 # Contextual Learning and Delivery Velocity Plan
 
-> **Status:** Audited revision — ready to begin remediation after founder acknowledgement; not approved for learner-visible contextual rollout
+> **Status:** Remediation active — releases 0P/0B/0C/0D/1A and the internal 1B proof shipped; 1D shadow implementation is in progress; 1C remains evidence-gated and no learner-visible contextual rollout is approved
 >
 > **Prepared:** 2026-07-30
 >
@@ -694,6 +694,15 @@ Exit:
 
 **Complexity:** two to four weeks.
 
+**Implementation status (2026-07-30):** the initial additive pilot is built on
+the active roadmap branch. It contains source-owned metadata, a 36-test/13-file
+zero-retry critical lane, a frozen 10-case P0/P1 corpus, three lower-layer
+migration pilots with their browser boundaries retained, queue-inclusive miss
+evidence, and a label-triggered same-commit 4/6/8 shard benchmark. The existing
+full Chromium PR suite remains unchanged and blocking. The 30-day/50-eligible-
+run clock begins only after this implementation merges and produces its first
+eligible evidence artifact; no demotion decision has been made.
+
 Deliver:
 
 - source-owned Playwright tags/annotations for risk, owner, browser/device, and quarantine;
@@ -732,13 +741,14 @@ Actual organic traffic remains the locked outcome; pre-launch work proves crawle
 
 ### 8.1 Current baseline
 
-- 316 listed Playwright tests across 45 files;
-- approximately 10,520 E2E spec lines;
+- 333 listed Playwright tests across 49 files as re-counted on 2026-07-30;
+- approximately 11,356 E2E spec lines as re-counted on 2026-07-30;
 - four Chromium shards plus Firefox/WebKit critical jobs;
 - two workers per shard;
 - six independent stack boots;
 - CI retries twice and local runs retry once;
-- stale E2E documentation still says Chromium-only and roughly 100 specs;
+- the E2E README now documents exhaustive Chromium, focused Firefox/WebKit,
+  and the additive 1D advisory lane;
 - frontend unit tests are predominantly pure Node tests, leaving a thin rendered-component middle.
 
 ### 8.2 Target layers

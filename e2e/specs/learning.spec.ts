@@ -15,6 +15,7 @@ import {
 } from "../fixtures/monaco";
 import { loadProfile, markOnboardingDone, seedApiKey } from "../fixtures/profiles";
 import { readLessonSolution } from "../fixtures/solutions";
+import { criticalTest } from "../fixtures/testMetadata";
 import * as S from "../utils/selectors";
 import { expectLessonComplete } from "../utils/assertions";
 
@@ -87,7 +88,16 @@ test.describe("learning", () => {
     ).toBeVisible({ timeout: 20_000 });
   });
 
-  test("check my work passes with the golden solution → completion panel", async ({ page }) => {
+  test(
+    "check my work passes with the golden solution → completion panel",
+    criticalTest({
+      risk: "p1",
+      owner: "learning",
+      browsers: ["chromium"],
+      devices: ["desktop"],
+      quarantine: { state: "none" },
+    }),
+    async ({ page }) => {
     await loadProfile(page, "empty");
     await page.goto(`/learn/course/${COURSE_ID}/lesson/hello-world`);
     await waitForMonacoReady(page);
@@ -108,7 +118,8 @@ test.describe("learning", () => {
     await expect(
       page.getByRole("dialog", { name: /lesson complete/i }),
     ).toBeVisible();
-  });
+    },
+  );
 
   test("next lesson button navigates from completion panel", async ({ page }) => {
     await loadProfile(page, "empty");
@@ -347,9 +358,16 @@ test.describe("learning", () => {
     });
   });
 
-  test("browser back/forward restores per-lesson Monaco code + tutor thread", async ({
-    page,
-  }) => {
+  test(
+    "browser back/forward restores per-lesson Monaco code + tutor thread",
+    criticalTest({
+      risk: "p1",
+      owner: "learning",
+      browsers: ["chromium"],
+      devices: ["desktop"],
+      quarantine: { state: "none" },
+    }),
+    async ({ page }) => {
     // Audit gap #10 (hazy-wishing-wren bucket 10): projectCache + chatCache
     // are both module-scoped Maps keyed by the lesson context. Navigating
     // forward saves a snapshot under the old key and restores the new key's
@@ -435,7 +453,8 @@ test.describe("learning", () => {
     await expect(
       page.getByText(/a function groups reusable steps under a name/i),
     ).toHaveCount(0);
-  });
+    },
+  );
 
   test("completed lessons show check icon + unlock the next", async ({ page }) => {
     await loadProfile(page, "mid-course-healthy");

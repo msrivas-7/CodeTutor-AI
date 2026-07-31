@@ -8,6 +8,7 @@ import { expect, test } from "../fixtures/auth";
 import { mockAllAI } from "../fixtures/aiMocks";
 import { getMonacoValue, setMonacoValue, waitForMonacoReady } from "../fixtures/monaco";
 import { loadProfile, markOnboardingDone } from "../fixtures/profiles";
+import { criticalTest } from "../fixtures/testMetadata";
 import * as S from "../utils/selectors";
 import { expectDurationBadgeVisible, expectStdoutContains } from "../utils/assertions";
 
@@ -40,7 +41,16 @@ test.describe("editor", () => {
     await expectDurationBadgeVisible(page);
   });
 
-  test("edit + re-run updates output", async ({ page }) => {
+  test(
+    "edit + re-run updates output",
+    criticalTest({
+      risk: "p1",
+      owner: "editor",
+      browsers: ["chromium"],
+      devices: ["desktop"],
+      quarantine: { state: "none" },
+    }),
+    async ({ page }) => {
     await page.goto("/editor");
     await waitForMonacoReady(page);
     await expect(S.runButton(page)).toBeEnabled({ timeout: 30_000 });
@@ -52,7 +62,8 @@ test.describe("editor", () => {
     await setMonacoValue(page, 'print(1 + 2)\n');
     await S.runButton(page).click();
     await expectStdoutContains(page, "3");
-  });
+    },
+  );
 
   test("stdin tab pipes input to the program", async ({ page }) => {
     await page.goto("/editor");

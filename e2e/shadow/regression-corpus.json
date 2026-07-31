@@ -1,0 +1,120 @@
+{
+  "schemaVersion": 1,
+  "frozenAt": "2026-07-30",
+  "criticalLane": {
+    "minimumTests": 30,
+    "minimumFiles": 10
+  },
+  "entries": [
+    {
+      "id": "stale-project-response-publication",
+      "severity": "p0",
+      "source": "historical",
+      "originatingDefect": "A late Run, Check, or tutor response could publish after the learner changed lesson or revision.",
+      "expectedCatchingLayer": {
+        "kind": "critical-browser",
+        "file": "context-correctness.spec.ts",
+        "titleIncludes": "cannot publish"
+      }
+    },
+    {
+      "id": "automatic-or-duplicate-context-guide",
+      "severity": "p1",
+      "source": "seeded",
+      "originatingDefect": "Contextual help could compete with another attention surface or initiate AI without an explicit learner action.",
+      "expectedCatchingLayer": {
+        "kind": "critical-browser",
+        "file": "contextual-guidance.spec.ts",
+        "titleIncludes": "without an automatic AI request"
+      }
+    },
+    {
+      "id": "ambiguous-zero-state-first-action",
+      "severity": "p1",
+      "source": "historical",
+      "originatingDefect": "A new visitor could reach the lesson without one honest, visible first action on desktop or phone.",
+      "expectedCatchingLayer": {
+        "kind": "critical-browser",
+        "file": "zero-state-first-journey.spec.ts",
+        "titleIncludes": "without signup"
+      }
+    },
+    {
+      "id": "stacked-dialog-focus-loss",
+      "severity": "p1",
+      "source": "historical",
+      "originatingDefect": "Closing a nested share surface could restore focus behind its still-open parent dialog.",
+      "expectedCatchingLayer": {
+        "kind": "critical-browser",
+        "file": "phase-aq-cross-browser.spec.ts",
+        "titleIncludes": "usable share artifact"
+      }
+    },
+    {
+      "id": "anonymous-auth-cascade",
+      "severity": "p1",
+      "source": "historical",
+      "originatingDefect": "An authenticated-only request on the anonymous lesson path could trigger a 401 cascade and reset learner state.",
+      "expectedCatchingLayer": {
+        "kind": "critical-browser",
+        "file": "anon-no-401-cascade.spec.ts",
+        "titleIncludes": "zero 401s"
+      }
+    },
+    {
+      "id": "csrf-or-socket-boundary-regression",
+      "severity": "p0",
+      "source": "historical",
+      "originatingDefect": "A mutation could bypass the CSRF boundary or the Docker socket proxy could expose an unapproved endpoint.",
+      "expectedCatchingLayer": {
+        "kind": "critical-browser",
+        "file": "security.spec.ts",
+        "titleIncludes": "CSRF guard rejects"
+      }
+    },
+    {
+      "id": "cross-user-session-oracle",
+      "severity": "p0",
+      "source": "historical",
+      "originatingDefect": "One learner could distinguish or act on another learner's runner session.",
+      "expectedCatchingLayer": {
+        "kind": "critical-browser",
+        "file": "auth.spec.ts",
+        "titleIncludes": "cross-user session access"
+      }
+    },
+    {
+      "id": "retrieval-gate-bypass",
+      "severity": "p1",
+      "source": "historical",
+      "originatingDefect": "Passing output could complete a lesson before the learner answered its retrieval check.",
+      "expectedCatchingLayer": {
+        "kind": "critical-browser",
+        "file": "retrieval-check-gate.spec.ts",
+        "titleIncludes": "celebration does NOT mount"
+      }
+    },
+    {
+      "id": "revision-bound-selection-survives-edit",
+      "severity": "p1",
+      "source": "seeded",
+      "originatingDefect": "A tutor selection or run result could remain current after the selected file revision changed.",
+      "expectedCatchingLayer": {
+        "kind": "lower-layer",
+        "file": "frontend/src/state/projectStore.test.ts",
+        "testIncludes": "invalidates run evidence and revision-bound selection on edit"
+      }
+    },
+    {
+      "id": "overlapping-run-user-deletion",
+      "severity": "p0",
+      "source": "historical",
+      "originatingDefect": "Teardown from one Playwright run could delete test users belonging to an overlapping run.",
+      "expectedCatchingLayer": {
+        "kind": "lower-layer",
+        "file": "e2e/specs/test-identity-isolation.spec.ts",
+        "testIncludes": "600 varied overlapping namespaces record zero cross-run deletions"
+      }
+    }
+  ]
+}

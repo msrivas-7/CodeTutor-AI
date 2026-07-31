@@ -20,10 +20,20 @@
 //     useAIStatus or setUiLayoutValue.
 
 import { expect, test } from "@playwright/test";
+import { criticalTest } from "../fixtures/testMetadata";
 
 const PATH = "/try/lesson/python-fundamentals/hello-world";
 
-test.describe("Phase 27-v2.1 — no 401 cascade on anon path", () => {
+test.describe(
+  "Phase 27-v2.1 — no 401 cascade on anon path",
+  criticalTest({
+    risk: "p1",
+    owner: "platform",
+    browsers: ["chromium"],
+    devices: ["desktop"],
+    quarantine: { state: "none" },
+  }),
+  () => {
   test("zero 401s across cinematic dismiss + coach + walkthrough + splitter drag + Run + Check + celebration", async ({
     page,
   }) => {
@@ -147,4 +157,5 @@ test.describe("Phase 27-v2.1 — no 401 cascade on anon path", () => {
       );
     }
   });
-});
+  },
+);

@@ -4,6 +4,7 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { setMonacoValue, waitForMonacoReady } from "../fixtures/monaco";
+import { criticalTest } from "../fixtures/testMetadata";
 
 const PATH = "/try/lesson/python-fundamentals/hello-world?contextGuide=1";
 
@@ -54,9 +55,13 @@ test.describe("contextual guidance internal proof", () => {
     await installRunMock(page);
   });
 
-  test("repeated evidence selects authored guidance without an automatic AI request", async ({
-    page,
-  }, testInfo) => {
+  test("repeated evidence selects authored guidance without an automatic AI request", criticalTest({
+    risk: "p0",
+    owner: "learning",
+    browsers: ["chromium"],
+    devices: ["desktop"],
+    quarantine: { state: "none" },
+  }), async ({ page }, testInfo) => {
     let aiCalls = 0;
     await page.route("**/api/anon/ai/ask/stream", async (route) => {
       aiCalls += 1;
@@ -131,9 +136,13 @@ test.describe("contextual guidance internal proof", () => {
     expect(aiCalls).toBe(0);
   });
 
-  test("390px keeps the cue, target, and 44px actions simultaneously usable", async ({
-    page,
-  }) => {
+  test("390px keeps the cue, target, and 44px actions simultaneously usable", criticalTest({
+    risk: "p1",
+    owner: "learning",
+    browsers: ["chromium", "webkit"],
+    devices: ["phone"],
+    quarantine: { state: "none" },
+  }), async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(PATH);
@@ -165,9 +174,13 @@ test.describe("contextual guidance internal proof", () => {
     expect(overflow).toBeLessThanOrEqual(1);
   });
 
-  test("phone keyboard height keeps the current cue and recovery controls reachable", async ({
-    page,
-  }) => {
+  test("phone keyboard height keeps the current cue and recovery controls reachable", criticalTest({
+    risk: "p1",
+    owner: "learning",
+    browsers: ["chromium", "webkit"],
+    devices: ["phone"],
+    quarantine: { state: "none" },
+  }), async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 500 });
     await page.goto(PATH);
     await waitForMonacoReady(page);

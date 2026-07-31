@@ -19,6 +19,7 @@ import type { APIRequestContext } from "@playwright/test";
 import { expect, test } from "../fixtures/auth";
 import { getWorkerUser } from "../fixtures/auth";
 import { mockAllAI } from "../fixtures/aiMocks";
+import { criticalTest } from "../fixtures/testMetadata";
 import {
   BACKEND,
   loadProfile,
@@ -103,10 +104,16 @@ test.describe("Phase 21C: cinematic share", () => {
     await markOnboardingDone(page);
   });
 
-  test("created share is visible at /s/:token to anonymous visitors", async ({
-    page,
-    context,
-  }) => {
+  test(
+    "created share is visible at /s/:token to anonymous visitors",
+    criticalTest({
+      risk: "p1",
+      owner: "share",
+      browsers: ["chromium"],
+      devices: ["desktop"],
+      quarantine: { state: "none" },
+    }),
+    async ({ page, context }) => {
     // Seed via the backend so the row exists (with snapshot fields).
     await loadProfile(page, "empty");
     await seedLessonProgress(page, COURSE_ID, LESSON_ID, {
@@ -141,7 +148,8 @@ test.describe("Phase 21C: cinematic share", () => {
     } finally {
       await anon.close();
     }
-  });
+    },
+  );
 
   test("display name is hidden by default — anonymous attribution", async ({
     page,
@@ -189,10 +197,16 @@ test.describe("Phase 21C: cinematic share", () => {
     }
   });
 
-  test("revoked share renders the not-found empty state", async ({
-    page,
-    context,
-  }) => {
+  test(
+    "revoked share renders the not-found empty state",
+    criticalTest({
+      risk: "p1",
+      owner: "share",
+      browsers: ["chromium"],
+      devices: ["desktop"],
+      quarantine: { state: "none" },
+    }),
+    async ({ page, context }) => {
     await loadProfile(page, "empty");
     await seedLessonProgress(page, COURSE_ID, LESSON_ID, {
       status: "completed",
@@ -216,7 +230,8 @@ test.describe("Phase 21C: cinematic share", () => {
     } finally {
       await anon.close();
     }
-  });
+    },
+  );
 
   test("unknown token renders the not-found empty state", async ({
     context,
@@ -333,10 +348,16 @@ test.describe("Phase 21C: cinematic share", () => {
     }
   });
 
-  test("OG meta tags reflect canonical share data (server lookup)", async ({
-    page,
-    context,
-  }) => {
+  test(
+    "OG meta tags reflect canonical share data (server lookup)",
+    criticalTest({
+      risk: "p1",
+      owner: "share",
+      browsers: ["chromium"],
+      devices: ["desktop"],
+      quarantine: { state: "none" },
+    }),
+    async ({ page, context }) => {
     await loadProfile(page, "empty");
     await seedLessonProgress(page, COURSE_ID, LESSON_ID, {
       status: "completed",
@@ -365,5 +386,6 @@ test.describe("Phase 21C: cinematic share", () => {
     } finally {
       await anon.close();
     }
-  });
+    },
+  );
 });
