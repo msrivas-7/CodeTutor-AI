@@ -4,6 +4,7 @@ import path from "node:path";
 import {
   EVAL_DATASET_VERSION,
   EVAL_EVALUATOR_VERSION,
+  EVAL_INTENTS,
   type EvalBaselineV2,
 } from "./evalGate.js";
 import {
@@ -14,7 +15,13 @@ import {
 import {
   TUTOR_EVAL_SET_VERSION,
   getModelPolicy,
+  isModelEvaluatedForTutorIntent,
 } from "../src/services/ai/modelRegistry.js";
+import {
+  PLATFORM_TUTOR_ROUTING_POLICY_VERSION,
+  platformTutorModelForIntent,
+} from "../src/services/ai/modelRouting.js";
+import { DEFAULT_JUDGE_MODEL } from "./judgeModel.js";
 
 async function main(): Promise<void> {
   const baseline = JSON.parse(
@@ -39,12 +46,37 @@ async function main(): Promise<void> {
       `tutor quality contract changed after baseline approval (approved=${baseline.qualityContractFingerprint.slice(0, 16)}, current=${versions.qualityContractFingerprint.slice(0, 16)})`,
     );
   }
-  const policy = getModelPolicy(baseline.approvedModel);
-  if (!policy.contextualTutorEligible || policy.qualityStatus !== "evaluated") {
-    failures.push("approved model is not contextual-tutor eligible in the registry");
+  if (
+    baseline.approvedRoutingPolicyVersion !==
+      PLATFORM_TUTOR_ROUTING_POLICY_VERSION ||
+    baseline.approvedModel !== PLATFORM_TUTOR_ROUTING_POLICY_VERSION
+  ) {
+    failures.push("approved tutor routing policy is stale");
   }
-  if (policy.evalSetVersion !== TUTOR_EVAL_SET_VERSION) {
-    failures.push("model registry eval version does not match the approved baseline");
+  if (baseline.approvedJudgeModel !== DEFAULT_JUDGE_MODEL) {
+    failures.push("approved judge model is stale");
+  }
+  const expectedModels = new Set<string>();
+  for (const intent of EVAL_INTENTS) {
+    const model = platformTutorModelForIntent(intent);
+    expectedModels.add(model);
+    if (baseline.approvedModelByIntent?.[intent] !== model) {
+      failures.push(`${intent} baseline model does not match production routing`);
+    }
+    if (!isModelEvaluatedForTutorIntent(model, intent)) {
+      failures.push(`${model} is not evaluated for routed ${intent} use`);
+    }
+    const policy = getModelPolicy(model);
+    if (policy.evalSetVersion !== TUTOR_EVAL_SET_VERSION) {
+      failures.push(`${model} registry eval version does not match the approved baseline`);
+    }
+  }
+  const baselineModels = new Set(baseline.approvedModels ?? []);
+  if (
+    baselineModels.size !== expectedModels.size ||
+    [...expectedModels].some((model) => !baselineModels.has(model))
+  ) {
+    failures.push("approved model set does not match production routing");
   }
   if (failures.length) {
     throw new Error(
@@ -52,7 +84,7 @@ async function main(): Promise<void> {
     );
   }
   console.log(
-    `[eval-v2] approved baseline verified model=${baseline.approvedModel} contract=${versions.qualityContractFingerprint.slice(0, 16)}`,
+    `[eval-v2] approved baseline verified tutor=${baseline.approvedModel} contract=${versions.qualityContractFingerprint.slice(0, 16)}`,
   );
 }
 

@@ -225,6 +225,30 @@ describe("structured stream safety", () => {
     expect(finalized).toBe(true);
   });
 
+  it("returns a policy-safe fallback when streamed structured output is malformed", async () => {
+    const sse = [
+      `data: ${JSON.stringify({ type: "response.output_text.delta", delta: "{" })}\n\n`,
+      `data: ${JSON.stringify({ type: "response.completed", response: { usage: { input_tokens: 12, output_tokens: 1 } } })}\n\n`,
+    ].join("");
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(sse, { status: 200 }));
+    const onDone = vi.fn();
+    const onError = vi.fn();
+
+    await openaiProvider.askStream(minimalParams(), {
+      onDelta: vi.fn(),
+      onDone,
+      onError,
+    });
+
+    expect(onError).not.toHaveBeenCalled();
+    expect(onDone).toHaveBeenCalledOnce();
+    const [raw, sections, usage] = onDone.mock.calls[0];
+    expect(() => JSON.parse(raw)).not.toThrow();
+    expect(sections).toMatchObject({ intent: "socratic" });
+    expect(sections.checkQuestions).toHaveLength(1);
+    expect(usage).toEqual({ inputTokens: 12, outputTokens: 1 });
+  });
+
   it("waits for asynchronous error accounting before returning", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ error: { message: "provider unavailable" } }), {
@@ -279,6 +303,43 @@ describe("structured stream safety", () => {
     release();
     await request;
     expect(finalized).toBe(true);
+  });
+});
+
+describe("structured response recovery", () => {
+  it("returns and accounts for a policy-safe fallback when JSON is malformed", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({
+        output_text: "{",
+        usage: { input_tokens: 15, output_tokens: 1 },
+      }), { status: 200, headers: { "Content-Type": "application/json" } }),
+    );
+
+    const result = await openaiProvider.ask(minimalParams({
+      question: "My code runs but doesnt print anything",
+      files: [{ path: "main.py", content: 'name = "Maya"\n"Hello, " + name + "!"\n' }],
+      history: [{ role: "assistant", content: "What output did you expect?" }],
+      tutorStage: "approach",
+      language: "python",
+      lessonContext: {
+        courseId: "python",
+        lessonId: "hello",
+        exerciseId: null,
+        lessonTitle: "Hello",
+        language: "python",
+        lessonObjectives: [],
+        teachesConceptTags: ["print"],
+        usesConceptTags: [],
+        priorConcepts: [],
+        completionCriteria: [],
+        studentProgressSummary: "in progress",
+      },
+    }));
+
+    expect(result.usage).toEqual({ inputTokens: 15, outputTokens: 1 });
+    expect(result.sections.intent).toBe("debug");
+    expect(result.sections.nextStep).toContain("print()");
+    expect(() => JSON.parse(result.raw)).not.toThrow();
   });
 });
 

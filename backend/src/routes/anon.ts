@@ -76,6 +76,7 @@ import {
 } from "../db/aiReservations.js";
 import { resolveCanonicalAnonTutorContext } from "../services/ai/canonicalTutorContext.js";
 import { isContextualTutorModel } from "../services/ai/modelRegistry.js";
+import { routeTutorModel } from "../services/ai/modelRouting.js";
 import type { AIAskParams } from "../services/ai/provider.js";
 import {
   mintTutorProgressToken,
@@ -189,11 +190,9 @@ function safePrice(
   inTok: number,
   outTok: number,
 ): { costUsd: number; priceVersion: number } {
-  try {
-    return priceUsd(model, inTok, outTok);
-  } catch {
-    return { costUsd: 0, priceVersion: 1 };
-  }
+  // Anonymous AI is always platform-funded. Unknown models must fail loudly
+  // rather than becoming zero-cost ledger rows that bypass dollar caps.
+  return priceUsd(model, inTok, outTok);
 }
 
 async function safeFinalizeAnonUsage(
@@ -543,6 +542,19 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
       parsed.data.tutorProgressToken,
       progressIdentity,
     );
+    try {
+      providerParams.model = routeTutorModel({
+        requestedModel: parsed.data.model,
+        fundingSource: "platform",
+        question: parsed.data.question,
+        files: parsed.data.files,
+        history: parsed.data.history,
+        tutorStage: providerParams.tutorStage,
+      }).model;
+    } catch (err) {
+      console.error("[anon] model routing failed:", err);
+      return res.status(503).json({ error: "AI_MODEL_ROUTING_UNAVAILABLE" });
+    }
     let estimate;
     try {
       estimate = estimateReservationForAsk(providerParams);
@@ -555,7 +567,7 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
       });
     }
     const reservedPrice = safePrice(
-      parsed.data.model,
+      providerParams.model,
       estimate.reservedInputTokens,
       estimate.reservedOutputTokens,
     );
@@ -574,7 +586,7 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
           lessonContext: ctx,
         }),
         fundingSource: "platform",
-        model: parsed.data.model,
+        model: providerParams.model,
         route: "ask_stream",
         countsTowardQuota: true,
         reservedInputTokens: estimate.reservedInputTokens,
@@ -659,7 +671,7 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
             const inTok = usage?.inputTokens ?? estimate.reservedInputTokens;
             const outTok = usage?.outputTokens ?? estimate.reservedOutputTokens;
             const { costUsd } = safePrice(
-              parsed.data.model,
+              providerParams.model,
               inTok,
               outTok,
             );
@@ -712,7 +724,7 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
           onAbort: async (_raw, estUsage) => {
             terminalFired = true;
             const { costUsd } = safePrice(
-              parsed.data.model,
+              providerParams.model,
               estUsage.inputTokens,
               estUsage.outputTokens,
             );

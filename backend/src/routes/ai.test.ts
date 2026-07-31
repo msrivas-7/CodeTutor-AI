@@ -28,6 +28,13 @@ vi.mock("../db/aiReservations.js", () => ({
   releaseAIRequest: vi.fn(async () => "released"),
 }));
 
+vi.mock("../services/ai/effectiveCaps.js", () => ({
+  getEffectiveDailyQuestionsCap: vi.fn(async () => 30),
+  getEffectiveDailyUsdCap: vi.fn(async () => 15),
+  getEffectiveDailyUsdCapPerUser: vi.fn(async () => 1),
+  getEffectiveLifetimeUsdCapPerUser: vi.fn(async () => 10),
+}));
+
 // Credential resolver depends on the ledger + denylist. Mock to a passthrough
 // that returns BYOK when getOpenAIKey has a value and `no_key` when null,
 // so existing tests keep their KEY_MISSING / success expectations.
@@ -110,6 +117,7 @@ const { aiRouter } = await import("./ai.js");
 const { getOpenAIKey } = await import("../db/preferences.js");
 const { openaiProvider } = await import("../services/ai/openaiProvider.js");
 const { reserveAIRequest, finalizeAIRequest } = await import("../db/aiReservations.js");
+const { resolveAICredential } = await import("../services/ai/credential.js");
 const { errorHandler } = await import("../middleware/errorHandler.js");
 
 let srv: Server;
@@ -132,6 +140,15 @@ function validAskBody(overrides: Record<string, unknown> = {}) {
     ...overrides,
   };
 }
+
+const platformCredential = {
+  source: "platform" as const,
+  key: "sk-platform-test",
+  remainingToday: 30,
+  capToday: 30,
+  allowedModels: ["gpt-4.1-nano"] as const,
+  resetAtUtc: new Date("2026-08-01T00:00:00.000Z"),
+};
 
 beforeAll(async () => {
   // Mirror the real index.ts mount: authMiddleware is lifted to the router
@@ -161,6 +178,28 @@ beforeEach(() => {
   vi.mocked(openaiProvider.summarize).mockReset();
   vi.mocked(openaiProvider.validateKey).mockReset();
   vi.mocked(getOpenAIKey).mockReset();
+  vi.mocked(resolveAICredential).mockReset();
+  vi.mocked(resolveAICredential).mockImplementation(async (userId: string) => {
+    const key = await getOpenAIKey(userId);
+    if (key) {
+      return {
+        source: "byok" as const,
+        key,
+        remainingToday: null,
+        capToday: null,
+        allowedModels: null,
+        resetAtUtc: null,
+      };
+    }
+    return {
+      source: "none" as const,
+      reason: "no_key" as const,
+      remainingToday: null,
+      capToday: null,
+      allowedModels: null,
+      resetAtUtc: null,
+    };
+  });
   vi.mocked(reserveAIRequest).mockReset();
   vi.mocked(reserveAIRequest).mockResolvedValue({ ok: true, remainingToday: null });
   vi.mocked(finalizeAIRequest).mockReset();
@@ -372,6 +411,91 @@ describe("POST /api/ai/ask — schema validation", () => {
   });
 });
 
+describe("POST /api/ai/ask — B3 platform model routing", () => {
+  it("rejects a direct Mini request before admission or provider work", async () => {
+    vi.mocked(resolveAICredential).mockResolvedValueOnce(platformCredential);
+    const res = await req("u-1", "/api/ai/ask", {
+      method: "POST",
+      body: JSON.stringify(validAskBody({ model: "gpt-4.1-mini" })),
+    });
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "MODEL_NOT_ALLOWED" });
+    expect(vi.mocked(reserveAIRequest)).not.toHaveBeenCalled();
+    expect(vi.mocked(openaiProvider.ask)).not.toHaveBeenCalled();
+  });
+
+  it("routes only a signed, progressed check-in to Mini and meters Mini", async () => {
+    vi.mocked(resolveAICredential)
+      .mockResolvedValueOnce(platformCredential)
+      .mockResolvedValueOnce(platformCredential);
+    vi.mocked(openaiProvider.ask).mockResolvedValue({
+      sections: { summary: "ok" },
+      raw: "{\"summary\":\"ok\"}",
+    });
+
+    const first = await req("u-1", "/api/ai/ask", {
+      method: "POST",
+      body: JSON.stringify(validAskBody({
+        model: "gpt-4.1-nano",
+        question: "Is my loop approach okay?",
+      })),
+    });
+    const { tutorProgressToken } = await first.json() as { tutorProgressToken: string };
+    expect(vi.mocked(openaiProvider.ask).mock.calls[0][0].model).toBe("gpt-4.1-nano");
+
+    const second = await req("u-1", "/api/ai/ask", {
+      method: "POST",
+      body: JSON.stringify(validAskBody({
+        requestId: "00000000-0000-4000-8000-000000000022",
+        model: "gpt-4.1-nano",
+        question: "Is my loop approach okay?",
+        tutorProgressToken,
+      })),
+    });
+    expect(second.status).toBe(200);
+    expect(vi.mocked(openaiProvider.ask).mock.calls[1][0].model).toBe("gpt-4.1-mini");
+    expect(vi.mocked(reserveAIRequest).mock.calls[1][0]).toEqual(
+      expect.objectContaining({
+        model: "gpt-4.1-mini",
+        reservedCostUsd: 0.00012,
+        priceVersion: 2,
+      }),
+    );
+    expect(vi.mocked(finalizeAIRequest).mock.calls[1][0]).toEqual(
+      expect.objectContaining({ costUsd: 0.00012, ledgerStatus: "finish" }),
+    );
+  });
+
+  it("keeps a progressed walkthrough on Nano", async () => {
+    vi.mocked(resolveAICredential)
+      .mockResolvedValueOnce(platformCredential)
+      .mockResolvedValueOnce(platformCredential);
+    vi.mocked(openaiProvider.ask).mockResolvedValue({
+      sections: { summary: "ok" },
+      raw: "{\"summary\":\"ok\"}",
+    });
+    const first = await req("u-1", "/api/ai/ask", {
+      method: "POST",
+      body: JSON.stringify(validAskBody({ model: "gpt-4.1-nano" })),
+    });
+    const { tutorProgressToken } = await first.json() as { tutorProgressToken: string };
+    await req("u-1", "/api/ai/ask", {
+      method: "POST",
+      body: JSON.stringify(validAskBody({
+        requestId: "00000000-0000-4000-8000-000000000023",
+        model: "gpt-4.1-nano",
+        question: "Walk me through this code",
+        tutorProgressToken,
+      })),
+    });
+    expect(vi.mocked(openaiProvider.ask).mock.calls[1][0].model).toBe("gpt-4.1-nano");
+    expect(vi.mocked(reserveAIRequest).mock.calls[1][0]).toEqual(
+      expect.objectContaining({ model: "gpt-4.1-nano" }),
+    );
+  });
+});
+
 describe("POST /api/ai/ask/stream — tutor progression", () => {
   it("returns signed proof in the terminal frame and accepts it on turn two", async () => {
     vi.mocked(getOpenAIKey).mockResolvedValue("sk-test");
@@ -408,6 +532,51 @@ describe("POST /api/ai/ask/stream — tutor progression", () => {
     expect(second.status).toBe(200);
     await second.text();
     expect(vi.mocked(openaiProvider.askStream).mock.calls[1][0].tutorStage).toBe("approach");
+    expect(vi.mocked(openaiProvider.askStream).mock.calls[1][0].model).toBe("gpt-4.1");
+  });
+
+  it("applies the same trusted check-in routing on the platform stream", async () => {
+    vi.mocked(resolveAICredential)
+      .mockResolvedValueOnce(platformCredential)
+      .mockResolvedValueOnce(platformCredential);
+    vi.mocked(openaiProvider.askStream).mockImplementation(
+      async (_params, handlers) => {
+        await handlers.onDone(
+          "{\"intent\":\"socratic\"}",
+          { intent: "socratic", checkQuestions: ["What did you expect?"] },
+          { inputTokens: 10, outputTokens: 5 },
+        );
+      },
+    );
+
+    const first = await req("u-1", "/api/ai/ask/stream", {
+      method: "POST",
+      body: JSON.stringify(validAskBody({
+        model: "gpt-4.1-nano",
+        question: "Is this on the right track?",
+      })),
+    });
+    const firstText = await first.text();
+    const firstDone = JSON.parse(
+      firstText.split("\n").find((line) => line.startsWith("data: "))!.slice(6),
+    ) as { tutorProgressToken: string };
+    expect(vi.mocked(openaiProvider.askStream).mock.calls[0][0].model).toBe("gpt-4.1-nano");
+
+    const second = await req("u-1", "/api/ai/ask/stream", {
+      method: "POST",
+      body: JSON.stringify(validAskBody({
+        requestId: "00000000-0000-4000-8000-000000000024",
+        model: "gpt-4.1-nano",
+        question: "Is this on the right track?",
+        tutorProgressToken: firstDone.tutorProgressToken,
+      })),
+    });
+    expect(second.status).toBe(200);
+    await second.text();
+    expect(vi.mocked(openaiProvider.askStream).mock.calls[1][0].model).toBe("gpt-4.1-mini");
+    expect(vi.mocked(reserveAIRequest).mock.calls[1][0]).toEqual(
+      expect.objectContaining({ model: "gpt-4.1-mini", priceVersion: 2 }),
+    );
   });
 });
 

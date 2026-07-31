@@ -1,16 +1,30 @@
 {
-  "datasetVersion": "2.1.0",
-  "datasetFingerprint": "323dcec2cb4d829b11de55c002559e9a3e6c03ffcffa8f8411fe17e336d0c270",
-  "evaluatorVersion": "2.2.0",
-  "approvedModel": "gpt-4.1-nano",
-  "approvedAt": "2026-07-31T10:45:47.820Z",
-  "qualityContractFingerprint": "dda5c3f48e8d6f02adf611b58b069ecf59acec8763d3c4d7cda16f1f6b801353",
-  "postureOverall": 0.9833333333333333,
+  "datasetVersion": "2.2.0",
+  "datasetFingerprint": "1a6e61255b392c0f83eb99250e1c3fffc6453f323b1b0059863df7059de520d6",
+  "evaluatorVersion": "2.11.0",
+  "approvedModel": "platform-tutor-b3.v1",
+  "approvedJudgeModel": "gpt-4.1",
+  "approvedRoutingPolicyVersion": "platform-tutor-b3.v1",
+  "approvedModels": [
+    "gpt-4.1-mini",
+    "gpt-4.1-nano"
+  ],
+  "approvedModelByIntent": {
+    "socratic": "gpt-4.1-nano",
+    "debug": "gpt-4.1-nano",
+    "concept": "gpt-4.1-nano",
+    "howto": "gpt-4.1-nano",
+    "walkthrough": "gpt-4.1-nano",
+    "checkin": "gpt-4.1-mini"
+  },
+  "approvedAt": "2026-07-31T16:58:11.789Z",
+  "qualityContractFingerprint": "34792aadf7fa2fdca54d29b03998a87d3b91ba7c96c8d82846576c6c7f8d1275",
+  "postureOverall": 1,
   "postureByIntent": {
     "socratic": 1,
     "debug": 1,
     "concept": 1,
-    "howto": 0.9,
+    "howto": 1,
     "walkthrough": 1,
     "checkin": 1
   },
@@ -22,12 +36,12 @@
     "walkthrough": 1,
     "checkin": 1
   },
-  "observedPostureOverall": 0.9833333333333333,
+  "observedPostureOverall": 1,
   "observedPostureByIntent": {
     "socratic": 1,
     "debug": 1,
     "concept": 1,
-    "howto": 0.9,
+    "howto": 1,
     "walkthrough": 1,
     "checkin": 1
   },

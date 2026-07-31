@@ -1,7 +1,7 @@
-import type { AIModel } from "./provider.js";
+import type { AIModel, TutorIntent } from "./provider.js";
 
-export const MODEL_REGISTRY_VERSION = "2026-07-31.v3";
-export const TUTOR_EVAL_SET_VERSION = "2.1.0+evaluator.2.2.0";
+export const MODEL_REGISTRY_VERSION = "2026-07-31.v12";
+export const TUTOR_EVAL_SET_VERSION = "2.2.0+evaluator.2.11.0";
 
 export type ModelQualityStatus = "evaluated" | "unevaluated";
 
@@ -11,6 +11,7 @@ export interface EvaluatedModelPolicy {
   contextualTutorEligible: boolean;
   evalSetVersion: string | null;
   evaluatedAt: string | null;
+  evaluatedTutorIntents: TutorIntent[];
   supportedTutorBehaviors: Array<
     "editor-tutor" | "guided-tutor" | "contextual-offer"
   >;
@@ -26,11 +27,31 @@ const REGISTRY: Record<string, EvaluatedModelPolicy> = {
     contextualTutorEligible: true,
     evalSetVersion: TUTOR_EVAL_SET_VERSION,
     evaluatedAt: "2026-07-31",
+    evaluatedTutorIntents: [
+      "socratic",
+      "debug",
+      "concept",
+      "howto",
+      "walkthrough",
+      "checkin",
+    ],
     supportedTutorBehaviors: [
       "editor-tutor",
       "guided-tutor",
       "contextual-offer",
     ],
+  },
+  // B3's frozen 3x comparison promoted Mini only for check-ins. It is not a
+  // generally contextual-eligible model: the same evidence retained Nano for
+  // walkthroughs, and the other four intents were not part of the comparison.
+  "gpt-4.1-mini": {
+    id: "gpt-4.1-mini",
+    qualityStatus: "evaluated",
+    contextualTutorEligible: false,
+    evalSetVersion: TUTOR_EVAL_SET_VERSION,
+    evaluatedAt: "2026-07-31",
+    evaluatedTutorIntents: ["checkin"],
+    supportedTutorBehaviors: ["editor-tutor", "guided-tutor"],
   },
 };
 
@@ -39,6 +60,7 @@ const UNEVALUATED: Omit<EvaluatedModelPolicy, "id"> = {
   contextualTutorEligible: false,
   evalSetVersion: null,
   evaluatedAt: null,
+  evaluatedTutorIntents: [],
   supportedTutorBehaviors: ["editor-tutor"],
 };
 
@@ -48,6 +70,17 @@ export function getModelPolicy(modelId: string): EvaluatedModelPolicy {
 
 export function isContextualTutorModel(modelId: string): boolean {
   return getModelPolicy(modelId).contextualTutorEligible;
+}
+
+export function isModelEvaluatedForTutorIntent(
+  modelId: string,
+  intent: TutorIntent,
+): boolean {
+  const policy = getModelPolicy(modelId);
+  return (
+    policy.qualityStatus === "evaluated" &&
+    policy.evaluatedTutorIntents.includes(intent)
+  );
 }
 
 export function decorateModel(model: Pick<AIModel, "id" | "label">): AIModel {

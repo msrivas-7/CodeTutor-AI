@@ -23,6 +23,7 @@ import { flagSuspectApis } from "../services/ai/suspectApi.js";
 import { AIProviderError, type AIAskParams } from "../services/ai/provider.js";
 import {
   isPlatformAllowedModel,
+  PRICE_VERSION,
   priceUsd,
 } from "../services/ai/pricing.js";
 import {
@@ -52,6 +53,7 @@ import {
 } from "../services/ai/effectiveCaps.js";
 import { resolveCanonicalTutorContext } from "../services/ai/canonicalTutorContext.js";
 import { isContextualTutorModel } from "../services/ai/modelRegistry.js";
+import { routeTutorModel } from "../services/ai/modelRouting.js";
 import {
   mintTutorProgressToken,
   resolveTutorStage,
@@ -489,6 +491,19 @@ aiRouter.post("/ask", async (req, res, next) => {
     parsed.data.tutorProgressToken,
     progressIdentity,
   );
+  try {
+    providerParams.model = routeTutorModel({
+      requestedModel: parsed.data.model,
+      fundingSource: cred.source,
+      question: parsed.data.question,
+      files: parsed.data.files,
+      history: parsed.data.history,
+      tutorStage: providerParams.tutorStage,
+    }).model;
+  } catch (err) {
+    console.error(`[ai] model routing failed route=ask:`, err);
+    return res.status(503).json({ error: "AI_MODEL_ROUTING_UNAVAILABLE" });
+  }
   let estimate;
   try {
     estimate = estimateReservationForAsk(providerParams);
@@ -502,7 +517,7 @@ aiRouter.post("/ask", async (req, res, next) => {
       cred,
       requestId: parsed.data.requestId,
       fingerprint: fingerprintAIRequest({ ...parsed.data, lessonContext: canonicalLessonContext }),
-      model: parsed.data.model,
+      model: providerParams.model,
       route: "ask",
       countsTowardQuota: cred.source === "platform",
       ...estimate,
@@ -528,7 +543,7 @@ aiRouter.post("/ask", async (req, res, next) => {
     const inTok = result.usage?.inputTokens ?? estimate.reservedInputTokens;
     const outTok = result.usage?.outputTokens ?? estimate.reservedOutputTokens;
     const { costUsd } = safePrice(
-      parsed.data.model,
+      providerParams.model,
       inTok,
       outTok,
       cred.source,
@@ -568,7 +583,7 @@ aiRouter.post("/ask", async (req, res, next) => {
     }
     if (providerStarted) {
       const { costUsd } = safePrice(
-        parsed.data.model,
+        providerParams.model,
         estimate.reservedInputTokens,
         estimate.reservedOutputTokens,
         cred.source,
@@ -648,6 +663,19 @@ aiRouter.post("/ask/stream", async (req, res) => {
     parsed.data.tutorProgressToken,
     progressIdentity,
   );
+  try {
+    providerParams.model = routeTutorModel({
+      requestedModel: parsed.data.model,
+      fundingSource: cred.source,
+      question: parsed.data.question,
+      files: parsed.data.files,
+      history: parsed.data.history,
+      tutorStage: providerParams.tutorStage,
+    }).model;
+  } catch (err) {
+    console.error(`[ai] model routing failed route=ask_stream:`, err);
+    return res.status(503).json({ error: "AI_MODEL_ROUTING_UNAVAILABLE" });
+  }
   let estimate;
   try {
     estimate = estimateReservationForAsk(providerParams);
@@ -662,7 +690,7 @@ aiRouter.post("/ask/stream", async (req, res) => {
       cred,
       requestId: parsed.data.requestId,
       fingerprint: fingerprintAIRequest({ ...parsed.data, lessonContext: canonicalLessonContext }),
-      model: parsed.data.model,
+      model: providerParams.model,
       route: "ask_stream",
       countsTowardQuota: cred.source === "platform",
       reservedInputTokens: estimate.reservedInputTokens,
@@ -734,7 +762,7 @@ aiRouter.post("/ask/stream", async (req, res) => {
           const inTok = usage?.inputTokens ?? estimate.reservedInputTokens;
           const outTok = usage?.outputTokens ?? estimate.reservedOutputTokens;
           const { costUsd } = safePrice(
-            parsed.data.model,
+            providerParams.model,
             inTok,
             outTok,
             cred.source,
@@ -775,7 +803,7 @@ aiRouter.post("/ask/stream", async (req, res) => {
             markPlatformAuthFailed();
           }
           const reservedPrice = safePrice(
-            parsed.data.model,
+            providerParams.model,
             estimate.reservedInputTokens,
             estimate.reservedOutputTokens,
             cred.source,
@@ -803,7 +831,7 @@ aiRouter.post("/ask/stream", async (req, res) => {
           // counter doesn't drain. But the dollar caps SEE the spend.
           terminalFired = true;
           const { costUsd } = safePrice(
-            parsed.data.model,
+            providerParams.model,
             estUsage.inputTokens,
             estUsage.outputTokens,
             cred.source,
@@ -825,7 +853,7 @@ aiRouter.post("/ask/stream", async (req, res) => {
     // zero-cost marker so the request is traceable if it ever does.
     if (!terminalFired) {
       const reservedPrice = safePrice(
-        parsed.data.model,
+        providerParams.model,
         estimate.reservedInputTokens,
         estimate.reservedOutputTokens,
         cred.source,
@@ -844,7 +872,7 @@ aiRouter.post("/ask/stream", async (req, res) => {
     if (!terminalFired) {
       terminalFired = true;
       const reservedPrice = safePrice(
-        parsed.data.model,
+        providerParams.model,
         estimate.reservedInputTokens,
         estimate.reservedOutputTokens,
         cred.source,
@@ -988,7 +1016,7 @@ function safePrice(
     try {
       return priceUsd(model, inTok, outTok);
     } catch {
-      return { costUsd: 0, priceVersion: 1 };
+      return { costUsd: 0, priceVersion: PRICE_VERSION };
     }
   }
   // Platform path: model gate already ran, so priceUsd must succeed.

@@ -11,6 +11,7 @@
     "test": "vitest run",
     "seed:dev-users": "tsx scripts/seed-dev-users.ts",
     "eval:tutor": "tsx scripts/eval-tutor.ts",
+    "eval:b3-models": "tsx scripts/compare-b3-models.ts",
     "eval:verify-baseline": "tsx scripts/verify-eval-baseline.ts"
   },
   "dependencies": {

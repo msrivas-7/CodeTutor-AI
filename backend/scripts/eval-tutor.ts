@@ -11,8 +11,11 @@ import type {
 } from "../src/services/ai/provider.js";
 import type { Language } from "../src/services/execution/commands.js";
 import { detectSuspectApis } from "../src/services/ai/suspectApi.js";
-import { gradeRubric } from "./judgeModel.js";
-import { findUnsafeOutputSnippets } from "./evalDeterministic.js";
+import { DEFAULT_JUDGE_MODEL, gradeRubric } from "./judgeModel.js";
+import {
+  findDegradedTutorOutput,
+  findUnsafeOutputSnippets,
+} from "./evalDeterministic.js";
 import {
   EVAL_DATASET_VERSION,
   EVAL_EVALUATOR_VERSION,
@@ -27,6 +30,12 @@ import {
   readEvalDatasets,
   sourceVersions,
 } from "./evalProvenance.js";
+import {
+  PLATFORM_DEFAULT_TUTOR_MODEL,
+  PLATFORM_TUTOR_ROUTING_POLICY_VERSION,
+  routeTutorModel,
+} from "../src/services/ai/modelRouting.js";
+import { priceUsd } from "../src/services/ai/pricing.js";
 
 interface GoldenPrompt {
   id: string;
@@ -65,6 +74,11 @@ interface GoldenPrompt {
 }
 
 interface PromptResult extends EvalCaseResultV2 {
+  tutorModel: string;
+  responseLatencyMs: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  tutorCostUsd?: number;
   rawTutorResponse: string;
   tutorSections?: TutorSections;
   judgeRaw: { helpfulCorrect: string; posture: string };
@@ -73,7 +87,8 @@ interface PromptResult extends EvalCaseResultV2 {
 interface RunArtifact extends EvalSummaryV2 {
   timestamp: string;
   tutorModel: string;
-  judgeModel: string;
+  routingPolicyVersion: string | null;
+  tutorModels: string[];
   promptVersion: string;
   schemaVersion: string;
   contextBuilderVersion: string;
@@ -84,8 +99,7 @@ interface RunArtifact extends EvalSummaryV2 {
   results: PromptResult[];
 }
 
-const TUTOR_MODEL = "gpt-4.1-nano";
-const JUDGE_MODEL = "gpt-4.1-mini";
+const DEFAULT_TUTOR_MODEL = "gpt-4.1-nano";
 const EXPECTED_CASE_COUNT = 60;
 const BASELINE_PATH = path.join(EVAL_REPO_ROOT, "eval/baseline-v2.json");
 const RUNS_DIR = path.join(EVAL_REPO_ROOT, "eval/runs");
@@ -94,6 +108,9 @@ function parseArgs(argv: string[]): {
   gate: boolean;
   limit: number | null;
   ids: string[] | null;
+  tutorModel: string;
+  judgeModel: string;
+  productionRouting: boolean;
 } {
   const gate = argv.includes("--gate");
   const index = argv.indexOf("--limit");
@@ -102,6 +119,15 @@ function parseArgs(argv: string[]): {
   const ids = idsIndex >= 0
     ? (argv[idsIndex + 1] ?? "").split(",").map((id) => id.trim()).filter(Boolean)
     : null;
+  const tutorModelIndex = argv.indexOf("--tutor-model");
+  const productionRouting = argv.includes("--production-routing");
+  const tutorModel = tutorModelIndex >= 0
+    ? (argv[tutorModelIndex + 1] ?? "").trim()
+    : DEFAULT_TUTOR_MODEL;
+  const judgeModelIndex = argv.indexOf("--judge-model");
+  const judgeModel = judgeModelIndex >= 0
+    ? (argv[judgeModelIndex + 1] ?? "").trim()
+    : DEFAULT_JUDGE_MODEL;
   if (limit !== null && (!Number.isInteger(limit) || limit <= 0)) {
     throw new Error("--limit requires a positive integer");
   }
@@ -117,7 +143,24 @@ function parseArgs(argv: string[]): {
   if (limit !== null && ids !== null) {
     throw new Error("--limit and --ids cannot be combined");
   }
-  return { gate, limit, ids };
+  if (productionRouting && tutorModelIndex >= 0) {
+    throw new Error("--production-routing and --tutor-model cannot be combined");
+  }
+  if (!tutorModel) throw new Error("--tutor-model requires a model id");
+  if (!judgeModel) throw new Error("--judge-model requires a model id");
+  if (!productionRouting && tutorModel === judgeModel) {
+    throw new Error("tutor and judge models must be independent");
+  }
+  if (
+    productionRouting &&
+    ["gpt-4.1-nano", "gpt-4.1-mini"].includes(judgeModel)
+  ) {
+    throw new Error("production-routed tutor and judge models must be independent");
+  }
+  if (gate && judgeModel !== DEFAULT_JUDGE_MODEL) {
+    throw new Error(`--gate requires the approved judge model ${DEFAULT_JUDGE_MODEL}`);
+  }
+  return { gate, limit, ids, tutorModel, judgeModel, productionRouting };
 }
 
 function checkProdGuard(): void {
@@ -214,6 +257,7 @@ function deterministicChecks(
     }
   }
   failures.push(
+    ...findDegradedTutorOutput(sections),
     ...findUnsafeOutputSnippets({
       sections,
       userFile: prompt.userFile,
@@ -230,29 +274,63 @@ function deterministicChecks(
   return failures;
 }
 
-async function runPrompt(prompt: GoldenPrompt, apiKey: string): Promise<PromptResult> {
+function evaluationContext(prompt: GoldenPrompt, fileName: string): string {
+  return JSON.stringify({
+    intent: prompt.intent,
+    learnerQuestion: prompt.userMessage,
+    activeFile: { path: fileName, content: prompt.userFile },
+    lastRun: prompt.lastRun ?? null,
+    diffSinceLastTurn: prompt.diffSinceLastTurn ?? null,
+    runsSinceLastTurn: prompt.runsSinceLastTurn ?? null,
+    editsSinceLastTurn: prompt.editsSinceLastTurn ?? null,
+    selection: prompt.selection ?? null,
+    lessonContext: prompt.lessonContext,
+  });
+}
+
+async function runPrompt(
+  prompt: GoldenPrompt,
+  apiKey: string,
+  tutorConfiguration: { kind: "single"; model: string } | { kind: "production-routing" },
+  judgeModel: string,
+): Promise<PromptResult> {
   const fileName = prompt.language === "javascript" ? "index.js" : "main.py";
+  const files = [{ path: fileName, content: prompt.userFile }];
+  const tutorStage = prompt.intent === "socratic" ? "clarify" : "approach";
+  const tutorModel = tutorConfiguration.kind === "single"
+    ? tutorConfiguration.model
+    : routeTutorModel({
+      requestedModel: PLATFORM_DEFAULT_TUTOR_MODEL,
+      fundingSource: "platform",
+      question: prompt.userMessage,
+      files,
+      history: prompt.history ?? [],
+      tutorStage,
+    }).model;
   const tags = prompt.tags ?? ["standard"];
   const base: Omit<PromptResult, "deterministicPass" | "deterministicFailures" | "helpfulCorrectPass" | "posturePass"> = {
     id: prompt.id,
     intent: prompt.intent,
     tags,
     mustPass: prompt.mustPass ?? false,
+    tutorModel,
+    responseLatencyMs: 0,
     rawTutorResponse: "",
     judgeRaw: { helpfulCorrect: "", posture: "" },
   };
+  const startedAt = performance.now();
   try {
     const result = await openaiProvider.ask({
       key: apiKey,
-      model: TUTOR_MODEL,
+      model: tutorModel,
       fundingSource: "platform",
       question: prompt.userMessage,
-      files: [{ path: fileName, content: prompt.userFile }],
+      files,
       activeFile: fileName,
       language: prompt.language,
       lastRun: prompt.lastRun ?? null,
       history: prompt.history ?? [],
-      tutorStage: prompt.intent === "socratic" ? "clarify" : "approach",
+      tutorStage,
       diffSinceLastTurn: prompt.diffSinceLastTurn ?? null,
       runsSinceLastTurn: prompt.runsSinceLastTurn,
       editsSinceLastTurn: prompt.editsSinceLastTurn,
@@ -271,6 +349,7 @@ async function runPrompt(prompt: GoldenPrompt, apiKey: string): Promise<PromptRe
           "Eval fixture: server-authoritative progress is available but contains no answer.",
       },
     });
+    const responseLatencyMs = Math.round(performance.now() - startedAt);
     const failures = deterministicChecks(
       prompt,
       result.raw,
@@ -282,15 +361,30 @@ async function runPrompt(prompt: GoldenPrompt, apiKey: string): Promise<PromptRe
         apiKey,
         tutorResponse: result.raw,
         rubricQuestion: helpfulRubric(prompt),
+        evaluationContext: evaluationContext(prompt, fileName),
+        judgeModel,
       }),
       gradeRubric({
         apiKey,
         tutorResponse: result.raw,
         rubricQuestion: postureRubric(prompt),
+        evaluationContext: evaluationContext(prompt, fileName),
+        judgeModel,
       }),
     ]);
+    const tutorCostUsd = result.usage
+      ? priceUsd(
+        tutorModel,
+        result.usage.inputTokens,
+        result.usage.outputTokens,
+      ).costUsd
+      : undefined;
     return {
       ...base,
+      responseLatencyMs,
+      inputTokens: result.usage?.inputTokens,
+      outputTokens: result.usage?.outputTokens,
+      tutorCostUsd,
       rawTutorResponse: result.raw,
       tutorSections: result.sections,
       judgeRaw: {
@@ -306,6 +400,7 @@ async function runPrompt(prompt: GoldenPrompt, apiKey: string): Promise<PromptRe
   } catch (err) {
     return {
       ...base,
+      responseLatencyMs: Math.round(performance.now() - startedAt),
       deterministicPass: false,
       deterministicFailures: ["case did not complete"],
       helpfulCorrectPass: false,
@@ -340,7 +435,14 @@ function summarizeRates(results: EvalCaseResultV2[]) {
 }
 
 async function main(): Promise<void> {
-  const { gate, limit, ids } = parseArgs(process.argv.slice(2));
+  const {
+    gate,
+    limit,
+    ids,
+    tutorModel,
+    judgeModel,
+    productionRouting,
+  } = parseArgs(process.argv.slice(2));
   checkProdGuard();
   const apiKey = getApiKey();
   const dataset = await loadDataset();
@@ -353,13 +455,19 @@ async function main(): Promise<void> {
     const found = new Set(prompts.map((prompt) => prompt.id));
     throw new Error(`unknown eval case(s): ${ids.filter((id) => !found.has(id)).join(", ")}`);
   }
+  const tutorConfiguration = productionRouting
+    ? { kind: "production-routing" as const }
+    : { kind: "single" as const, model: tutorModel };
+  const tutorConfigurationLabel = productionRouting
+    ? PLATFORM_TUTOR_ROUTING_POLICY_VERSION
+    : tutorModel;
   console.log(
-    `[eval-v2] ${prompts.length}/${dataset.prompts.length} cases, tutor=${TUTOR_MODEL}, judge=${JUDGE_MODEL}`,
+    `[eval-v2] ${prompts.length}/${dataset.prompts.length} cases, tutor=${tutorConfigurationLabel}, judge=${judgeModel}`,
   );
   const results: PromptResult[] = [];
   for (const [index, prompt] of prompts.entries()) {
     process.stdout.write(`[eval-v2] ${index + 1}/${prompts.length} ${prompt.id} ... `);
-    const result = await runPrompt(prompt, apiKey);
+    const result = await runPrompt(prompt, apiKey, tutorConfiguration, judgeModel);
     results.push(result);
     const state = result.errorMessage
       ? `ERROR ${result.errorMessage}`
@@ -371,8 +479,12 @@ async function main(): Promise<void> {
   const versions = await sourceVersions();
   const artifact: RunArtifact = {
     timestamp: new Date().toISOString(),
-    tutorModel: TUTOR_MODEL,
-    judgeModel: JUDGE_MODEL,
+    tutorModel: tutorConfigurationLabel,
+    judgeModel,
+    routingPolicyVersion: productionRouting
+      ? PLATFORM_TUTOR_ROUTING_POLICY_VERSION
+      : null,
+    tutorModels: [...new Set(results.map((result) => result.tutorModel))].sort(),
     datasetVersion: EVAL_DATASET_VERSION,
     datasetFingerprint: dataset.fingerprint,
     evaluatorVersion: EVAL_EVALUATOR_VERSION,

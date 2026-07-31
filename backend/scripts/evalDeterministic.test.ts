@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { findUnsafeOutputSnippets } from "./evalDeterministic.js";
+import {
+  findDegradedTutorOutput,
+  findUnsafeOutputSnippets,
+} from "./evalDeterministic.js";
 
 describe("findUnsafeOutputSnippets", () => {
   it("fails a new exact call even when the model wraps it in single quotes", () => {
@@ -46,5 +49,52 @@ describe("findUnsafeOutputSnippets", () => {
         "citations[0].reason introduced a new pasteable call",
       ]),
     );
+  });
+});
+
+describe("findDegradedTutorOutput", () => {
+  it("fails a check-in whose model review could not be trusted", () => {
+    expect(
+      findDegradedTutorOutput({
+        intent: "checkin",
+        diagnose:
+          "I couldn’t complete a reliable review of the cited code in this response.",
+      }),
+    ).toEqual(["checkin used the transparent review-failure fallback"]);
+  });
+
+  it("fails a walkthrough whose unsafe steps were all removed", () => {
+    expect(
+      findDegradedTutorOutput({ intent: "walkthrough", walkthrough: [] }),
+    ).toEqual(["walkthrough contained no safe concrete steps"]);
+  });
+
+  it("fails a generic walkthrough firewall fallback", () => {
+    expect(
+      findDegradedTutorOutput({
+        intent: "walkthrough",
+        walkthrough: [
+          { body: "The list is created here.", path: "main.py", line: 1 },
+          {
+            body: "Inspect this step in the current flow.",
+            path: "main.py",
+            line: 2,
+          },
+        ],
+      }),
+    ).toEqual([
+      "walkthrough[1].body used the generic safety fallback",
+    ]);
+  });
+
+  it("allows a concrete grounded walkthrough", () => {
+    expect(
+      findDegradedTutorOutput({
+        intent: "walkthrough",
+        walkthrough: [
+          { body: "The loop adds each value to total.", path: "main.py", line: 3 },
+        ],
+      }),
+    ).toEqual([]);
   });
 });

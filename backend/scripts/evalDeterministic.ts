@@ -65,3 +65,28 @@ export function findUnsafeOutputSnippets({
   }
   return failures;
 }
+
+/**
+ * Catch output-policy fallbacks that are safe to render but too generic to
+ * count as a successful teaching answer. A firewall fallback is a graceful
+ * production degradation, not evidence that the underlying model passed.
+ */
+export function findDegradedTutorOutput(sections: TutorSections): string[] {
+  const failures: string[] = [];
+  if (sections.intent === "walkthrough" && !sections.walkthrough?.length) {
+    failures.push("walkthrough contained no safe concrete steps");
+  }
+  for (const [index, step] of (sections.walkthrough ?? []).entries()) {
+    if (step.body.trim() === "Inspect this step in the current flow.") {
+      failures.push(`walkthrough[${index}].body used the generic safety fallback`);
+    }
+  }
+  if (
+    sections.intent === "checkin" &&
+    sections.diagnose?.trim() ===
+      "I couldn’t complete a reliable review of the cited code in this response."
+  ) {
+    failures.push("checkin used the transparent review-failure fallback");
+  }
+  return failures;
+}

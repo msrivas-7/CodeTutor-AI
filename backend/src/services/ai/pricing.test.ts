@@ -14,6 +14,13 @@ describe("priceUsd", () => {
     expect(r.priceVersion).toBe(PRICE_VERSION);
   });
 
+  it("computes cost for the internally routed gpt-4.1-mini model", () => {
+    // 3K input + 1K output = (3000 * 0.40 + 1000 * 1.60) / 1e6 = 0.0028
+    const r = priceUsd("gpt-4.1-mini", 3000, 1000);
+    expect(r.costUsd).toBe(0.0028);
+    expect(r.priceVersion).toBe(PRICE_VERSION);
+  });
+
   it("returns 0 cost when both token counts are 0", () => {
     const r = priceUsd("gpt-4.1-nano", 0, 0);
     expect(r.costUsd).toBe(0);
@@ -44,12 +51,14 @@ describe("isPlatformAllowedModel", () => {
   });
 
   it("rejects anything else", () => {
+    // Mini is priced for trusted server routing but is not client-selectable.
+    expect(isPlatformAllowedModel("gpt-4.1-mini")).toBe(false);
     expect(isPlatformAllowedModel("gpt-4o")).toBe(false);
     expect(isPlatformAllowedModel("gpt-4.1-nano-super")).toBe(false);
     expect(isPlatformAllowedModel("")).toBe(false);
   });
 
-  it("has PLATFORM_ALLOWED_MODELS aligned with the price table", () => {
+  it("has every client-allowed model represented in the price table", () => {
     for (const m of PLATFORM_ALLOWED_MODELS) {
       expect(isPlatformAllowedModel(m)).toBe(true);
     }

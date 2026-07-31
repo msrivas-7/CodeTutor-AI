@@ -1,0 +1,116 @@
+{
+  "ok": true,
+  "decision": "upgrade-checkin",
+  "upgradedIntents": [
+    "checkin"
+  ],
+  "intentDecisions": {
+    "walkthrough": {
+      "upgrade": false,
+      "controlPassRate": 1,
+      "candidatePassRate": 1,
+      "improvement": 0,
+      "reasons": [
+        "candidate did not improve pass rate by at least 5 percentage points",
+        "candidate improvement is not significant by one-sided Fisher exact test (p=1.0000)"
+      ]
+    },
+    "checkin": {
+      "upgrade": true,
+      "controlPassRate": 0.8333333333333334,
+      "candidatePassRate": 1,
+      "improvement": 0.16666666666666663,
+      "reasons": []
+    }
+  },
+  "generatedAt": "2026-07-31T16:54:19.674Z",
+  "thresholds": {
+    "repeatsPerModel": 3,
+    "minimumImprovement": 0.05,
+    "minimumCandidatePassRate": 0.95,
+    "maximumOneSidedPValue": 0.05,
+    "maximumP95LatencyMs": 15000,
+    "maximumLatencyMultiplier": 2.5,
+    "maximumCostPerPassUsd": 0.005,
+    "maximumMixedCostPerActiveDayUsd": 0.05
+  },
+  "reasons": [],
+  "control": {
+    "model": "gpt-4.1-nano",
+    "samples": 60,
+    "passRate": 0.9166666666666666,
+    "passRateByIntent": {
+      "walkthrough": 1,
+      "checkin": 0.8333333333333334
+    },
+    "meanLatencyMs": 3437.4166666666665,
+    "p95LatencyMs": 6803,
+    "meanInputTokens": 3067.6,
+    "meanOutputTokens": 269.51666666666665,
+    "meanCostUsd": 0.00041459999999999994,
+    "costPerPassUsd": 0.000452290909090909
+  },
+  "candidate": {
+    "model": "gpt-4.1-mini",
+    "samples": 60,
+    "passRate": 1,
+    "passRateByIntent": {
+      "walkthrough": 1,
+      "checkin": 1
+    },
+    "meanLatencyMs": 4817.083333333333,
+    "p95LatencyMs": 7683,
+    "meanInputTokens": 3067.6,
+    "meanOutputTokens": 253.06666666666666,
+    "meanCostUsd": 0.001631916666666667,
+    "costPerPassUsd": 0.001631916666666667
+  },
+  "qualityImprovement": 0.08333333333333337,
+  "mixedCostPerActiveDayUsd": 0.018524583333333334,
+  "monthlyCostProjectionUsd": {
+    "100": 55.57375,
+    "500": 277.86875,
+    "1000": 555.7375,
+    "10000": 5557.375
+  },
+  "provenance": {
+    "datasetVersion": "2.2.0",
+    "datasetFingerprint": "1a6e61255b392c0f83eb99250e1c3fffc6453f323b1b0059863df7059de520d6",
+    "evaluatorVersion": "2.11.0",
+    "qualityContractFingerprint": "34792aadf7fa2fdca54d29b03998a87d3b91ba7c96c8d82846576c6c7f8d1275",
+    "decisionGateFingerprint": "09c360adb04c0bbfa08884ec1ae41c5dfaaafe8f19110ec047c213abfb1b399c",
+    "judgeModel": "gpt-4.1",
+    "targetCaseIds": [
+      "g019",
+      "g020",
+      "g021",
+      "g022",
+      "g023",
+      "g024",
+      "g025",
+      "g026",
+      "g027",
+      "g028",
+      "g029",
+      "g030",
+      "r007",
+      "r013",
+      "r014",
+      "r015",
+      "r016",
+      "r017",
+      "r018",
+      "r019"
+    ],
+    "controlRunTimestamps": [
+      "2026-07-31T16:45:30.465Z",
+      "2026-07-31T16:46:55.481Z",
+      "2026-07-31T16:48:13.846Z"
+    ],
+    "candidateRunTimestamps": [
+      "2026-07-31T16:49:59.698Z",
+      "2026-07-31T16:52:03.918Z",
+      "2026-07-31T16:54:13.414Z"
+    ]
+  }
+}

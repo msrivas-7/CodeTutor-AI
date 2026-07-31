@@ -60,7 +60,8 @@ export const TUTOR_RESPONSE_SCHEMA = {
           },
           line: {
             type: ["integer", "null"],
-            description: "Line number this step points at, or null.",
+            minimum: 1,
+            description: "1-indexed line number this step points at, or null.",
           },
         },
       },
@@ -100,8 +101,12 @@ export const TUTOR_RESPONSE_SCHEMA = {
         required: ["path", "line", "column", "reason"],
         properties: {
           path: { type: "string", description: "Exact file path as it appears in PROJECT FILES." },
-          line: { type: "integer", description: "1-indexed line number." },
-          column: { type: ["integer", "null"], description: "Optional 1-indexed column." },
+          line: { type: "integer", minimum: 1, description: "1-indexed line number." },
+          column: {
+            type: ["integer", "null"],
+            minimum: 0,
+            description: "Optional 1-indexed column; use null when unknown.",
+          },
           reason: {
             type: "string",
             description: "Short (≤60 chars) reason this location matters.",

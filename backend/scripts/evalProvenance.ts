@@ -11,6 +11,10 @@ export const REGRESSION_DATASET_PATH = path.join(
   EVAL_REPO_ROOT,
   "eval/tutor-regression-set-v2.yaml",
 );
+export const B3_DECISION_GATE_PATH = path.join(
+  EVAL_REPO_ROOT,
+  "scripts/b3ModelGate.ts",
+);
 
 // Any change to code that can alter tutor output, output enforcement, grading,
 // or the release decision invalidates the approved baseline until the full
@@ -24,6 +28,8 @@ export const QUALITY_CONTRACT_FILES = [
   "src/services/ai/editorPromptBuilder.ts",
   "src/services/ai/guidedPromptBuilder.ts",
   "src/services/ai/modelRegistry.ts",
+  "src/services/ai/modelRouting.ts",
+  "src/services/ai/pricing.ts",
   "src/services/ai/prompts/coreRules.ts",
   "src/services/ai/prompts/lessonContext.ts",
   "src/services/ai/prompts/schema.ts",
@@ -34,6 +40,12 @@ export const QUALITY_CONTRACT_FILES = [
   "src/services/ai/tutorProgress.ts",
   "src/services/ai/suspectApi.ts",
 ] as const;
+
+export async function computeB3DecisionGateFingerprint(): Promise<string> {
+  return createHash("sha256")
+    .update(await fs.readFile(B3_DECISION_GATE_PATH))
+    .digest("hex");
+}
 
 async function shortDigest(relativePath: string): Promise<string> {
   return createHash("sha256")

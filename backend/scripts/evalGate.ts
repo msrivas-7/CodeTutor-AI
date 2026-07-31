@@ -1,5 +1,5 @@
-export const EVAL_DATASET_VERSION = "2.1.0";
-export const EVAL_EVALUATOR_VERSION = "2.2.0";
+export const EVAL_DATASET_VERSION = "2.2.0";
+export const EVAL_EVALUATOR_VERSION = "2.11.0";
 export const EXPECTED_EVAL_CASE_COUNT = 60;
 export const REQUIRED_EVAL_TAGS = [
   "multi-turn",
@@ -29,10 +29,14 @@ export interface EvalCaseResultV2 {
   deterministicFailures: string[];
   helpfulCorrectPass: boolean;
   posturePass: boolean;
+  tutorModel: string;
 }
 
 export interface EvalSummaryV2 {
   tutorModel: string;
+  judgeModel: string;
+  routingPolicyVersion: string | null;
+  tutorModels: string[];
   datasetVersion: string;
   datasetFingerprint: string;
   evaluatorVersion: string;
@@ -46,6 +50,10 @@ export interface EvalBaselineV2 {
   datasetFingerprint: string;
   evaluatorVersion: string;
   approvedModel: string;
+  approvedJudgeModel: string;
+  approvedRoutingPolicyVersion: string | null;
+  approvedModels: string[];
+  approvedModelByIntent: Record<EvalIntent, string>;
   approvedAt: string;
   qualityContractFingerprint: string;
   postureOverall: number;
@@ -66,7 +74,7 @@ export interface EvalGateResult {
   };
 }
 
-const INTENTS: EvalIntent[] = [
+export const EVAL_INTENTS: EvalIntent[] = [
   "socratic",
   "debug",
   "concept",
@@ -84,7 +92,7 @@ function byIntent(
   key: "posturePass" | "helpfulCorrectPass",
 ): Record<EvalIntent, number> {
   return Object.fromEntries(
-    INTENTS.map((intent) => [
+    EVAL_INTENTS.map((intent) => [
       intent,
       rate(results.filter((result) => result.intent === intent), key),
     ]),
@@ -108,13 +116,27 @@ export function evaluateGate(
   ) {
     reasons.push("gate requires the complete versioned dataset; cases are missing or duplicated");
   }
-  for (const intent of INTENTS) {
+  for (const intent of EVAL_INTENTS) {
     if (summary.results.filter((result) => result.intent === intent).length !== 10) {
       reasons.push(`gate requires exactly 10 ${intent} cases`);
     }
   }
   if (summary.tutorModel !== baseline.approvedModel) {
-    reasons.push("tutor model does not match the reviewed baseline");
+    reasons.push("tutor configuration does not match the reviewed baseline");
+  }
+  if (summary.judgeModel !== baseline.approvedJudgeModel) {
+    reasons.push("judge model does not match the reviewed baseline");
+  }
+  if (summary.routingPolicyVersion !== baseline.approvedRoutingPolicyVersion) {
+    reasons.push("tutor routing policy does not match the reviewed baseline");
+  }
+  const actualModels = [...summary.tutorModels].sort();
+  const approvedModels = [...baseline.approvedModels].sort();
+  if (
+    actualModels.length !== approvedModels.length ||
+    actualModels.some((model, index) => model !== approvedModels[index])
+  ) {
+    reasons.push("models used by the run do not match the reviewed baseline");
   }
   if (
     summary.datasetVersion !== EVAL_DATASET_VERSION ||
@@ -137,6 +159,11 @@ export function evaluateGate(
     if (!presentTags.has(tag)) reasons.push(`required eval category missing: ${tag}`);
   }
   for (const result of summary.results) {
+    if (result.tutorModel !== baseline.approvedModelByIntent[result.intent]) {
+      reasons.push(
+        `${result.id}: routed model ${result.tutorModel} does not match the approved ${result.intent} model`,
+      );
+    }
     if (result.errorMessage) reasons.push(`${result.id}: errored: ${result.errorMessage}`);
     if (!result.deterministicPass) {
       reasons.push(`${result.id}: deterministic failure: ${result.deterministicFailures.join(", ")}`);
@@ -156,7 +183,7 @@ export function evaluateGate(
   if (baseline.postureOverall - postureOverall > 0.02) {
     reasons.push("Socratic posture regressed by more than 2 percentage points");
   }
-  for (const intent of INTENTS) {
+  for (const intent of EVAL_INTENTS) {
     if (postureByIntent[intent] < 0.9) {
       reasons.push(`${intent}: posture ${(postureByIntent[intent] * 100).toFixed(1)}% is below 90%`);
     }

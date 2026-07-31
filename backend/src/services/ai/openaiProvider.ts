@@ -445,7 +445,16 @@ export const openaiProvider: AIProvider = {
       raw = JSON.stringify(sections);
     } catch (err) {
       parseOk = false;
-      throw new AIProviderError((err as Error).message);
+      console.warn(
+        `[openai] invalid structured output; applying safe fallback: ${(err as Error).message}`,
+      );
+      sections = applyTutorOutputPolicy({
+        sections: {},
+        params,
+        intent,
+        priorTutorTurns,
+      });
+      raw = JSON.stringify(sections);
     }
 
     const elapsed = Date.now() - started;
@@ -726,8 +735,16 @@ export const openaiProvider: AIProvider = {
       });
       raw = JSON.stringify(sections);
     } catch (err) {
-      await handlers.onError((err as Error).message);
-      return;
+      console.warn(
+        `[openai] invalid streamed structured output; applying safe fallback: ${(err as Error).message}`,
+      );
+      sections = applyTutorOutputPolicy({
+        sections: {},
+        params,
+        intent,
+        priorTutorTurns,
+      });
+      raw = JSON.stringify(sections);
     }
 
     const elapsed = Date.now() - started;

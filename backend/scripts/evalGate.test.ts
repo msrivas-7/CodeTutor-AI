@@ -30,6 +30,7 @@ function passingResult(id: string, intent: EvalIntent): EvalCaseResultV2 {
     deterministicFailures: [],
     helpfulCorrectPass: true,
     posturePass: true,
+    tutorModel: "gpt-4.1-nano",
   };
 }
 
@@ -41,6 +42,9 @@ function fixture(): { summary: EvalSummaryV2; baseline: EvalBaselineV2 } {
   return {
     summary: {
       tutorModel: "gpt-4.1-nano",
+      judgeModel: "gpt-4.1",
+      routingPolicyVersion: null,
+      tutorModels: ["gpt-4.1-nano"],
       datasetVersion: EVAL_DATASET_VERSION,
       datasetFingerprint: "abc",
       evaluatorVersion: EVAL_EVALUATOR_VERSION,
@@ -53,6 +57,12 @@ function fixture(): { summary: EvalSummaryV2; baseline: EvalBaselineV2 } {
       datasetFingerprint: "abc",
       evaluatorVersion: EVAL_EVALUATOR_VERSION,
       approvedModel: "gpt-4.1-nano",
+      approvedJudgeModel: "gpt-4.1",
+      approvedRoutingPolicyVersion: null,
+      approvedModels: ["gpt-4.1-nano"],
+      approvedModelByIntent: Object.fromEntries(
+        intents.map((intent) => [intent, "gpt-4.1-nano"]),
+      ) as Record<EvalIntent, string>,
       approvedAt: "2026-07-30",
       qualityContractFingerprint: "contract-abc",
       postureOverall: 1,
@@ -88,7 +98,24 @@ describe("evaluateGate", () => {
     const { summary, baseline } = fixture();
     summary.tutorModel = "gpt-4.1-mini";
     expect(evaluateGate(summary, baseline).reasons).toContainEqual(
-      expect.stringContaining("tutor model"),
+      expect.stringContaining("tutor configuration"),
+    );
+  });
+
+  it("fails a judge that was not the reviewed baseline judge", () => {
+    const { summary, baseline } = fixture();
+    summary.judgeModel = "weaker-judge";
+    expect(evaluateGate(summary, baseline).reasons).toContainEqual(
+      expect.stringContaining("judge model"),
+    );
+  });
+
+  it("fails when any case bypasses the approved per-intent route", () => {
+    const { summary, baseline } = fixture();
+    summary.results.find((result) => result.intent === "checkin")!.tutorModel =
+      "gpt-4.1-mini";
+    expect(evaluateGate(summary, baseline).reasons).toContainEqual(
+      expect.stringContaining("does not match the approved checkin model"),
     );
   });
 
