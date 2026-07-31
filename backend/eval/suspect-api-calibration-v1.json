@@ -1,0 +1,332 @@
+{
+  "version": "1.0.0",
+  "description": "Human-labeled B7 suspect-symbol telemetry calibration. Positive cases are plausible fabricated calls; negative cases are runtime, learner-owned, or concretely response-defined calls.",
+  "thresholds": {
+    "precision": 0.95,
+    "recall": 0.95,
+    "exactCaseAccuracy": 0.95,
+    "cleanCaseRate": 0.95
+  },
+  "cases": [
+    {
+      "id": "py-positive-singleword-global",
+      "language": "python",
+      "responseText": "Use `stringify(name)` to convert it.",
+      "userFiles": [],
+      "userQuestion": "convert this value",
+      "expectedSuspects": ["stringify"]
+    },
+    {
+      "id": "py-positive-snake-case-global",
+      "language": "python",
+      "responseText": "Try `python_autoformat(name)`.",
+      "userFiles": [],
+      "userQuestion": "fix the casing",
+      "expectedSuspects": ["python_autoformat"]
+    },
+    {
+      "id": "py-positive-question-only",
+      "language": "python",
+      "responseText": "Call `fetchall()` next.",
+      "userFiles": [],
+      "userQuestion": "when should I use fetchall?",
+      "expectedSuspects": ["fetchall"]
+    },
+    {
+      "id": "py-positive-unknown-method",
+      "language": "python",
+      "responseText": "Now run `records.magicsort()`.",
+      "userFiles": [{ "path": "main.py", "content": "records = [3, 1, 2]" }],
+      "userQuestion": "sort this",
+      "expectedSuspects": ["magicsort"]
+    },
+    {
+      "id": "py-positive-invented-receiver",
+      "language": "python",
+      "responseText": "Use `formatter.print(name)`.",
+      "userFiles": [{ "path": "main.py", "content": "name = 'Maya'" }],
+      "userQuestion": "print this",
+      "expectedSuspects": ["formatter"]
+    },
+    {
+      "id": "py-positive-unknown-constructor",
+      "language": "python",
+      "responseText": "Wrap the rows with `DataFrame(rows)`.",
+      "userFiles": [{ "path": "main.py", "content": "rows = []" }],
+      "userQuestion": "show a table",
+      "expectedSuspects": ["DataFrame"]
+    },
+    {
+      "id": "py-positive-tutor-invented-import",
+      "language": "python",
+      "responseText": "```python\nfrom fantasy import sparkle\nsparkle(data)\n```",
+      "userFiles": [{ "path": "main.py", "content": "data = [1, 2]" }],
+      "userQuestion": "clean this",
+      "expectedSuspects": ["sparkle"]
+    },
+    {
+      "id": "py-positive-defined-helper-bad-dependency",
+      "language": "python",
+      "responseText": "```python\ndef total(values):\n    return magic_sum(values)\n\ntotal([1, 2])\n```",
+      "userFiles": [],
+      "userQuestion": "total these",
+      "expectedSuspects": ["magic_sum"]
+    },
+    {
+      "id": "py-positive-two-fabrications",
+      "language": "python",
+      "responseText": "Try `quickparse(data)` before `autosummarize(data)`.",
+      "userFiles": [{ "path": "main.py", "content": "data = 'x'" }],
+      "userQuestion": "parse this",
+      "expectedSuspects": ["quickparse", "autosummarize"]
+    },
+    {
+      "id": "py-positive-prose-suggestion-is-not-definition",
+      "language": "python",
+      "responseText": "Write a helper named `get_total(values)` and call it.",
+      "userFiles": [{ "path": "main.py", "content": "values = [1, 2]" }],
+      "userQuestion": "organize this",
+      "expectedSuspects": ["get_total"]
+    },
+    {
+      "id": "py-negative-runtime-and-methods",
+      "language": "python",
+      "responseText": "Compare `print(len(name))` with `name.upper()`.",
+      "userFiles": [{ "path": "main.py", "content": "name = 'Maya'" }],
+      "userQuestion": "uppercase",
+      "expectedSuspects": []
+    },
+    {
+      "id": "py-negative-learner-function",
+      "language": "python",
+      "responseText": "What happens when you call `greet()` twice?",
+      "userFiles": [{ "path": "main.py", "content": "def greet():\n    print('hi')" }],
+      "userQuestion": "why once?",
+      "expectedSuspects": []
+    },
+    {
+      "id": "py-negative-response-defined-function",
+      "language": "python",
+      "responseText": "```python\ndef double(value):\n    return value * 2\n\nprint(double(3))\n```",
+      "userFiles": [],
+      "userQuestion": "show a helper",
+      "expectedSuspects": []
+    },
+    {
+      "id": "py-negative-response-defined-class",
+      "language": "python",
+      "responseText": "```python\nclass Counter:\n    pass\n\ncounter = Counter()\n```",
+      "userFiles": [],
+      "userQuestion": "make a class",
+      "expectedSuspects": []
+    },
+    {
+      "id": "py-negative-pathlib-runtime",
+      "language": "python",
+      "responseText": "Use `Path('notes.txt')` and then `path.read_text()`.",
+      "userFiles": [{ "path": "main.py", "content": "from pathlib import Path\npath = Path('notes.txt')" }],
+      "userQuestion": "read a file",
+      "expectedSuspects": []
+    },
+    {
+      "id": "py-negative-json-runtime",
+      "language": "python",
+      "responseText": "Try `json.loads(payload)`.",
+      "userFiles": [{ "path": "main.py", "content": "import json\npayload = '{}'" }],
+      "userQuestion": "parse json",
+      "expectedSuspects": []
+    },
+    {
+      "id": "py-negative-learner-third-party-method",
+      "language": "python",
+      "responseText": "Inspect what `cursor.fetchall()` returns.",
+      "userFiles": [{ "path": "main.py", "content": "rows = cursor.fetchall()" }],
+      "userQuestion": "database rows",
+      "expectedSuspects": []
+    },
+    {
+      "id": "py-negative-prose-only",
+      "language": "python",
+      "responseText": "Python does not have a magicparse(data) builtin.",
+      "userFiles": [],
+      "userQuestion": "parse",
+      "expectedSuspects": []
+    },
+    {
+      "id": "py-negative-response-variable-receiver",
+      "language": "python",
+      "responseText": "```python\nresult = ' hello '\nprint(result.strip())\n```",
+      "userFiles": [],
+      "userQuestion": "trim spaces",
+      "expectedSuspects": []
+    },
+    {
+      "id": "py-negative-common-stdlib",
+      "language": "python",
+      "responseText": "Compare `mean(values)` with `median(values)`.",
+      "userFiles": [{ "path": "main.py", "content": "from statistics import mean, median\nvalues = [1, 2, 3]" }],
+      "userQuestion": "average",
+      "expectedSuspects": []
+    },
+    {
+      "id": "js-positive-singleword-global",
+      "language": "javascript",
+      "responseText": "Use `arrayify(items)` first.",
+      "userFiles": [{ "path": "index.js", "content": "const items = [1, 2];" }],
+      "userQuestion": "loop this",
+      "expectedSuspects": ["arrayify"]
+    },
+    {
+      "id": "js-positive-camel-case-global",
+      "language": "javascript",
+      "responseText": "Call `sumTotals(items)`.",
+      "userFiles": [{ "path": "index.js", "content": "const items = [1, 2];" }],
+      "userQuestion": "total",
+      "expectedSuspects": ["sumTotals"]
+    },
+    {
+      "id": "js-positive-question-only",
+      "language": "javascript",
+      "responseText": "Use `queryAll('.item')` here.",
+      "userFiles": [],
+      "userQuestion": "is queryAll the right API?",
+      "expectedSuspects": ["queryAll"]
+    },
+    {
+      "id": "js-positive-unknown-method",
+      "language": "javascript",
+      "responseText": "Try `items.magicMap(double)`.",
+      "userFiles": [{ "path": "index.js", "content": "const items = []; function double(x) { return x * 2; }" }],
+      "userQuestion": "map",
+      "expectedSuspects": ["magicMap"]
+    },
+    {
+      "id": "js-positive-invented-receiver",
+      "language": "javascript",
+      "responseText": "Use `collection.map(double)`.",
+      "userFiles": [{ "path": "index.js", "content": "function double(x) { return x * 2; }" }],
+      "userQuestion": "map",
+      "expectedSuspects": ["collection"]
+    },
+    {
+      "id": "js-positive-unknown-constructor",
+      "language": "javascript",
+      "responseText": "Create `new Widget(options)`.",
+      "userFiles": [{ "path": "index.js", "content": "const options = {};" }],
+      "userQuestion": "make a widget",
+      "expectedSuspects": ["Widget"]
+    },
+    {
+      "id": "js-positive-dollar-identifier",
+      "language": "javascript",
+      "responseText": "Call `$format(value)`.",
+      "userFiles": [{ "path": "index.js", "content": "const value = 2;" }],
+      "userQuestion": "format",
+      "expectedSuspects": ["$format"]
+    },
+    {
+      "id": "js-positive-defined-helper-bad-dependency",
+      "language": "javascript",
+      "responseText": "```javascript\nfunction clamp(value) { return magicClamp(value); }\nclamp(3);\n```",
+      "userFiles": [],
+      "userQuestion": "clamp",
+      "expectedSuspects": ["magicClamp"]
+    },
+    {
+      "id": "js-positive-invented-standard-looking-root",
+      "language": "javascript",
+      "responseText": "Use `toolkit.parse(payload)`.",
+      "userFiles": [{ "path": "index.js", "content": "const payload = '{}';" }],
+      "userQuestion": "parse",
+      "expectedSuspects": ["toolkit"]
+    },
+    {
+      "id": "js-positive-two-fabrications",
+      "language": "javascript",
+      "responseText": "Run `autoGroup(items)` before `smartSort(items)`.",
+      "userFiles": [{ "path": "index.js", "content": "const items = [];" }],
+      "userQuestion": "organize",
+      "expectedSuspects": ["autoGroup", "smartSort"]
+    },
+    {
+      "id": "js-negative-runtime-and-methods",
+      "language": "javascript",
+      "responseText": "Inspect `items.map(double)` with `console.log(result)`.",
+      "userFiles": [{ "path": "index.js", "content": "const items = []; const result = []; function double(x) { return x * 2; }" }],
+      "userQuestion": "map",
+      "expectedSuspects": []
+    },
+    {
+      "id": "js-negative-learner-function",
+      "language": "javascript",
+      "responseText": "What does `greet('Maya')` return?",
+      "userFiles": [{ "path": "index.js", "content": "function greet(name) { return `Hi ${name}`; }" }],
+      "userQuestion": "greeting",
+      "expectedSuspects": []
+    },
+    {
+      "id": "js-negative-response-defined-function",
+      "language": "javascript",
+      "responseText": "```javascript\nfunction double(value) { return value * 2; }\nconsole.log(double(3));\n```",
+      "userFiles": [],
+      "userQuestion": "helper",
+      "expectedSuspects": []
+    },
+    {
+      "id": "js-negative-response-defined-arrow",
+      "language": "javascript",
+      "responseText": "```javascript\nconst double = (value) => value * 2;\nconsole.log(double(3));\n```",
+      "userFiles": [],
+      "userQuestion": "arrow helper",
+      "expectedSuspects": []
+    },
+    {
+      "id": "js-negative-response-defined-class",
+      "language": "javascript",
+      "responseText": "```javascript\nclass Box {\n  open() { return true; }\n}\nconst box = new Box();\nconsole.log(box.open());\n```",
+      "userFiles": [],
+      "userQuestion": "class",
+      "expectedSuspects": []
+    },
+    {
+      "id": "js-negative-browser-runtime",
+      "language": "javascript",
+      "responseText": "Use `document.querySelector('.item')`.",
+      "userFiles": [],
+      "userQuestion": "select element",
+      "expectedSuspects": []
+    },
+    {
+      "id": "js-negative-json-runtime",
+      "language": "javascript",
+      "responseText": "Compare `JSON.parse(payload)` and `JSON.stringify(value)`.",
+      "userFiles": [{ "path": "index.js", "content": "const payload = '{}'; const value = {};" }],
+      "userQuestion": "json",
+      "expectedSuspects": []
+    },
+    {
+      "id": "js-negative-learner-custom-method",
+      "language": "javascript",
+      "responseText": "Inspect `client.fetchRows()`.",
+      "userFiles": [{ "path": "index.js", "content": "const rows = client.fetchRows();" }],
+      "userQuestion": "rows",
+      "expectedSuspects": []
+    },
+    {
+      "id": "js-negative-prose-only",
+      "language": "javascript",
+      "responseText": "JavaScript does not provide magicMap(items) by default.",
+      "userFiles": [],
+      "userQuestion": "map",
+      "expectedSuspects": []
+    },
+    {
+      "id": "js-negative-response-variable-receiver",
+      "language": "javascript",
+      "responseText": "```javascript\nconst result = ' hello ';\nconsole.log(result.trim());\n```",
+      "userFiles": [],
+      "userQuestion": "trim",
+      "expectedSuspects": []
+    }
+  ]
+}

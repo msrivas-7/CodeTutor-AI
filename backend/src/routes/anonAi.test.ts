@@ -92,6 +92,7 @@ vi.mock("../services/ai/openaiProvider.js", () => ({
 const { createAnonRouter } = await import("./anon.js");
 const { openaiProvider } = await import("../services/ai/openaiProvider.js");
 const { reserveAIRequest, finalizeAIRequest } = await import("../db/aiReservations.js");
+const { flagSuspectApis } = await import("../services/ai/suspectApi.js");
 
 let server: Server;
 let baseUrl: string;
@@ -142,6 +143,7 @@ beforeEach(() => {
   vi.mocked(openaiProvider.askStream).mockReset();
   vi.mocked(reserveAIRequest).mockClear();
   vi.mocked(finalizeAIRequest).mockClear();
+  vi.mocked(flagSuspectApis).mockReset();
   vi.mocked(openaiProvider.askStream).mockImplementation(
     async (_params, handlers) => {
       await handlers.onDone(
@@ -170,6 +172,13 @@ describe("POST /api/anon/ai/ask/stream — B3 model routing", () => {
       firstText.split("\n").find((line) => line.startsWith("data: "))!.slice(6),
     ) as { tutorProgressToken: string };
     expect(vi.mocked(openaiProvider.askStream).mock.calls[0][0].model).toBe("gpt-4.1-nano");
+    expect(vi.mocked(flagSuspectApis)).toHaveBeenCalledWith({
+      responseText: "{\"intent\":\"socratic\"}",
+      userFiles: [{ path: "main.py", content: "print('Hello')\n" }],
+      userQuestion: "Is this on the right track?",
+      language: "python",
+      route: "anon_ask_stream",
+    });
 
     const second = await post(validBody({
       requestId: "00000000-0000-4000-8000-000000000032",

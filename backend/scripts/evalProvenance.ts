@@ -20,10 +20,12 @@ export const B3_DECISION_GATE_PATH = path.join(
 // or the release decision invalidates the approved baseline until the full
 // model gate is rerun. Keep this list explicit and reviewable.
 export const QUALITY_CONTRACT_FILES = [
+  "eval/suspect-api-calibration-v1.json",
   "scripts/eval-tutor.ts",
   "scripts/evalDeterministic.ts",
   "scripts/evalGate.ts",
   "scripts/judgeModel.ts",
+  "scripts/suspectApiCalibration.ts",
   "src/services/ai/openaiProvider.ts",
   "src/services/ai/editorPromptBuilder.ts",
   "src/services/ai/guidedPromptBuilder.ts",

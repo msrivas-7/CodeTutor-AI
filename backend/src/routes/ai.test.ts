@@ -113,11 +113,14 @@ vi.mock("../services/ai/openaiProvider.js", () => ({
   },
 }));
 
+vi.mock("../services/ai/suspectApi.js", () => ({ flagSuspectApis: vi.fn() }));
+
 const { aiRouter } = await import("./ai.js");
 const { getOpenAIKey } = await import("../db/preferences.js");
 const { openaiProvider } = await import("../services/ai/openaiProvider.js");
 const { reserveAIRequest, finalizeAIRequest } = await import("../db/aiReservations.js");
 const { resolveAICredential } = await import("../services/ai/credential.js");
+const { flagSuspectApis } = await import("../services/ai/suspectApi.js");
 const { errorHandler } = await import("../middleware/errorHandler.js");
 
 let srv: Server;
@@ -204,6 +207,7 @@ beforeEach(() => {
   vi.mocked(reserveAIRequest).mockResolvedValue({ ok: true, remainingToday: null });
   vi.mocked(finalizeAIRequest).mockReset();
   vi.mocked(finalizeAIRequest).mockResolvedValue("finalized");
+  vi.mocked(flagSuspectApis).mockReset();
 });
 
 describe("POST /api/ai/ask — KEY_MISSING", () => {
@@ -345,6 +349,13 @@ describe("POST /api/ai/ask — schema validation", () => {
         providerOutcomeUncertain: true,
       }),
     );
+    expect(vi.mocked(flagSuspectApis)).toHaveBeenCalledWith({
+      responseText: "{\"summary\":\"ok\"}",
+      userFiles: [{ path: "main.py", content: "print('hi')" }],
+      userQuestion: "why is this code wrong?",
+      language: "python",
+      route: "ask",
+    });
   });
 
   it("unlocks an approach only with valid same-user, same-task server proof", async () => {
@@ -521,6 +532,13 @@ describe("POST /api/ai/ask/stream — tutor progression", () => {
     expect(firstDone.done).toBe(true);
     expect(firstDone.tutorProgressToken).toEqual(expect.any(String));
     expect(vi.mocked(openaiProvider.askStream).mock.calls[0][0].tutorStage).toBe("clarify");
+    expect(vi.mocked(flagSuspectApis)).toHaveBeenCalledWith({
+      responseText: "{\"intent\":\"socratic\"}",
+      userFiles: [{ path: "main.py", content: "print('hi')" }],
+      userQuestion: "why is this code wrong?",
+      language: "python",
+      route: "ask_stream",
+    });
 
     const second = await req("u-1", "/api/ai/ask/stream", {
       method: "POST",

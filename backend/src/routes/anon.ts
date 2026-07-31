@@ -684,10 +684,9 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
               ledgerStatus: "finish",
               providerOutcomeUncertain: !usageKnown,
             });
-            // Phase A — A4: fabricated-API tripwire. Fire-and-forget
-            // scan of the finished response; emits tutor_suspect_api
-            // (log + counter) on unrecognized call symbols. Never
-            // touches the stream.
+            // Phase B7: calibrated suspect-symbol telemetry. This
+            // fire-and-forget scan emits a bounded tutor_suspect_api event
+            // and counter without touching the learner's stream.
             flagSuspectApis({
               responseText: raw,
               userFiles: parsed.data.files,

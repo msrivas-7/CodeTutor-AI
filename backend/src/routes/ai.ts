@@ -557,7 +557,7 @@ aiRouter.post("/ask", async (req, res, next) => {
       ledgerStatus: "finish",
       providerOutcomeUncertain: !usageKnown,
     });
-    // Phase A — A4: fabricated-API tripwire (measure-only).
+    // Phase B7: calibrated suspect-symbol telemetry (measure-only).
     flagSuspectApis({
       responseText: result.raw,
       userFiles: parsed.data.files,
@@ -776,7 +776,7 @@ aiRouter.post("/ask/stream", async (req, res) => {
             ledgerStatus: "finish",
             providerOutcomeUncertain: !usageKnown,
           });
-          // Phase A — A4: fabricated-API tripwire (measure-only).
+          // Phase B7: calibrated suspect-symbol telemetry (measure-only).
           flagSuspectApis({
             responseText: raw,
             userFiles: parsed.data.files,

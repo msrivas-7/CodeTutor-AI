@@ -896,6 +896,46 @@ Detailed evidence lives in `docs/RELEASE_B5_CONTINUATION_CARD_PACKET.md`.
 The phase-specific persona verdict lives in
 `docs/B5_CONTINUATION_CARD_PERSONA_AUDIT.md`.
 
+### Parallel Release B7 — Suspect-symbol telemetry
+
+**Local engineering status (2026-07-31):** implementation, calibration,
+persona, backend regression, typecheck, build, approved-baseline, and complete
+live model gates pass on `dev/contextual-learning-roadmap`. Phase commit,
+remote CI, and PR-thread gates remain pending.
+
+Deliver:
+
+- scan only code-formatted tutor output after response completion;
+- trust reviewed runtime/stdlib symbols, symbols present in learner files, and
+  functions/classes/variables/methods concretely declared in the same tutor
+  code span;
+- treat learner questions as untrusted evidence rather than symbol authority;
+- flag unknown call terminals and invented dotted-call roots without exempting
+  plausible snake-case or camel-case names;
+- emit a bounded, versioned `tutor_suspect_api` counter/log event without raw
+  code, paths, questions, prompts, or tutor prose;
+- preserve response delivery exactly: no block, mutation, retry, extra model
+  call, database write, or learner-visible state;
+- calibrate against a versioned, balanced labeled corpus and make the corpus,
+  evaluator, and detector part of the approved AI quality fingerprint.
+
+Exit:
+
+- the 40-case corpus remains balanced across Python/JavaScript and
+  fabricated/clean cases and clears ≥95% precision, recall, exact-case, and
+  clean-case rates;
+- always-empty and always-flag mutations fail the calibration gate;
+- authenticated sync, authenticated stream, and anonymous stream route
+  contracts prove the completed response is observed once;
+- the complete backend suite, typecheck, production build, baseline verifier,
+  and full 60-case live model gate pass on the final fingerprint;
+- the 18-lens audit has no P0/P1 open, full PR CI is green, and every actionable
+  review thread is resolved.
+
+Detailed evidence lives in
+`docs/RELEASE_B7_SUSPECT_SYMBOL_TELEMETRY_PACKET.md`. The phase-specific
+persona verdict lives in `docs/B7_SUSPECT_SYMBOL_PERSONA_AUDIT.md`.
+
 ## 8. Test and CI strategy
 
 ### 8.1 Current baseline

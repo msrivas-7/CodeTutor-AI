@@ -158,6 +158,10 @@ jobs:
           npm ci
           npm test
           npm run eval:verify-baseline
+      - name: Backend — suspect API calibration
+        if: matrix.os == 'ubuntu-latest'
+        working-directory: backend
+        run: npm run eval:suspect-api
       - name: Frontend — install & test
         working-directory: frontend
         run: |

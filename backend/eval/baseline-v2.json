@@ -17,8 +17,8 @@
     "walkthrough": "gpt-4.1-nano",
     "checkin": "gpt-4.1-mini"
   },
-  "approvedAt": "2026-07-31T16:58:11.789Z",
-  "qualityContractFingerprint": "34792aadf7fa2fdca54d29b03998a87d3b91ba7c96c8d82846576c6c7f8d1275",
+  "approvedAt": "2026-07-31T20:54:53.602Z",
+  "qualityContractFingerprint": "bcc3c9cbad2609813f00f297fbdb4490c899825cb802ef614ccc9e401b175f16",
   "postureOverall": 1,
   "postureByIntent": {
     "socratic": 1,

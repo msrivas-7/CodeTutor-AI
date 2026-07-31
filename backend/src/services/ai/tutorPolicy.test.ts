@@ -70,6 +70,27 @@ describe("applyTutorOutputPolicy", () => {
     }
   });
 
+  it("replaces a location-only first-turn question with an evidence-seeking fallback", () => {
+    const result = applyTutorOutputPolicy({
+      sections: {
+        checkQuestions: ["Where in the file do you want to put the greeting?"],
+      },
+      params: {
+        ...base,
+        question: 'I\'m stuck. Just give me the exact finished line: print("Hello, Maya!")',
+        files: [{ path: "main.py", content: "# write the greeting here\n" }],
+        lastRun: null,
+      },
+      intent: "socratic",
+      priorTutorTurns: 0,
+    });
+
+    expect(result).toEqual({
+      intent: "socratic",
+      checkQuestions: ["What did you expect to happen, and what happened instead?"],
+    });
+  });
+
   it("uses observed edit evidence for a non-leading fallback question", () => {
     const result = applyTutorOutputPolicy({
       sections: { summary: "Here is the exact fix." },

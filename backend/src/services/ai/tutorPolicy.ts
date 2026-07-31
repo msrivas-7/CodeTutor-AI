@@ -108,6 +108,8 @@ function meaningfulProse(
 
 const OPEN_CLARIFYING_QUESTION =
   /^(?:what (?:did you expect|have you tried|happens|part|result|output|error|change|do you think)|where |which part|how would you describe|can you describe|when )/i;
+const SOCRATIC_EVIDENCE_QUESTION =
+  /\b(?:expect|observ|happen|result|output|errors?|tried|attempt|unclear|uncertain|confus|think|evidence|understand|noticed|changed)\w*\b/i;
 const LEADING_QUESTION =
   /\b(?:answer|fix|replace|correct line|solution|should|need(?:s)?|missing|try|use|using|add|remove|delete|call|convert)\b|[`()[\]{}=]/i;
 
@@ -213,6 +215,7 @@ function clarifyingQuestion(
       !safe.includes("\n") &&
       safe.endsWith("?") &&
       OPEN_CLARIFYING_QUESTION.test(safe) &&
+      SOCRATIC_EVIDENCE_QUESTION.test(safe) &&
       !LEADING_QUESTION.test(safe) &&
       questionUsesVisibleAnchor(safe, params)
     ) {
