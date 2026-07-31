@@ -1,6 +1,6 @@
 # Contextual Learning and Delivery Velocity Plan
 
-> **Status:** Remediation active — releases 0P/0B/0C/0D/1A and the internal 1B proof shipped; 1D shadow implementation is in progress; 1C remains evidence-gated and no learner-visible contextual rollout is approved
+> **Status:** Engineering implementation is green through 0A/B3 on the active roadmap branch; the 1D shadow clock begins only after merge; the 1C entry gate is not met because the powered 1B learner experiment, two-human eval calibration, and named approvals are missing
 >
 > **Prepared:** 2026-07-30
 >
@@ -669,6 +669,12 @@ Exit:
 - the five-session usability-falsification protocol in Section 5 passes before any external rollout, or a dated founder exception is recorded.
 
 ### Release 1C — Contextual tutor offer
+
+**Gate audit (2026-07-31):** not eligible to start. The current tutor boundary
+has the required engineering mechanisms, but no powered 1B learner-experiment
+result or two-human eval-calibration artifact exists, and the lane has no named
+human DRI/approver record. See `docs/RELEASE_1C_ENTRY_GATE.md` for the complete
+evidence matrix. No learner-visible contextual tutor rollout is approved.
 
 **Entry gate:** Release 1B's preregistered experiment passes the primary recovery rule and every applicable guardrail in Section 10.3; B2, eval v2, authority, idempotency, cost, and security gates also pass. Five qualitative sessions alone cannot unlock 1C.
 
