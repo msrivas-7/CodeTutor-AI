@@ -1,6 +1,6 @@
 # Release B8 governed eval sampling packet
 
-Status: local engineering gates complete; phase commit and remote release gates pending
+Status: engineering release gates complete for implementation commit `edd8b0a`
 
 Branch: `dev/contextual-learning-roadmap`
 
@@ -112,8 +112,13 @@ still an operational prerequisite for a production disagreement candidate.
   traffic: backend-only RLS has intentionally no Data API policy, and the new
   reviewer/synthesis indexes have not yet been used.
 
-Remote check counts will be recorded after the phase commit is pushed and the
-same-commit release gates finish.
+Implementation commit `edd8b0a` passed the complete same-commit remote matrix:
+29 checks passed, including all six Chromium shards, Firefox, WebKit, the
+no-retry critical lane, E2E shadow evidence, security scenarios, Windows/macOS/
+Ubuntu build and test jobs, preview deployment, secret scanning, content,
+assets, release contracts, and golden solutions. The preview-close job was the
+single expected skip for an open pull request. The thread-aware PR audit found
+zero review threads and zero submitted reviews.
 
 ## Rollback
 
@@ -146,10 +151,11 @@ same-commit release gates finish.
 - [x] Full local regression, build, database, AI-governance, browser,
   accessibility, responsive, content, and asset-budget gates pass.
 - [x] The structured 18-lens persona audit has no local P0/P1 finding open.
-- [ ] Phase commit is pushed and the PR description is updated.
-- [ ] Full remote CI, preview, browser, security, and shadow-evidence checks
+- [x] Phase commit is pushed and the PR description is updated.
+- [x] Full remote CI, preview, browser, security, and shadow-evidence checks
   pass on the phase commit.
-- [ ] Every actionable PR review thread is fixed and resolved.
+- [x] Every actionable PR review thread is fixed and resolved (zero threads
+  present at the implementation-commit audit).
 - [x] Harness doctor passes and the B8 session is finished.
 
 ## Claims deliberately not made

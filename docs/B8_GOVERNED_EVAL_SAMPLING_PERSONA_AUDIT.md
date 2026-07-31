@@ -10,10 +10,10 @@ browser experience, cost, and release proof.
 
 ## Verdict
 
-**Approve B8 for a phase commit and remote release gates.** No local P0 or P1
-persona finding remains open. Final engineering release approval remains
-conditional on the pushed phase commit passing the complete CI/preview/browser
-matrix and the PR review-thread audit.
+**Approve B8.** No P0 or P1 persona finding remains open. Implementation commit
+`edd8b0a` passed the complete CI, preview, browser, security, and shadow-
+evidence matrix: 29 checks passed with only the expected preview-close skip.
+The thread-aware PR audit found zero review threads and zero submitted reviews.
 
 B8 is accurately framed as a consented, short-lived quality-review pipeline.
 It does not silently archive conversations and sampled traffic cannot enter the
@@ -54,7 +54,7 @@ claimed.
 | Hollywood director | The control adds no animation, forced beat, celebration, or interruption and does not reopen cinematic timing. | Approve; cinematic duration stays paused. |
 | AI/LLM quality | Sampling is deterministic, successful-only, deduplicated, independently reviewed, disagreement-driven, and provenance-gated. The protected set cannot absorb raw traffic. | Approve the engineering loop; quality uplift remains unproven until real candidates produce reviewed synthetic cases. |
 | Staff security | Consent is versioned, capability tokens are 256-bit and hashed, raw fields have no columns, redaction is pre-insert, privileges are revoked, admin access is audited, privacy rejection is immediate, and deletion remains live during a product drain. | Approve. Treat the redactor as defense in depth, not perfect de-identification. |
-| Staff QA | Unit, route, real-DB, concurrency, expiry, access, failure, browser, axe, responsive, cross-browser, build, governance, and full regression evidence cover the critical invariants and unhappy paths. | Approve locally; the complete same-commit remote matrix remains mandatory. |
+| Staff QA | Unit, route, real-DB, concurrency, expiry, access, failure, browser, axe, responsive, cross-browser, build, governance, and full regression evidence cover the critical invariants and unhappy paths. | Approve; the complete same-commit remote matrix passed. |
 | Staff SRE | Collection is best-effort/fail-open for tutoring and fail-closed for sampling config. Jobs are bounded and `SKIP LOCKED`; a separate switch drains writes while deletion/expiry continue. | Approve with monitoring through existing error/admin channels; do not page on missing optional samples. |
 | Staff SWE | The design separates projection, persistence, review, and provenance; constraints duplicate critical application rules and applied migrations are only advanced forward. | Approve. Keep future schema/policy versions explicit rather than silently changing v1. |
 | Finance | B8 adds no provider call and samples only already-funded successful responses. Storage is bounded by 5%, dedupe, compact rows, and 30-day expiry. | No unit-economics blocker; reviewer labor is unknown and must be measured after traffic. |

@@ -940,11 +940,12 @@ persona verdict lives in `docs/B7_SUSPECT_SYMBOL_PERSONA_AUDIT.md`.
 
 ### Parallel Release B8 — Governed anonymous eval sampling
 
-**Engineering release status (2026-07-31):** local implementation, real-
-database privacy/lifecycle tests, full backend/frontend regression, production
-builds, eval governance, database lint, Chromium/WebKit browser checks, and the
-18-lens audit pass. The phase commit, remote CI/preview matrix, and PR
-review-thread closeout remain pending.
+**Engineering release status (2026-07-31):** implementation commit `edd8b0a`
+passes the local implementation, real-database privacy/lifecycle, full backend/
+frontend regression, production build, eval-governance, database-lint,
+Chromium/WebKit browser, and 18-lens gates. Its complete remote matrix passes
+29 checks with the single expected preview-close skip; the thread-aware PR
+audit found zero review threads and zero submitted reviews.
 
 Deliver:
 
