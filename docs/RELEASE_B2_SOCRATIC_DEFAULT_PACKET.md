@@ -1,6 +1,6 @@
 # Release B2 Socratic-default packet
 
-Status: local implementation and release evidence complete; remote PR gates pending
+Status: complete — local, CI, deployed-preview, harness, persona, and review gates green
 
 Branch: `dev/contextual-learning-roadmap`
 
@@ -121,8 +121,16 @@ pass.
 - [x] The 18-lens persona audit is recorded in
   `docs/B2_SOCRATIC_DEFAULT_PERSONA_AUDIT.md` with no local P0/P1 finding open.
 - [x] Harness session is complete with zero pending incidents.
-- [ ] Phase commit is pushed; required PR checks and deployed preview are green.
-- [ ] Every actionable PR review thread is resolved.
+- [x] Phase commit `9994ae4` is pushed; all 28 required checks pass on CI/E2E
+  run `30624868689` / CI run `30624868684`, including six Chromium shards,
+  Linux Firefox, WebKit, three operating systems, and the deployed preview.
+- [x] The deployed public catalog and anonymous lesson render and navigate at
+  1280 px and 390 px with no horizontal overflow or browser warning/error; the
+  lesson exposes the editor, tutor, Run, and Check controls. Authenticated B2
+  behavior is deliberately proven by the full CI stack rather than the
+  production-backend PR preview.
+- [x] Every actionable PR review thread is resolved; the post-push audit found
+  zero review submissions and zero inline threads.
 
 ## Claims deliberately not made
 

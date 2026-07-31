@@ -780,13 +780,15 @@ The phase-specific persona verdict lives in
 
 ### Parallel Release B2 — Socratic default
 
-**Implementation status (2026-07-31):** the local implementation and release
-evidence are complete on `dev/contextual-learning-roadmap`; remote CI, deployed
-preview verification, and the PR review-thread audit remain pending until the
-phase commit is pushed. The server now enforces one clarifying question on the
-first successful task turn, permits a bounded approach only after a learner
-reply, and prevents a complete answer on every turn. The same contract covers
-authenticated, anonymous, guided, editor, scripted, and generated help.
+**Implementation status (2026-07-31):** complete on
+`dev/contextual-learning-roadmap` at phase commit `9994ae4`. Local validation,
+the complete 60-case live model gate, all 28 required remote checks, deployed
+public-preview browser verification, the harness, persona audit, and two
+post-push review-thread audits are green. The server enforces one clarifying
+question on the first successful task turn, permits a bounded approach only
+after a learner reply, and prevents a complete answer on every turn. The same
+contract covers authenticated, anonymous, guided, editor, scripted, and
+generated help.
 
 Deliver:
 
