@@ -104,6 +104,8 @@ See `.github/workflows/e2e.yml`. The current PR model is:
 - six blocking Chromium shards for all 333 tests;
 - blocking Firefox and WebKit focused journeys;
 - one advisory, zero-retry Chromium critical lane (currently 36 tests in 13 files);
+- CI retries retain diagnostic traces, but `failOnFlakyTests` makes a flaky
+  result fail its shard so a targeted rerun cannot erase the original signal;
 - versioned shadow evidence that records queue-inclusive readiness and any miss where the critical lane passes but the full suite fails.
 
 `e2e/shadow/regression-corpus.json` freezes the initial P0/P1 catch corpus.

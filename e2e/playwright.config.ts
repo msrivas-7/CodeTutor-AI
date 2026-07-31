@@ -54,10 +54,12 @@ export default defineConfig({
   testIgnore: process.env.E2E_REAL_OPENAI === "1" ? [] : ["**/real-api/**"],
   fullyParallel: true,
   forbidOnly: IS_CI,
-  // One local retry absorbs intermittent React-render races under 4-worker
-  // parallel load (setInputFiles → modal render, store-update re-renders
-  // detaching buttons mid-click). CI keeps 2 retries.
+  // Retries preserve traces for diagnosis, but a retry is evidence rather
+  // than a clean pass. CI therefore fails a shard that contains any flaky
+  // result so only that shard can be rerun after the original failure remains
+  // visible in the Actions history.
   retries: IS_CI ? 2 : 1,
+  failOnFlakyTests: IS_CI,
   // Local and CI: 2 workers. Four concurrent session-start tests can saturate
   // the local runner pool and leave otherwise-correct lessons stuck at
   // "Waiting for session". Two preserves useful parallelism without turning

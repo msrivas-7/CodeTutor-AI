@@ -755,7 +755,8 @@ Actual organic traffic remains the locked outcome; pre-launch work proves crawle
 - two workers per shard;
 - nine independent stack boots: six exhaustive, two cross-browser, and one
   advisory critical lane;
-- CI retries twice and local runs retry once;
+- CI retains up to two diagnostic retries but `failOnFlakyTests` fails any
+  shard that needed one; local runs retry once;
 - the E2E README now documents exhaustive Chromium, focused Firefox/WebKit,
   and the additive 1D advisory lane;
 - frontend unit tests are predominantly pure Node tests, leaving a thin rendered-component middle.

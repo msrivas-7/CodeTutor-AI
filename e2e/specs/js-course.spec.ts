@@ -18,7 +18,11 @@ import {
 import { loadProfile, markOnboardingDone, seedCompletedLessons } from "../fixtures/profiles";
 import { readLessonSolution, readPracticeSolution } from "../fixtures/solutions";
 import * as S from "../utils/selectors";
-import { expectLessonComplete, expectStdoutContains } from "../utils/assertions";
+import {
+  expectCheckFailed,
+  expectLessonComplete,
+  expectStdoutContains,
+} from "../utils/assertions";
 
 const COURSE_ID = "javascript-fundamentals";
 
@@ -79,6 +83,11 @@ test.describe("javascript-fundamentals course", () => {
     await expect(S.examplesTab(page)).toHaveAttribute("aria-selected", "true", {
       timeout: 15_000,
     });
+    // The Examples tab switches as soon as the check starts. Wait for the
+    // operation and its failure UI to settle before editing and checking
+    // again, otherwise the starter and golden validations can overlap.
+    await expect(S.checkMyWorkButton(page)).toBeEnabled({ timeout: 20_000 });
+    await expectCheckFailed(page);
 
     // Paste the golden solution → all function tests pass → completion panel.
     await setMonacoValue(
