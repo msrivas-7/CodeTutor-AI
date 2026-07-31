@@ -3,8 +3,8 @@
   "datasetFingerprint": "2f0c718b34302b553e340542d271e2f138561d109ee7cba5232476f789b0188e",
   "evaluatorVersion": "2.1.0",
   "approvedModel": "gpt-4.1-nano",
-  "approvedAt": "2026-07-31T01:37:43.524Z",
-  "qualityContractFingerprint": "a0e0ee2f10f5937ddfc1676f2ca9e7b83105d0d7f383838a9f88da2ae2bdcf1a",
+  "approvedAt": "2026-07-31T02:04:17.544Z",
+  "qualityContractFingerprint": "59da6a2a2ef0574f11c555b249f5ee09311113384c54af64db62ab70838ea0c7",
   "postureOverall": 1,
   "postureByIntent": {
     "debug": 1,

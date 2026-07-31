@@ -35,7 +35,9 @@ async function main(): Promise<void> {
     failures.push("eval dataset changed after baseline approval");
   }
   if (baseline.qualityContractFingerprint !== versions.qualityContractFingerprint) {
-    failures.push("tutor quality contract changed after baseline approval");
+    failures.push(
+      `tutor quality contract changed after baseline approval (approved=${baseline.qualityContractFingerprint.slice(0, 16)}, current=${versions.qualityContractFingerprint.slice(0, 16)})`,
+    );
   }
   const policy = getModelPolicy(baseline.approvedModel);
   if (!policy.contextualTutorEligible || policy.qualityStatus !== "evaluated") {

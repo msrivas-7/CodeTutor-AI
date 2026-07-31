@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "seedVersion": "2026-07-31.1",
+  "seedVersion": "2026-07-31.2",
   "generatedFrom": "tracked-bootstrap",
   "entries": [
     {
@@ -26,15 +26,32 @@
       "scopes": ["backend", "ai-evals"],
       "symptom": "A focused tutor evaluation passes but a later full gate exposes a regression.",
       "cause": "Focused --ids runs omit intent floors, must-pass cases, and full-dataset eligibility evidence.",
-      "prevention": "Use focused cases while iterating, then run the unfiltered 50-case --gate before changing model eligibility or completing the phase.",
-      "evidence": "backend/scripts/eval-tutor.ts rejects --ids/--limit with --gate; the 2026-07-30 Phase 0D gate passed 50/50 only after independent full verification.",
+      "prevention": "Use focused cases while iterating, then run the unfiltered 50-case --gate before changing model eligibility or completing the phase. Rerun the baseline verifier after final formatting or any edit to a fingerprinted quality-contract file.",
+      "evidence": "backend/scripts/eval-tutor.ts rejects --ids/--limit with --gate; Phase 0D passed 50/50, and CI later caught a legitimate fingerprint change caused by final formatting after approval.",
       "enforcement": "backend/scripts/eval-tutor.ts and backend/scripts/evalGate.test.ts",
       "confidence": "verified",
       "promotionReason": "tracked-bootstrap",
-      "occurrences": 2,
+      "occurrences": 3,
       "status": "active",
       "createdAt": "2026-07-30T00:00:00.000Z",
-      "updatedAt": "2026-07-30T00:00:00.000Z",
+      "updatedAt": "2026-07-31T02:04:17.544Z",
+      "reviewAfter": "2026-10-28T00:00:00.000Z"
+    },
+    {
+      "id": "seed-project-toolchain-shell",
+      "fingerprint": "seed-project-toolchain-shell",
+      "scopes": ["backend", "frontend", "ai-evals", "release"],
+      "symptom": "Validation unexpectedly uses an obsolete Node runtime and fails on syntax supported by the project's configured toolchain.",
+      "cause": "A login shell can reorder PATH and replace the active project runtime with an older system Node installation.",
+      "prevention": "Run harness composites in a non-login shell that preserves the active project toolchain, and print node --version when diagnosing runtime-sensitive failures.",
+      "evidence": "During Phase 0D CI repair, bash -lc selected Node 18.12.0 and failed on import.meta.dirname while bash -c preserved the project runtime and completed the 50-case gate.",
+      "enforcement": ".github/workflows/ci.yml pins Node through setup-node; the harness preserves and records the invoked command",
+      "confidence": "verified",
+      "promotionReason": "tracked-bootstrap",
+      "occurrences": 1,
+      "status": "active",
+      "createdAt": "2026-07-31T02:04:17.544Z",
+      "updatedAt": "2026-07-31T02:04:17.544Z",
       "reviewAfter": "2026-10-28T00:00:00.000Z"
     },
     {

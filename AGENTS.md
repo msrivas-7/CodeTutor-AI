@@ -81,7 +81,9 @@ Before a phase commit, push, pull request update, or handoff:
 - Database changes are forward migrations with RLS and real integration
   evidence; never edit already-applied history to simulate a migration.
 - AI teaching changes need deterministic safety checks plus the complete model
-  gate. Focused evals aid development but cannot establish eligibility.
+  gate. Focused evals aid development but cannot establish eligibility. After
+  final formatting or any other change to a fingerprinted quality-contract
+  file, rerun the baseline verifier before committing.
 - UI changes require keyboard, focus, responsive, reduced-motion, loading,
   empty, error, and recovery-state review—not only a happy-path screenshot.
 - Local Playwright setup verifies reachability but does not rebuild containers;
