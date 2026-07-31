@@ -101,7 +101,7 @@ npm run test:real
 
 See `.github/workflows/e2e.yml`. The current PR model is:
 
-- four blocking Chromium shards for all 333 tests;
+- six blocking Chromium shards for all 333 tests;
 - blocking Firefox and WebKit focused journeys;
 - one advisory, zero-retry Chromium critical lane (currently 36 tests in 13 files);
 - versioned shadow evidence that records queue-inclusive readiness and any miss where the critical lane passes but the full suite fails.
@@ -109,6 +109,8 @@ See `.github/workflows/e2e.yml`. The current PR model is:
 `e2e/shadow/regression-corpus.json` freezes the initial P0/P1 catch corpus.
 `e2e/shadow/migration-pilots.json` records the three lower-layer pilots and the
 browser boundary retained for each. The one-time
-`.github/workflows/e2e-shard-benchmark.yml` compares four, six, and eight
-shards on the same commit; it runs only when the `ci-shard-benchmark` label is
-added after the normal four-shard baseline completes.
+`.github/workflows/e2e-shard-benchmark.yml` measured four, six, and eight
+shards on commit `c6aa5f0`. All were reliable without retries; six was fastest
+at 316 seconds versus 340 for eight and 495 for four, so the blocking suite now
+uses six. Six also consumed the least aggregate runner time. The one-time label
+was removed after the measurement.

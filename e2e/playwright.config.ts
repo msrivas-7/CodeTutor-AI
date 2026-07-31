@@ -63,9 +63,9 @@ export default defineConfig({
   // "Waiting for session". Two preserves useful parallelism without turning
   // infrastructure capacity into false product failures.
   //
-  // CI parallelism comes from sharding (4 matrix shards × 2 workers = 8
+  // CI parallelism comes from sharding (6 matrix shards × 2 workers = 12
   // effective workers across separate ubuntu-latest runners) — see
-  // .github/workflows/e2e.yml `--shard=${{ matrix.shard }}/4`. Larger
+  // .github/workflows/e2e.yml `--shard=${{ matrix.shard }}/6`. Larger
   // GitHub-hosted runners require a paid Team/Enterprise plan even for
   // public repos, so sharding is the right shape for the Free tier.
   workers: 2,

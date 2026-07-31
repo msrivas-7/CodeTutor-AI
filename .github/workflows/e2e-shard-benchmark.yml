@@ -1,6 +1,8 @@
 name: E2E shard benchmark
 
-# One-time Release 1D experiment. Add the `ci-shard-benchmark` label only
+# One-time Release 1D experiment. It concluded on commit c6aa5f0: six shards
+# were fastest (316s) versus eight (340s) and four (495s), all reliable. The
+# label was removed after measurement. Add the `ci-shard-benchmark` label only
 # after the normal E2E run for the same commit is complete; that four-shard
 # run becomes the baseline. This workflow then runs the identical exhaustive
 # Chromium suite at six and eight shards with the same two workers and no

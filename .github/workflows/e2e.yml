@@ -161,18 +161,18 @@ jobs:
     runs-on: ubuntu-latest
     # Sharding splits the spec set across N parallel jobs (each its
     # own ubuntu-latest runner with its own docker-compose stack), so
-    # we get effective N×2 = 8 parallelism without saturating a single
-    # runner. Larger runners aren't free on the Free plan even for
-    # public repos, so this is the right shape for our cost ceiling.
-    # Each shard's wall-clock should land ~10-12 min instead of the
-    # 25-min ceiling 2 workers were pushing.
+    # the measured six-shard topology gives effective 6×2 = 12 workers
+    # without saturating a single runner. Release 1D measured the same
+    # commit at 316s for six shards, 340s for eight, and 495s for four.
+    # Larger runners aren't free on the Free plan even for public repos,
+    # so this is the right shape for our cost ceiling.
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
     # Bumped from 15 → 25 in Phase 22C: full e2e sweep grew past the 15-min
     # ceiling once the marketing specs landed. Sharding (Phase 27-v2.2)
-    # means each shard runs ~1/4 of the suite, so 25 stays generous.
+    # now means each shard runs ~1/6 of the suite, so 25 stays generous.
     timeout-minutes: 25
     # Phase 18d: cloud-only Supabase model. These feed both docker compose
     # (which reads process env for ${VAR} interpolation in docker-compose.yml)
@@ -269,11 +269,11 @@ jobs:
       - name: Run Playwright tests
         working-directory: e2e
         # --shard partitions specs across the matrix — each runner
-        # picks up ~1/4 of the suite and runs it in parallel with the
+        # picks up ~1/6 of the suite and runs it in parallel with the
         # other shards. Each shard has its own docker-compose stack +
-        # 2 Playwright workers, so the effective parallelism is 8
+        # 2 Playwright workers, so the effective parallelism is 12
         # without any single runner being starved.
-        run: npx playwright test --shard=${{ matrix.shard }}/4
+        run: npx playwright test --shard=${{ matrix.shard }}/6
 
       - name: Dump docker-compose logs on failure
         if: failure()

@@ -700,7 +700,13 @@ zero-retry critical lane, a frozen 10-case P0/P1 corpus, three lower-layer
 migration pilots with their browser boundaries retained, queue-inclusive miss
 evidence, and a label-triggered same-commit 4/6/8 shard benchmark whose 6- and
 8-shard alternatives run sequentially to protect the shared Supabase project.
-The existing full Chromium PR suite remains unchanged and blocking. The 30-day/50-eligible-
+[Run 30604240871](https://github.com/msrivas-7/CodeTutor-AI/actions/runs/30604240871)
+completed without retries on commit `c6aa5f0`: six shards were
+fastest at 316 seconds, versus 340 seconds for eight and 495 seconds for four.
+It also used the least aggregate runner time: about 27.3 runner-minutes versus
+37.3 for eight and 29.4 for four.
+The blocking full Chromium suite therefore keeps all 333 tests and moves from
+four to six shards; no test was selected away or demoted. The 30-day/50-eligible-
 run clock begins only after this implementation merges and produces its first
 eligible evidence artifact; no demotion decision has been made.
 
@@ -744,9 +750,11 @@ Actual organic traffic remains the locked outcome; pre-launch work proves crawle
 
 - 333 listed Playwright tests across 49 files as re-counted on 2026-07-30;
 - approximately 11,356 E2E spec lines as re-counted on 2026-07-30;
-- four Chromium shards plus Firefox/WebKit critical jobs;
+- six Chromium shards plus Firefox/WebKit critical jobs, selected by the
+  same-commit 4/6/8 benchmark above;
 - two workers per shard;
-- six independent stack boots;
+- nine independent stack boots: six exhaustive, two cross-browser, and one
+  advisory critical lane;
 - CI retries twice and local runs retry once;
 - the E2E README now documents exhaustive Chromium, focused Firefox/WebKit,
   and the additive 1D advisory lane;

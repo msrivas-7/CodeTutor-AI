@@ -19,7 +19,7 @@ const jobs = {
       started_at: "2026-07-30T10:00:20Z",
       completed_at: "2026-07-30T10:03:00Z",
     },
-    ...[1, 2, 3, 4].map((shard) => ({
+    ...[1, 2, 3, 4, 5, 6].map((shard) => ({
       name: `Playwright (chromium) (${shard})`,
       conclusion: "success",
       started_at: "2026-07-30T10:00:30Z",
@@ -39,7 +39,7 @@ test("records queue-inclusive critical and full-suite readiness", () => {
     contractOutcome: "success",
   });
   assert.equal(evidence.timing.criticalReadySeconds, 180);
-  assert.equal(evidence.timing.fullReadySeconds, 420);
+  assert.equal(evidence.timing.fullReadySeconds, 540);
   assert.deepEqual(evidence.eligibility.changeClasses, ["e2e", "frontend"]);
   assert.equal(evidence.outcomes.miss, false);
   assert.equal(evidence.policy.blockingSourceOfTruth, "full-chromium-suite");
