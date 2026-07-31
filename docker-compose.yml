@@ -100,6 +100,9 @@ services:
       # endpoint accepts `Authorization: Bearer <token>`. E2E sets it so
       # metrics.spec can exercise the authed path.
       METRICS_TOKEN: "${METRICS_TOKEN:-}"
+      # B3 activation/rollback. The empty production value is safe-off; exact
+      # 0 activates the evaluated candidate and 1 returns check-ins to Nano.
+      PLATFORM_CHECKIN_MINI_DISABLED: "${PLATFORM_CHECKIN_MINI_DISABLED-}"
       # Release 0A: purpose-specific HMAC for the SWA crawler/unfurl adapter.
       # Empty in ordinary local dev means only the internal preview route is
       # unavailable; public human share reads remain unaffected.

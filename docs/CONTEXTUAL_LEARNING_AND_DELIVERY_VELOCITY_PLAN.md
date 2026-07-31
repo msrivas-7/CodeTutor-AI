@@ -1,6 +1,6 @@
 # Contextual Learning and Delivery Velocity Plan
 
-> **Status:** Engineering implementation is green through 0A/B5 on the active roadmap branch; the 1D shadow clock begins only after merge; the 1C entry gate is not met because the powered 1B learner experiment, two-human eval calibration, and named approvals are missing
+> **Status:** Every currently eligible engineering lane is implemented and green through B8 on the active roadmap branch. Release 1C is correctly held because its powered 1B learner experiment, two-human eval calibration, and named approvals are missing; B6 has not shipped and cannot start without affirmative evidence that its seven-day-average DAU trigger fired; and the 1D shadow clock begins only after merge. See `docs/CONTEXTUAL_LEARNING_ROADMAP_FINAL_AUDIT.md` for the closeout matrix and explicit non-claims.
 >
 > **Prepared:** 2026-07-30
 >
@@ -73,8 +73,8 @@ The persona audit is structured expert scrutiny performed against 18 role profil
 |---|---|
 | Q1: phone completion within 2pp of desktop | Pending qualifying real traffic |
 | Q2: lesson-2 learners pass cold lesson-3 retrieval ≥80% | Pending; the immediate recognition checkpoint is not cold retrieval evidence |
-| Q3: share views/completion ≥0.3 | Pending real traffic; share correctness and attribution must first be fixed |
-| Q4: operational floor | Partial; controls exist, but atomic AI admission and the required drill remain open |
+| Q3: share views/completion ≥0.3 | Pending real traffic; share correctness and bounded attribution are now implemented in 0A/B4 |
+| Q4: operational floor | Partial; controls and atomic AI admission now exist, but the required production drill/evidence remains open |
 | Q5: five-stranger session | Missing |
 
 Engineering may continue behind reversible flags while traffic-dependent evidence remains pending. The five-stranger session must occur before broad learner-visible contextual guidance/tutor rollout unless the founder records a dated exception.
@@ -141,21 +141,32 @@ Default first remediation cycle: 0P, 0B, the exact-answer repair from 0C, atomic
 | Limited learner rollout | Explicitly bounded external cohort with rollback and approved measurement | No, unless a dated founder exception names the risk and expiry |
 | Broad rollout | Default-on for eligible learners | No; requires limited-rollout evidence and all product gates |
 
-Founder acknowledgement records: approval to begin remediation, named human owners, accepted concurrency, the temporary disposition of the currently enabled platform-funded tutor while 0D is built, any stranger-gate exception, and any change to the provisional economics thresholds. The preview-authentication ADR and test-confidence method are engineering approvals, not founder product choices.
+The original founder-acknowledgement gate covered approval to begin remediation,
+named human owners, accepted concurrency, the temporary disposition of the
+platform-funded tutor before 0D, any stranger-gate exception, and changes to the
+provisional economics thresholds. Release 0D is now implemented; future held
+lanes and any exceptions still require their named human record. The
+preview-authentication ADR and test-confidence method are engineering approvals,
+not founder product choices.
 
-## 4. Confirmed repository debt before feature expansion
+## 4. Historical repository debt identified before feature expansion
 
-### P0 — test isolation
+This section preserves the evidence that justified the workstream. Every item
+below is closed in the named release; it is not a description of the current
+branch. The current implementation and remaining external gates are recorded in
+Section 7 and `docs/CONTEXTUAL_LEARNING_ROADMAP_FINAL_AUDIT.md`.
+
+### Closed in 0B — test isolation
 
 The configured global teardown deletes every `e2e-w*` test user rather than only the current run suffix. All Chromium shards and Firefox/WebKit jobs share one Supabase project. One completed job can therefore delete identities another job is still using.
 
 This contaminates the cross-device preference failure. Fix teardown isolation before deciding that product persistence is broken.
 
-### P0 — complete-answer leakage
+### Closed in 0C/B2 — complete-answer leakage
 
 The first-run stronger hint explicitly gives the full working line after two wrong attempts. That violates the public and locked “complete answer never” contract.
 
-### P0 — tutor eval gate is not authoritative
+### Closed in 0D/B2 — tutor eval gate is not authoritative
 
 The current eval substrate has these confirmed gaps:
 
@@ -165,27 +176,27 @@ The current eval substrate has these confirmed gaps:
 - limited gate runs can compare a partial sample with the full baseline;
 - cases are single-turn and omit run, diff, selection, history, activity, and stale-context behavior.
 
-### P0 — AI quota checking is non-atomic
+### Closed in 0D — AI quota checking is non-atomic
 
 Current quota checks release their advisory lock before provider usage and the ledger insert. Concurrent requests can observe the same remaining quota. Caps and kill switches limit total damage but do not make admission atomic.
 
-### P0 — asynchronous results can become current in the wrong context
+### Closed in 1A — asynchronous results can become current in the wrong context
 
 Run and tutor request lifecycles lack sufficient lesson/revision/operation guards. A late result can land after edit, reset, navigation, or lesson/practice switch.
 
-### P0 — deployment can outrun main E2E
+### Closed in 0P — deployment can outrun main E2E
 
 Frontend deployment, backend deployment, CI, and E2E are independent `push: main` workflows. A production workflow can finish before the main E2E result for the same commit.
 
-### P1 — authenticated pedagogic context is browser-authored
+### Closed in 0D — authenticated pedagogic context is browser-authored
 
 The authenticated tutor accepts lesson title, objectives, concept tags, completion rules, and progress from the browser and inserts them into the trusted prompt section. The anonymous route already uses a safer server-pinned model.
 
-### P1 — guided tutor ignores authenticated proficiency
+### Closed in 0C — guided tutor ignores authenticated proficiency
 
 The guided tutor hardcodes `persona: "beginner"` even though beginner/intermediate/advanced is persisted and the general editor tutor honors it.
 
-### P1 — conversion dialogs do not distinguish intent cleanly
+### Closed in 0C/B5 — conversion dialogs do not distinguish intent cleanly
 
 Anonymous share-modal dismissal schedules the signup wall even when the learner merely closes the dialog. Phone “Maybe later” can lead directly into another conversion surface. Labels and destinations must agree.
 
@@ -415,6 +426,14 @@ Complexity is a planning band, not a deadline.
 
 **Complexity:** approximately one week.
 
+**Boundary at closeout (2026-07-31):** the implementation and automated
+promotion-safety gate are complete on `main` at `c786e23`. “0P passes” for the
+controlled 1B moderated-research prerequisite means this implementation and its
+automated evidence are green; the sessions run on a controlled preview and do
+not promote production. The live rollback/forward-promotion drill is a separate
+post-merge operational obligation required before declaring the production
+gate fully exercised.
+
 Deliver:
 
 - build immutable frontend and backend artifacts once;
@@ -478,8 +497,10 @@ Exit:
 
 **Complexity:** one to two weeks.
 
-**Implementation status (2026-07-30):** locally complete on
-`dev/contextual-learning-roadmap`; draft-PR CI is the remaining release gate.
+**Engineering release status (2026-07-31):** complete on
+`dev/contextual-learning-roadmap`. The phase and its follow-up fixes passed the
+full PR matrix, deployed-preview, cross-browser, and review-thread gates before
+later roadmap lanes began.
 The executable public-claims inventory is
 `frontend/src/productContract.ts`. Local evidence includes 385/385 frontend
 unit/contract tests, a production build, content lint, golden-solution
@@ -519,9 +540,10 @@ Exit:
 
 **Complexity:** two to four weeks.
 
-**Implementation status (2026-07-30):** locally complete on
-`dev/contextual-learning-roadmap`; draft-PR CI, review, and application of the
-forward-only Supabase migration are the remaining release gates. The platform
+**Engineering release status (2026-07-31):** complete on
+`dev/contextual-learning-roadmap`. The forward-only Supabase migration was
+applied, and the phase passed the full PR, deployed-preview, model-quality,
+security, and review-thread gates before later roadmap lanes began. The platform
 tutor now reserves capacity transactionally before a provider call, finalizes
 usage idempotently (including conservative accounting when provider usage is
 unknown), and reclaims bounded expired reservations after crashes. Lesson and
@@ -569,9 +591,10 @@ If the provider may have accepted a call but the outcome is unknown, conservativ
 
 **Complexity:** two to four weeks.
 
-**Implementation status (2026-07-30):** locally complete on
-`dev/contextual-learning-roadmap`; draft-PR CI and review are the remaining
-release gates. The project store now owns a monotonic revision across source,
+**Engineering release status (2026-07-31):** complete on
+`dev/contextual-learning-roadmap`. The phase passed the full PR,
+deployed-preview, lifecycle-fault, cross-browser, and review-thread gates before
+later roadmap lanes began. The project store now owns a monotonic revision across source,
 language, reset, replacement, hydration/session, and project-context changes.
 Run, Check, and tutor work captures that identity plus a per-operation ID;
 stdin has a separate monotonic input revision. Results, errors, progress,
@@ -613,10 +636,15 @@ Exit:
 
 **Complexity:** two to four weeks.
 
-**Implementation status (2026-07-30):** locally complete on
-`dev/contextual-learning-roadmap` behind the default-off internal preview flag
-`?contextGuide=1`; draft-PR CI and review are the remaining engineering release
-gates. The proof recognizes only an allowlisted Python unclosed-parenthesis
+**Engineering release status (2026-07-31):** complete for build/test and
+internal dogfood on `dev/contextual-learning-roadmap` behind the default-off
+preview flag `?contextGuide=1`. The phase passed the full PR, deployed-preview,
+accessibility, cross-browser, and review-thread gates. Engineering prerequisites
+now permit the five moderated research sessions once a named human research
+owner records the consent, privacy, script, evidence, and rollback plan. The
+sessions do not need to pass before they can begin; they must pass before any
+limited or broad learner rollout.
+The proof recognizes only an allowlisted Python unclosed-parenthesis
 error tied to a current project file and line. It requires two learner-initiated
 attempts on distinct source revisions, selects reviewed lesson-authored copy,
 and never imports or invokes an AI/network path. The result bridge and editor
@@ -643,9 +671,10 @@ Firefox release gate rather than treating a pre-page renderer failure as a
 product verdict.
 
 This is engineering and internal-dogfood evidence only. The five-session
-usability-falsification protocol remains pending, so the flag stays default-off
-and this release is not approved for moderated research, limited learner
-rollout, or broad rollout.
+usability-falsification protocol remains pending, so the flag stays default-off.
+The protocol itself is the next permitted moderated-research activity after the
+named human research record above exists; limited and broad rollout remain
+unapproved until the protocol and later applicable gates pass.
 
 Deliver one canonical experience:
 
@@ -842,7 +871,11 @@ Deliver:
 
 Actual organic traffic remains the locked outcome; pre-launch work proves crawler correctness only.
 
-**Implementation evidence (2026-07-30, pre-merge):** the build now derives 3
+**Engineering release status (2026-07-31):** complete through final B4 fix
+`a79dcd4`. Its remote matrix passed 28 checks with only the expected open-PR
+preview-close job skipped; the later integrated roadmap head passes the expanded
+29-check matrix. The deployed PR preview was rechecked at desktop and 390px with
+zero console errors or horizontal overflow. The build derives 3
 public course pages, 38 lesson documents, 38 unique 1200 × 630 lesson images,
 `sitemap.xml`, `robots.txt`, and a public-only registry from the structured
 course tree. Raw HTML carries unique metadata and structured data; unknown or
@@ -852,9 +885,9 @@ signup, and lesson 2; the server stores only coarse enums/bounded slugs and a
 domain-separated share hash. The admin surface reports channel cohorts without
 raw referrer URLs or tokens. Unit/build checks, a real dev-database telemetry
 integration, the critical E2E contract, Chromium phone/accessibility proof, and
-the production dependency audit pass locally. Merge CI, deployment verification,
-indexing, and the locked organic-traffic observation window remain pending; no
-traffic outcome is claimed. Detailed release evidence lives in
+the production dependency audit pass. Production indexing and the locked
+organic-traffic observation window remain pending; no traffic outcome is
+claimed. Detailed release evidence lives in
 `docs/RELEASE_B4_DISTRIBUTION_PACKET.md`.
 
 ### Parallel Release B5 — Continuation card
@@ -923,7 +956,7 @@ Deliver:
 
 Exit:
 
-- the 40-case corpus remains balanced across Python/JavaScript and
+- the 44-case corpus remains balanced across Python/JavaScript and
   fabricated/clean cases and clears ≥95% precision, recall, exact-case, and
   clean-case rates;
 - always-empty and always-flag mutations fail the calibration gate;
@@ -1129,7 +1162,12 @@ Independent switches:
 
 Policy/telemetry failure disables the new cue/offer and leaves editor, Run, Check, and authored lesson instructions usable. It never disables or bypasses server authority, atomic admission, answer-leak protection, output safety, or eval-approved model constraints.
 
-The currently deployed learner-initiated tutor is a temporary explicit risk decision while 0D is built: the founder either disables platform-funded tutor access immediately, or records a dated acceptance with current caps/kill switch, no contextual expansion, an owner, and an expiry no later than the 0D release decision. After 0D, its protections are non-bypassable. Disable/rollback drill target: under 10 minutes.
+The pre-0D baseline treated the learner-initiated tutor as a temporary explicit
+risk decision. Release 0D is now implemented on this branch, so server
+authority, atomic admission, answer-leak protection, output safety, and model
+eligibility are non-bypassable. The production disable/rollback drill target
+remains under 10 minutes and must be recorded as operational evidence rather
+than inferred from automated tests.
 
 ## 10. Success and stop gates
 
@@ -1157,6 +1195,12 @@ This authorizes Releases 0P–0D and 1A. It does not authorize external contextu
 
 Release 1B may be built and internally dogfooded before every item above is complete, but it cannot enter moderated research until 0P/0C/1A pass or external limited rollout until all applicable items pass. Release 1C additionally requires 0D, locked B2, and cost/security approval.
 
+For that moderated-research sentence, “0P passes” means the merged 0P
+implementation and automated candidate/promotion evidence pass. The controlled
+five-session preview does not wait on the separate live production
+rollback/forward-promotion drill. Limited or broad production rollout still
+requires every applicable operational gate.
+
 ### 10.3 Product metric dictionary
 
 The five-session protocol in Section 5 is qualitative falsification. Unmoderated product claims require a preregistered experiment and the minimal approved episode schema from Section 9.3.
@@ -1170,7 +1214,7 @@ The five-session protocol in Section 5 is qualitative falsification. Unmoderated
 | Stale/wrong intervention | All dogfood, research, and rollout episodes | Cue/answer refers to a different epoch, lesson, revision, or normalized evidence key | Zero allowed in test/research; any confirmed production occurrence disables the affected switch and opens a P0 incident |
 | Cold retrieval | Learners reaching the roadmap's later cold task | First attempt succeeds without answer reveal or tutor assistance | Phase A uses the locked ≥80% lesson-3 threshold; 1B does not claim this outcome until the cold task is instrumented |
 | D7 retention | Learners exposed to the complete Phase B memory + Socratic treatment versus control | Returns and performs a qualifying learning action on day 7 | Locked Phase B decision: ≥30% relative improvement; this is not attributed to 1B alone |
-| Tutor-induced dropoff | Tutor users versus preregistered comparable/control cohort | Leaves the lesson or becomes inactive within the preregistered window after tutor response | Definition/window and non-inferiority margin are frozen before B3; model upgrade cannot ship if it regresses |
+| Tutor-induced dropoff | Tutor users versus preregistered comparable/control cohort | Leaves the lesson or becomes inactive within the preregistered window after tutor response | The B3 engineering candidate may merge in the current pre-traffic state under its synthetic quality/economics gate, but production stays safely on Nano until a named operator records the definition, window, baseline, non-inferiority margin, power, owner, stop decision, and bounded cohort/routing control. Only then may exact switch value `0` activate Mini; missing, invalid, or `1` keeps/returns Nano, so organic traffic cannot silently scale exposure |
 
 The experiment record names randomization unit, exclusions, control, exposure version, baseline, analysis window, owner, and stop decision. Before launch, power every primary/guardrail comparison at 80% for its stated margin using the measured baseline; the required analyzable sample is the largest of those calculations, and no success decision occurs below it. Correctness tests prove the mechanism; they do not satisfy this table.
 
@@ -1188,32 +1232,35 @@ The experiment record names randomization unit, exclusions, control, exposure ve
 - If contextual prompts exceed cost/size guardrails without quality benefit, reduce context or stop rollout.
 - If guidance creates more interruptions, stale advice, or answer-seeking, fall back to current-state correctness and explicit help.
 
-## 11. Priority backlog
+## 11. Original priority backlog and closeout disposition
+
+This is the original severity order, retained for traceability rather than a
+list of unfinished engineering work.
 
 ### P0
 
-1. **0P:** gate production promotion on the approved candidate manifest and exact artifact digests.
-2. **0B:** suffix-scoped E2E teardown, non-test-user deletion guard, and overlapping-run proof.
-3. **1A:** late Run/Check/tutor operation identity and stale-result rejection.
-4. **0D:** atomic platform-AI reservation/admission and complete eval gate v2.
-5. **0C:** remove first-run complete-answer rescue.
-6. **0A:** internal non-counting share preview path and truthful share outcomes.
-7. **0D before 1C:** server-authoritative authenticated lesson/mastery context.
+1. **0P — implementation complete:** approved candidate manifest and exact artifact promotion; the post-merge live rollback/forward drill remains operational evidence.
+2. **0B — complete:** suffix-scoped E2E teardown, non-test-user deletion guard, and overlapping-run proof.
+3. **1A — complete:** late Run/Check/tutor operation identity and stale-result rejection.
+4. **0D — complete:** atomic platform-AI reservation/admission and complete eval gate v2.
+5. **0C — complete:** first-run complete-answer rescue removed.
+6. **0A — engineering complete:** internal non-counting share preview path and truthful share outcomes; real-destination production unfurls remain external evidence.
+7. **0D before 1C — prerequisite complete:** server-authoritative authenticated lesson/mastery context; 1C remains held by its other conjunctive gates.
 
 ### P1
 
-8. **0C:** honor learner persona and complete product-contract/first-use corrections.
-9. **1B:** build only the minimum `AssistanceContextV0` and phone-visible repeated-error proof.
-10. **B4:** distribution in parallel after 0A.
-11. **1D:** CI shadow pilot and three lower-layer migrations after 0P/0B.
+8. **0C — complete:** learner persona and product-contract/first-use corrections.
+9. **1B — engineering/internal-dogfood complete:** minimum `AssistanceContextV0` and phone-visible repeated-error proof; moderated research and external rollout remain gated.
+10. **B4 — engineering complete:** distribution after 0A; production indexing and traffic outcomes remain external evidence.
+11. **1D — additive implementation complete:** CI shadow pilot and three lower-layer migrations; its 30-day/50-run clock begins after merge.
 
 ### P2
 
-12. B1/B2 groundwork per the locked roadmap.
-13. Contextual tutor offer after 0D, 1B, and B2 entry gates.
-14. B3/B7/B8 integrations per the locked roadmap.
-15. Full cost/performance/operations reporting.
-16. Broader visual polish after correctness and attention placement.
+12. **B1/B2 — complete for engineering:** locked memory and Socratic groundwork; real-user outcomes remain pending.
+13. **1C — correctly held:** contextual tutor offer cannot start until every entry gate passes.
+14. **B3/B7/B8 — engineering complete:** real-user dropoff and other product outcomes remain pending.
+15. **Reporting — engineering controls complete:** real-traffic cost/performance/outcome reporting begins only when traffic exists.
+16. **Visual polish — completed for the eligible surfaces in this workstream:** future polish remains ordinary product-roadmap work.
 
 ## 12. Explicit non-goals
 

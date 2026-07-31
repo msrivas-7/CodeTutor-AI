@@ -1,6 +1,7 @@
 # Release B1 memory read-side packet
 
-Status: implementation complete; draft PR remains the long-lived roadmap vehicle
+Status: engineering release gates complete at `2a0f6b9`; the draft PR remains
+the long-lived roadmap vehicle and no real-user D7 outcome is claimed
 
 Branch: `dev/contextual-learning-roadmap`
 

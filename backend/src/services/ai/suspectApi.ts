@@ -12,7 +12,7 @@
 
 import { aiPlatformAbuseSignals } from "../metrics.js";
 
-export const SUSPECT_API_DETECTOR_VERSION = "b7.1";
+export const SUSPECT_API_DETECTOR_VERSION = "b7.2";
 
 // Python builtins plus the standard-library and common object surfaces that a
 // beginner tutor can legitimately name. This is intentionally explicit and
@@ -113,15 +113,86 @@ export function isStandardApiSymbol(
 
 // Pull code-formatted spans only. Prose references are low-signal and do not
 // present a pasteable API to a beginner.
-function extractCodeSpans(text: string): string[] {
-  const spans: string[] = [];
+interface CodeSpanEvidence {
+  source: string;
+  sentence: string;
+}
+
+function sentenceAround(text: string, start: number, end: number): string {
+  const before = text.slice(0, start);
+  const boundary = Math.max(
+    before.lastIndexOf("."),
+    before.lastIndexOf("!"),
+    before.lastIndexOf("?"),
+    before.lastIndexOf("\n"),
+  );
+  const after = text.slice(end);
+  const nextOffsets = [".", "!", "?", "\n"]
+    .map((token) => after.indexOf(token))
+    .filter((offset) => offset >= 0);
+  const next = nextOffsets.length > 0 ? Math.min(...nextOffsets) + end + 1 : text.length;
+  return text.slice(boundary + 1, next).trim();
+}
+
+function extractCodeSpans(text: string): CodeSpanEvidence[] {
+  const spans: CodeSpanEvidence[] = [];
   const fence = /```[a-zA-Z0-9_-]*\n?([\s\S]*?)```/g;
   let match: RegExpExecArray | null;
-  while ((match = fence.exec(text)) !== null) spans.push(match[1]);
-  const withoutFences = text.replace(fence, "");
+  while ((match = fence.exec(text)) !== null) {
+    spans.push({
+      source: match[1],
+      sentence: sentenceAround(text, match.index, match.index + match[0].length),
+    });
+  }
+  // Preserve indexes so inline-span sentence context still maps to the raw
+  // response while preventing inline matches inside fenced blocks.
+  const withoutFences = text.replace(fence, (value) => value.replace(/[^\n]/g, " "));
   const inline = /`([^`\n]{1,240})`/g;
-  while ((match = inline.exec(withoutFences)) !== null) spans.push(match[1]);
+  while ((match = inline.exec(withoutFences)) !== null) {
+    spans.push({
+      source: match[1],
+      sentence: sentenceAround(text, match.index, match.index + match[0].length),
+    });
+  }
   return spans;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * A tutor must be able to name a fabricated call while explicitly correcting
+ * it. Suppress only a single code-formatted occurrence in the same sentence;
+ * repeated or separately endorsed occurrences remain suspicious.
+ */
+function explicitlyRejectsCall(sentence: string, symbol: string): boolean {
+  const escaped = escapeRegExp(symbol);
+  const formattedCall =
+    "`(?:[A-Za-z_$][A-Za-z0-9_$]*\\s*\\.\\s*)*" +
+    escaped +
+    "\\s*\\([^`]*\\)`";
+  const occurrences = sentence.match(new RegExp(formattedCall, "gi"))?.length ?? 0;
+  if (occurrences !== 1) return false;
+
+  return [
+    new RegExp(
+      "(?:does\\s+not|doesn't|do\\s+not|don't|cannot|can't)\\s+" +
+        "(?:have|provide|support|offer)\\s+(?:(?:a|an)\\s+)?" + formattedCall,
+      "i",
+    ),
+    new RegExp(
+      formattedCall +
+        "[^.!?\\n]{0,24}(?:does\\s+not|doesn't|is\\s+not|isn't|cannot|can't)\\s+" +
+        "(?:exist|valid|available|supported|real)",
+      "i",
+    ),
+    new RegExp(
+      "(?:\\bno\\b|\\bnot\\s+(?:(?:a|an)\\s+)?(?:valid|real|supported))" +
+        "[^.!?\\n]{0,40}" + formattedCall,
+      "i",
+    ),
+  ].some((pattern) => pattern.test(sentence));
 }
 
 function identifierTokens(source: string): Set<string> {
@@ -194,7 +265,7 @@ export function detectSuspectApis(input: SuspectApiInput): string[] {
   const userSymbols = userFileSymbols(input.userFiles);
   const suspects = new Set<string>();
 
-  for (const span of extractCodeSpans(input.responseText)) {
+  for (const { source: span, sentence } of extractCodeSpans(input.responseText)) {
     const responseSymbols = responseDefinedSymbols(input.language, span);
     const callPattern = /([A-Za-z_$][A-Za-z0-9_$]*(?:\s*\.\s*[A-Za-z_$][A-Za-z0-9_$]*)*)\s*(?=\()/g;
     let match: RegExpExecArray | null;
@@ -202,8 +273,9 @@ export function detectSuspectApis(input: SuspectApiInput): string[] {
       const chain = match[1].split(".").map((part) => part.trim());
       const root = chain[0];
       const called = chain.at(-1)!;
+      const explicitlyRejected = explicitlyRejectsCall(sentence, called);
 
-      if (!isTrustedSymbol({
+      if (!explicitlyRejected && !isTrustedSymbol({
         language: input.language,
         symbol: called,
         userSymbols,
@@ -216,6 +288,7 @@ export function detectSuspectApis(input: SuspectApiInput): string[] {
       // `magic.print()`) is still suspicious. Check the root separately for
       // dotted calls so familiar method names cannot mask a fabricated API.
       if (
+        !explicitlyRejected &&
         chain.length > 1 &&
         !isTrustedSymbol({
           language: input.language,

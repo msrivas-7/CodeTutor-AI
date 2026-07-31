@@ -4,6 +4,7 @@ import type {
   TutorIntent,
   TutorStage,
 } from "./provider.js";
+import { config } from "../../config.js";
 import { isModelEvaluatedForTutorIntent } from "./modelRegistry.js";
 import { classifyTutorIntent } from "./tutorIntent.js";
 
@@ -16,8 +17,11 @@ export interface TutorModelRoute {
   model: string;
 }
 
-export function platformTutorModelForIntent(intent: TutorIntent): string {
-  return intent === "checkin"
+export function platformTutorModelForIntent(
+  intent: TutorIntent,
+  checkinMiniDisabled = config.tutorRouting.checkinMiniDisabled,
+): string {
+  return intent === "checkin" && !checkinMiniDisabled
     ? PLATFORM_CHECKIN_TUTOR_MODEL
     : PLATFORM_DEFAULT_TUTOR_MODEL;
 }
@@ -36,6 +40,7 @@ export function routeTutorModel({
   files,
   history,
   tutorStage,
+  checkinMiniDisabled,
 }: {
   requestedModel: string;
   fundingSource: "byok" | "platform";
@@ -43,11 +48,13 @@ export function routeTutorModel({
   files: ProjectFile[];
   history?: AIMessage[];
   tutorStage: TutorStage;
+  /** Test/incident override; normal callers use the server-owned config. */
+  checkinMiniDisabled?: boolean;
 }): TutorModelRoute {
   const intent = classifyTutorIntent({ question, files, history, tutorStage });
   if (fundingSource === "byok") return { intent, model: requestedModel };
 
-  const model = platformTutorModelForIntent(intent);
+  const model = platformTutorModelForIntent(intent, checkinMiniDisabled);
   if (!isModelEvaluatedForTutorIntent(model, intent)) {
     throw new Error(
       `[model-routing] ${model} is not evaluated for server-classified ${intent}`,

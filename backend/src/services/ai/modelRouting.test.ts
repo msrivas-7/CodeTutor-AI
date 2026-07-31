@@ -28,6 +28,17 @@ describe("routeTutorModel", () => {
     })).toEqual({ intent: "walkthrough", model: PLATFORM_DEFAULT_TUTOR_MODEL });
   });
 
+  it("returns progressed check-ins to Nano when the B3 rollback switch is engaged", () => {
+    expect(routeTutorModel({
+      requestedModel: PLATFORM_DEFAULT_TUTOR_MODEL,
+      fundingSource: "platform",
+      question: "Is my loop approach okay?",
+      files,
+      tutorStage: "approach",
+      checkinMiniDisabled: true,
+    })).toEqual({ intent: "checkin", model: PLATFORM_DEFAULT_TUTOR_MODEL });
+  });
+
   it("retains Nano on the first turn even when the wording resembles a check-in", () => {
     expect(routeTutorModel({
       requestedModel: PLATFORM_DEFAULT_TUTOR_MODEL,

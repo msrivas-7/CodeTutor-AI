@@ -1,6 +1,6 @@
 {
-  "version": "1.0.0",
-  "description": "Human-labeled B7 suspect-symbol telemetry calibration. Positive cases are plausible fabricated calls; negative cases are runtime, learner-owned, or concretely response-defined calls.",
+  "version": "1.1.0",
+  "description": "Human-labeled B7 suspect-symbol telemetry calibration. Positive cases are plausible fabricated calls; negative cases are runtime, learner-owned, concretely response-defined, or explicitly rejected calls.",
   "thresholds": {
     "precision": 0.95,
     "recall": 0.95,
@@ -326,6 +326,38 @@
       "responseText": "```javascript\nconst result = ' hello ';\nconsole.log(result.trim());\n```",
       "userFiles": [],
       "userQuestion": "trim",
+      "expectedSuspects": []
+    },
+    {
+      "id": "py-positive-endorsed-unknown-method",
+      "language": "python",
+      "responseText": "Use `values.flatten()` to collapse the list.",
+      "userFiles": [{ "path": "main.py", "content": "values = [[1], [2]]" }],
+      "userQuestion": "flatten this",
+      "expectedSuspects": ["flatten"]
+    },
+    {
+      "id": "py-negative-explicitly-rejected-method",
+      "language": "python",
+      "responseText": "Python lists do not have a `flatten()` method; inspect the nested values instead.",
+      "userFiles": [{ "path": "main.py", "content": "values = [[1], [2]]" }],
+      "userQuestion": "flatten this",
+      "expectedSuspects": []
+    },
+    {
+      "id": "js-positive-endorsed-unknown-method",
+      "language": "javascript",
+      "responseText": "Call `items.printAll()` to display every value.",
+      "userFiles": [{ "path": "index.js", "content": "const items = [1, 2];" }],
+      "userQuestion": "print these",
+      "expectedSuspects": ["printAll"]
+    },
+    {
+      "id": "js-negative-explicitly-rejected-method",
+      "language": "javascript",
+      "responseText": "Arrays do not have a `printAll()` method; use `items.forEach(console.log)` instead.",
+      "userFiles": [{ "path": "index.js", "content": "const items = [1, 2];" }],
+      "userQuestion": "print these",
       "expectedSuspects": []
     }
   ]

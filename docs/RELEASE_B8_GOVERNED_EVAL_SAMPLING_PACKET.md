@@ -96,7 +96,7 @@ still an operational prerequisite for a production disagreement candidate.
 - Complete frontend suite passes 55 files and 443 tests.
 - Backend and frontend production builds pass; discovery emits 3 course pages,
   38 lesson pages, and 38 OG images.
-- Approved eval baseline, 60-case holdout-governance verifier, and 40-case
+- Approved eval baseline, 60-case holdout-governance verifier, and 44-case
   suspect-symbol calibration pass.
 - Content lint has zero errors (two pre-existing empty-concept warnings), all
   golden solutions pass, E2E TypeScript passes, and production asset budgets

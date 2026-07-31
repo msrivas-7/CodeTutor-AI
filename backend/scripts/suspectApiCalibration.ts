@@ -5,8 +5,8 @@ import {
   type SuspectApiInput,
 } from "../src/services/ai/suspectApi.js";
 
-export const SUSPECT_API_CALIBRATION_VERSION = "1.0.0";
-export const EXPECTED_SUSPECT_API_CASE_COUNT = 40;
+export const SUSPECT_API_CALIBRATION_VERSION = "1.1.0";
+export const EXPECTED_SUSPECT_API_CASE_COUNT = 44;
 export const SUSPECT_API_CALIBRATION_PATH = path.resolve(
   import.meta.dirname,
   "../eval/suspect-api-calibration-v1.json",
@@ -143,11 +143,11 @@ export function evaluateSuspectApiCalibration(
   ) {
     failures.push(`calibration requires ${EXPECTED_SUSPECT_API_CASE_COUNT} unique cases`);
   }
-  if (pythonCases.length !== 20 || javascriptCases.length !== 20) {
-    failures.push("calibration requires 20 Python and 20 JavaScript cases");
+  if (pythonCases.length !== 22 || javascriptCases.length !== 22) {
+    failures.push("calibration requires 22 Python and 22 JavaScript cases");
   }
-  if (positiveCases.length !== 20 || cleanCases.length !== 20) {
-    failures.push("calibration requires 20 positive and 20 clean cases");
+  if (positiveCases.length !== 22 || cleanCases.length !== 22) {
+    failures.push("calibration requires 22 positive and 22 clean cases");
   }
 
   let truePositives = 0;

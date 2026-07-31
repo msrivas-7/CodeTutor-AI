@@ -6,6 +6,23 @@ function parseIntEnv(v: string | undefined): number | undefined {
   return Number.isFinite(n) && Number.isInteger(n) && n > 0 ? n : undefined;
 }
 
+/**
+ * B3 ships an evaluated candidate without allowing organic traffic to activate
+ * it accidentally. Production is safe-off unless an operator explicitly sets
+ * the switch to "0"; "1", an invalid value, or a missing value keeps Nano.
+ * Non-production keeps the candidate on by default for evaluation and dogfood.
+ */
+export function resolveCheckinMiniDisabled(
+  env: Partial<Pick<NodeJS.ProcessEnv, "NODE_ENV" | "PLATFORM_CHECKIN_MINI_DISABLED">> =
+    process.env,
+): boolean {
+  const value = env.PLATFORM_CHECKIN_MINI_DISABLED;
+  if (value === "0") return false;
+  if (value === "1") return true;
+  if (value) return true;
+  return env.NODE_ENV === "production";
+}
+
 // Phase 26 (audit M-1): collect every BYOK master-key version from env
 // into a single Map<version, base64-string>. The format `BYOK_ENCRYPTION_KEY_VN`
 // (case-sensitive, N a positive integer) is the canonical shape. The
@@ -110,6 +127,14 @@ export const config = {
   aiRateLimit: {
     windowMs: num(process.env.AI_RATE_LIMIT_WINDOW_MS, 60_000),
     max: num(process.env.AI_RATE_LIMIT_MAX, 60),
+  },
+
+  // B3: independent activation/rollback switch for the evidence-promoted Mini
+  // candidate. Production defaults safely to Nano until an operator explicitly
+  // sets "0"; setting "1" returns only progressed platform check-ins to Nano
+  // without disabling BYOK or the rest of the tutor.
+  tutorRouting: {
+    checkinMiniDisabled: resolveCheckinMiniDisabled(),
   },
 
   // Deadline for a single AI call to finish. Bounds how long we hold an

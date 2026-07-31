@@ -135,6 +135,26 @@ describe("detectSuspectApis — JavaScript", () => {
       language: "javascript",
     })).toEqual(["collection"]);
   });
+
+  it("does not flag a fabricated method that the tutor explicitly rejects", () => {
+    expect(detectSuspectApis({
+      responseText:
+        "In JavaScript, arrays do not have a `printAll()` method. Use `items.forEach(console.log)` instead.",
+      userFiles: [{ path: "index.js", content: "const items = [1, 2];" }],
+      userQuestion: "can I call printAll?",
+      language: "javascript",
+    })).toEqual([]);
+  });
+
+  it("still flags a fabricated method when another sentence endorses it", () => {
+    expect(detectSuspectApis({
+      responseText:
+        "Arrays do not have a `printAll()` method. Call `items.printAll()` anyway.",
+      userFiles: [{ path: "index.js", content: "const items = [1, 2];" }],
+      userQuestion: "can I call printAll?",
+      language: "javascript",
+    })).toEqual(["printAll"]);
+  });
 });
 
 describe("flagSuspectApis", () => {

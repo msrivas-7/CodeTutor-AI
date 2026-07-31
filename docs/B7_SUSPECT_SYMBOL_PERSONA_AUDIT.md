@@ -13,12 +13,14 @@ response mutation.
 **Approve B7 for engineering release.** No P0 or P1 persona finding remains
 open. The implementation commit's 29 remote checks pass, with only the expected
 preview-close skip, and the thread-aware audit found zero reviews and zero
-review threads.
+review threads. The later `b7.2` correction is locally validated and remains
+subject to the final audit's current-head matrix rather than being attributed
+to that earlier phase commit.
 
 B7 is now accurately framed as calibrated suspect-symbol telemetry. It observes
 completed tutor responses without blocking, changing, or retrying them. It adds
 no model call and stores no conversation sample. The detector's 100% result is
-bounded to a balanced 40-case labeled corpus and is not presented as semantic
+bounded to a balanced 44-case labeled corpus and is not presented as semantic
 proof about arbitrary Python or JavaScript packages.
 
 This is a structured expert review through the repository's 18 persona
@@ -36,8 +38,9 @@ learning, trust, retention, or tutor accuracy in production.
 | P1 | Trusting a helper merely because the tutor defined it could hide a fabricated dependency inside that helper. | The declared helper is allowed, but all calls inside its definition are still scanned. |
 | P1 | JavaScript methods declared inside a tutor-provided class/object-shaped snippet were not recognized as concrete same-span definitions. | Same-span method declarations are now collected and covered by the labeled clean corpus. |
 | P1 | An attempted call-shape refinement marked standard method names such as `append()` and `sort()` as fabricated, conflicting with the roadmap's known-stdlib-symbol contract and real tutor phrasing. | The complete live gate rejected the refinement; the final detector trusts known stdlib symbols while remaining explicit that it is not a semantic call-site validator. |
+| P1 | A correct tutor explanation that explicitly rejected an invented call could still be counted as a fabrication because the detector saw only the formatted call. | Detector `b7.2` distinguishes a single same-sentence rejection from an endorsement; matched Python and JavaScript positive/negative cases protect both sides. |
 | P1 | A separate first-turn model sample asked where to place the answer rather than eliciting expectation, observation, attempt, or uncertainty. | The deterministic Socratic firewall now requires learner-evidence semantics; the failing case passes three focused live runs and the final 60-case gate. |
-| P1 | A detector could drift silently because ordinary backend tests did not quantify false positives and misses. | A versioned 40-case corpus, four 95% release thresholds, two mutation tests, provenance fingerprinting, and an Ubuntu CI gate make drift executable. |
+| P1 | A detector could drift silently because ordinary backend tests did not quantify false positives and misses. | A versioned 44-case corpus, four 95% release thresholds, two mutation tests, provenance fingerprinting, and an Ubuntu CI gate make drift executable. |
 | P1 | Route wiring could cover only one request shape. | Authenticated sync, authenticated stream, and anonymous stream tests assert the exact completion-hook contract. |
 | P1 | Operational detection could become a shadow source-code analytics pipeline. | The event excludes code, paths, questions, tutor prose, and prompts; it contains bounded route/language/version/count plus at most ten suspect identifiers. |
 

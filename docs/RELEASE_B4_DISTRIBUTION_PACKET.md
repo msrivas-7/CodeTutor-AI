@@ -1,6 +1,7 @@
 # Release B4 distribution packet
 
-Status: implementation complete locally; merge CI and deployment proof pending
+Status: engineering release gates complete through `a79dcd4`; production
+indexing and traffic outcomes remain pending
 
 Prepared: 2026-07-30
 Outcome owner: growth/product
@@ -84,18 +85,25 @@ completion because a learner may open the wall before completing.
   390 px layout, serious/critical axe scan, no horizontal overflow, course-to-
   lesson navigation, and first-touch carry-through all pass;
 - production dependency audit: no unreviewed high/critical runtime advisory.
+- final B4 fix `a79dcd4`: 28 successful remote checks and only the expected
+  open-PR preview-close job skipped, with no failed or cancelled checks;
+- later integrated roadmap head: the expanded 29-check PR matrix is green;
+- deployed-preview recheck on 2026-07-31: category, lesson, and anonymous lesson
+  entry routes load at 390px without horizontal overflow or console errors;
+  crawler metadata, structured data, canonical URLs, 44px CTAs, and acquisition
+  parameters remain present.
 
-## Deployment and outcome gate
+## Production and outcome gate
 
-Before declaring the engineering release deployed:
+The engineering release and deployed PR preview are proven. Before declaring a
+production rollout or acquisition outcome:
 
-1. all PR checks and review threads are green/resolved;
-2. the production candidate contains the generated routes and exact migrations;
-3. raw production HTML, sitemap, one lesson image, an internal-course 404, and
+1. the production candidate contains the generated routes and exact migrations;
+2. raw production HTML, sitemap, one lesson image, an internal-course 404, and
    the anonymous CTA journey are rechecked;
-4. the search property receives the sitemap and indexing is observed rather
+3. the search property receives the sitemap and indexing is observed rather
    than assumed;
-5. channel counts are watched for malformed/unknown values and ingestion abuse.
+4. channel counts are watched for malformed/unknown values and ingestion abuse.
 
 B4 proves crawler correctness and attribution integrity. Organic impressions,
 traffic, activation, and share outcomes require the locked post-indexing

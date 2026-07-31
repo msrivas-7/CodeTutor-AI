@@ -1,7 +1,8 @@
 # Release B3 evidence-based tutor routing packet
 
-Status: engineering release gates complete at `6f9a108`; real-user outcome
-evidence remains unavailable
+Status: B3 phase commit green at `6f9a108`; the final-audit activation guard is
+locally validated and governed by the final audit's current-head matrix;
+real-user outcome evidence remains unavailable
 
 Branch: `dev/contextual-learning-roadmap`
 
@@ -16,7 +17,7 @@ available. Three independent trials per model show:
 - `gpt-4.1-mini` improves progressed check-ins from 83.33% to 100%;
 - Nano and Mini tie on walkthroughs at 100%, so the larger model does not earn
   its additional cost there;
-- the approved production policy therefore uses Mini only for progressed
+- the approved engineering candidate policy therefore uses Mini only for progressed
   `checkin` requests and keeps Nano for `socratic`, `debug`, `concept`,
   `howto`, and `walkthrough`.
 
@@ -24,6 +25,21 @@ The policy is server-owned and versioned as `platform-tutor-b3.v1`. A client
 cannot request the platform-funded Mini route directly. BYOK requests that
 pass the existing contextual-model eligibility gate retain the learner's
 requested model and do not inherit platform routing.
+
+“Engineering release” means the pre-traffic routing candidate, quality gate,
+cost boundary, rollback path, and full test evidence are complete. It does not
+mean Mini is proven non-inferior on tutor-induced dropoff. That real-user
+guardrail uses the preregistered comparable/control cohort defined in Section
+10.3 of the plan; its exact analysis window, baseline, non-inferiority margin,
+power calculation, owner, and stop decision must be recorded before a measured
+learner cohort begins. The evaluated candidate may merge in the current
+pre-traffic state, but production fails safe to Nano unless a named operator
+explicitly sets `PLATFORM_CHECKIN_MINI_DISABLED=0`. That activation is
+prohibited until the preregistered protocol and a bounded cohort/routing
+control are recorded. Missing, invalid, or `1` keeps Nano, so organic traffic
+cannot silently expand Mini exposure. A confirmed regression sets the switch
+to `1`, returning progressed platform check-ins to Nano without disabling
+other tutor intents or changing BYOK routing.
 
 ## Admission, pricing, and failure contract
 
@@ -33,8 +49,9 @@ requested model and do not inherit platform routing.
 - Platform-funded Mini is eligible only for progressed check-ins. Direct Mini
   requests are rejected rather than silently widening cost or model access.
 - The model registry records intent-specific evaluation eligibility. The
-  baseline verifier rejects drift between production routing, evaluated model
-  set, dataset, evaluator, prompt/output policy, and registry version.
+  baseline verifier rejects drift between the evaluated candidate routing,
+  model set, dataset, evaluator, prompt/output policy, and registry version;
+  it separately proves the production-safe Nano default and activation rule.
 - Pricing table v2 contains Nano and Mini rates. Reservation estimates and
   finalized ledger usage both use the routed model; anonymous lifetime cost and
   platform caps remain authoritative.
@@ -43,6 +60,11 @@ requested model and do not inherit platform routing.
   still recorded from the provider response.
 - If routing or policy validation fails, the request fails closed; it does not
   fall back to a more expensive or unevaluated platform model.
+- `PLATFORM_CHECKIN_MINI_DISABLED` is the independent B3 activation/rollback
+  switch. Production requires exact `0` to activate the evaluated candidate;
+  missing, invalid, or `1` leaves the default Nano route, BYOK selection,
+  admission, pricing, and all non-check-in intents intact. The VM refresh path
+  reads it from Key Vault secret `PLATFORM-CHECKIN-MINI-DISABLED`.
 
 ## Quality and economics evidence
 
@@ -80,17 +102,19 @@ Final comparison artifacts (gitignored local evidence):
   `2026-07-31T16-52-03-918Z-v2.json`, and
   `2026-07-31T16-54-13-414Z-v2.json`.
 
-Approved complete artifact (gitignored local evidence):
-`backend/eval/runs/2026-07-31T16-58-11-789Z-v2.json`
+Final-audit approved complete artifact (gitignored local evidence):
+`backend/eval/runs/2026-07-31T23-13-41-000Z-v2.json`
 
-Release-gate replay artifact:
-`backend/eval/runs/2026-07-31T17-02-15-053Z-v2.json`
+Independent final-audit release-gate replay artifact:
+`backend/eval/runs/2026-07-31T23-17-00-893Z-v2.json`
 
 Both complete 60/60 cases with zero provider errors, zero deterministic
 failures, 100% helpfulness/correctness in every intent, 100% posture in every
 intent, and every absolute must-pass case green. The committed baseline pins
 the exact dataset and quality-contract fingerprints from the approved run, and
-the independent replay passes against that baseline.
+the independent replay passes against that baseline. The final approved
+quality-contract fingerprint is
+`3fe0e6c05a414547d570773834eb2ecdd940efd4f2524da518c537ccd1320058`.
 
 ## Remote release evidence
 
@@ -138,20 +162,25 @@ authoritative integration evidence until branch-scoped backend previews exist.
   per-result model identity, complete cost evidence for both models, quality
   improvement, Fisher significance, candidate floor, p95 latency, cost per
   pass, and mixed daily cost.
-- [x] Production routing matches the gate decision and is covered across
-  authenticated, anonymous, BYOK, denial, reservation, pricing, and finalization
-  paths.
-- [x] Complete 60-case production-routing approval run passes 60/60.
+- [x] Evaluated candidate routing matches the gate decision and its server-owned
+  route boundary is covered across authenticated, anonymous, BYOK, denial,
+  reservation, pricing, and finalization paths.
+- [x] The independent activation/rollback switch fails production safely to
+  Nano, requires explicit operator activation, and leaves BYOK and non-check-in
+  routing unchanged.
+- [x] Complete 60-case candidate-routing approval run passes 60/60.
 - [x] Independent release-gate replay passes 60/60 against the refreshed
   baseline.
-- [x] Baseline verifier matches the final production policy and quality
-  contract after the replay.
-- [x] Final full backend suite passes: 84 test files and 1,092 tests, with only
+- [x] Baseline verifier matches the evaluated candidate policy and quality
+  contract after the replay, and independently proves the production-safe Nano
+  default plus exact-`0` activation rule.
+- [x] Final full backend suite passes: 93 test files and 1,167 tests, with only
   21 environment-gated integration skips; typecheck, the high-severity
   dependency audit, and the baseline verifier pass.
 - [x] The 18-lens persona audit is recorded in
   `docs/B3_MODEL_ROUTING_PERSONA_AUDIT.md` with no local P0/P1 finding open.
-- [x] Full PR CI and deployed-preview checks pass for the B3 commit.
+- [x] Full PR CI and deployed-preview checks pass for the B3 phase commit; the
+  final-audit guard is subject to the final audit's current-head matrix.
 - [x] Deployed browser verification passes at desktop and phone widths.
 - [x] Every actionable PR review thread is resolved; the thread-aware audit
   found no reviews or review threads.
