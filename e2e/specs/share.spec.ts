@@ -143,8 +143,13 @@ test.describe("Phase 21C: cinematic share", () => {
       });
       await expect(cta).toBeVisible();
       const href = await cta.getAttribute("href");
-      expect(href).toContain("utm_source=share");
-      expect(href).toContain(`utm_campaign=${shareToken}`);
+      expect(href).not.toBeNull();
+      const ctaUrl = new URL(href!);
+      expect(ctaUrl.searchParams.get("utm_source")).toBe("share");
+      expect(ctaUrl.searchParams.get("utm_medium")).toBe("lesson_share");
+      expect(ctaUrl.searchParams.get("utm_campaign")).toBe(COURSE_ID);
+      expect(ctaUrl.searchParams.get("utm_content")).toBe(LESSON_ID);
+      expect(ctaUrl.searchParams.get("share_ref")).toBe(shareToken);
     } finally {
       await anon.close();
     }
