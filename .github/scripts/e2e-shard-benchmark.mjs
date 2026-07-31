@@ -12,8 +12,13 @@ function secondsBetween(start, end) {
 
 function summarizeTopology({ total, run, jobs, namePrefix }) {
   const selected = jobs.filter((job) => job.name.startsWith(namePrefix));
-  const queueReadyValues = selected
-    .map((job) => secondsBetween(run.created_at, job.completed_at))
+  const startedValues = selected
+    .map((job) => Date.parse(job.started_at))
+    .filter((value) => Number.isFinite(value));
+  const topologyStartedAt =
+    startedValues.length === total ? new Date(Math.min(...startedValues)).toISOString() : null;
+  const topologyReadyValues = selected
+    .map((job) => secondsBetween(topologyStartedAt, job.completed_at))
     .filter((value) => value !== null);
   const executionValues = selected
     .map((job) => secondsBetween(job.started_at, job.completed_at))
@@ -25,15 +30,16 @@ function summarizeTopology({ total, run, jobs, namePrefix }) {
     observedJobs: selected.length,
     reliable:
       selected.length === total && selected.every((job) => job.conclusion === "success"),
-    queueInclusiveReadySeconds:
-      queueReadyValues.length === total ? Math.max(...queueReadyValues) : null,
+    topologyStartedAt,
+    topologyReadySeconds:
+      topologyReadyValues.length === total ? Math.max(...topologyReadyValues) : null,
     slowestExecutionSeconds:
       executionValues.length === total ? Math.max(...executionValues) : null,
     jobs: selected.map((job) => ({
       name: job.name,
       conclusion: job.conclusion ?? "unknown",
       executionSeconds: secondsBetween(job.started_at, job.completed_at),
-      queueInclusiveSeconds: secondsBetween(run.created_at, job.completed_at),
+      topologyRelativeSeconds: secondsBetween(topologyStartedAt, job.completed_at),
     })),
   };
 }
@@ -60,10 +66,10 @@ export function compareShardTopologies({ baselineRun, baselineJobs, benchmarkRun
     }),
   ];
   const reliable = topologies
-    .filter((item) => item.reliable && item.queueInclusiveReadySeconds !== null)
+    .filter((item) => item.reliable && item.topologyReadySeconds !== null)
     .sort(
       (left, right) =>
-        left.queueInclusiveReadySeconds - right.queueInclusiveReadySeconds ||
+        left.topologyReadySeconds - right.topologyReadySeconds ||
         left.slowestExecutionSeconds - right.slowestExecutionSeconds ||
         left.shards - right.shards,
     );
@@ -73,8 +79,9 @@ export function compareShardTopologies({ baselineRun, baselineJobs, benchmarkRun
     policy: {
       workersPerShard: 2,
       retries: 0,
-      selectionMetric: "fastest reliable queue-inclusive completion",
-      status: "one-run benchmark; shadow pilot remains required before test demotion",
+      selectionMetric: "fastest reliable topology-relative completion",
+      status:
+        "topologies run sequentially to protect shared services; actual PR p95 remains queue-inclusive; shadow pilot remains required before test demotion",
     },
     topologies,
     provisionalSelection: reliable[0]?.shards ?? null,
@@ -103,7 +110,7 @@ function main() {
   console.log(
     `Shard benchmark provisional selection: ${result.provisionalSelection ?? "none"}; ` +
       result.topologies
-        .map((item) => `${item.shards}=${item.reliable ? `${item.queueInclusiveReadySeconds}s` : "unreliable"}`)
+        .map((item) => `${item.shards}=${item.reliable ? `${item.topologyReadySeconds}s` : "unreliable"}`)
         .join(", "),
   );
 }

@@ -698,8 +698,9 @@ Exit:
 the active roadmap branch. It contains source-owned metadata, a 36-test/13-file
 zero-retry critical lane, a frozen 10-case P0/P1 corpus, three lower-layer
 migration pilots with their browser boundaries retained, queue-inclusive miss
-evidence, and a label-triggered same-commit 4/6/8 shard benchmark. The existing
-full Chromium PR suite remains unchanged and blocking. The 30-day/50-eligible-
+evidence, and a label-triggered same-commit 4/6/8 shard benchmark whose 6- and
+8-shard alternatives run sequentially to protect the shared Supabase project.
+The existing full Chromium PR suite remains unchanged and blocking. The 30-day/50-eligible-
 run clock begins only after this implementation merges and produces its first
 eligible evidence artifact; no demotion decision has been made.
 
