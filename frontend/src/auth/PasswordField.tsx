@@ -9,6 +9,7 @@ interface Props {
   autoComplete?: string;
   placeholder?: string;
   disabled?: boolean;
+  required?: boolean;
   // When true, renders the live strength meter + requirements checklist
   // underneath the input. Used on Signup + ResetPassword; omitted on Login.
   showPolicy?: boolean;
@@ -39,6 +40,7 @@ export function PasswordField({
   autoComplete = "current-password",
   placeholder,
   disabled,
+  required,
   showPolicy = false,
   describedById,
 }: Props) {
@@ -84,6 +86,7 @@ export function PasswordField({
           placeholder={placeholder}
           autoComplete={autoComplete}
           disabled={disabled}
+          required={required}
           aria-describedby={describedById}
           className="min-h-11 min-w-0 flex-1 rounded-md border border-border bg-elevated px-3 py-2 text-base text-ink transition placeholder:text-faint focus:border-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm"
         />

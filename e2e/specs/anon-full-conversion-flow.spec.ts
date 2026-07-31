@@ -1,4 +1,4 @@
-// Phase 27-v2.1 — anon stash + signup link contract.
+// Anonymous handoff stash + B5 inline account-creation contract.
 //
 // The full flow (cinematic → coach → walkthrough → Run → Check →
 // celebration → Next Lesson → wall) splits across multiple specs:
@@ -11,9 +11,9 @@
 //      schema when Next Lesson is clicked from the celebration
 //      (handoff endpoint requires courseId + lessonId + non-empty
 //      code + completedAt + flags.welcomeDone).
-//   2. The wall's primary CTA links to /signup (the conversion-funnel
-//      entry point) — a regression where the link points anywhere
-//      else silently breaks Maya's conversion path.
+//   2. The continuation card creates the account inline, makes no auth
+//      request before explicit submission, and stays on the lesson while
+//      email confirmation is pending.
 //
 // Driving through the actual cinematic + walkthrough is brittle and
 // covered by the broader chrome specs; here we seed flags to land
@@ -22,8 +22,9 @@
 import { expect, test } from "@playwright/test";
 
 const PATH = "/try/lesson/python-fundamentals/hello-world";
+const PASSWORD = "E2ePass9!secure";
 
-test.describe("Phase 27-v2.1 — anon stash + signup link contract", () => {
+test.describe("Anonymous stash + B5 inline signup contract", () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
       window.sessionStorage.setItem("codetutor.anonCinematicSeen", "1");
@@ -111,18 +112,75 @@ test.describe("Phase 27-v2.1 — anon stash + signup link contract", () => {
     expect(typeof stash.flags?.workspaceCoachDone).toBe("boolean");
   });
 
-  test("wall's primary CTA points to /signup", async ({ page }) => {
+  test("wall creates the account inline and keeps the lesson in place", async ({
+    page,
+  }) => {
+    const email = "b5-inline@example.com";
+    let signupCalls = 0;
+    let resendCalls = 0;
+    let signupPayload: Record<string, unknown> | null = null;
+    await page.route("**/auth/v1/signup**", async (route) => {
+      signupCalls += 1;
+      signupPayload = route.request().postDataJSON() as Record<string, unknown>;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: "00000000-0000-0000-0000-000000000005",
+          email,
+          role: "",
+          aud: "authenticated",
+          confirmation_sent_at: new Date().toISOString(),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          identities: [],
+          app_metadata: { provider: "email", providers: ["email"] },
+          user_metadata: {},
+        }),
+      });
+    });
+    await page.route("**/auth/v1/resend**", async (route) => {
+      resendCalls += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ data: {}, error: null }),
+      });
+    });
+
     await page.goto(PATH);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible({
       timeout: 10_000,
     });
     // Use the header pill to reach the wall fast (no Run/Check needed).
     await page.getByRole("button", { name: /sign up to save/i }).click();
-    await expect(page.getByRole("dialog")).toBeVisible();
-    // The CTA link inside the wall. Phase 27-v2.2 audit F1: copy
-    // changed "Sign up for free" → "Sign up — start free".
-    const cta = page.getByRole("link", { name: /sign up — start free/i });
-    await expect(cta).toBeVisible();
-    await expect(cta).toHaveAttribute("href", "/signup");
+    const dialog = page.getByRole("dialog", { name: /sign up to save/i });
+    await expect(dialog).toBeVisible();
+    expect(signupCalls).toBe(0);
+    expect(new URL(page.url()).pathname).toBe(PATH);
+
+    await dialog.getByLabel(/first name/i).fill("Maya");
+    await dialog.getByLabel(/email/i).fill(email);
+    await dialog.getByLabel("Password", { exact: true }).fill(PASSWORD);
+    await dialog.getByLabel(/confirm password/i).fill(PASSWORD);
+    await dialog
+      .getByRole("button", { name: /create account & start saving/i })
+      .click();
+
+    const confirmation = page.getByRole("dialog", { name: /check your email/i });
+    await expect(
+      confirmation.getByRole("heading", { name: /check your email/i }),
+    ).toBeVisible();
+    await expect(confirmation.getByText(email)).toBeVisible();
+    expect(new URL(page.url()).pathname).toBe(PATH);
+    expect(signupCalls).toBe(1);
+    expect(
+      (signupPayload as { data?: Record<string, unknown> } | null)?.data,
+    ).toMatchObject({ first_name: "Maya" });
+
+    await confirmation
+      .getByRole("button", { name: /resend confirmation email/i })
+      .click();
+    await expect.poll(() => resendCalls).toBe(1);
   });
 });

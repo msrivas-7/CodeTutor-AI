@@ -1,6 +1,6 @@
 # Contextual Learning and Delivery Velocity Plan
 
-> **Status:** Engineering implementation is green through 0A/B3 on the active roadmap branch; the 1D shadow clock begins only after merge; the 1C entry gate is not met because the powered 1B learner experiment, two-human eval calibration, and named approvals are missing
+> **Status:** Engineering implementation is green through 0A/B3 on the active roadmap branch; B5 local implementation and persona gates are complete with remote release gates pending; the 1D shadow clock begins only after merge; the 1C entry gate is not met because the powered 1B learner experiment, two-human eval calibration, and named approvals are missing
 >
 > **Prepared:** 2026-07-30
 >
@@ -856,6 +856,45 @@ the production dependency audit pass locally. Merge CI, deployment verification,
 indexing, and the locked organic-traffic observation window remain pending; no
 traffic outcome is claimed. Detailed release evidence lives in
 `docs/RELEASE_B4_DISTRIBUTION_PACKET.md`.
+
+### Parallel Release B5 — Continuation card
+
+**Local implementation status (2026-07-31):** complete on
+`dev/contextual-learning-roadmap`; phase commit, full remote CI, deployed
+preview, and PR-thread verification remain pending.
+
+Deliver:
+
+- restage anonymous account creation inside the lesson using the completion
+  celebration's panel language and ordinary `dialog` semantics;
+- keep OAuth, email fields, validation, loading, provider errors,
+  confirmation, resend, address correction, sign-in, and dismissal inline;
+- preserve reason-specific, truthful continuation copy without claiming that
+  incomplete anonymous work has been persisted;
+- reuse the existing one-shot handoff for completed next/share paths and
+  prefill a real extracted learner name when available;
+- retain no-request-before-submit, server/provider-owned auth policy, and the
+  existing `/auth/callback` boundary;
+- cover stacked-modal restaging, focus/inert cleanup, reduced motion, 44px
+  controls, phone scrolling, and no horizontal overflow.
+
+Exit:
+
+- the full frontend unit suite, typecheck, production build, and E2E typecheck
+  pass;
+- retry-disabled Chromium covers inline submission, metadata, confirmation,
+  resend, every wall reason, direct-signup parity, telemetry, modal chaining,
+  focus recovery, and phone layout;
+- WebKit and the normal CI Firefox project cover the critical desktop/phone
+  journey;
+- a rendered desktop/phone audit verifies the initial, confirmation, and
+  scroll states with no page errors or overflow;
+- the 18-lens audit has no P0/P1 open, full PR CI/preview is green, and every
+  actionable review thread is resolved.
+
+Detailed evidence lives in `docs/RELEASE_B5_CONTINUATION_CARD_PACKET.md`.
+The phase-specific persona verdict lives in
+`docs/B5_CONTINUATION_CARD_PERSONA_AUDIT.md`.
 
 ## 8. Test and CI strategy
 

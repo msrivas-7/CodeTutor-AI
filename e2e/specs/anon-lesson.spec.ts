@@ -149,12 +149,13 @@ test.describe("anonymous lesson 1 (Phase 27 §3a)", () => {
     await expect(dialog).toBeVisible();
     await expect(dialog.getByText(/Sign up to save\?/i)).toBeVisible();
 
-    // CTA links to /signup; "Not yet" dismisses. Phase 27-v2.2 audit
-    // F1: CTA copy changed from "Sign up for free" to "Sign up — start
-    // free" to leave room for a future paid tier.
+    // B5 keeps account creation inside the continuation card. The request
+    // cannot fire until the learner explicitly completes and submits it.
+    await expect(dialog.getByLabel(/first name/i)).toBeVisible();
+    await expect(dialog.getByLabel(/email/i)).toBeVisible();
     await expect(
-      dialog.getByRole("link", { name: /sign up — start free/i }),
-    ).toHaveAttribute("href", "/signup");
+      dialog.getByRole("button", { name: /create account & start saving/i }),
+    ).toBeDisabled();
 
     // Esc dismisses (parity with every other modal in the product).
     await page.keyboard.press("Escape");
@@ -301,7 +302,7 @@ test.describe("first-run cinematic on /try/ (Phase 27-v2 Day 2)", () => {
     // useEffect to fire if it were going to.
     await page.waitForTimeout(1500);
     // No coach bubble on phone. CoachBubble has role="dialog"; the
-    // SignupWallDialog has role="alertdialog" so they don't collide.
+    // SignupWallDialog also uses role="dialog", but it is not open here.
     await expect(page.locator('[role="dialog"]')).toHaveCount(0);
     // The "Lesson Instructions" coach-step title text is also a strong
     // canary — if it appears anywhere, the coach mounted.

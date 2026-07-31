@@ -126,8 +126,10 @@ interface LessonPageProps {
    *   the LessonCompletePanel celebration (the "Your first one — Share
    *   it" card). On anon, opening the auth-required ShareDialog would
    *   401-cascade and never produce a working share artifact. The
-   *   callback receives the live, validated lesson evidence so the
-   *   public artifact never invents mastery, time, attempts, or code.
+   *   callback receives the live, validated lesson evidence plus a
+   *   continuation-only completion dismissor. Ordinary share dismissal
+   *   still returns to the celebration; choosing account creation can
+   *   restage onto the lesson before the B5 card opens.
    *
    * onAnonTrialPaused: invoked when GuidedTutorPanel's anon stream
    *   returns 503 ANON_LESSON_DISABLED (operator flipped the kill
@@ -138,7 +140,11 @@ interface LessonPageProps {
   onAnonSave?: () => void;
   onAnonNext?: () => void;
   onAnonExhausted?: () => void;
-  onAnonShare?: (payload: AnonSharePayload, trigger: HTMLButtonElement) => void;
+  onAnonShare?: (
+    payload: AnonSharePayload,
+    trigger: HTMLButtonElement,
+    dismissCompletion: () => void,
+  ) => void;
   onAnonTrialPaused?: () => void;
   /** Fired once after the first anonymous Run commits a result. */
   onAnonFirstRun?: () => void;
@@ -930,6 +936,7 @@ export default function LessonPage({
             <button
               type="button"
               onClick={() => onAnonSave?.()}
+              data-anon-signup-trigger
               className="inline-flex min-h-11 items-center justify-center rounded-lg border border-border px-3 text-xs font-medium text-muted transition hover:bg-elevated hover:text-ink"
             >
               Sign up to save
@@ -1915,6 +1922,7 @@ export default function LessonPage({
                         displayName: extractNameFromCode(code),
                       },
                       trigger,
+                      () => validator.setShowComplete(false),
                     );
                   }
                 : !!lp?.lastCode?.[LANGUAGE_ENTRYPOINT[lesson.language]]?.trim()

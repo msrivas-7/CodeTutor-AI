@@ -1,23 +1,24 @@
 // Phase 27-v2.1 — SignupWallDialog reasons coverage.
 //
-// The wall fires from three call sites with three reason codes:
+// The B5 continuation card fires from distinct conversion moments:
 //
 //   reason="save"        — header "Sign up to save" pill click. Copy:
-//                          "Sign up to save?" / "Takes 10 seconds.
-//                          From the moment you sign up, your code and
-//                          progress save automatically..." / "Sign up
-//                          for free"
+//                          "Sign up to save?" / "Create your account
+//                          here. Once it is confirmed, your future code and
+//                          progress save automatically..."
+//                          / "Create account & start saving"
 //   reason="next-lesson" — celebration dismiss / Next Lesson click /
 //                          header in-page Next Lesson click / practice
 //                          start (medium-lock). Copy: "Lesson 2 is
-//                          queued up." / "Save your spot — takes 10
-//                          seconds..." / "Start lesson 2" / "Maybe
-//                          later" (dismiss link)
+//                          queued up." / "Save your spot. Your code,
+//                          your name...come with you." / "Create account
+//                          & continue" / "Maybe later"
 //   reason="exhausted"   — anon AI 429 ANON_EXHAUSTED. Copy: "You're
 //                          getting it." / "free tutor questions" /
-//                          "Sign up for free"
+//                          "Create account & keep going"
 //
-// This spec verifies all three reasons render distinct, on-brand
+// The same file also covers share and trial-paused recovery. It verifies all
+// reasons render distinct, on-brand
 // copy. It catches:
 //   - Copy collision (two reasons accidentally sharing a CTA)
 //   - Default-reason fallback bug (an unset reason rendering "save")

@@ -12,6 +12,7 @@ import {
   extractNameFromCode,
   hasCinematicSeen,
   markCinematicSeen,
+  readAnonStash,
   writeAnonStash,
 } from "../../anon/anonStash";
 
@@ -80,7 +81,11 @@ export default function AnonLessonPage() {
   // SignupWallDialog state. LessonPage(mode="anon") fires the open via
   // onAnonSave (header "Sign up to save" pill, hint exhaustion) and
   // onAnonNext (LessonCompletePanel "Next lesson" CTA after Check pass).
-  const [wall, setWall] = useState<{ open: boolean; reason: SignupWallReason }>({
+  const [wall, setWall] = useState<{
+    open: boolean;
+    reason: SignupWallReason;
+    initialFirstName?: string;
+  }>({
     open: false,
     reason: "save",
   });
@@ -107,6 +112,7 @@ export default function AnonLessonPage() {
     url: string;
   }>({ open: false, url: "" });
   const anonShareTriggerRef = useRef<HTMLElement | null>(null);
+  const anonShareDismissCompletionRef = useRef<(() => void) | null>(null);
   const anonShareDismissFocusPendingRef = useRef(false);
   const wallDismissFocusPendingRef = useRef(false);
 
@@ -125,8 +131,11 @@ export default function AnonLessonPage() {
   useEffect(() => {
     if (wall.open || !wallDismissFocusPendingRef.current) return;
     wallDismissFocusPendingRef.current = false;
-    const target = anonShareTriggerRef.current;
-    if (!target?.isConnected) return;
+    const shareTrigger = anonShareTriggerRef.current;
+    const target = shareTrigger?.isConnected
+      ? shareTrigger
+      : document.querySelector<HTMLElement>("[data-anon-signup-trigger]");
+    if (!target) return;
     target.focus({ preventScroll: true });
     anonShareTriggerRef.current = null;
   }, [wall.open]);
@@ -167,7 +176,14 @@ export default function AnonLessonPage() {
   // pressure. openWall is the single point that does both — keeps the
   // setWall + telemetry pair atomic.
   const openWall = (reason: SignupWallReason) => {
-    setWall({ open: true, reason });
+    const files = useProjectStore.getState().snapshot();
+    const main = files.find((file) => file.path === "main.py") ?? files[0];
+    const liveName = extractNameFromCode(main?.content ?? "");
+    setWall({
+      open: true,
+      reason,
+      initialFirstName: readAnonStash()?.name ?? liveName ?? undefined,
+    });
     api.postFunnelEvent("anon_wall_opened", reason);
   };
   const onAnonSave = () => openWall("save");
@@ -188,11 +204,16 @@ export default function AnonLessonPage() {
   // Note: the share gate in LessonPage still hides on practice mode
   // for both authed and anon — this callback only fires for non-
   // practice celebrations.
-  const onAnonShare = (payload: AnonSharePayload, trigger: HTMLButtonElement) => {
+  const onAnonShare = (
+    payload: AnonSharePayload,
+    trigger: HTMLButtonElement,
+    dismissCompletion: () => void,
+  ) => {
     // Safari/WebKit does not consistently move DOM focus to a button when it
     // is clicked. Carry the concrete opener through the callback so closing
     // the stacked dialog always has a durable, cross-browser restore target.
     anonShareTriggerRef.current = trigger;
+    anonShareDismissCompletionRef.current = dismissCompletion;
     if (!payload.codeSnippet.trim()) {
       // No code typed — shouldn't happen post-celebration, but if it
       // does, fall back to the wall instead of sending a 400.
@@ -222,7 +243,7 @@ export default function AnonLessonPage() {
   // paused framing.
   const onAnonTrialPaused = () => openWall("trial-paused");
 
-  const onAnonNext = () => {
+  const stashCompletedLesson = () => {
     // Read the live code out of the project store at the moment of
     // click — Monaco edits flow through setContent, so this captures
     // whatever the user just had on screen at the celebration moment.
@@ -244,6 +265,11 @@ export default function AnonLessonPage() {
         workspaceCoachDone: true,
       },
     });
+    return { code, parsedName };
+  };
+
+  const onAnonNext = () => {
+    const { code, parsedName } = stashCompletedLesson();
     if (isPhone) {
       // Phase A — A2 device contract: phone learners see the
       // graduation handoff dialog instead of the wall. Its dismiss action
@@ -313,11 +339,13 @@ export default function AnonLessonPage() {
       <SignupWallDialog
         open={wall.open}
         reason={wall.reason}
+        initialFirstName={wall.initialFirstName}
         onDismiss={() => {
           if (wall.reason === "share" && anonShareTriggerRef.current) {
             wallDismissFocusPendingRef.current = true;
+            anonShareDismissCompletionRef.current = null;
           }
-          setWall({ open: false, reason: wall.reason });
+          setWall((current) => ({ ...current, open: false }));
         }}
       />
       {graduation.open && (
@@ -333,10 +361,14 @@ export default function AnonLessonPage() {
           url={anonShare.url}
           onDismiss={() => {
             anonShareDismissFocusPendingRef.current = true;
+            anonShareDismissCompletionRef.current = null;
             setAnonShare((s) => ({ ...s, open: false }));
           }}
           onSaveProgress={() => {
             setAnonShare((s) => ({ ...s, open: false }));
+            anonShareDismissCompletionRef.current?.();
+            anonShareDismissCompletionRef.current = null;
+            stashCompletedLesson();
             openWall("share");
           }}
         />
