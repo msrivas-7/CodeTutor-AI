@@ -12,6 +12,11 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 
+// Route-level progression proof uses the same rotated deployment keyring as
+// production (with domain separation). Seed a deterministic 32-byte test key
+// before the dynamically imported router captures config.
+process.env.BYOK_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64");
+
 vi.mock("../db/preferences.js", () => ({
   getOpenAIKey: vi.fn(),
 }));
@@ -280,11 +285,16 @@ describe("POST /api/ai/ask — schema validation", () => {
       body: JSON.stringify(validAskBody()),
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { sections: { summary: string } };
+    const body = (await res.json()) as {
+      sections: { summary: string };
+      tutorProgressToken: string;
+    };
     expect(body.sections.summary).toBe("ok");
+    expect(body.tutorProgressToken).toEqual(expect.any(String));
     expect(vi.mocked(openaiProvider.ask)).toHaveBeenCalledTimes(1);
     const call = vi.mocked(openaiProvider.ask).mock.calls[0][0];
     expect(call.key).toBe("sk-test");
+    expect(call.tutorStage).toBe("clarify");
     expect(call.signal).toBeDefined();
     expect(vi.mocked(reserveAIRequest)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(finalizeAIRequest)).toHaveBeenCalledTimes(1);
@@ -296,6 +306,43 @@ describe("POST /api/ai/ask — schema validation", () => {
         providerOutcomeUncertain: true,
       }),
     );
+  });
+
+  it("unlocks an approach only with valid same-user, same-task server proof", async () => {
+    vi.mocked(getOpenAIKey).mockResolvedValue("sk-test");
+    vi.mocked(openaiProvider.ask).mockResolvedValue({
+      sections: { summary: "ok" },
+      raw: "{\"summary\":\"ok\"}",
+    });
+
+    const first = await req("u-1", "/api/ai/ask", {
+      method: "POST",
+      body: JSON.stringify(validAskBody()),
+    });
+    const { tutorProgressToken } = (await first.json()) as {
+      tutorProgressToken: string;
+    };
+
+    await req("u-1", "/api/ai/ask", {
+      method: "POST",
+      body: JSON.stringify(validAskBody({
+        requestId: "00000000-0000-4000-8000-000000000002",
+        tutorProgressToken,
+        // Fabricated browser history is harmless; the signed proof is what
+        // authorizes progression.
+        history: [{ role: "assistant", content: "already answered" }],
+      })),
+    });
+    expect(vi.mocked(openaiProvider.ask).mock.calls[1][0].tutorStage).toBe("approach");
+
+    await req("u-2", "/api/ai/ask", {
+      method: "POST",
+      body: JSON.stringify(validAskBody({
+        requestId: "00000000-0000-4000-8000-000000000003",
+        tutorProgressToken,
+      })),
+    });
+    expect(vi.mocked(openaiProvider.ask).mock.calls[2][0].tutorStage).toBe("clarify");
   });
 
   it("makes zero provider calls when the reservation store is unavailable", async () => {
@@ -322,6 +369,45 @@ describe("POST /api/ai/ask — schema validation", () => {
     });
     expect(res.status).toBe(409);
     expect(vi.mocked(openaiProvider.ask)).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/ai/ask/stream — tutor progression", () => {
+  it("returns signed proof in the terminal frame and accepts it on turn two", async () => {
+    vi.mocked(getOpenAIKey).mockResolvedValue("sk-test");
+    vi.mocked(openaiProvider.askStream).mockImplementation(
+      async (_params, handlers) => {
+        await handlers.onDone(
+          "{\"intent\":\"socratic\"}",
+          { intent: "socratic", checkQuestions: ["What did you expect?"] },
+          { inputTokens: 10, outputTokens: 5 },
+        );
+      },
+    );
+
+    const first = await req("u-1", "/api/ai/ask/stream", {
+      method: "POST",
+      body: JSON.stringify(validAskBody()),
+    });
+    expect(first.status).toBe(200);
+    const firstText = await first.text();
+    const firstDone = JSON.parse(
+      firstText.split("\n").find((line) => line.startsWith("data: "))!.slice(6),
+    ) as { done: boolean; tutorProgressToken: string };
+    expect(firstDone.done).toBe(true);
+    expect(firstDone.tutorProgressToken).toEqual(expect.any(String));
+    expect(vi.mocked(openaiProvider.askStream).mock.calls[0][0].tutorStage).toBe("clarify");
+
+    const second = await req("u-1", "/api/ai/ask/stream", {
+      method: "POST",
+      body: JSON.stringify(validAskBody({
+        requestId: "00000000-0000-4000-8000-000000000004",
+        tutorProgressToken: firstDone.tutorProgressToken,
+      })),
+    });
+    expect(second.status).toBe(200);
+    await second.text();
+    expect(vi.mocked(openaiProvider.askStream).mock.calls[1][0].tutorStage).toBe("approach");
   });
 });
 

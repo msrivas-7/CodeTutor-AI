@@ -31,6 +31,7 @@ export const QUALITY_CONTRACT_FILES = [
   "src/services/ai/tutorIntent.ts",
   "src/services/ai/tutorOutput.ts",
   "src/services/ai/tutorPolicy.ts",
+  "src/services/ai/tutorProgress.ts",
   "src/services/ai/suspectApi.ts",
 ] as const;
 

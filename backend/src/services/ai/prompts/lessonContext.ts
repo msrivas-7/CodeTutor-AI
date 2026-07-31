@@ -3,6 +3,9 @@ import type { Language } from "../../execution/commands.js";
 export interface LessonContext {
   courseId: string;
   lessonId: string;
+  // Retained after canonical resolution so progression proofs can bind to a
+  // specific practice task instead of treating the whole lesson as one task.
+  exerciseId: string | null;
   lessonTitle: string;
   // The language the lesson is authored in. Drives the default entry file
   // when a completion rule omits `file`, and is echoed back to the tutor so

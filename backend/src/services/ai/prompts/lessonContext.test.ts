@@ -5,6 +5,7 @@ import type { LessonContext } from "./lessonContext.js";
 const full: LessonContext = {
   courseId: "python-fundamentals",
   lessonId: "hello-world",
+  exerciseId: null,
   lessonTitle: "Hello, World!",
   language: "python",
   lessonObjectives: ["Write and run a Python program", "Use print()"],

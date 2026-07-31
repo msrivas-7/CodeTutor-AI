@@ -151,6 +151,7 @@ describe("structured stream safety", () => {
         lessonContext: {
           courseId: "python",
           lessonId: "hello",
+          exerciseId: null,
           lessonTitle: "Hello",
           language: "python",
           lessonObjectives: [],
@@ -170,7 +171,9 @@ describe("structured stream safety", () => {
     expect(onDelta).not.toHaveBeenCalled();
     expect(onDone).toHaveBeenCalledOnce();
     const [safeRaw, sections] = onDone.mock.calls[0];
-    expect(sections.intent).toBe("checkin");
+    expect(sections.intent).toBe("socratic");
+    expect(sections.checkQuestions).toHaveLength(1);
+    expect(Object.keys(sections).sort()).toEqual(["checkQuestions", "intent"]);
     expect(safeRaw).not.toMatch(/B is right|Select B|prints hi/);
   });
 

@@ -1,6 +1,6 @@
-export const EVAL_DATASET_VERSION = "2.0.0";
-export const EVAL_EVALUATOR_VERSION = "2.1.0";
-export const EXPECTED_EVAL_CASE_COUNT = 50;
+export const EVAL_DATASET_VERSION = "2.1.0";
+export const EVAL_EVALUATOR_VERSION = "2.2.0";
+export const EXPECTED_EVAL_CASE_COUNT = 60;
 export const REQUIRED_EVAL_TAGS = [
   "multi-turn",
   "stale-context",
@@ -12,6 +12,7 @@ export const REQUIRED_EVAL_TAGS = [
 ] as const;
 
 export type EvalIntent =
+  | "socratic"
   | "debug"
   | "concept"
   | "howto"
@@ -66,6 +67,7 @@ export interface EvalGateResult {
 }
 
 const INTENTS: EvalIntent[] = [
+  "socratic",
   "debug",
   "concept",
   "howto",

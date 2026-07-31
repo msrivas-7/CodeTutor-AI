@@ -1,7 +1,7 @@
 import type { AIModel } from "./provider.js";
 
-export const MODEL_REGISTRY_VERSION = "2026-07-31.v2";
-export const TUTOR_EVAL_SET_VERSION = "2.0.0+evaluator.2.1.0";
+export const MODEL_REGISTRY_VERSION = "2026-07-31.v3";
+export const TUTOR_EVAL_SET_VERSION = "2.1.0+evaluator.2.2.0";
 
 export type ModelQualityStatus = "evaluated" | "unevaluated";
 

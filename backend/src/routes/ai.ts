@@ -20,7 +20,7 @@ import {
   type CredentialNoneReason,
 } from "../services/ai/credential.js";
 import { flagSuspectApis } from "../services/ai/suspectApi.js";
-import { AIProviderError } from "../services/ai/provider.js";
+import { AIProviderError, type AIAskParams } from "../services/ai/provider.js";
 import {
   isPlatformAllowedModel,
   priceUsd,
@@ -52,6 +52,11 @@ import {
 } from "../services/ai/effectiveCaps.js";
 import { resolveCanonicalTutorContext } from "../services/ai/canonicalTutorContext.js";
 import { isContextualTutorModel } from "../services/ai/modelRegistry.js";
+import {
+  mintTutorProgressToken,
+  resolveTutorStage,
+  tutorTaskScope,
+} from "../services/ai/tutorProgress.js";
 
 // Wire a per-request AbortController to (a) a config-driven deadline and
 // (b) the response's `close` event, so OpenAI calls stop burning tokens
@@ -408,6 +413,7 @@ const askBody = z.object({
   language: languageSchema.optional(),
   lastRun: runResultSchema.nullish(),
   history: historySchema.default([]),
+  tutorProgressToken: z.string().max(1_024).optional(),
   stdin: z.string().nullish(),
   diffSinceLastTurn: z.string().nullish(),
   runsSinceLastTurn: z.number().int().min(0).optional(),
@@ -456,7 +462,7 @@ aiRouter.post("/ask", async (req, res, next) => {
     return res.status(503).json({ error: "LESSON_CONTEXT_UNAVAILABLE" });
   }
 
-  const providerParams = {
+  const providerParams: AIAskParams = {
     key: cred.key,
     model: parsed.data.model,
     fundingSource: cred.source,
@@ -473,7 +479,16 @@ aiRouter.post("/ask", async (req, res, next) => {
     persona: parsed.data.persona,
     selection: parsed.data.selection ?? null,
     lessonContext: canonicalLessonContext,
+    tutorStage: "clarify" as const,
   };
+  const progressIdentity = {
+    actorId: `user:${userId}`,
+    taskScope: tutorTaskScope(providerParams),
+  };
+  providerParams.tutorStage = resolveTutorStage(
+    parsed.data.tutorProgressToken,
+    progressIdentity,
+  );
   let estimate;
   try {
     estimate = estimateReservationForAsk(providerParams);
@@ -535,7 +550,10 @@ aiRouter.post("/ask", async (req, res, next) => {
       language: parsed.data.language === "javascript" ? "javascript" : "python",
       route: "ask",
     });
-    res.json(result);
+    res.json({
+      ...result,
+      tutorProgressToken: mintTutorProgressToken(progressIdentity),
+    });
   } catch (err) {
     // S-3: if OpenAI 401s on the platform key, trip the kill flag so every
     // subsequent caller short-circuits to the "paused" 503 path instead of
@@ -603,7 +621,7 @@ aiRouter.post("/ask/stream", async (req, res) => {
     return res.status(503).json({ error: "LESSON_CONTEXT_UNAVAILABLE" });
   }
 
-  const providerParams = {
+  const providerParams: AIAskParams = {
     key: cred.key,
     model: parsed.data.model,
     fundingSource: cred.source,
@@ -620,7 +638,16 @@ aiRouter.post("/ask/stream", async (req, res) => {
     persona: parsed.data.persona,
     selection: parsed.data.selection ?? null,
     lessonContext: canonicalLessonContext,
+    tutorStage: "clarify" as const,
   };
+  const progressIdentity = {
+    actorId: `user:${userId}`,
+    taskScope: tutorTaskScope(providerParams),
+  };
+  providerParams.tutorStage = resolveTutorStage(
+    parsed.data.tutorProgressToken,
+    progressIdentity,
+  );
   let estimate;
   try {
     estimate = estimateReservationForAsk(providerParams);
@@ -731,7 +758,13 @@ aiRouter.post("/ask/stream", async (req, res) => {
             route: "ask_stream",
           });
           if (closed) return;
-          send({ done: true, raw, sections, usage });
+          send({
+            done: true,
+            raw,
+            sections,
+            usage,
+            tutorProgressToken: mintTutorProgressToken(progressIdentity),
+          });
           done();
         },
         onError: async (message, status) => {

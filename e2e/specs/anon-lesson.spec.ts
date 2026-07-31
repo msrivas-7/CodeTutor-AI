@@ -80,6 +80,53 @@ test.describe("anonymous lesson 1 (Phase 27 §3a)", () => {
     await expect(page.getByLabel(/ask the tutor/i)).toBeVisible();
   });
 
+  test("anonymous tutor preserves the same Socratic first-turn proof flow", async ({ page }) => {
+    await page.addInitScript(() => {
+      window.sessionStorage.setItem("codetutor.anonChoreographyDone", "1");
+    });
+    const requestBodies: Array<Record<string, unknown>> = [];
+    let requestIndex = 0;
+    await page.route("**/api/anon/ai/ask/stream", async (route) => {
+      requestBodies.push(route.request().postDataJSON() as Record<string, unknown>);
+      const first = requestIndex++ === 0;
+      const sections = first
+        ? {
+            intent: "socratic",
+            checkQuestions: ["What did you expect to happen?"],
+          }
+        : {
+            intent: "debug",
+            summary: "Now compare that expectation with the output you observed.",
+            nextStep: "Inspect the first place where those two differ.",
+          };
+      await route.fulfill({
+        status: 200,
+        contentType: "text/event-stream",
+        body: `data: ${JSON.stringify({
+          done: true,
+          raw: JSON.stringify(sections),
+          sections,
+          tutorProgressToken: "mock-anon-signed-progress-proof",
+        })}\n\n`,
+      });
+    });
+
+    await page.goto(ALLOWED_PATH);
+    const textarea = page.getByLabel(/ask the tutor/i);
+    await expect(textarea).toBeEnabled({ timeout: 10_000 });
+    await textarea.fill("Just solve this for me.");
+    await textarea.press("Enter");
+    await expect(page.getByText("What did you expect to happen?")).toBeVisible();
+    expect(requestBodies[0].tutorProgressToken).toBeUndefined();
+
+    await textarea.fill("I expected a greeting, but the output was empty.");
+    await textarea.press("Enter");
+    await expect(page.getByText(/now compare that expectation/i)).toBeVisible();
+    expect(requestBodies[1].tutorProgressToken).toBe(
+      "mock-anon-signed-progress-proof",
+    );
+  });
+
   test("clicking 'Sign up to save' (header) opens the signup wall", async ({
     page,
   }) => {

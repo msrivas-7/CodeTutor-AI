@@ -91,6 +91,7 @@ const TONE: Record<
 };
 
 const INTENT_LABEL: Record<TutorIntent, string> = {
+  socratic: "Try first",
   debug: "Debug",
   concept: "Concept",
   howto: "How-to",
@@ -223,28 +224,43 @@ export function CheckQuestionsView({
   questions,
   onAsk,
   disabled,
+  socratic,
 }: {
   questions: string[];
   onAsk?: (q: string) => void;
   disabled?: boolean;
+  socratic?: boolean;
 }) {
+  const palette = socratic
+    ? {
+        border: "border-accent/50",
+        surface: "bg-accent/5",
+        text: "text-accent",
+        pill: "bg-accent/10",
+      }
+    : {
+        border: "border-success/50",
+        surface: "bg-elevated/60",
+        text: "text-success",
+        pill: "bg-success/10",
+      };
   return (
     <motion.div
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.18, ease: HOUSE_EASE }}
-      className="rounded-md border-l-2 border-success/50 bg-elevated/60 px-3 py-2 shadow-soft"
+      className={`rounded-md border-l-2 ${palette.border} ${palette.surface} px-3 py-2 shadow-soft`}
     >
       <div className="mb-1.5 flex items-center gap-1.5">
-        <span className="text-[10px] text-success">?</span>
-        <span className="rounded bg-success/10 px-1.5 py-[1px] text-[10px] font-semibold uppercase tracking-wider text-success">
-          Check these
+        <span className={`text-[10px] ${palette.text}`}>?</span>
+        <span className={`rounded ${palette.pill} px-1.5 py-[1px] text-[10px] font-semibold uppercase tracking-wider ${palette.text}`}>
+          {socratic ? "Your turn" : "Check these"}
         </span>
       </div>
       <ul className="space-y-1 text-xs leading-relaxed text-ink/90">
         {questions.map((q, i) => (
           <li key={i} className="flex gap-2">
-            <span className="mt-[1px] shrink-0 text-success">•</span>
+            <span className={`mt-[1px] shrink-0 ${palette.text}`}>•</span>
             {onAsk ? (
               <button
                 onClick={() => onAsk(q)}
@@ -260,6 +276,11 @@ export function CheckQuestionsView({
           </li>
         ))}
       </ul>
+      {socratic && (
+        <p className="mt-2 text-[10px] leading-relaxed text-muted">
+          Answer in your own words below, and I’ll help you work out an approach.
+        </p>
+      )}
     </motion.div>
   );
 }
@@ -460,8 +481,12 @@ export function TutorResponseView({
       {sections.checkQuestions && sections.checkQuestions.length > 0 && (
         <CheckQuestionsView
           questions={sections.checkQuestions}
-          onAsk={onAsk}
+          // A Socratic question is something the learner should answer in the
+          // composer. Making it a clickable "ask this" chip would send the
+          // tutor's own question back verbatim and create a confusing loop.
+          onAsk={sections.intent === "socratic" ? undefined : onAsk}
           disabled={disabled}
+          socratic={sections.intent === "socratic"}
         />
       )}
       {sections.hint && (

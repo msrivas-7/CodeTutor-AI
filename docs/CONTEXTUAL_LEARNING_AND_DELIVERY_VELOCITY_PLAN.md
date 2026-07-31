@@ -778,6 +778,47 @@ Detailed evidence lives in `docs/RELEASE_B1_MEMORY_READ_SIDE_PACKET.md`.
 The phase-specific persona verdict lives in
 `docs/B1_MEMORY_READ_SIDE_PERSONA_AUDIT.md`.
 
+### Parallel Release B2 — Socratic default
+
+**Implementation status (2026-07-31):** the local implementation and release
+evidence are complete on `dev/contextual-learning-roadmap`; remote CI, deployed
+preview verification, and the PR review-thread audit remain pending until the
+phase commit is pushed. The server now enforces one clarifying question on the
+first successful task turn, permits a bounded approach only after a learner
+reply, and prevents a complete answer on every turn. The same contract covers
+authenticated, anonymous, guided, editor, scripted, and generated help.
+
+Deliver:
+
+- make the server—not browser history—the authority for the question-to-
+  approach transition;
+- bind a short-lived signed progression proof to actor and canonical task and
+  fail closed on absent, malformed, forged, expired, or cross-context input;
+- allow exactly one open question and no other guidance on turn one;
+- apply complete-answer enforcement to every learner-visible prose field and
+  mirror it with an independent deterministic release backstop;
+- remove exact-answer scripted rescue and keep scripted copy out of model
+  history;
+- render one calm, non-clickable “Your turn” question card without moving focus
+  or adding an automatic model call;
+- expand eval v2 to 60 cases with ten Socratic cases and six balanced intents.
+
+Exit:
+
+- unit, route, hostile-token, policy, store, stale-operation, auth/anon browser,
+  mobile, accessibility, and cross-browser tests pass;
+- the complete retry-disabled Chromium corpus and hostile security suite pass;
+- the 60-case live model gate completes with zero errors/deterministic failures,
+  ≥95% overall posture, ≥90% per-intent posture/helpfulness, and every absolute
+  case green;
+- the reviewed baseline fingerprint matches the shipped prompt, output policy,
+  evaluator, dataset, and model registry;
+- full PR CI, preview checks, and review threads are green before B3 begins.
+
+Detailed evidence lives in `docs/RELEASE_B2_SOCRATIC_DEFAULT_PACKET.md`.
+The phase-specific persona verdict lives in
+`docs/B2_SOCRATIC_DEFAULT_PERSONA_AUDIT.md`.
+
 ### Parallel Release B4 — Distribution surface
 
 B4 begins after share correctness and is never blocked by releases 1A–1D.

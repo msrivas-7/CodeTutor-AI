@@ -23,11 +23,18 @@ export interface AIMessage {
 }
 
 export type TutorIntent =
+  | "socratic"
   | "debug"
   | "concept"
   | "howto"
   | "walkthrough"
   | "checkin";
+
+// This value is owned by the server route, never inferred from browser
+// history. "clarify" is the safe default: one question only. A route may
+// supply "approach" only after it verifies the signed per-task progression
+// proof returned by a successfully completed first tutor turn.
+export type TutorStage = "clarify" | "approach";
 
 export type Persona = "beginner" | "intermediate" | "advanced";
 
@@ -111,6 +118,7 @@ export interface AIAskParams {
   language?: Language;
   lastRun?: RunResult | null;
   history: AIMessage[];
+  tutorStage?: TutorStage;
   // Phase 2 context — everything below is optional; the prompt builder falls
   // back to sensible defaults when omitted.
   stdin?: string | null;
@@ -140,6 +148,7 @@ export interface AIAskParams {
   lessonContext?: {
     courseId: string;
     lessonId: string;
+    exerciseId: string | null;
     lessonTitle: string;
     language: Language;
     lessonObjectives: string[];

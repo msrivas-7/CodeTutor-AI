@@ -87,13 +87,68 @@ function safeText(value: string | null | undefined): string | null {
   return scrubCanaries(value)?.trim() || null;
 }
 
-function meaningfulText(value: string | null | undefined): string | null {
+function safeProse(
+  value: string | null | undefined,
+  params: Pick<AIAskParams, "files" | "question">,
+): string | null {
   const text = safeText(value);
+  return text && !containsNewPasteableCode(text, params) ? text : null;
+}
+
+function meaningfulProse(
+  value: string | null | undefined,
+  params: Pick<AIAskParams, "files" | "question">,
+): string | null {
+  const text = safeProse(value, params);
   if (!text || text.length < 12 || (text.match(/[A-Za-z]+/g)?.length ?? 0) < 3) {
     return null;
   }
-  if (looksIncomplete(text)) return null;
-  return text;
+  return looksIncomplete(text) ? null : text;
+}
+
+const OPEN_CLARIFYING_QUESTION =
+  /^(?:what (?:did you expect|have you tried|happens|part|result|output|error|change|do you think)|where |which part|how would you describe|can you describe|when )/i;
+const LEADING_QUESTION =
+  /\b(?:answer|fix|replace|correct line|solution|should|need(?:s)?|missing|try|use|using|add|remove|delete|call|convert)\b|[`()[\]{}=]/i;
+
+function fallbackClarifyingQuestion(params: TutorPolicyParams): string {
+  if (params.diffSinceLastTurn) {
+    return "What changed in the result after your most recent edit?";
+  }
+  if (/\b(?:right|correct|on the right track|choice|answer)\b/i.test(params.question)) {
+    return "What evidence led you to your current conclusion?";
+  }
+  if (/^\s*(?:what (?:is|are|does)|why|explain)\b/i.test(params.question)) {
+    return "What have you already noticed about this idea, and what part still feels unclear?";
+  }
+  if (/\b(?:how (?:do|can|should)|make|build|create)\b/i.test(params.question)) {
+    return "What have you tried so far, and where did it stop matching what you wanted?";
+  }
+  return "What did you expect to happen, and what happened instead?";
+}
+
+function clarifyingQuestion(
+  sections: TutorSections,
+  params: TutorPolicyParams,
+): string {
+  const candidates = [
+    ...(sections.checkQuestions ?? []),
+    sections.comprehensionCheck,
+  ];
+  for (const candidate of candidates) {
+    const safe = safeAction(candidate, params);
+    if (
+      safe &&
+      safe.length <= 220 &&
+      !safe.includes("\n") &&
+      safe.endsWith("?") &&
+      OPEN_CLARIFYING_QUESTION.test(safe) &&
+      !LEADING_QUESTION.test(safe)
+    ) {
+      return safe;
+    }
+  }
+  return fallbackClarifyingQuestion(params);
 }
 
 function visibleConditionalChain(
@@ -369,8 +424,11 @@ function groundedWalkthrough(
 
 function fallbackWalkthroughSteps(
   sections: TutorSections,
+  params: Pick<AIAskParams, "files" | "question">,
 ): NonNullable<TutorSections["walkthrough"]> {
-  const source = meaningfulText(sections.explain) ?? meaningfulText(sections.summary);
+  const source =
+    meaningfulProse(sections.explain, params) ??
+    meaningfulProse(sections.summary, params);
   if (!source) return [];
   const sentences = source.split(/(?<=[.!?])\s+(?=[A-Z])/);
   return sentences
@@ -383,8 +441,8 @@ function fallbackWalkthroughSteps(
 /**
  * Semantic output firewall applied after schema parsing and before any model
  * text reaches the learner. It pins the trusted intent, removes irrelevant
- * sections, strips newly generated pasteable code from action fields, and
- * makes protected-data refusals explicit. This is intentionally conservative:
+ * sections, strips newly generated pasteable code from every learner-visible
+ * prose field, and makes protected-data refusals explicit. This is intentionally conservative:
  * a weaker hint is preferable to leaking the exercise answer.
  */
 export function applyTutorOutputPolicy({
@@ -398,16 +456,31 @@ export function applyTutorOutputPolicy({
   intent: TutorIntent;
   priorTutorTurns: number;
 }): TutorSections {
+  if (intent === "socratic") {
+    // Fail closed to a deterministic question. Nothing from summary,
+    // diagnosis, citations, hints, or stuckness may cross the first-turn
+    // boundary, even if the model ignored the prompt or the learner claimed
+    // prior progress in browser-owned history.
+    return {
+      intent: "socratic",
+      checkQuestions: [clarifyingQuestion(sections, params)],
+    };
+  }
   const protectedRequest = PROTECTED_REQUEST.test(params.question);
   const fallbackCitation = visibleCodeCitation(params);
   const common: TutorSections = {
     intent,
     summary: protectedRequest
       ? "I can’t provide the requested answer or protected information, but I can help you reason from the visible code."
-      : meaningfulText(sections.summary) ?? "Let’s use the current code as evidence.",
+      : meaningfulProse(sections.summary, params) ?? "Let’s use the current code as evidence.",
     citations:
       sections.citations?.length
-        ? sections.citations
+        ? sections.citations.map((citation) => ({
+            ...citation,
+            reason:
+              safeProse(citation.reason, params) ??
+              "Current code used for this guidance",
+          }))
         : fallbackCitation
           ? [fallbackCitation]
           : sections.citations,
@@ -432,13 +505,13 @@ export function applyTutorOutputPolicy({
         : common.comprehensionCheck,
       diagnose: singleListAddition
         ? `\`${singleListAddition.variable}\` is a list, and \`${singleListAddition.method}()\` is not a standard list method. The visible call passes one item.`
-        : safeText(sections.diagnose) ?? "The current result points to the cited area.",
+        : safeProse(sections.diagnose, params) ?? "The current result points to the cited area.",
       explain: singleListAddition
         ? `The visible call adds one item to \`${singleListAddition.variable}\`. Python’s standard single-item list method is \`append()\`; compare that method name with \`${singleListAddition.method}()\` on the cited line.`
-        : safeText(sections.explain),
+        : safeProse(sections.explain, params),
       checkQuestions: singleListAddition
         ? ["Are you adding one item, or expanding an existing collection?"]
-        : sections.checkQuestions?.map((item) => safeText(item)!).filter(Boolean) ?? null,
+        : sections.checkQuestions?.map((item) => safeAction(item, params)!).filter(Boolean) ?? null,
       hint: singleListAddition
         ? "Compare the standard single-item method with the method on the cited line."
         : safeAction(sections.hint, params),
@@ -455,7 +528,7 @@ export function applyTutorOutputPolicy({
   if (intent === "howto") {
     return {
       ...common,
-      explain: safeText(sections.explain),
+      explain: safeProse(sections.explain, params),
       hint: safeAction(sections.hint, params),
       nextStep:
         (protectedRequest
@@ -468,11 +541,11 @@ export function applyTutorOutputPolicy({
   if (intent === "walkthrough") {
     const sourceSteps = sections.walkthrough?.length
       ? sections.walkthrough
-      : fallbackWalkthroughSteps(sections);
+      : fallbackWalkthroughSteps(sections, params);
     const walkthrough = groundedWalkthrough(
       sourceSteps.map((step) => ({
         ...step,
-        body: safeText(step.body) ?? "Inspect this step in the current flow.",
+        body: safeProse(step.body, params) ?? "Inspect this step in the current flow.",
       })),
       params,
     );
@@ -517,7 +590,7 @@ export function applyTutorOutputPolicy({
           ? "I can review your reasoning, but I won’t confirm the requested answer."
           : irrelevantLabelEdit
             ? "The label edit leaves the incompatible operand types unchanged at the cited operation."
-          : safeText(sections.diagnose)) ??
+          : safeProse(sections.diagnose, params)) ??
         "Your approach needs one more check against the current lesson goal.",
       nextStep:
         (protectedRequest
@@ -534,7 +607,7 @@ export function applyTutorOutputPolicy({
   const constBinding = visibleJsConstBinding(params);
   const anchor = visibleConceptAnchor(params);
   const citationExplanation = sections.citations
-    ?.map((citation) => meaningfulText(citation.reason))
+    ?.map((citation) => meaningfulProse(citation.reason, params))
     .filter((reason): reason is string => !!reason)
     .sort((a, b) => b.length - a.length)[0];
   return {
@@ -545,15 +618,15 @@ export function applyTutorOutputPolicy({
         ? [conditional.citation]
         : constBinding
           ? [constBinding.citation]
-        : sections.citations?.length
-        ? sections.citations
+        : common.citations?.length
+        ? common.citations
         : anchor
           ? [anchor.citation]
           : sections.citations,
     explain:
       conditional?.explain ??
       constBinding?.explain ??
-      meaningfulText(sections.explain) ??
+      meaningfulProse(sections.explain, params) ??
       citationExplanation ??
       "Compare the cited forms in the current file and note how each one treats the visible values.",
     example:

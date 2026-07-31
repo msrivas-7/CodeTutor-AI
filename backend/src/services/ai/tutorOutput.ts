@@ -26,7 +26,7 @@ const walkStepSchema = z.object({
 export const tutorSectionsSchema = z
   .object({
     intent: z
-      .enum(["debug", "concept", "howto", "walkthrough", "checkin"])
+      .enum(["socratic", "debug", "concept", "howto", "walkthrough", "checkin"])
       .nullable()
       .optional(),
     summary: nullableText,

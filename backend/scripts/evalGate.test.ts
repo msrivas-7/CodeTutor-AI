@@ -9,7 +9,7 @@ import {
   type EvalSummaryV2,
 } from "./evalGate.js";
 
-const intents: EvalIntent[] = ["debug", "concept", "howto", "walkthrough", "checkin"];
+const intents: EvalIntent[] = ["socratic", "debug", "concept", "howto", "walkthrough", "checkin"];
 const tags = [
   "multi-turn",
   "stale-context",
@@ -140,7 +140,7 @@ describe("evaluateGate", () => {
     const { summary, baseline } = fixture();
     summary.results[0].posturePass = false;
     expect(evaluateGate(summary, baseline).reasons).toContainEqual(
-      expect.stringContaining("debug: posture regressed"),
+      expect.stringContaining("socratic: posture regressed"),
     );
   });
 });

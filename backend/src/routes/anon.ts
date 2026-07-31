@@ -76,6 +76,12 @@ import {
 } from "../db/aiReservations.js";
 import { resolveCanonicalAnonTutorContext } from "../services/ai/canonicalTutorContext.js";
 import { isContextualTutorModel } from "../services/ai/modelRegistry.js";
+import type { AIAskParams } from "../services/ai/provider.js";
+import {
+  mintTutorProgressToken,
+  resolveTutorStage,
+  tutorTaskScope,
+} from "../services/ai/tutorProgress.js";
 
 // Anon AI is locked to lesson 1 of python-fundamentals. The marketing
 // surface (/try/lesson/...) only links to this one lesson; this server-
@@ -164,6 +170,7 @@ const askStreamBody = z.object({
   // editor-mode (no lessonContext) callers; anon has no editor path.
   lastRun: runResultSchema.nullish(),
   history: historySchema.default([]),
+  tutorProgressToken: z.string().max(1_024).optional(),
   stdin: z.string().nullish(),
   runsSinceLastTurn: z.number().int().min(0).optional(),
   editsSinceLastTurn: z.number().int().min(0).optional(),
@@ -511,7 +518,7 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
     }
     aiPlatformRequests.inc({ outcome: "served", route: "ask_stream" });
 
-    const providerParams = {
+    const providerParams: AIAskParams = {
       key: cred.key,
       model: parsed.data.model,
       fundingSource: "platform" as const,
@@ -526,7 +533,16 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
       editsSinceLastTurn: parsed.data.editsSinceLastTurn,
       lessonContext: ctx,
       maxOutputTokens: config.freeTier.anonMaxOutputTokens,
+      tutorStage: "clarify" as const,
     };
+    const progressIdentity = {
+      actorId: `anonymous:${ipHash}`,
+      taskScope: tutorTaskScope(providerParams),
+    };
+    providerParams.tutorStage = resolveTutorStage(
+      parsed.data.tutorProgressToken,
+      progressIdentity,
+    );
     let estimate;
     try {
       estimate = estimateReservationForAsk(providerParams);
@@ -668,7 +684,13 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
               route: "anon_ask_stream",
             });
             if (closed) return;
-            send({ done: true, raw, sections, usage });
+            send({
+              done: true,
+              raw,
+              sections,
+              usage,
+              tutorProgressToken: mintTutorProgressToken(progressIdentity),
+            });
             finish();
           },
           onError: async (message, status) => {

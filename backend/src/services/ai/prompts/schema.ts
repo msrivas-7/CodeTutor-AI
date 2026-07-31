@@ -20,7 +20,7 @@ export const TUTOR_RESPONSE_SCHEMA = {
   properties: {
     intent: {
       type: "string",
-      enum: ["debug", "concept", "howto", "walkthrough", "checkin"],
+      enum: ["socratic", "debug", "concept", "howto", "walkthrough", "checkin"],
       description:
         "Your classification of the student's question. Pick the single best match.",
     },
@@ -69,7 +69,7 @@ export const TUTOR_RESPONSE_SCHEMA = {
       type: ["array", "null"],
       maxItems: 3,
       description:
-        "Up to 3 diagnostic questions FOR the student to answer (not for you). Debug intent.",
+        "One clarifying question for Socratic intent; up to 3 diagnostic questions for debug intent.",
       items: { type: "string" },
     },
     hint: {

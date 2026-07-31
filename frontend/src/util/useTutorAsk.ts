@@ -83,6 +83,13 @@ export interface UseTutorAskResult {
   cancelAsk: () => void;
 }
 
+/** Strip UI-only scripted turns and all non-wire metadata at the boundary. */
+export function historyForTutor(history: AIMessage[]): AIMessage[] {
+  return history
+    .filter((message) => !message.meta?.scripted)
+    .map((message) => ({ role: message.role, content: message.content }));
+}
+
 // Shared wrapper around api.askAIStream that owns the panel-agnostic lifecycle
 // (abort, snapshot, diff, stream updates, post-abort commit). Both the editor
 // AssistantPanel and the guided GuidedTutorPanel use this — previously each
@@ -91,7 +98,7 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
   // P-C1: shallow-compared reactive slice + stable action refs. A no-arg
   // `useAIStore()` re-runs this hook's body on every noteEdit/noteRun tick,
   // which fires during the stream loop (each delta triggers updateStream).
-  const { selectedModel, history, asking, lastTurnFiles, activeSelection, chatContext } =
+  const { selectedModel, history, asking, lastTurnFiles, activeSelection, chatContext, tutorProgressToken } =
     useAIStore(
       useShallow((s) => ({
         selectedModel: s.selectedModel,
@@ -100,6 +107,7 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
         lastTurnFiles: s.lastTurnFiles,
         activeSelection: s.activeSelection,
         chatContext: s.chatContext,
+        tutorProgressToken: s.tutorProgressToken,
       })),
     );
   const pushUser = useAIStore((s) => s.pushUser);
@@ -111,6 +119,7 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
   const clearStream = useAIStore((s) => s.clearStream);
   const commitTurnSnapshot = useAIStore((s) => s.commitTurnSnapshot);
   const setActiveSelection = useAIStore((s) => s.setActiveSelection);
+  const setTutorProgressToken = useAIStore((s) => s.setTutorProgressToken);
 
   const hasKey = usePreferencesStore((s) => s.hasOpenaiKey);
   const snapshot = useProjectStore((s) => s.snapshot);
@@ -212,8 +221,10 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
       commitTurnSnapshot(files);
 
       const adjusted = opts.beforeSend?.({ history });
-      const historyForSend =
-        adjusted ?? history.map((m) => ({ role: m.role, content: m.content }));
+      // Scripted cinematic narration is presentation, not a completed model
+      // turn. Never let it masquerade as progression or steer the generated
+      // tutor conversation.
+      const historyForSend = historyForTutor(adjusted ?? history);
 
       // Release 0D: the server uses this as the idempotency key for the
       // accepted action. A retry button is a new user action and therefore
@@ -227,6 +238,7 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
           selection: selectionForTurn,
         }),
         requestId: crypto.randomUUID(),
+        tutorProgressToken: tutorProgressToken ?? undefined,
       };
 
       let askOk = false;
@@ -239,10 +251,13 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
             raw += chunk;
             scheduleParse();
           },
-          onDone: (finalRaw, sections, usage) => {
+          onDone: (finalRaw, sections, usage, nextTutorProgressToken) => {
             cancelPending();
             if (!operationIsCurrent()) return;
             pushAssistant(finalRaw || raw, sections, usage);
+            if (nextTutorProgressToken) {
+              setTutorProgressToken(nextTutorProgressToken);
+            }
             clearStream();
             committed = true;
             askOk = true;

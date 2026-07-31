@@ -45,6 +45,44 @@ describe("AI action identity", () => {
   });
 });
 
+describe("AI tutor progression stream", () => {
+  it("forwards the server-signed progression proof from the terminal frame", async () => {
+    const terminal = {
+      done: true,
+      raw: "{\"intent\":\"socratic\"}",
+      sections: {
+        intent: "socratic",
+        checkQuestions: ["What did you expect?"],
+      },
+      tutorProgressToken: "signed-proof",
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(
+        `data: ${JSON.stringify(terminal)}\n\n`,
+        { status: 200, headers: { "content-type": "text/event-stream" } },
+      )),
+    );
+    const onDone = vi.fn();
+    await api.askAIStream(
+      {
+        requestId: "00000000-0000-4000-8000-000000000001",
+        model: "gpt-4.1-nano",
+        question: "help",
+        files: [],
+        history: [],
+      },
+      { onDelta: vi.fn(), onDone, onError: vi.fn() },
+    );
+    expect(onDone).toHaveBeenCalledWith(
+      terminal.raw,
+      terminal.sections,
+      undefined,
+      "signed-proof",
+    );
+  });
+});
+
 describe("Phase B1 memory API", () => {
   beforeEach(() => {
     vi.restoreAllMocks();

@@ -1,4 +1,4 @@
-import type { AIMessage, EditorSelection, Persona, ProjectFile, RunResult } from "./provider.js";
+import type { AIMessage, EditorSelection, Persona, ProjectFile, RunResult, TutorStage } from "./provider.js";
 import { TUTOR_CORE_PROMPT } from "./prompts/coreRules.js";
 import { studentSeemsStuck } from "./prompts/stuckDetection.js";
 import { PERSONA_BLOCK } from "./prompts/persona.js";
@@ -20,6 +20,7 @@ export interface SystemPromptOptions {
   runsSinceLastTurn?: number;
   editsSinceLastTurn?: number;
   persona?: Persona;
+  tutorStage?: TutorStage;
 }
 
 export function buildSystemPrompt(
@@ -32,6 +33,7 @@ export function buildSystemPrompt(
     question,
     runsSinceLastTurn: opts.runsSinceLastTurn,
     editsSinceLastTurn: opts.editsSinceLastTurn,
+    tutorStage: opts.tutorStage,
   });
   const personaBlock = opts.persona ? PERSONA_BLOCK[opts.persona] : null;
   return [TUTOR_CORE_PROMPT, situation, personaBlock].filter(Boolean).join("\n\n");

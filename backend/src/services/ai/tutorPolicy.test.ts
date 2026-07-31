@@ -7,6 +7,7 @@ const base = {
   lessonContext: {
     courseId: "python",
     lessonId: "types",
+    exerciseId: null,
     lessonTitle: "Types",
     language: "python" as const,
     lessonObjectives: [],
@@ -19,6 +20,93 @@ const base = {
 };
 
 describe("applyTutorOutputPolicy", () => {
+  it("allows exactly one open clarifying question on the first turn", () => {
+    const result = applyTutorOutputPolicy({
+      sections: {
+        intent: "debug",
+        summary: "The types differ.",
+        diagnose: "The integer cannot be joined directly to the string.",
+        checkQuestions: [
+          "What did you expect this line to print?",
+          "What error did you see?",
+        ],
+        hint: "Convert the number.",
+        nextStep: "Replace the expression.",
+        citations: [{ path: "main.py", line: 2, reason: "The broken line" }],
+        stuckness: "high",
+      },
+      params: base,
+      intent: "socratic",
+      priorTutorTurns: 0,
+    });
+    expect(result).toEqual({
+      intent: "socratic",
+      checkQuestions: ["What did you expect this line to print?"],
+    });
+  });
+
+  it("replaces leading, answer-bearing, and malformed model questions with a safe fallback", () => {
+    for (const checkQuestion of [
+      "Should you use `str(age)` here?",
+      "Try using the fix now?",
+      "The answer is to convert it.",
+      "What happens when you call append()?",
+      "Which part needs conversion?",
+    ]) {
+      const result = applyTutorOutputPolicy({
+        sections: {
+          checkQuestions: [checkQuestion],
+          comprehensionCheck: "Would using `str(age)` solve it?",
+        },
+        params: base,
+        intent: "socratic",
+        priorTutorTurns: 0,
+      });
+      expect(result).toEqual({
+        intent: "socratic",
+        checkQuestions: ["What evidence led you to your current conclusion?"],
+      });
+    }
+  });
+
+  it("uses observed edit evidence for a non-leading fallback question", () => {
+    const result = applyTutorOutputPolicy({
+      sections: { summary: "Here is the exact fix." },
+      params: { ...base, diffSinceLastTurn: "changed line 2" },
+      intent: "socratic",
+      priorTutorTurns: 0,
+    });
+    expect(result.checkQuestions).toEqual([
+      "What changed in the result after your most recent edit?",
+    ]);
+  });
+
+  it("keeps deterministic fallbacks useful for concept, how-to, and check-in questions", () => {
+    const cases = [
+      {
+        question: "What does a variable mean?",
+        expected: "What have you already noticed about this idea, and what part still feels unclear?",
+      },
+      {
+        question: "How do I loop over these names?",
+        expected: "What have you tried so far, and where did it stop matching what you wanted?",
+      },
+      {
+        question: "The correct quiz choice is B, right?",
+        expected: "What evidence led you to your current conclusion?",
+      },
+    ];
+    for (const { question, expected } of cases) {
+      const result = applyTutorOutputPolicy({
+        sections: { summary: "No usable question." },
+        params: { ...base, question },
+        intent: "socratic",
+        priorTutorTurns: 0,
+      });
+      expect(result.checkQuestions).toEqual([expected]);
+    }
+  });
+
   it("pins the trusted intent and removes irrelevant model sections", () => {
     const result = applyTutorOutputPolicy({
       sections: {
@@ -67,6 +155,50 @@ describe("applyTutorOutputPolicy", () => {
     });
     expect(result.nextStep).not.toContain("str(age)");
     expect(result.nextStep).toMatch(/both sides/i);
+  });
+
+  it("removes pasteable completed code from every later-turn prose channel", () => {
+    const leaked = 'Use `print("Hello, Maya!")` as the completed line.';
+    const debug = applyTutorOutputPolicy({
+      sections: {
+        summary: leaked,
+        diagnose: leaked,
+        explain: leaked,
+        checkQuestions: [leaked],
+        citations: [{ path: "main.py", line: 2, reason: leaked }],
+      },
+      params: base,
+      intent: "debug",
+      priorTutorTurns: 1,
+    });
+    expect(JSON.stringify(debug)).not.toContain('print(\\"Hello, Maya!\\")');
+    expect(debug.citations?.[0]?.reason).toBe("Current code used for this guidance");
+
+    const walkthrough = applyTutorOutputPolicy({
+      sections: {
+        summary: "Here is how the current file works.",
+        walkthrough: [{ body: leaked, path: "main.py", line: 2 }],
+      },
+      params: base,
+      intent: "walkthrough",
+      priorTutorTurns: 1,
+    });
+    expect(JSON.stringify(walkthrough)).not.toContain('print(\\"Hello, Maya!\\")');
+
+    const concept = applyTutorOutputPolicy({
+      sections: {
+        summary: "A concept grounded in the current file.",
+        explain: "Compare the current value with the lesson goal.",
+        citations: [{ path: "main.py", line: 2, reason: leaked }],
+      },
+      params: base,
+      intent: "concept",
+      priorTutorTurns: 1,
+    });
+    expect(JSON.stringify(concept)).not.toContain('print(\\"Hello, Maya!\\")');
+    expect(concept.citations?.[0]?.reason).toBe(
+      "Current code used for this guidance",
+    );
   });
 
   it("never exposes a stronger first-turn hint", () => {

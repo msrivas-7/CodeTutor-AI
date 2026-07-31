@@ -398,6 +398,7 @@ export interface AskStreamRequest {
   language?: Language;
   lastRun?: RunResult | null;
   history: AIMessage[];
+  tutorProgressToken?: string;
   stdin?: string | null;
   diffSinceLastTurn?: string | null;
   runsSinceLastTurn?: number;
@@ -413,7 +414,12 @@ export interface AskStreamRequest {
 
 export interface AskStreamHandlers {
   onDelta(chunk: string): void;
-  onDone(raw: string, sections: TutorSections, usage?: TokenUsage): void;
+  onDone(
+    raw: string,
+    sections: TutorSections,
+    usage?: TokenUsage,
+    tutorProgressToken?: string,
+  ): void;
   onError(message: string): void;
   signal?: AbortSignal;
 }
@@ -1412,6 +1418,7 @@ export const api = {
             raw?: string;
             sections?: TutorSections;
             usage?: TokenUsage;
+            tutorProgressToken?: string;
           };
           try {
             evt = JSON.parse(data);
@@ -1430,7 +1437,12 @@ export const api = {
           if (evt.done) {
             terminalFrameSeen = true;
             clearWatchdog();
-            handlers.onDone(evt.raw ?? "", evt.sections ?? {}, evt.usage);
+            handlers.onDone(
+              evt.raw ?? "",
+              evt.sections ?? {},
+              evt.usage,
+              evt.tutorProgressToken,
+            );
             return;
           }
         }

@@ -62,6 +62,7 @@ export const LANGUAGE_ENTRYPOINT: Record<Language, string> = {
 };
 
 export type TutorIntent =
+  | "socratic"
   | "debug"
   | "concept"
   | "howto"
@@ -149,6 +150,7 @@ export interface AIModel {
 export interface AIAskResult {
   sections: TutorSections;
   raw: string;
+  tutorProgressToken?: string;
 }
 
 export function monacoLangFor(path: string): string {

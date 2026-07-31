@@ -1,6 +1,7 @@
 import type {
   AIMessage,
   ProjectFile,
+  TutorStage,
   TutorIntent,
 } from "./provider.js";
 
@@ -68,11 +69,17 @@ export function classifyTutorIntent({
   question,
   files,
   history,
+  tutorStage = "clarify",
 }: {
   question: string;
   files: ProjectFile[];
   history?: AIMessage[];
+  tutorStage?: TutorStage;
 }): TutorIntent {
+  // Browser history is learner-controlled evidence, not progression proof.
+  // Every caller defaults to the restrictive first-turn mode unless a server
+  // route has verified the signed proof for this actor + task.
+  if (tutorStage === "clarify") return "socratic";
   const text = question.trim().toLocaleLowerCase();
 
   if (

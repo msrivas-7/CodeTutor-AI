@@ -94,6 +94,7 @@ export async function resolveCanonicalTutorContext(
   return {
     courseId: lesson.courseId,
     lessonId: lesson.lessonId,
+    exerciseId: lesson.exerciseId ?? null,
     lessonTitle: lesson.lessonTitle,
     language: lesson.language,
     lessonObjectives: lesson.lessonObjectives,
@@ -124,6 +125,7 @@ export async function resolveCanonicalAnonTutorContext(
   return {
     courseId: lesson.courseId,
     lessonId: lesson.lessonId,
+    exerciseId: lesson.exerciseId ?? null,
     lessonTitle: lesson.lessonTitle,
     language: lesson.language,
     lessonObjectives: lesson.lessonObjectives,

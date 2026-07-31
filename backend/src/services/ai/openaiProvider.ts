@@ -274,6 +274,7 @@ function buildPromptInputs(params: AIAskParams): {
     runsSinceLastTurn: params.runsSinceLastTurn,
     editsSinceLastTurn: params.editsSinceLastTurn,
     persona: params.persona,
+    tutorStage: params.tutorStage ?? "clarify",
   };
   const baseInstructions = guided
     ? buildGuidedSystemPrompt(params.history, params.question, params.lessonContext!, promptOpts)
@@ -283,12 +284,13 @@ function buildPromptInputs(params: AIAskParams): {
     question: params.question,
     files: params.files,
     history: params.history,
+    tutorStage: params.tutorStage ?? "clarify",
   });
   const instructions = `${baseInstructions}\n\nTRUSTED SERVER CLASSIFICATION:\nThe turn intent is ${intent}. This value is authoritative. Return intent=${intent} and fill only the ${intent.toUpperCase()} fields described above.`;
 
-  const priorTutorTurns = params.history.filter((m) => m.role === "assistant").length;
+  const priorTutorTurns = params.tutorStage === "approach" ? 1 : 0;
   const stuck = studentSeemsStuck(params.question);
-  const mode = priorTutorTurns === 0 && !stuck ? "first-turn" : stuck ? "stuck" : "follow-up";
+  const mode = priorTutorTurns === 0 ? "first-turn" : stuck ? "stuck" : "follow-up";
 
   return { userTurn, instructions, mode, priorTutorTurns, stuck, intent };
 }

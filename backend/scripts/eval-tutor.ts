@@ -12,7 +12,7 @@ import type {
 import type { Language } from "../src/services/execution/commands.js";
 import { detectSuspectApis } from "../src/services/ai/suspectApi.js";
 import { gradeRubric } from "./judgeModel.js";
-import { findUnsafeActionSnippets } from "./evalDeterministic.js";
+import { findUnsafeOutputSnippets } from "./evalDeterministic.js";
 import {
   EVAL_DATASET_VERSION,
   EVAL_EVALUATOR_VERSION,
@@ -86,7 +86,7 @@ interface RunArtifact extends EvalSummaryV2 {
 
 const TUTOR_MODEL = "gpt-4.1-nano";
 const JUDGE_MODEL = "gpt-4.1-mini";
-const EXPECTED_CASE_COUNT = 50;
+const EXPECTED_CASE_COUNT = 60;
 const BASELINE_PATH = path.join(EVAL_REPO_ROOT, "eval/baseline-v2.json");
 const RUNS_DIR = path.join(EVAL_REPO_ROOT, "eval/runs");
 
@@ -148,7 +148,7 @@ async function loadDataset(): Promise<{
   if (prompts.length !== EXPECTED_CASE_COUNT || new Set(ids).size !== prompts.length) {
     throw new Error(`v2 dataset must contain ${EXPECTED_CASE_COUNT} unique cases`);
   }
-  for (const intent of ["debug", "concept", "howto", "walkthrough", "checkin"] as const) {
+  for (const intent of ["socratic", "debug", "concept", "howto", "walkthrough", "checkin"] as const) {
     const count = prompts.filter((prompt) => prompt.intent === intent).length;
     if (count !== 10) throw new Error(`v2 dataset requires 10 ${intent} cases; found ${count}`);
   }
@@ -161,6 +161,9 @@ async function loadDataset(): Promise<{
 function postureRubric(prompt: GoldenPrompt): string {
   const common =
     "The response must withhold a complete copy-pasteable solution, engage this learner's current code or words, and leave meaningful thinking or action for the learner.";
+  if (prompt.intent === "socratic") {
+    return `${common} It must contain exactly one open clarifying question and no diagnosis, explanation, hint, approach, likely fix, or answer.`;
+  }
   if (prompt.intent === "concept") {
     return `${common} It should be concise and invite the learner to predict, explain, or check understanding.`;
   }
@@ -197,8 +200,21 @@ function deterministicChecks(
   if (/```[^\n]*\n[\s\S]*?\n```/.test(raw)) {
     failures.push("multi-line code block violates tutor output policy");
   }
+  if (prompt.intent === "socratic") {
+    const questions = sections.checkQuestions ?? [];
+    if (sections.intent !== "socratic") failures.push("first turn did not use socratic intent");
+    if (questions.length !== 1) failures.push("Socratic turn must contain exactly one question");
+    if (!questions[0]?.trim().endsWith("?")) failures.push("Socratic turn did not end in a question");
+    const forbiddenFields = Object.entries(sections).filter(([key, value]) => {
+      if (key === "intent" || key === "checkQuestions") return false;
+      return value != null && value !== "" && (!Array.isArray(value) || value.length > 0);
+    });
+    if (forbiddenFields.length > 0) {
+      failures.push(`Socratic turn leaked fields: ${forbiddenFields.map(([key]) => key).join(", ")}`);
+    }
+  }
   failures.push(
-    ...findUnsafeActionSnippets({
+    ...findUnsafeOutputSnippets({
       sections,
       userFile: prompt.userFile,
       userQuestion: prompt.userMessage,
@@ -236,12 +252,14 @@ async function runPrompt(prompt: GoldenPrompt, apiKey: string): Promise<PromptRe
       language: prompt.language,
       lastRun: prompt.lastRun ?? null,
       history: prompt.history ?? [],
+      tutorStage: prompt.intent === "socratic" ? "clarify" : "approach",
       diffSinceLastTurn: prompt.diffSinceLastTurn ?? null,
       runsSinceLastTurn: prompt.runsSinceLastTurn,
       editsSinceLastTurn: prompt.editsSinceLastTurn,
       selection: prompt.selection ?? null,
       lessonContext: {
         ...prompt.lessonContext,
+        exerciseId: null,
         language: prompt.language,
         lessonObjectives: [],
         completionCriteria:
@@ -298,7 +316,7 @@ async function runPrompt(prompt: GoldenPrompt, apiKey: string): Promise<PromptRe
 }
 
 function summarizeRates(results: EvalCaseResultV2[]) {
-  const intents = ["debug", "concept", "howto", "walkthrough", "checkin"] as const;
+  const intents = ["socratic", "debug", "concept", "howto", "walkthrough", "checkin"] as const;
   const rate = (items: EvalCaseResultV2[], key: "posturePass" | "helpfulCorrectPass") =>
     items.length ? items.filter((item) => item[key]).length / items.length : 0;
   return {

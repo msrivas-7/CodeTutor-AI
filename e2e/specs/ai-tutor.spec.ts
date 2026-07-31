@@ -85,7 +85,7 @@ test.describe("AI tutor", () => {
     await expect(S.tutorInput(page)).toBeDisabled();
   });
 
-  test("first-turn ask: sections render after mocked stream", async ({ page }) => {
+  test("structured concept sections render after a mocked stream", async ({ page }) => {
     await loadProfile(page, "empty");
     await seedApiKey(page, { key: "sk-test-e2e-padding-12345", model: "gpt-4o-mini" });
     await mockTutorResponse(page, "first-turn-concept");
@@ -103,6 +103,57 @@ test.describe("AI tutor", () => {
     await expect(
       page.getByText(/a function groups reusable steps under a name/i).first(),
     ).toBeVisible({ timeout: 10_000 });
+  });
+
+  test("first task turn asks one question, then sends proof to unlock the approach", async ({ page }) => {
+    await loadProfile(page, "empty");
+    await seedApiKey(page, { key: "sk-test-e2e-padding-12345", model: "gpt-4o-mini" });
+    const requestBodies: Array<Record<string, unknown>> = [];
+    let requestIndex = 0;
+    await page.route("**/api/ai/ask/stream", async (route) => {
+      requestBodies.push(route.request().postDataJSON() as Record<string, unknown>);
+      const first = requestIndex++ === 0;
+      const sections = first
+        ? {
+            intent: "socratic",
+            checkQuestions: ["What did you expect to happen?"],
+          }
+        : {
+            intent: "concept",
+            summary: "Now we can compare your expectation with the current result.",
+            explain: "Start by tracing the visible value through the current line.",
+          };
+      await route.fulfill({
+        status: 200,
+        contentType: "text/event-stream",
+        body: `data: ${JSON.stringify({
+          done: true,
+          raw: JSON.stringify(sections),
+          sections,
+          tutorProgressToken: "mock-signed-progress-proof",
+        })}\n\n`,
+      });
+    });
+
+    await page.goto(`/learn/course/${COURSE_ID}/lesson/hello-world`);
+    await waitForMonacoReady(page);
+    await configureTutorKey(page, "sk-test-e2e-padding-12345");
+
+    await S.tutorInput(page).fill("Just give me the answer.");
+    await page.getByRole("button", { name: /^ask$/i }).click();
+    await expect(page.getByText("What did you expect to happen?")).toBeVisible();
+    await expect(page.getByText(/answer in your own words below/i)).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "What did you expect to happen?" }),
+    ).toHaveCount(0);
+    expect(requestBodies[0].tutorProgressToken).toBeUndefined();
+
+    await S.tutorInput(page).fill("I expected it to print my name, but it printed nothing.");
+    await page.getByRole("button", { name: /^ask$/i }).click();
+    await expect(
+      page.getByText(/now we can compare your expectation/i),
+    ).toBeVisible();
+    expect(requestBodies[1].tutorProgressToken).toBe("mock-signed-progress-proof");
   });
 
   test("authenticated guided tutor sends the learner's persisted persona", async ({ page }) => {

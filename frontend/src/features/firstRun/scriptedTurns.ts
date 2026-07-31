@@ -84,22 +84,16 @@ export const GREET_USER_DRIVEN = (name: string): string =>
 // the starter's example. This soft-correction matches that contract
 // so the cinematic catches the lazy-pass before the validator does.
 export const WRONG_EDIT_LITERAL_EXAMPLE = (): string =>
-  "Almost — that's the literal example I gave you, not your name. " +
-  "Swap `World` for what people actually call you (keep the quotes), then run again.";
+  "What name did you want the computer to say instead of the example word?";
 
 export const WRONG_EDIT_EMPTY = (): string =>
-  "Hmm — nothing printed. Make sure you've added a " +
-  "`print(\"Hello, …!\")` line outside the comments. Tweak and run again.";
+  "Which line in your file is executable rather than a comment right now?";
 
 export const WRONG_EDIT_ERROR = (): string =>
-  "Something errored out — have a look at the red text in the output panel. " +
-  "Most common cause here: missing quotes around your name. It needs to be " +
-  "in quotes, like `\"Maya\"`.";
+  "What does the red error point to first: the function name, the punctuation, or the text?";
 
 export const WRONG_EDIT_GENERIC = (): string =>
-  "Close, but the output should look like `Hello, YourName!`. " +
-  "Check that your line starts with `print(`, ends with `)`, and keeps the " +
-  "whole greeting inside quotes. Then run it again.";
+  "What is the first difference between what your program printed and the greeting you expected?";
 
 // Second-attempt rescue. It points to the structure and evidence without
 // supplying a pasteable solution: the learner still authors the greeting.

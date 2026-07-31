@@ -1,21 +1,22 @@
-import { studentSeemsStuck, countAssistantTurns } from "./stuckDetection.js";
-import type { AIMessage } from "../provider.js";
+import { studentSeemsStuck } from "./stuckDetection.js";
+import type { AIMessage, TutorStage } from "../provider.js";
 
 export interface SituationParams {
   history: AIMessage[];
   question: string;
   runsSinceLastTurn?: number;
   editsSinceLastTurn?: number;
+  tutorStage?: TutorStage;
 }
 
 export function buildSituationBlock(params: SituationParams): string {
-  const priorTutorTurns = countAssistantTurns(params.history);
+  const verifiedPriorTurn = params.tutorStage === "approach";
   const stuck = studentSeemsStuck(params.question);
   const runs = params.runsSinceLastTurn ?? 0;
   const edits = params.editsSinceLastTurn ?? 0;
 
   return `SITUATION:
-- Prior tutor turns in this conversation: ${priorTutorTurns}
+- Server-verified prior tutor turn for this task: ${verifiedPriorTurn}
 - Student signalled being stuck: ${stuck}
 - Runs since last tutor turn: ${runs}
 - Edits since last tutor turn: ${edits}
@@ -26,10 +27,12 @@ Use activity counters to calibrate tone:
 - High edits AND high runs with the same failure → experimentation isn't
   working; escalate hints sooner.
 
-For intent="debug", calibrate escalation using SITUATION:
-- 0 prior turns AND not stuck → fill "diagnose" + "checkQuestions" only; leave "hint",
-  "nextStep", "strongerHint" null. Let the student think first.
-- Prior turns > 0 AND not stuck → may add "hint" (small nudge) and/or "nextStep".
+The server-selected intent="socratic" always outranks stuckness and activity:
+- No verified prior turn → ask exactly one clarifying question and provide nothing else.
+- A verified prior turn unlocks an approach, not a completed answer.
+
+For intent="debug" after the Socratic gate, calibrate escalation using SITUATION:
+- Verified prior turn AND not stuck → may add "hint" (small nudge) and/or "nextStep".
   Leave "strongerHint" null unless the student explicitly said they're stuck.
 - Stuck = true → fill "hint", "nextStep", AND "strongerHint". Strongest hint still
   points at the location, never the replacement code.
