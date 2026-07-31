@@ -731,11 +731,12 @@ Exit:
 
 ### Parallel Release B1 — Memory read-side
 
-**Implementation status (2026-07-31):** implementation is in progress on
+**Implementation status (2026-07-31):** implementation is complete on
 `dev/contextual-learning-roadmap`. The development Supabase project has the three
-forward migrations applied. Local browser evidence and the 18-lens persona
-review are complete; merge CI, preview deployment, and PR-comment resolution
-remain open. This does not claim the
+forward migrations applied. Local browser evidence, the 18-lens persona review,
+all 28 required PR checks, preview deployment and HTTP route health, and the
+review-thread audit are green. The B1 harness session finished with zero pending
+incidents. This does not claim the
 locked D7 retention outcome, and it does not surface the full learner-facing
 mastery graph reserved for Phase C.
 

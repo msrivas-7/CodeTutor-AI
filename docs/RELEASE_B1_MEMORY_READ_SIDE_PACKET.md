@@ -1,6 +1,6 @@
 # Release B1 memory read-side packet
 
-Status: implementation in progress
+Status: implementation complete; draft PR remains the long-lived roadmap vehicle
 
 Branch: `dev/contextual-learning-roadmap`
 
@@ -100,8 +100,8 @@ Supabase monitoring surfaces.
 - [x] The 18-lens persona audit is recorded in
   `docs/B1_MEMORY_READ_SIDE_PERSONA_AUDIT.md`; every local P0/P1 finding is
   fixed, and the remaining product claims are explicitly deferred.
-- [ ] Harness session is complete with zero pending incidents.
-- [ ] Phase commit is pushed; all required PR checks and deployed preview are
+- [x] Harness session is complete with zero pending incidents.
+- [x] Phase commit is pushed; all required PR checks and deployed preview are
   green; every actionable review thread is resolved.
 
 ## Claims deliberately not made
