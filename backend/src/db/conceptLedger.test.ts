@@ -109,6 +109,31 @@ describe("writeConceptTags (authed/userId path)", () => {
     expect(rows[0]?.count).toBe(1);
   });
 
+  it("collapses concurrent duplicate writes through the database constraint", async () => {
+    if (!dbReachable) return;
+    const userId = await mkUser();
+    const input = {
+      userId,
+      courseId: "python-fundamentals",
+      lessonId: "variables",
+      taught: ["variables", "assignment"],
+    };
+
+    const inserted = await Promise.all([
+      writeConceptTags(input),
+      writeConceptTags(input),
+    ]);
+    expect(inserted.reduce((total, count) => total + count, 0)).toBe(2);
+    const rows = await db()<Array<{ count: number }>>`
+      SELECT count(*)::int AS count
+        FROM public.learner_concept_ledger
+       WHERE user_id = ${userId}
+         AND course_id = 'python-fundamentals'
+         AND lesson_id = 'variables'
+    `;
+    expect(rows[0]?.count).toBe(2);
+  });
+
   it("writes a separate row for each event_type on the same concept", async () => {
     if (!dbReachable) return;
     const userId = await mkUser();

@@ -164,6 +164,36 @@ export async function getWorkerUser(workerIndex: number): Promise<CachedUser> {
 }
 
 /**
+ * Seed old exposure without exposing or copying the server-owned answer bank.
+ * Dedicated memory tests use this to make a known concept legitimately due;
+ * ordinary specs keep retrieval disabled at the fixture boundary.
+ */
+export async function seedDueConceptExposureForWorker(
+  workerIndex: number,
+  courseId: string,
+  conceptTags: string[],
+): Promise<void> {
+  const user = await getWorkerUser(workerIndex);
+  const rows = [...new Set(conceptTags)].map((conceptTag) => ({
+    user_id: user.userId,
+    ip_hash: null,
+    course_id: courseId,
+    lesson_id: "e2e-memory-due",
+    concept_tag: conceptTag,
+    event_type: "used",
+    occurred_at: new Date(Date.now() - 6 * 86_400_000).toISOString(),
+  }));
+  const { error: deleteError } = await admin
+    .from("learner_concept_ledger")
+    .delete()
+    .eq("user_id", user.userId)
+    .in("concept_tag", [...new Set(conceptTags)]);
+  if (deleteError) throw deleteError;
+  const { error } = await admin.from("learner_concept_ledger").insert(rows);
+  if (error) throw error;
+}
+
+/**
  * Inject a Supabase session into the page's localStorage before any app
  * code runs. Call INSIDE a test's setup (beforeEach or top of the test),
  * before `page.goto`. The injected session key matches the `storageKey`
@@ -274,9 +304,28 @@ export function trackSessionCleanup(
   };
 }
 
-export const test = baseTest.extend({
-  page: async ({ page }, use, testInfo) => {
+type CodeTutorFixtures = {
+  /**
+   * Most specs own a product boundary below the pre-lesson retrieval gate.
+   * Keep that unrelated boundary deterministic by default; the dedicated
+   * memory-warmup suite opts in and exercises the real endpoint and UI.
+   */
+  memoryWarmupsEnabled: boolean;
+};
+
+export const test = baseTest.extend<CodeTutorFixtures>({
+  memoryWarmupsEnabled: [false, { option: true }],
+  page: async ({ page, memoryWarmupsEnabled }, use, testInfo) => {
     await loginAsTestUser(page, testInfo.workerIndex);
+    if (!memoryWarmupsEnabled) {
+      await page.route("**/api/user/memory/warmup?**", async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ warmup: null }),
+        });
+      });
+    }
     const cleanupSessions = trackSessionCleanup(page, testInfo.workerIndex);
     try {
       await use(page);

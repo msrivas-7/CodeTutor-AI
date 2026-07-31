@@ -78,6 +78,7 @@ npm run test:real
 - **Don't boot the stack per-test.** `docker compose up -d` is the developer's one-time setup. `globalSetup` fails loudly if it's not running.
 - **Use `loadProfile(page, id)`** to land deterministically on "mid-course healthy / capstone-first-fail / all-complete" — it resets the worker user's DB rows then PATCHes the seed, so the next `page.goto` hydrates into the scenario without clicking through N lessons.
 - **Chromium owns the exhaustive suite.** Firefox and WebKit run the focused cross-browser product journey in CI.
+- **Cross-cutting pre-lesson gates are explicit fixtures.** The shared authenticated fixture returns no memory warm-up by default so unrelated editor/lesson tests keep one owned boundary. `memory-warmup.spec.ts` opts into the real endpoint with `test.use({ memoryWarmupsEnabled: true })`; new gate behavior needs the same dedicated opt-in pattern.
 - **Critical means source-owned metadata, not a filename list.** Use `criticalTest(...)`; the shadow contract rejects missing dimensions, P2 risk, active quarantine, or erosion below the frozen floor.
 - **No browser coverage is demoted during shadow.** Lower-layer migration pilots run beside their original browser boundaries until the plan's catch-quality gate passes.
 - **One behavior per test.** Keep tests tight — if two paths diverge (pass vs fail), they're two tests.
@@ -101,9 +102,9 @@ npm run test:real
 
 See `.github/workflows/e2e.yml`. The current PR model is:
 
-- six blocking Chromium shards for all 336 tests;
+- six blocking Chromium shards for all 341 tests;
 - blocking Firefox and WebKit focused journeys;
-- one advisory, zero-retry Chromium critical lane (currently 39 tests in 14 files);
+- one advisory, zero-retry Chromium critical lane (currently 41 tests in 15 files);
 - CI retries retain diagnostic traces, but `failOnFlakyTests` makes a flaky
   result fail its shard so a targeted rerun cannot erase the original signal;
 - versioned shadow evidence that records queue-inclusive readiness and any miss where the critical lane passes but the full suite fails.

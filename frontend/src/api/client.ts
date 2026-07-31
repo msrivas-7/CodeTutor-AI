@@ -317,6 +317,62 @@ export interface ServerLessonPatch {
   lastOutput?: string | null;
   practiceCompletedIds?: string[];
   practiceExerciseCode?: Record<string, Record<string, string>>;
+  practiceEvidence?: PracticeEvidencePayload;
+}
+
+export interface PracticeEvidencePayload {
+  exerciseId: string;
+  requestId: string;
+  attemptCount: number;
+  hintCount: number;
+  timeSpentMs: number;
+  modelAssisted: boolean;
+}
+
+export type ConceptMemoryState =
+  | "unseen"
+  | "encountered"
+  | "practiced"
+  | "remembered"
+  | "retained";
+
+export interface ConceptMemoryItem {
+  conceptTag: string;
+  state: ConceptMemoryState;
+  firstSeenAt: string | null;
+  lastSeenAt: string | null;
+  lastRetrievalAt: string | null;
+  practiceCount: number;
+  supportedRetrievalCount: number;
+  independentRetrievalCount: number;
+  refreshDue: boolean;
+}
+
+export interface ConceptMemoryResponse {
+  courseId: string;
+  refreshAfterDays: number;
+  concepts: ConceptMemoryItem[];
+}
+
+export interface MemoryWarmupPrompt {
+  episodeId: string;
+  courseId: string;
+  lessonId: string;
+  warmupId: string;
+  warmupVersion: number;
+  conceptTags: string[];
+  prompt: string;
+  choices: string[];
+  attemptCount: number;
+}
+
+export interface MemoryWarmupAnswer {
+  episodeId: string;
+  isCorrect: boolean;
+  attemptNumber: number;
+  completed: boolean;
+  firstAttemptCorrect: boolean;
+  explanation: string;
 }
 
 export interface EditorProjectPayload {
@@ -1050,6 +1106,24 @@ export const api = {
   ) =>
     patch<ServerLessonProgress>(
       `/api/user/lessons/${encodeURIComponent(courseId)}/${encodeURIComponent(lessonId)}`,
+      body,
+    ),
+  getConceptMemory: (courseId: string) =>
+    get<ConceptMemoryResponse>(
+      `/api/user/memory?courseId=${encodeURIComponent(courseId)}`,
+    ),
+  getMemoryWarmup: (courseId: string, lessonId: string) => {
+    const query = new URLSearchParams({ courseId, lessonId });
+    return get<{ warmup: MemoryWarmupPrompt | null }>(
+      `/api/user/memory/warmup?${query.toString()}`,
+    );
+  },
+  answerMemoryWarmup: (
+    episodeId: string,
+    body: { requestId: string; choiceIndex: number },
+  ) =>
+    post<MemoryWarmupAnswer>(
+      `/api/user/memory/warmup/${encodeURIComponent(episodeId)}/answer`,
       body,
     ),
   // P-H4: batch heartbeat flush. Items are additive per-lesson delta ms;

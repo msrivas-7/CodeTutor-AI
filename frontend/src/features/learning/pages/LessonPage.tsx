@@ -24,6 +24,7 @@ import { SkipToContent } from "../../../components/SkipToContent";
 import { Modal } from "../../../components/Modal";
 import { LessonCompletePanel } from "../components/LessonCompletePanel";
 import { RetrievalCheckPanel } from "../components/RetrievalCheckPanel";
+import { MemoryWarmupCard } from "../components/MemoryWarmupCard";
 import { ContextualGuideBridge } from "../assistance/ContextualGuideBridge";
 import { useContextualGuide } from "../assistance/useContextualGuide";
 import { useSessionLifecycle } from "../../../hooks/useSessionLifecycle";
@@ -44,6 +45,7 @@ import {
 import { useLessonLoader } from "../hooks/useLessonLoader";
 import { useLessonRunner } from "../hooks/useLessonRunner";
 import { useLessonValidator } from "../hooks/useLessonValidator";
+import { useMemoryWarmup } from "../hooks/useMemoryWarmup";
 import { useFirstRunChoreography } from "../../firstRun/useFirstRunChoreography";
 import { resolveFirstName } from "../../firstRun/resolveFirstName";
 import { useFirstRunStore } from "../../firstRun/useFirstRunStore";
@@ -314,6 +316,11 @@ export default function LessonPage({
     // prevents in-memory project-store state from leaking across mounts).
     forceStarter: isFirstRun || mode === "anon",
   });
+  const memoryWarmup = useMemoryWarmup({
+    enabled: mode === "authed" && learnerId !== null,
+    courseId: courseId ?? "",
+    lessonId: lessonId ?? "",
+  });
 
   // Phase 21A: chat context key includes practice scope so lesson↔practice
   // toggles get distinct chat threads (the bleed bug). Each practice
@@ -560,6 +567,7 @@ export default function LessonPage({
     assistanceMoves: loader.lesson?.assistanceMoves,
     historicallyComplete: historicalLessonComplete,
     blockingAttention:
+      memoryWarmup.blocking ||
       validator.showComplete ||
       (isChoreographed && firstRunStep !== "done"),
     learnerRequestedTutor: tutorAsking,
@@ -738,7 +746,7 @@ export default function LessonPage({
         <FirstRunHandoffReveal runBtnRef={layout.runBtnRef} />
       )}
       <SkipToContent />
-      <header className="relative z-30 flex items-center gap-3 border-b border-border bg-panel/80 px-4 py-2 backdrop-blur">
+      <header className="relative z-30 flex min-w-0 items-center gap-1 border-b border-border bg-panel/80 px-2 py-2 backdrop-blur sm:gap-3 sm:px-4">
         <button
           onClick={() => nav(`/learn/course/${courseId}`)}
           className="inline-flex min-h-11 min-w-11 items-center justify-center rounded px-2 text-xs text-muted transition hover:bg-elevated hover:text-ink"
@@ -746,8 +754,8 @@ export default function LessonPage({
         >
           ← Back
         </button>
-        <Wordmark size="sm" />
-        <span className="h-4 w-px bg-border" aria-hidden="true" />
+        <Wordmark size="sm" className="shrink-0 whitespace-nowrap" />
+        <span className="hidden h-4 w-px bg-border sm:block" aria-hidden="true" />
         {/* Phase B: lesson title hoisted to the instructions panel
             at Fraunces 28px. The header now carries only a thin
             breadcrumb — the lesson order — so the chrome doesn't
@@ -755,7 +763,7 @@ export default function LessonPage({
             full title still appears in the document title (set
             elsewhere) and the meta. */}
         {lesson ? (
-          <span className="truncate text-[11px] text-muted">
+          <span className="hidden truncate text-[11px] text-muted sm:inline">
             Lesson {lesson.order}
           </span>
         ) : (
@@ -802,15 +810,15 @@ export default function LessonPage({
             </div>
           </div>
         )}
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex min-w-0 shrink-0 items-center gap-1 sm:gap-2">
           {runner.sessionPhase === "starting" && (
-            <span className="flex items-center gap-1 text-[10px] text-muted">
+            <span className="hidden items-center gap-1 text-[10px] text-muted sm:flex">
               <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-muted" />
               Getting your workspace ready…
             </span>
           )}
           {runner.sessionPhase === "reconnecting" && (
-            <span className="text-[10px] text-yellow-300">Reconnecting…</span>
+            <span className="hidden text-[10px] text-yellow-300 sm:inline">Reconnecting…</span>
           )}
           {lp && (() => {
             const practiceTotal = lesson?.practiceExercises?.length ?? 0;
@@ -822,7 +830,7 @@ export default function LessonPage({
                 : 0;
             const practiceAllDone = practiceTotal > 0 && practiceDone === practiceTotal;
             return (
-              <div className="flex items-center overflow-hidden rounded-full">
+              <div className="hidden items-center overflow-hidden rounded-full sm:flex">
                 <span
                   className={`px-2.5 py-0.5 text-[10px] font-medium ${
                     lp.status === "completed"
@@ -981,6 +989,19 @@ export default function LessonPage({
             Setting your stage…
           </p>
         </div>
+      ) : lesson && memoryWarmup.blocking ? (
+        <MemoryWarmupCard
+          loading={memoryWarmup.loading}
+          warmup={memoryWarmup.warmup}
+          answer={memoryWarmup.answer}
+          submitting={memoryWarmup.submitting}
+          loadError={memoryWarmup.loadError}
+          answerError={memoryWarmup.answerError}
+          onSubmit={memoryWarmup.submitChoice}
+          onRetryAnswer={memoryWarmup.retryAnswer}
+          onRetryLoad={memoryWarmup.retryLoad}
+          onContinue={memoryWarmup.continueToLesson}
+        />
       ) : lesson && isPhoneNative ? (
         /* ---- Phone-native 390px lesson (Phase A — A2 part 2) ----
            One vertical reading flow: mission → code → output → tutor,
@@ -1009,10 +1030,12 @@ export default function LessonPage({
                   currentIndex={practiceIndex}
                   completedIds={lp?.practiceCompletedIds ?? []}
                   validation={validator.practiceValidation}
+                  saveError={validator.practiceSaveError}
                   onSelectExercise={validator.handleSelectPracticeExercise}
                   onExitPractice={validator.handleExitPractice}
                   onNextExercise={validator.handleNextPracticeExercise}
                   onResetPractice={validator.handleResetPracticeProgress}
+                  onHintReveal={validator.handlePracticeHintReveal}
                 />
               ) : (
                 <LessonInstructionsPanel
@@ -1250,10 +1273,12 @@ export default function LessonPage({
                 currentIndex={practiceIndex}
                 completedIds={lp?.practiceCompletedIds ?? []}
                 validation={validator.practiceValidation}
+                saveError={validator.practiceSaveError}
                 onSelectExercise={validator.handleSelectPracticeExercise}
                 onExitPractice={validator.handleExitPractice}
                 onNextExercise={validator.handleNextPracticeExercise}
                 onResetPractice={validator.handleResetPracticeProgress}
+                onHintReveal={validator.handlePracticeHintReveal}
                 onCollapse={() => layout.setInstrCollapsed(true)}
               />
             ) : (

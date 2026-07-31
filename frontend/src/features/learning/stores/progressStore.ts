@@ -6,6 +6,7 @@ import {
   type ServerCourseProgress,
   type ServerLessonPatch,
   type ServerLessonProgress,
+  type PracticeEvidencePayload,
 } from "../../../api/client";
 import { currentGen } from "../../../auth/generation";
 import { invalidateStreak } from "../../../state/useStreak";
@@ -117,7 +118,8 @@ interface ProgressState {
     courseId: string,
     lessonId: string,
     exerciseId: string,
-  ) => void;
+    evidence: Omit<PracticeEvidencePayload, "exerciseId">,
+  ) => Promise<boolean>;
   savePracticeCode: (
     courseId: string,
     lessonId: string,
@@ -502,21 +504,55 @@ export const useProgressStore = create<ProgressState>()((set, get) => {
       }));
     },
 
-    completePracticeExercise(courseId, lessonId, exerciseId) {
-      patchLesson(
-        courseId,
-        lessonId,
-        (lp) => {
-          const existing = lp.practiceCompletedIds ?? [];
-          if (existing.includes(exerciseId)) return null;
+    async completePracticeExercise(courseId, lessonId, exerciseId, evidence) {
+      const key = compositeKey(courseId, lessonId);
+      const current = get().lessonProgress[key];
+      if (!current || (current.practiceCompletedIds ?? []).includes(exerciseId)) {
+        return false;
+      }
+      const next: LessonProgress = {
+        ...current,
+        practiceCompletedIds: [
+          ...(current.practiceCompletedIds ?? []),
+          exerciseId,
+        ],
+        updatedAt: now(),
+      };
+      set((state) => ({
+        lessonProgress: { ...state.lessonProgress, [key]: next },
+      }));
+      try {
+        await api.patchLessonProgress(courseId, lessonId, {
+          practiceCompletedIds: next.practiceCompletedIds ?? [],
+          practiceEvidence: { exerciseId, ...evidence },
+        });
+        return true;
+      } catch (error) {
+        // Practice is a mastery input, so a failed evidence write cannot be
+        // silently treated as durable completion. Preserve unrelated updates
+        // but remove this optimistic ID so Check can safely retry.
+        console.error(
+          `[progress] completePracticeExercise ${courseId}/${lessonId}:`,
+          (error as Error).message,
+        );
+        set((state) => {
+          const latest = state.lessonProgress[key];
+          if (!latest) return state;
           return {
-            ...lp,
-            practiceCompletedIds: [...existing, exerciseId],
-            updatedAt: now(),
+            lessonProgress: {
+              ...state.lessonProgress,
+              [key]: {
+                ...latest,
+                practiceCompletedIds: (latest.practiceCompletedIds ?? []).filter(
+                  (id) => id !== exerciseId,
+                ),
+                updatedAt: now(),
+              },
+            },
           };
-        },
-        (next) => ({ practiceCompletedIds: next.practiceCompletedIds ?? [] }),
-      );
+        });
+        return false;
+      }
     },
 
     savePracticeCode(courseId, lessonId, exerciseId, code) {

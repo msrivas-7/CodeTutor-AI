@@ -135,7 +135,7 @@ export function UserMenu({ className }: { className?: string } = {}) {
         aria-controls="user-menu-dropdown"
         aria-label={email ? `User menu for ${email}` : "Open user menu"}
         title={email ?? "Account"}
-        className="flex h-7 w-7 items-center justify-center rounded-full border border-border bg-elevated text-[11px] font-semibold text-ink transition hover:border-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        className="flex h-11 w-11 items-center justify-center rounded-full border border-border bg-elevated text-[11px] font-semibold text-ink transition hover:border-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent sm:h-7 sm:w-7"
       >
         {initial}
       </button>

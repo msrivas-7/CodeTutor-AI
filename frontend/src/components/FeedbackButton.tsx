@@ -29,7 +29,7 @@ export function FeedbackButton() {
         aria-label="Give feedback"
         data-testid="feedback-button"
         title="Report a bug or share an idea"
-        className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-[11px] font-medium text-muted transition hover:bg-elevated hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-[11px] font-medium text-muted transition hover:bg-elevated hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent sm:min-h-0 sm:min-w-0 sm:justify-start"
       >
         <svg
           width="12"
@@ -40,7 +40,7 @@ export function FeedbackButton() {
         >
           <path d="M2 3.5A1.5 1.5 0 013.5 2h9A1.5 1.5 0 0114 3.5v7A1.5 1.5 0 0112.5 12H7.7l-2.9 2.3a.5.5 0 01-.8-.4V12h-.5A1.5 1.5 0 012 10.5v-7zM5 6a.75.75 0 000 1.5h6A.75.75 0 0011 6H5zm0 2.5a.75.75 0 000 1.5h4a.75.75 0 000-1.5H5z" />
         </svg>
-        Feedback
+        <span className="hidden sm:inline">Feedback</span>
       </button>
       {open && (
         <Suspense fallback={null}>

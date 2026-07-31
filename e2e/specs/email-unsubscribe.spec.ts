@@ -66,7 +66,7 @@ async function createTestUserWithPrefs(): Promise<{
 }> {
   if (!admin) throw new Error("Supabase admin client not configured");
   const email = buildCurrentRunTestEmail(
-    `unsub-${Date.now().toString(36)}-${process.pid}`,
+    `unsub-${Date.now().toString(36)}-p${process.pid}`,
   );
   const { data, error } = await admin.auth.admin.createUser({
     email,

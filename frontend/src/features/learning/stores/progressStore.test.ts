@@ -56,6 +56,13 @@ const LEARNER = "u-1";
 const COURSE = "python";
 const LESSON = "hello";
 const KEY = `${COURSE}/${LESSON}`;
+const practiceEvidence = (requestId: string) => ({
+  requestId,
+  attemptCount: 2,
+  hintCount: 1,
+  timeSpentMs: 12_000,
+  modelAssisted: false,
+});
 
 function reset(): void {
   useProgressStore.setState({
@@ -425,16 +432,48 @@ describe("progressStore practice", () => {
     patchLessonProgress.mockClear();
   });
 
-  it("completePracticeExercise appends unique ids", () => {
-    useProgressStore.getState().completePracticeExercise(COURSE, LESSON, "ex-1");
-    useProgressStore.getState().completePracticeExercise(COURSE, LESSON, "ex-2");
-    useProgressStore.getState().completePracticeExercise(COURSE, LESSON, "ex-1");
+  it("completePracticeExercise appends unique ids and persists bounded evidence", async () => {
+    await useProgressStore.getState().completePracticeExercise(
+      COURSE,
+      LESSON,
+      "ex-1",
+      practiceEvidence("00000000-0000-4000-8000-000000000001"),
+    );
+    await useProgressStore.getState().completePracticeExercise(
+      COURSE,
+      LESSON,
+      "ex-2",
+      practiceEvidence("00000000-0000-4000-8000-000000000002"),
+    );
+    await useProgressStore.getState().completePracticeExercise(
+      COURSE,
+      LESSON,
+      "ex-1",
+      practiceEvidence("00000000-0000-4000-8000-000000000003"),
+    );
     const lp = useProgressStore.getState().lessonProgress[KEY];
     expect(lp.practiceCompletedIds).toEqual(["ex-1", "ex-2"]);
+    expect(patchLessonProgress).toHaveBeenCalledTimes(2);
+    expect(patchLessonProgress).toHaveBeenCalledWith(
+      COURSE,
+      LESSON,
+      expect.objectContaining({
+        practiceCompletedIds: ["ex-1"],
+        practiceEvidence: expect.objectContaining({
+          exerciseId: "ex-1",
+          attemptCount: 2,
+        }),
+      }),
+    );
   });
 
-  it("resetPracticeProgress empties the list and patches", () => {
-    useProgressStore.getState().completePracticeExercise(COURSE, LESSON, "ex-1");
+  it("resetPracticeProgress empties the list and patches", async () => {
+    await useProgressStore.getState().completePracticeExercise(
+      COURSE,
+      LESSON,
+      "ex-1",
+      practiceEvidence("00000000-0000-4000-8000-000000000004"),
+    );
     patchLessonProgress.mockClear();
     useProgressStore.getState().resetPracticeProgress(COURSE, LESSON);
     expect(useProgressStore.getState().lessonProgress[KEY].practiceCompletedIds).toEqual([]);
@@ -443,6 +482,21 @@ describe("progressStore practice", () => {
       LESSON,
       { practiceCompletedIds: [], practiceExerciseCode: {} },
     );
+  });
+
+  it("rolls back optimistic completion when the evidence write fails", async () => {
+    patchLessonProgress.mockRejectedValueOnce(new Error("offline"));
+    const recorded = await useProgressStore.getState().completePracticeExercise(
+      COURSE,
+      LESSON,
+      "ex-1",
+      practiceEvidence("00000000-0000-4000-8000-000000000005"),
+    );
+
+    expect(recorded).toBe(false);
+    expect(
+      useProgressStore.getState().lessonProgress[KEY].practiceCompletedIds,
+    ).toEqual([]);
   });
 });
 

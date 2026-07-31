@@ -37,6 +37,13 @@ function celebrate(options: ConfettiOptions) {
   void import("canvas-confetti").then((m) => m.default(options));
 }
 
+interface PracticeEvidenceSession {
+  startedAt: number;
+  attemptCount: number;
+  startingTutorHintCount: number;
+  authoredHintCount: number;
+}
+
 export interface UseLessonValidatorArgs {
   lesson: Lesson | null;
   courseId: string | undefined;
@@ -123,6 +130,7 @@ export function useLessonValidator({
   const [failedVisibleTests, setFailedVisibleTests] = useState(0);
   const [failedHiddenTests, setFailedHiddenTests] = useState(0);
   const [practiceValidation, setPracticeValidation] = useState<ValidationResult | null>(null);
+  const [practiceSaveError, setPracticeSaveError] = useState<string | null>(null);
   const [testReport, setTestReport] = useState<TestReport | null>(null);
   const [runningTests, setRunningTests] = useState(false);
   const testOperationRef = useRef<ProjectOperationIdentity | null>(null);
@@ -140,6 +148,7 @@ export function useLessonValidator({
   const [resetNonce, setResetNonce] = useState(0);
   const [confirmResetLesson, setConfirmResetLesson] = useState(false);
   const autoEnteredPractice = useRef(false);
+  const practiceEvidence = useRef(new Map<string, PracticeEvidenceSession>());
 
   const completeLesson = useProgressStore((s) => s.completeLesson);
   const completePracticeExercise = useProgressStore((s) => s.completePracticeExercise);
@@ -178,10 +187,12 @@ export function useLessonValidator({
     setPracticeMode(false);
     setPracticeIndex(0);
     setPracticeValidation(null);
+    setPracticeSaveError(null);
     setTestReport(null);
     setLastFailedName(null);
     setSameFailStreak(0);
     savedLessonCode.current = null;
+    practiceEvidence.current.clear();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [courseId, lessonId]);
 
@@ -195,6 +206,7 @@ export function useLessonValidator({
     setTestReport(null);
     setValidation(null);
     setPracticeValidation(null);
+    setPracticeSaveError(null);
     setShowComplete(false);
     setHasChecked(false);
   }, [projectRevision, initializedRef]);
@@ -274,6 +286,16 @@ export function useLessonValidator({
     if (practiceMode) {
       const exercise = lesson.practiceExercises?.[practiceIndex];
       if (!exercise) return;
+      setPracticeSaveError(null);
+      const lessonProgress = useProgressStore.getState().lessonProgress[`${courseId}/${lessonId}`];
+      const evidence = practiceEvidence.current.get(exercise.id) ?? {
+        startedAt: Date.now(),
+        attemptCount: 0,
+        startingTutorHintCount: lessonProgress?.hintCount ?? 0,
+        authoredHintCount: 0,
+      };
+      evidence.attemptCount = Math.min(100, evidence.attemptCount + 1);
+      practiceEvidence.current.set(exercise.id, evidence);
       const practiceRules = selectCompletionRulesForCheck(lesson, true, practiceIndex);
       const practiceFnTests = practiceRules
         .filter((r) => r.type === "function_tests")
@@ -308,9 +330,39 @@ export function useLessonValidator({
       if (v.passed) {
         const current = useProgressStore.getState().lessonProgress[`${courseId}/${lessonId}`];
         const alreadyDone = (current?.practiceCompletedIds ?? []).includes(exercise.id);
-        completePracticeExercise(courseId, lessonId, exercise.id);
         if (!alreadyDone) {
-          celebrate({ particleCount: 80, spread: 55, origin: { y: 0.7 } });
+          const tutorHintCount = Math.max(
+            0,
+            (current?.hintCount ?? 0) - evidence.startingTutorHintCount,
+          );
+          setRunningTests(true);
+          const recorded = await completePracticeExercise(
+            courseId,
+            lessonId,
+            exercise.id,
+            {
+              requestId: crypto.randomUUID(),
+              attemptCount: Math.max(1, evidence.attemptCount),
+              hintCount: Math.min(
+                100,
+                tutorHintCount + evidence.authoredHintCount,
+              ),
+              timeSpentMs: Math.min(
+                24 * 60 * 60 * 1_000,
+                Math.max(0, Date.now() - evidence.startedAt),
+              ),
+              modelAssisted: tutorHintCount > 0,
+            },
+          );
+          finishTestOperation(operation);
+          if (!testOperationIsCurrent(operation)) return;
+          if (recorded) {
+            celebrate({ particleCount: 80, spread: 55, origin: { y: 0.7 } });
+          } else {
+            setPracticeSaveError(
+              "Your solution passed, but we couldn't save this practice result. Check again to retry.",
+            );
+          }
         }
       }
       return;
@@ -448,6 +500,15 @@ export function useLessonValidator({
     if (!lesson?.practiceExercises || !courseId || !lessonId) return;
     const exercise = lesson.practiceExercises[exerciseIndex];
     if (!exercise) return;
+    if (!practiceEvidence.current.has(exercise.id)) {
+      const current = useProgressStore.getState().lessonProgress[`${courseId}/${lessonId}`];
+      practiceEvidence.current.set(exercise.id, {
+        startedAt: Date.now(),
+        attemptCount: 0,
+        startingTutorHintCount: current?.hintCount ?? 0,
+        authoredHintCount: 0,
+      });
+    }
     const entry = LANGUAGE_ENTRYPOINT[lesson.language];
     // Prefer the learner's persisted WIP for this specific exercise. Falls
     // back to the authored starter only on first visit or after an explicit
@@ -465,7 +526,22 @@ export function useLessonValidator({
       openTabs: [order[0] ?? entry],
     });
     setPracticeValidation(null);
+    setPracticeSaveError(null);
   }, [lesson, courseId, lessonId]);
+
+  const handlePracticeHintReveal = useCallback(() => {
+    const exercise = lesson?.practiceExercises?.[practiceIndex];
+    if (!exercise || !courseId || !lessonId) return;
+    const current = useProgressStore.getState().lessonProgress[`${courseId}/${lessonId}`];
+    const evidence = practiceEvidence.current.get(exercise.id) ?? {
+      startedAt: Date.now(),
+      attemptCount: 0,
+      startingTutorHintCount: current?.hintCount ?? 0,
+      authoredHintCount: 0,
+    };
+    evidence.authoredHintCount = Math.min(100, evidence.authoredHintCount + 1);
+    practiceEvidence.current.set(exercise.id, evidence);
+  }, [lesson, practiceIndex, courseId, lessonId]);
 
   const handleEnterPractice = useCallback(() => {
     if (!lesson?.practiceExercises?.length) return;
@@ -545,8 +621,10 @@ export function useLessonValidator({
 
   const handleResetPracticeProgress = useCallback(() => {
     if (!courseId || !lessonId) return;
+    practiceEvidence.current.clear();
     resetPracticeProgress(courseId, lessonId);
     setPracticeValidation(null);
+    setPracticeSaveError(null);
     applyPracticeStarter(practiceIndex);
   }, [courseId, lessonId, resetPracticeProgress, practiceIndex, applyPracticeStarter]);
 
@@ -660,6 +738,7 @@ export function useLessonValidator({
   return {
     validation,
     practiceValidation,
+    practiceSaveError,
     showComplete,
     setShowComplete,
     hasChecked,
@@ -685,6 +764,7 @@ export function useLessonValidator({
     handleSelectPracticeExercise,
     handleNextPracticeExercise,
     handleResetPracticeProgress,
+    handlePracticeHintReveal,
     handleAskTutorAboutFailure,
   };
 }

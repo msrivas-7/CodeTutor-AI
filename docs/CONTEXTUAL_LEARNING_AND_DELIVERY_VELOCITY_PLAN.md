@@ -729,6 +729,54 @@ Exit:
 - after demotion, the full suite runs daily for 30 days and one P0/P1 miss immediately restores PR blocking;
 - only then consider demoting exhaustive PR Chromium.
 
+### Parallel Release B1 — Memory read-side
+
+**Implementation status (2026-07-31):** implementation is in progress on
+`dev/contextual-learning-roadmap`. The development Supabase project has the three
+forward migrations applied. Local browser evidence and the 18-lens persona
+review are complete; merge CI, preview deployment, and PR-comment resolution
+remain open. This does not claim the
+locked D7 retention outcome, and it does not surface the full learner-facing
+mastery graph reserved for Phase C.
+
+Deliver:
+
+- keep the A6 ledger honest as exposure history rather than relabeling it as
+  mastery;
+- add bounded practice and retrieval evidence with own-user read RLS, revoked
+  browser writes, cascade deletion, export coverage, retry/concurrency safety,
+  and server-owned canonical scoring;
+- derive `unseen → encountered → practiced → remembered → retained` without
+  allowing speed, completion, pasted work, practice alone, or recall after
+  feedback to become high-confidence retention;
+- author and lint one deterministic retrieval bank per public course;
+- place at most one due warm-up before a lesson whose prior concepts have not
+  been retrieved recently, with no model call and one primary attention owner;
+- record practice identity, attempts, authored/tutor help dose, elapsed time,
+  and model assistance as supporting evidence;
+- fail open to the lesson on memory-service failure while making retry and the
+  degraded state explicit.
+
+Exit:
+
+- real PostgreSQL cases prove cross-user RLS without application `WHERE`
+  clauses, denial of direct authenticated writes, successful backend-owned
+  writes, idempotent practice/retrieval writes, concurrent episode creation,
+  first-attempt versus feedback-supported classification, five-day spacing,
+  and immediate-repeat suppression;
+- route and browser tests prove the answer never reaches the client before a
+  choice, errors recover without trapping the learner, keyboard/focus/mobile/
+  reduced-motion contracts hold, and no automatic AI request occurs;
+- content lint, unit suites, typechecks, production builds, migrations, full
+  PR CI, deployed preview, and review threads are green;
+- the release packet records rollback, privacy/export, operational bounds, and
+  the distinction between engineering correctness and pending real-user D7
+  evidence.
+
+Detailed evidence lives in `docs/RELEASE_B1_MEMORY_READ_SIDE_PACKET.md`.
+The phase-specific persona verdict lives in
+`docs/B1_MEMORY_READ_SIDE_PERSONA_AUDIT.md`.
+
 ### Parallel Release B4 — Distribution surface
 
 B4 begins after share correctness and is never blocked by releases 1A–1D.

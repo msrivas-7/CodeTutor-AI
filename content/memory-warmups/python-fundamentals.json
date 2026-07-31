@@ -1,0 +1,220 @@
+{
+  "version": 1,
+  "lessons": {
+    "variables": [
+      {
+        "id": "print-a-stored-name",
+        "version": 1,
+        "conceptTags": [
+          "print",
+          "strings"
+        ],
+        "prompt": "Suppose `name` already stores the text \"Maya\". Which line prints the stored name rather than the word `name`?",
+        "choices": [
+          "print(name)",
+          "print(\"name\")",
+          "name(print)",
+          "print = name"
+        ],
+        "correctIndex": 0,
+        "explanation": "Without quotes, `name` means the value stored in the variable. Quotes would print the literal word `name`."
+      }
+    ],
+    "input-output": [
+      {
+        "id": "join-text-and-a-number",
+        "version": 1,
+        "conceptTags": [
+          "int",
+          "str",
+          "string-concat"
+        ],
+        "prompt": "If `age = 12`, which expression creates the text `Age: 12`?",
+        "choices": [
+          "\"Age: \" + age",
+          "\"Age: \" + str(age)",
+          "int(\"Age: \" + age)",
+          "age + 12"
+        ],
+        "correctIndex": 1,
+        "explanation": "Convert the integer with `str(age)` before joining it to another string with `+`."
+      }
+    ],
+    "conditionals": [
+      {
+        "id": "remember-input-type",
+        "version": 1,
+        "conceptTags": [
+          "input"
+        ],
+        "prompt": "A learner types `7` into `input(\"Score: \" )`. What kind of value comes back before you convert it?",
+        "choices": [
+          "The integer 7",
+          "The boolean True",
+          "The text \"7\"",
+          "No value"
+        ],
+        "correctIndex": 2,
+        "explanation": "Python's `input()` always returns text. Use `int(...)` or `float(...)` when you need a number."
+      }
+    ],
+    "loops": [
+      {
+        "id": "read-a-comparison",
+        "version": 1,
+        "conceptTags": [
+          "comparison",
+          "variables",
+          "int"
+        ],
+        "prompt": "If `tries` is 2, which condition is true?",
+        "choices": [
+          "tries == 3",
+          "tries > 5",
+          "tries != 2",
+          "tries < 3"
+        ],
+        "correctIndex": 3,
+        "explanation": "2 is less than 3, so `tries < 3` evaluates to `True`."
+      }
+    ],
+    "functions": [
+      {
+        "id": "choose-an-if-branch",
+        "version": 1,
+        "conceptTags": [
+          "if",
+          "elif",
+          "else",
+          "comparison"
+        ],
+        "prompt": "In an `if` / `elif` / `else` chain, what happens after Python finds the first true condition?",
+        "choices": [
+          "It runs that branch and skips the rest",
+          "It runs every branch",
+          "It always runs `else` too",
+          "It restarts the chain"
+        ],
+        "correctIndex": 0,
+        "explanation": "Only the first matching branch runs. The remaining `elif` and `else` branches are skipped."
+      }
+    ],
+    "lists": [
+      {
+        "id": "remember-return",
+        "version": 1,
+        "conceptTags": [
+          "def",
+          "return"
+        ],
+        "prompt": "What does `return total` do inside a function?",
+        "choices": [
+          "Prints `total` automatically",
+          "Sends `total` back to the caller and ends the function",
+          "Renames the function",
+          "Runs the function again"
+        ],
+        "correctIndex": 1,
+        "explanation": "`return` ends the current function call and gives its value back to the code that called it."
+      }
+    ],
+    "dictionaries": [
+      {
+        "id": "loop-through-a-list",
+        "version": 1,
+        "conceptTags": [
+          "list",
+          "for",
+          "iteration"
+        ],
+        "prompt": "Which loop visits every item in a list named `scores`?",
+        "choices": [
+          "for scores in score:",
+          "if score in scores:",
+          "for score in scores:",
+          "scores.for(score):"
+        ],
+        "correctIndex": 2,
+        "explanation": "A Python `for` loop names one item (`score`) and then the collection it comes from (`scores`)."
+      }
+    ],
+    "debugging-basics": [
+      {
+        "id": "remember-zero-index",
+        "version": 1,
+        "conceptTags": [
+          "list",
+          "indexing"
+        ],
+        "prompt": "If `colors = [\"red\", \"blue\"]`, which expression reads the first item?",
+        "choices": [
+          "colors[1]",
+          "colors[first]",
+          "colors(0)",
+          "colors[0]"
+        ],
+        "correctIndex": 3,
+        "explanation": "Python list indexes start at 0, so `colors[0]` is the first item."
+      }
+    ],
+    "mini-project": [
+      {
+        "id": "read-a-dictionary-value",
+        "version": 1,
+        "conceptTags": [
+          "dict",
+          "variables"
+        ],
+        "prompt": "If `student = {\"name\": \"Alex\"}`, which expression reads the stored name?",
+        "choices": [
+          "student[\"name\"]",
+          "student[0]",
+          "student.name()",
+          "name[student]"
+        ],
+        "correctIndex": 0,
+        "explanation": "A dictionary value is read with its key: `student[\"name\"]`."
+      }
+    ],
+    "capstone-word-frequency": [
+      {
+        "id": "grow-a-count",
+        "version": 1,
+        "conceptTags": [
+          "dict",
+          "for",
+          "iteration"
+        ],
+        "prompt": "While looping through words, what job does a dictionary do well?",
+        "choices": [
+          "Keep every word at index 0",
+          "Store each word as a key and its count as the value",
+          "Print words without storing them",
+          "Turn every word into a number"
+        ],
+        "correctIndex": 1,
+        "explanation": "Dictionaries pair unique keys with values, which makes them a good fit for word-to-count lookups."
+      }
+    ],
+    "capstone-task-tracker": [
+      {
+        "id": "read-a-nested-task",
+        "version": 1,
+        "conceptTags": [
+          "list",
+          "dict",
+          "nesting"
+        ],
+        "prompt": "`tasks` is a list of dictionaries. Which expression reads the `done` value from the first task?",
+        "choices": [
+          "tasks[\"done\"][0]",
+          "tasks.done(0)",
+          "tasks[0][\"done\"]",
+          "tasks[1][\"done\"]"
+        ],
+        "correctIndex": 2,
+        "explanation": "First select the first list item with `[0]`, then read that dictionary's `done` key."
+      }
+    ]
+  }
+}

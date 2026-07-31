@@ -35,6 +35,7 @@ interface CourseJson {
   title: string;
   lessonOrder: string[];
   baseVocabulary?: string[];
+  internal?: boolean;
 }
 
 const practiceExerciseSchema = z.object({
@@ -59,6 +60,51 @@ const catalogLessonSchema = z.object({
 });
 
 type LessonJson = z.infer<typeof catalogLessonSchema>;
+
+const memoryWarmupSchema = z
+  .object({
+    id: z.string().min(1).max(64).regex(/^[a-z0-9][a-z0-9_-]*$/),
+    version: z.number().int().positive().max(1_000_000),
+    conceptTags: z.array(z.string().min(1).max(64)).min(1).max(12),
+    prompt: z.string().min(1).max(2_000),
+    choices: z.array(z.string().min(1).max(500)).min(2).max(4),
+    correctIndex: z.number().int().min(0),
+    explanation: z.string().min(1).max(2_000),
+  })
+  .refine((item) => item.correctIndex < item.choices.length, {
+    message: "correctIndex must reference an existing choice",
+    path: ["correctIndex"],
+  });
+
+const memoryWarmupBankSchema = z.object({
+  version: z.literal(1),
+  lessons: z.record(z.string(), z.array(memoryWarmupSchema).min(1).max(8)),
+});
+
+export interface CanonicalMemoryWarmup {
+  id: string;
+  version: number;
+  conceptTags: string[];
+  prompt: string;
+  choices: string[];
+  correctIndex: number;
+  explanation: string;
+}
+
+export interface LessonMemorySnapshot {
+  courseId: string;
+  lessonId: string;
+  lessonTitle: string;
+  priorConcepts: string[];
+  warmups: CanonicalMemoryWarmup[];
+}
+
+export interface PracticeEvidenceSnapshot {
+  courseId: string;
+  lessonId: string;
+  exerciseId: string;
+  conceptTags: string[];
+}
 
 export interface TutorLessonSnapshot {
   courseId: string;
@@ -88,6 +134,21 @@ function catalogRoot(): string {
   if (existsSync(baked)) return baked;
   // Workspace tests/dev: backend/src/services/share -> frontend/public/courses.
   return path.resolve(path.dirname(here), "../../../../frontend/public/courses");
+}
+
+// Retrieval answers are intentionally outside the frontend's public course
+// tree. In the runtime image this resolves to /app/memory-warmups; in the
+// workspace it falls back to the repository-owned private authoring tree.
+// Keeping this root separate makes the server-only answer boundary true at
+// rest as well as at the API projection layer.
+function memoryWarmupRoot(): string {
+  const here = fileURLToPath(import.meta.url);
+  const baked = path.resolve(path.dirname(here), "../../../memory-warmups");
+  if (existsSync(baked)) return baked;
+  return path.resolve(
+    path.dirname(here),
+    "../../../../content/memory-warmups",
+  );
 }
 
 async function readJson<T>(filePath: string): Promise<T | null> {
@@ -250,6 +311,113 @@ function safeCompletionCriteria(
 }
 
 const tutorCache = new Map<string, TutorLessonSnapshot>();
+const memoryCache = new Map<string, LessonMemorySnapshot>();
+const courseConceptCache = new Map<string, string[]>();
+const practiceEvidenceCache = new Map<string, PracticeEvidenceSnapshot>();
+
+/**
+ * Phase B1 canonical retrieval authority. The correct answer never comes from
+ * the browser; it is loaded from the same baked course tree as tutor context.
+ */
+export async function getLessonMemorySnapshot(
+  courseId: string,
+  lessonId: string,
+): Promise<LessonMemorySnapshot | null> {
+  if (!SLUG_RE.test(courseId) || !SLUG_RE.test(lessonId)) return null;
+  const cacheKey = `${courseId}/${lessonId}`;
+  const cached = memoryCache.get(cacheKey);
+  if (cached) return cached;
+
+  const root = catalogRoot();
+  const [course, lesson, rawBank] = await Promise.all([
+    readJson<CourseJson>(path.join(root, courseId, "course.json")),
+    readCatalogLesson(root, courseId, lessonId),
+    readJson<unknown>(path.join(memoryWarmupRoot(), `${courseId}.json`)),
+  ]);
+  if (!course || course.id !== courseId || !course.lessonOrder.includes(lessonId)) {
+    return null;
+  }
+  if (!lesson || rawBank === null) return null;
+  const parsedBank = memoryWarmupBankSchema.safeParse(rawBank);
+  if (!parsedBank.success) {
+    throw new Error(
+      `invalid memory warm-up bank ${courseId}: ${parsedBank.error.issues
+        .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+        .join("; ")}`,
+    );
+  }
+  const allowed = new Set(lesson.usesConceptTags);
+  const warmups = (parsedBank.data.lessons[lessonId] ?? []).filter((warmup) =>
+    warmup.conceptTags.every((tag) => allowed.has(tag)),
+  );
+  const snapshot: LessonMemorySnapshot = {
+    courseId,
+    lessonId,
+    lessonTitle: lesson.title,
+    priorConcepts: [...lesson.usesConceptTags],
+    warmups,
+  };
+  memoryCache.set(cacheKey, snapshot);
+  return snapshot;
+}
+
+/** Server-owned concept universe for a learner's course memory read model. */
+export async function getCourseConceptTags(courseId: string): Promise<string[] | null> {
+  if (!SLUG_RE.test(courseId)) return null;
+  const cached = courseConceptCache.get(courseId);
+  if (cached) return cached;
+  const root = catalogRoot();
+  const course = await readJson<CourseJson>(path.join(root, courseId, "course.json"));
+  if (!course || course.id !== courseId || course.internal) return null;
+  const lessons = await Promise.all(
+    course.lessonOrder.map((lessonId) => readCatalogLesson(root, courseId, lessonId)),
+  );
+  if (lessons.some((lesson) => lesson === null)) return null;
+  const tags = Array.from(
+    new Set(
+      lessons.flatMap((lesson) =>
+        lesson ? [...lesson.teachesConceptTags, ...lesson.usesConceptTags] : [],
+      ),
+    ),
+  ).sort();
+  courseConceptCache.set(courseId, tags);
+  return tags;
+}
+
+/**
+ * Canonical practice identity for bounded supporting evidence. Practice is
+ * deliberately not promoted to retained/remembered state by itself. The
+ * current content model scopes practice to the lesson, so the associated
+ * concepts are the lesson's taught concepts (or, for capstones, its used
+ * concepts) rather than browser-supplied tags.
+ */
+export async function getPracticeEvidenceSnapshot(
+  courseId: string,
+  lessonId: string,
+  exerciseId: string,
+): Promise<PracticeEvidenceSnapshot | null> {
+  if (!SLUG_RE.test(courseId) || !SLUG_RE.test(lessonId) || !SLUG_RE.test(exerciseId)) {
+    return null;
+  }
+  const cacheKey = `${courseId}/${lessonId}/${exerciseId}`;
+  const cached = practiceEvidenceCache.get(cacheKey);
+  if (cached) return cached;
+  const lesson = await readCatalogLesson(catalogRoot(), courseId, lessonId);
+  if (!lesson || !lesson.practiceExercises.some((item) => item.id === exerciseId)) {
+    return null;
+  }
+  const sourceTags = lesson.teachesConceptTags.length
+    ? lesson.teachesConceptTags
+    : lesson.usesConceptTags;
+  const snapshot: PracticeEvidenceSnapshot = {
+    courseId,
+    lessonId,
+    exerciseId,
+    conceptTags: Array.from(new Set(sourceTags)).slice(0, 12),
+  };
+  practiceEvidenceCache.set(cacheKey, snapshot);
+  return snapshot;
+}
 
 /**
  * Release 0D canonical prompt authority. Only identity comes from the client;
@@ -323,4 +491,7 @@ export function _resetLessonCatalogCache(): void {
   cache.clear();
   tagsCache.clear();
   tutorCache.clear();
+  memoryCache.clear();
+  courseConceptCache.clear();
+  practiceEvidenceCache.clear();
 }
