@@ -1,7 +1,7 @@
 # Release B3 evidence-based tutor routing packet
 
-Status: local implementation and quality gates complete; CI, deployed preview,
-browser verification, and PR review clearance pending
+Status: engineering release gates complete at `6f9a108`; real-user outcome
+evidence remains unavailable
 
 Branch: `dev/contextual-learning-roadmap`
 
@@ -92,6 +92,26 @@ intent, and every absolute must-pass case green. The committed baseline pins
 the exact dataset and quality-contract fingerprints from the approved run, and
 the independent replay passes against that baseline.
 
+## Remote release evidence
+
+All PR checks for `6f9a108` are green across Linux, macOS, Windows, six
+Chromium shards, Firefox, WebKit, the zero-retry critical lane, security,
+content, release-manifest, dependency, and preview-deployment gates. Chromium
+shard 2 initially recorded one click-timing flake in an existing magic-link
+test; that test passed on its built-in retry, every other shard-2 case passed,
+and the one permitted job-only rerun then passed cleanly. The original failure
+remains visible in the Actions history.
+
+The deployed static preview returns 200 and the contextual-guide journey passes
+at 1440x900 and 390x844: repeated current evidence selects the authored
+question, highlights one current editor line, keeps both actions at least 44px,
+creates no horizontal overflow, and makes zero automatic AI calls. The preview
+frontend sends the newer B4 attribution shape to the older production backend,
+which rejects `anon_first_run` with one `invalid_event_body` telemetry 400.
+That expected branch/backend version drift is not represented as a successful
+backend-preview proof; the same-commit full-stack CI telemetry contract is the
+authoritative integration evidence until branch-scoped backend previews exist.
+
 ## Additional tutor hardening completed during B3
 
 - Walkthroughs are split and grounded to the correct visible source line;
@@ -131,9 +151,10 @@ the independent replay passes against that baseline.
   dependency audit, and the baseline verifier pass.
 - [x] The 18-lens persona audit is recorded in
   `docs/B3_MODEL_ROUTING_PERSONA_AUDIT.md` with no local P0/P1 finding open.
-- [ ] Full PR CI and deployed-preview checks pass for the B3 commit.
-- [ ] Deployed browser verification passes at desktop and phone widths.
-- [ ] Every actionable PR review thread is resolved.
+- [x] Full PR CI and deployed-preview checks pass for the B3 commit.
+- [x] Deployed browser verification passes at desktop and phone widths.
+- [x] Every actionable PR review thread is resolved; the thread-aware audit
+  found no reviews or review threads.
 - [x] Harness session is complete with zero pending incidents; harness doctor
   passes.
 
