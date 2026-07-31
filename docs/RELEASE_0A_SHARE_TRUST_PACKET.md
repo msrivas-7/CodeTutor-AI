@@ -1,7 +1,7 @@
 # Release 0A — share trust packet
 
-Status: local implementation and release gates complete; remote CI, review,
-and real-destination gates pending
+Status: engineering release gates complete at `7141853`; real-destination
+proof remains a post-production-deployment gate
 
 Branch: `dev/contextual-learning-roadmap`
 
@@ -76,6 +76,19 @@ Share behavior now records four honest outcomes:
 - Retry-disabled Chromium evidence passes seven share-outcome/recovery cases,
   the stacked-dialog focus restoration case, three 390 px/reduced-motion share
   artifact cases, and three revoked/unknown/canonical-metadata cases.
+- The complete PR matrix is green at `7141853`: Linux, macOS, and Windows
+  builds/tests; release, content, asset, secret, security, adapter, and shell
+  gates; six Chromium shards; Firefox, WebKit, the advisory critical lane, and
+  the E2E shadow-evidence collector.
+- Chromium shard 3 initially stopped during Playwright browser installation
+  before running product tests. Its isolated retry completed setup, executed
+  the tests, and passed; no product assertion was weakened or retried.
+- The deployed PR preview passes retry-disabled desktop and 390 px checks and
+  returns safe generic metadata when its older production backend lacks the
+  candidate internal route. This is deployment-skew evidence, not same-commit
+  backend proof.
+- GitGuardian is green after the deterministic HMAC vector was changed from a
+  secret-shaped literal to an independently derived low-entropy byte recipe.
 
 ## Required release evidence
 
@@ -92,8 +105,9 @@ Share behavior now records four honest outcomes:
 - [ ] Fresh production tokens render correctly in Slack, Discord, LinkedIn,
   and iMessage; timestamped captures, click-through, request metadata, and
   observed cache timing are recorded.
-- [ ] Full PR CI and deployed-preview checks are green for the 0A commit.
-- [ ] Every actionable PR review thread is resolved.
+- [x] Full PR CI and deployed-preview checks are green for the 0A commit.
+- [x] Every actionable PR review thread is resolved; the PR currently has no
+  review threads or submitted reviews.
 - [x] Both 0A harness sessions finish with zero pending incidents and harness
   doctor passes.
 
