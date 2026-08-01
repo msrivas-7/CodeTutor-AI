@@ -124,4 +124,36 @@ test.describe("B4 public distribution surface", () => {
     });
     expect(new URL(page.url()).search).toBe("");
   });
+
+  test("a direct first touch cannot be overwritten by a later tagged CTA", criticalTest({
+    risk: "p1",
+    owner: "growth",
+    browsers: ["chromium"],
+    devices: ["desktop"],
+    quarantine: { state: "none" },
+  }), async ({ page }) => {
+    await page.addInitScript(() => {
+      window.sessionStorage.setItem("codetutor.anonCinematicSeen", "1");
+      window.sessionStorage.setItem("codetutor.anonCoachSeen", "1");
+      window.sessionStorage.setItem("codetutor.anonChoreographyDone", "1");
+    });
+    const bodies: Array<Record<string, unknown>> = [];
+    await page.route("**/api/telemetry/event", async (route) => {
+      bodies.push(route.request().postDataJSON() as Record<string, unknown>);
+      await route.fulfill({ status: 204 });
+    });
+
+    await page.goto("/");
+    await page.goto("/learn-to-code/");
+    await page.getByRole("link", { name: /try a four-minute lesson/i }).click();
+    await expect(page).toHaveURL(
+      /\/try\/lesson\/python-fundamentals\/hello-world$/,
+    );
+    await expect.poll(() => bodies.length).toBeGreaterThan(0);
+    expect(bodies.at(-1)).toMatchObject({
+      event: "anon_page_view",
+      attribution: { source: "direct" },
+    });
+    expect(new URL(page.url()).search).toBe("");
+  });
 });

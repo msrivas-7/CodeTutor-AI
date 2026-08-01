@@ -86,6 +86,30 @@ describe("distribution attribution", () => {
     expect(readDistributionAttribution(storage)).toEqual(first);
   });
 
+  it("persists a direct first touch before a later tagged SPA route", () => {
+    const storage = memoryStorage();
+    expect(
+      captureDistributionAttribution(
+        { pathname: "/", search: "", hash: "" },
+        { replaceState: () => undefined },
+        storage,
+      ),
+    ).toEqual({ source: "direct" });
+
+    captureDistributionAttribution(
+      {
+        pathname: "/learn-to-code/",
+        search:
+          "?utm_source=organic&utm_medium=category_page&utm_campaign=learn-to-code",
+        hash: "",
+      },
+      { replaceState: () => undefined },
+      storage,
+    );
+
+    expect(readDistributionAttribution(storage)).toEqual({ source: "direct" });
+  });
+
   it("fails closed to direct when stored data is malformed", () => {
     expect(readDistributionAttribution(memoryStorage({ source: "google" }))).toEqual({
       source: "direct",

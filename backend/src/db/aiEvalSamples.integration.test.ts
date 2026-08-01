@@ -96,6 +96,7 @@ afterAll(async () => {
     if (subjectTokens.size > 0) {
       const hashes = [...subjectTokens].map(hashEvalSubjectToken);
       await db()`DELETE FROM public.ai_eval_samples WHERE subject_token_hash = ANY(${hashes}::text[])`;
+      await db()`DELETE FROM private.ai_eval_sampling_revocations WHERE subject_token_hash = ANY(${hashes}::text[])`;
     }
     if (users.size > 0) {
       await db()`DELETE FROM auth.users WHERE id = ANY(${[...users]}::uuid[])`;
@@ -198,6 +199,27 @@ describe("B8 governed eval samples (real Postgres)", () => {
     await insertEvalSample(sample(token, randomUUID(), "another"));
     expect(await deleteEvalSamplesForSubjectToken(token)).toBe(2);
     expect(await deleteEvalSamplesForSubjectToken(token)).toBe(0);
+  });
+
+  it("atomically revokes future and concurrently completing inserts", async () => {
+    if (!reachable) return;
+    const token = createToken("m");
+    const projected = sample(token, randomUUID(), "during");
+
+    await Promise.all([
+      insertEvalSample(projected),
+      deleteEvalSamplesForSubjectToken(token),
+    ]);
+
+    const remaining = await db()<Array<{ count: number }>>`
+      SELECT count(*)::integer AS count
+        FROM public.ai_eval_samples
+       WHERE subject_token_hash = ${projected.subjectTokenHash}
+    `;
+    expect(remaining).toEqual([{ count: 0 }]);
+    expect(
+      await insertEvalSample(sample(token, randomUUID(), "without")),
+    ).toBe(false);
   });
 
   it("queues only disagreement from two distinct reviewers", async () => {

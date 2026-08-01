@@ -46,71 +46,103 @@ export interface EvalSynthesisQueueItem {
 
 export async function insertEvalSample(sample: ProjectedEvalSample): Promise<boolean> {
   const sql = db();
-  const rows = await sql<Array<{ inserted: boolean }>>`
-    INSERT INTO public.ai_eval_samples (
-      request_id,
-      subject_token_hash,
-      consent_version,
-      sampling_policy_version,
-      redaction_version,
-      model,
-      language,
-      course_id,
-      lesson_id,
-      intent,
-      tutor_stage,
-      question_redacted,
-      response_redacted,
-      content_fingerprint,
-      file_count,
-      source_bytes_bucket,
-      history_turn_count,
-      had_run_result,
-      run_error_type,
-      section_keys,
-      code_redaction_count,
-      sensitive_redaction_count,
-      identifier_redaction_count
-    ) VALUES (
-      ${sample.requestId},
-      ${sample.subjectTokenHash},
-      ${sample.consentVersion},
-      ${sample.samplingPolicyVersion},
-      ${sample.redactionVersion},
-      ${sample.model},
-      ${sample.language},
-      ${sample.courseId},
-      ${sample.lessonId},
-      ${sample.intent},
-      ${sample.tutorStage},
-      ${sample.questionRedacted},
-      ${sample.responseRedacted},
-      ${sample.contentFingerprint},
-      ${sample.fileCount},
-      ${sample.sourceBytesBucket},
-      ${sample.historyTurnCount},
-      ${sample.hadRunResult},
-      ${sample.runErrorType},
-      ${sample.sectionKeys},
-      ${sample.codeRedactionCount},
-      ${sample.sensitiveRedactionCount},
-      ${sample.identifierRedactionCount}
-    )
-    ON CONFLICT DO NOTHING
-    RETURNING true AS inserted
-  `;
-  return rows.length === 1;
+  return (await sql.begin(async (tx) => {
+    await tx`
+      SELECT pg_advisory_xact_lock(hashtextextended(${sample.subjectTokenHash}, 0))
+    `;
+    const revoked = await tx<Array<{ revoked: boolean }>>`
+      SELECT EXISTS (
+        SELECT 1
+          FROM private.ai_eval_sampling_revocations
+         WHERE subject_token_hash = ${sample.subjectTokenHash}
+           AND expires_at > now()
+      ) AS revoked
+    `;
+    if (revoked[0]?.revoked) return false;
+
+    const rows = await tx<Array<{ inserted: boolean }>>`
+      INSERT INTO public.ai_eval_samples (
+        request_id,
+        subject_token_hash,
+        consent_version,
+        sampling_policy_version,
+        redaction_version,
+        model,
+        language,
+        course_id,
+        lesson_id,
+        intent,
+        tutor_stage,
+        question_redacted,
+        response_redacted,
+        content_fingerprint,
+        file_count,
+        source_bytes_bucket,
+        history_turn_count,
+        had_run_result,
+        run_error_type,
+        section_keys,
+        code_redaction_count,
+        sensitive_redaction_count,
+        identifier_redaction_count
+      ) VALUES (
+        ${sample.requestId},
+        ${sample.subjectTokenHash},
+        ${sample.consentVersion},
+        ${sample.samplingPolicyVersion},
+        ${sample.redactionVersion},
+        ${sample.model},
+        ${sample.language},
+        ${sample.courseId},
+        ${sample.lessonId},
+        ${sample.intent},
+        ${sample.tutorStage},
+        ${sample.questionRedacted},
+        ${sample.responseRedacted},
+        ${sample.contentFingerprint},
+        ${sample.fileCount},
+        ${sample.sourceBytesBucket},
+        ${sample.historyTurnCount},
+        ${sample.hadRunResult},
+        ${sample.runErrorType},
+        ${sample.sectionKeys},
+        ${sample.codeRedactionCount},
+        ${sample.sensitiveRedactionCount},
+        ${sample.identifierRedactionCount}
+      )
+      ON CONFLICT DO NOTHING
+      RETURNING true AS inserted
+    `;
+    return rows.length === 1;
+  })) as boolean;
 }
 
 export async function deleteEvalSamplesForSubjectToken(token: string): Promise<number> {
   const sql = db();
   const hash = hashEvalSubjectToken(token);
-  const rows = await sql<Array<{ id: string }>>`
-    DELETE FROM public.ai_eval_samples
-     WHERE subject_token_hash = ${hash}
-    RETURNING id
-  `;
-  return rows.length;
+  return (await sql.begin(async (tx) => {
+    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${hash}, 0))`;
+    await tx`
+      INSERT INTO private.ai_eval_sampling_revocations (
+        subject_token_hash,
+        revoked_at,
+        expires_at
+      ) VALUES (
+        ${hash},
+        now(),
+        now() + interval '31 days'
+      )
+      ON CONFLICT (subject_token_hash) DO UPDATE
+        SET revoked_at = EXCLUDED.revoked_at,
+            expires_at = EXCLUDED.expires_at
+    `;
+    const rows = await tx<Array<{ id: string }>>`
+      DELETE FROM public.ai_eval_samples
+       WHERE subject_token_hash = ${hash}
+      RETURNING id
+    `;
+    return rows.length;
+  })) as number;
 }
 
 export async function linkEvalSamplesToUser(token: string, userId: string): Promise<number> {
