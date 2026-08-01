@@ -2,7 +2,7 @@
 
 Status: active operating contract
 Owner: repository maintainers
-Last reviewed: 2026-07-30
+Last reviewed: 2026-07-31
 Review cadence: every 90 days or after a material harness failure
 
 ## Purpose
@@ -53,9 +53,12 @@ The design follows these primary sources:
 | `AGENTS.md` | Short cross-agent startup, learning, and finish contract plus source map. |
 | `CLAUDE.md` | Imports `AGENTS.md` so Claude Code and Codex share one contract. |
 | `docs/AGENT_HARNESS_STRATEGY.md` | Human-readable design, evidence rules, and maintenance policy. |
-| `scripts/agent-harness.mjs` | Tool-independent Node CLI for init, retrieval, incident capture, resolution, retirement, and validation. |
+| `scripts/agent-harness.mjs` | Tool-independent Node CLI for init, retrieval, incident capture, browser evidence, commit gating, resolution, retirement, and validation. |
 | `scripts/agent-harness-seed.json` | Versioned bootstrap knowledge for a new checkout. |
 | `scripts/agent-harness.test.mjs` | Contract and lifecycle regression tests. |
+| `.githooks/pre-commit` | Rejects a staged diff unless it exactly matches a completed harness session. |
+| `docs/templates/BROWSER_UX_AUDIT_EVIDENCE.md` | Copyable finding/phase evidence contract and narrow bypass policy. |
+| `.github/PULL_REQUEST_TEMPLATE.md` | Long-running phase ledger for browser evidence, CI, reviews, and deployment. |
 | Production dependency audit | Fails CI on unreviewed high/critical runtime advisories; exceptions require exact versions, a reason, and an expiry. |
 | CI harness job | Proves the tracked bootstrap remains valid and the local store cannot be committed accidentally. |
 
@@ -71,6 +74,7 @@ so the whole directory is ignored. It contains:
 | `events.jsonl` | Append-only audit trail of captures, promotions, resolutions, and retirements. |
 | `sessions/*.json` | Bounded feature handoffs and validation evidence. |
 | `failures/*.json` | Pending failed commands that must be resolved or classified before finish. |
+| `browser-evidence/` | Local screenshots referenced by structured live-browser audit records. |
 
 `PROJECT_MEMORY.md` is generated from `knowledge.json`; agents must use the CLI
 instead of making ad hoc edits that would destroy provenance.
@@ -79,9 +83,13 @@ instead of making ad hoc edits that would destroy provenance.
 
 ### 1. Start
 
-`start` initializes the local store if needed, records branch and commit state,
-opens a feature session, and prints only active knowledge matching the supplied
-scope. A new agent should then read the linked tracked docs and run a small
+`start` initializes the local store if needed, activates the tracked Git hooks,
+records branch and commit state, opens a feature session, and prints only active
+knowledge matching the supplied scope. Browser impact defaults to `required`.
+Sessions that own audit finding ids cannot bypass it. A genuinely non-browser
+session must declare `--browser-impact none` and persist a concrete explanation
+of why no application runtime, response, content, style, or browser behavior can
+change. A new agent should then read the linked tracked docs and run a small
 baseline appropriate to the touched surface.
 
 ### 2. Execute and observe
@@ -105,7 +113,24 @@ Every pending incident is classified as one of:
 Reusable, flaky, and environment incidents require a root cause, prevention,
 and evidence. Product defects do not automatically become global guidance.
 
-### 4. Promote
+### 4. Exercise the real browser
+
+For browser-observable work, scripted checks never complete the UX contract.
+After each named finding is fixed, the agent must use the real Browser or Chrome
+control skill and record a finding-level audit. The record includes the actual
+entry point, successful path, failure/recovery path, all adversarial actions
+relevant to that feature's state and risk surface, viewport/theme coverage,
+focus result, environment, safe URL, and at least one local screenshot. There is
+no one-action ceiling: repeat, interruption, collision, boundary, stale-state,
+and misuse paths are required wherever they can exist. A failed browser audit
+creates a normal pending incident.
+
+After the individual passes, the final staged phase is exercised as one
+cohesive journey and recorded at `phase` level. This last audit carries a hash
+of the complete workspace state. `finish` rejects it if any later change makes
+that evidence stale or if any declared finding is missing from the phase pass.
+
+### 5. Promote
 
 New knowledge starts as `candidate` unless the agent supplies reproducible
 evidence and marks it `verified`. An identical candidate seen twice is promoted
@@ -117,15 +142,24 @@ or agent adds direct evidence. The ideal promotion path is:
 The harness rejects likely secrets and caps field sizes. Knowledge must be
 specific enough to change a future action and narrow enough not to overfit.
 
-### 5. Finish
+### 6. Finish
 
 `finish` refuses to close a session with unresolved failed commands or without
-at least one passing validation captured through `run`. It records the slice
-summary and tests, then runs `doctor`. Git remains the source of truth for code
-state; the harness handoff explains only the non-obvious operational context
-needed by the next session.
+at least one passing validation captured through `run`. Commit-bound sessions
+must have every intended file staged, no unstaged/untracked drift, complete
+browser coverage or a valid non-browser reason, and a final phase audit matching
+the staged fingerprint. It records the slice summary and checks, then runs
+`doctor`. The pre-commit hook independently compares the staged diff with that
+finished fingerprint; changing the diff requires repeating finish and, for UI
+work, the combined browser pass. `finish --no-commit` exists only for explicit
+review/handoff sessions and cannot authorize a commit.
 
-### 6. Garden
+The pull-request phase is complete only after the same commit has green CI, all
+actionable review comments are resolved, and the cumulative PR phase ledger is
+updated. Git remains the source of truth for code; local browser screenshots
+stay gitignored while the PR records a concise evidence summary.
+
+### 7. Garden
 
 Every entry has a review date. `doctor` warns on overdue entries; `doctor
 --strict` fails. Entries that no longer describe reality are retired with a
@@ -137,11 +171,14 @@ established and linked from the replacement entry.
 
 Acceptable evidence includes a deterministic regression test, a migration
 integration test, a linked CI run/check name, a minimal reproduction plus the
-passing fix, or authoritative tool documentation tied to observed behavior.
+passing fix, authoritative tool documentation tied to observed behavior, or a
+structured live-browser record produced from direct Browser/Chrome interaction.
 
 The following are not evidence: a model's assertion, a single unexplained
 failure, a passing filtered suite used to claim full coverage, stale chat
-history, or a rerun that passes without investigating repeated failures.
+history, a standalone Playwright run presented as a manual UX pass, a screenshot
+without the exercised path, or a rerun that passes without investigating
+repeated failures.
 
 Each entry includes:
 
@@ -175,6 +212,9 @@ The harness is improving the system when:
 - stale entries are retired rather than accumulating;
 - the short `AGENTS.md` stays stable while detailed knowledge grows locally;
 - full gates remain full, and focused checks are clearly labeled as diagnostic.
+- every browser-observable commit has current finding and phase evidence before
+  the commit exists, without relying on a user reminder;
+- PR phase ledgers make CI, review resolution, and deployment proof cumulative.
 
 It is failing when entries become diary notes, speculative, secret-bearing,
 contradictory, too broad, or a reason to skip direct inspection and testing.

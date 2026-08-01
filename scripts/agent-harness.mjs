@@ -18,6 +18,7 @@ const MEMORY_PATH = path.join(HARNESS_DIR, "PROJECT_MEMORY.md");
 const EVENTS_PATH = path.join(HARNESS_DIR, "events.jsonl");
 const SESSIONS_DIR = path.join(HARNESS_DIR, "sessions");
 const FAILURES_DIR = path.join(HARNESS_DIR, "failures");
+const BROWSER_EVIDENCE_DIR = path.join(HARNESS_DIR, "browser-evidence");
 const LOCK_PATH = path.join(HARNESS_DIR, "write.lock");
 const SEED_PATH = path.join(REPO_ROOT, "scripts", "agent-harness-seed.json");
 const SCOPES = new Set([
@@ -39,6 +40,14 @@ const CLASSIFICATIONS = new Set([
   "non-reusable",
 ]);
 const CONFIDENCE = new Set(["candidate", "repeated", "verified"]);
+const BROWSER_IMPACTS = new Set(["required", "none"]);
+const BROWSER_LEVELS = new Set(["finding", "phase"]);
+const BROWSER_RESULTS = new Set(["pass", "fail"]);
+const BROWSER_TOOLS = new Set([
+  "browser:control-in-app-browser",
+  "chrome:control-chrome",
+]);
+const BROWSER_ENVIRONMENTS = new Set(["local", "preview", "production"]);
 const SECRET_PATTERNS = [
   /\bsk-[A-Za-z0-9_-]{16,}\b/,
   /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/,
@@ -108,6 +117,48 @@ function parseScopes(value = "all") {
     fail(`Invalid scope. Use one or more of: ${[...SCOPES].join(", ")}.`);
   }
   return [...new Set(scopes)];
+}
+
+function parseFindings(value = "") {
+  if (!value) return [];
+  const findings = value.split(",").map((finding) => finding.trim()).filter(Boolean);
+  if (findings.some((finding) => !/^UX-\d{3}$/.test(finding))) {
+    fail("Findings must be comma-separated ids such as UX-001,UX-002.");
+  }
+  return [...new Set(findings)];
+}
+
+function browserBypassReason(value) {
+  const reason = assertSafeText("browser-bypass", value, 500);
+  const normalized = normalize(reason).replace(/[.!]$/, "");
+  const disallowed = new Set([
+    "n/a",
+    "not applicable",
+    "tests pass",
+    "small change",
+    "backend only",
+    "no time",
+    "no ui",
+  ]);
+  if (reason.length < 30 || disallowed.has(normalized)) {
+    fail(
+      "--browser-bypass must name the concrete non-browser change and why no user-visible browser flow can be affected.",
+    );
+  }
+  return reason;
+}
+
+function auditEvidence(label, value, maxLength = 1000, minimum = 40) {
+  const evidence = assertSafeText(label, value, maxLength);
+  if (
+    evidence.length < minimum ||
+    /^(?:ok|pass(?:ed)?|none|n\/?a|not applicable|works)$/i.test(evidence)
+  ) {
+    fail(
+      `--${label} must record the concrete browser actions and observed result, not a checkbox answer.`,
+    );
+  }
+  return evidence;
 }
 
 function assertSafeText(label, value, maxLength = 800) {
@@ -265,6 +316,7 @@ function initStore({ quiet = false } = {}) {
   assertLocalDirectorySafe();
   fs.mkdirSync(SESSIONS_DIR, { recursive: true, mode: 0o700 });
   fs.mkdirSync(FAILURES_DIR, { recursive: true, mode: 0o700 });
+  fs.mkdirSync(BROWSER_EVIDENCE_DIR, { recursive: true, mode: 0o700 });
   if (!fs.existsSync(SEED_PATH)) fail(`Missing tracked seed: ${SEED_PATH}`);
   const seed = readJson(SEED_PATH);
   if (seed.schemaVersion !== 1 || !Array.isArray(seed.entries)) {
@@ -323,6 +375,61 @@ function git(args) {
     stdio: ["ignore", "pipe", "ignore"],
   });
   return result.status === 0 ? result.stdout.trim() : null;
+}
+
+function gitBytes(args) {
+  const result = spawnSync("git", args, {
+    cwd: REPO_ROOT,
+    stdio: ["ignore", "pipe", "ignore"],
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  return result.status === 0 ? result.stdout : null;
+}
+
+function changeFingerprint(kind = "workspace") {
+  const args = kind === "staged"
+    ? ["diff", "--cached", "--binary", "--no-ext-diff", "HEAD"]
+    : ["diff", "--binary", "--no-ext-diff", "HEAD"];
+  const diff = gitBytes(args);
+  if (diff === null) return { hash: null, empty: true };
+  const digest = createHash("sha256").update(diff);
+  let hasChanges = diff.length > 0;
+  if (kind === "workspace") {
+    const untracked = gitBytes(["ls-files", "--others", "--exclude-standard", "-z"]);
+    if (untracked) {
+      for (const relative of untracked.toString("utf8").split("\0").filter(Boolean).sort()) {
+        const absolute = path.resolve(REPO_ROOT, relative);
+        if (!absolute.startsWith(`${REPO_ROOT}${path.sep}`)) continue;
+        const stat = fs.lstatSync(absolute);
+        if (!stat.isFile() || stat.isSymbolicLink()) continue;
+        hasChanges = true;
+        digest.update(`\0untracked:${relative}\0`);
+        digest.update(fs.readFileSync(absolute));
+      }
+    }
+  }
+  return { hash: digest.digest("hex"), empty: !hasChanges };
+}
+
+function ensureRepositoryHooks() {
+  const hookPath = path.join(REPO_ROOT, ".githooks", "pre-commit");
+  if (!fs.existsSync(hookPath)) {
+    fail("Missing tracked .githooks/pre-commit. Restore the repository harness before starting work.");
+  }
+  const configured = git(["config", "--get", "core.hooksPath"]);
+  if (configured && configured !== ".githooks") {
+    fail(
+      `This checkout uses core.hooksPath=${configured}. Preserve that custom hook setup and explicitly integrate .githooks/pre-commit before continuing.`,
+    );
+  }
+  if (!configured) {
+    const result = spawnSync("git", ["config", "core.hooksPath", ".githooks"], {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    if (result.status !== 0) fail("Could not activate the repository Git quality hooks.");
+  }
 }
 
 function printContext(knowledge, scopes) {
@@ -425,8 +532,23 @@ function recordKnowledge(options, metadata = {}) {
 
 function startSession(options) {
   const knowledge = initStore({ quiet: true });
+  ensureRepositoryHooks();
   const feature = assertSafeText("feature", requireOption(options, "feature"), 160);
   const scopes = parseScopes(String(options.scope ?? "all"));
+  const browserImpact = String(options["browser-impact"] ?? "required");
+  if (!BROWSER_IMPACTS.has(browserImpact)) {
+    fail("--browser-impact must be required or none.");
+  }
+  const findings = parseFindings(String(options.findings ?? ""));
+  const browserBypass = browserImpact === "none"
+    ? browserBypassReason(requireOption(options, "browser-bypass"))
+    : null;
+  if (browserImpact === "required" && options["browser-bypass"]) {
+    fail("--browser-bypass is valid only with --browser-impact none.");
+  }
+  if (browserImpact === "none" && findings.length) {
+    fail("A session that owns UX findings cannot bypass live-browser evidence.");
+  }
   const id = randomUUID();
   const session = {
     schemaVersion: 1,
@@ -437,6 +559,10 @@ function startSession(options) {
     branch: git(["branch", "--show-current"]) ?? "unknown",
     startCommit: git(["rev-parse", "HEAD"]) ?? "unknown",
     startedAt: now(),
+    browserImpact,
+    browserBypass,
+    findings,
+    browserAudits: [],
     validations: [],
   };
   writeJson(path.join(SESSIONS_DIR, `${id}.json`), session);
@@ -444,6 +570,11 @@ function startSession(options) {
   console.log(`HARNESS_SESSION_ID=${id}`);
   console.log(`Feature: ${feature}`);
   console.log(`Branch: ${session.branch} @ ${session.startCommit.slice(0, 12)}`);
+  console.log(
+    browserImpact === "required"
+      ? `Browser UX gate: required${findings.length ? ` for ${findings.join(", ")}` : ""}`
+      : `Browser UX gate: bypassed — ${browserBypass}`,
+  );
   printContext(knowledge, scopes);
 }
 
@@ -531,6 +662,179 @@ function runCommand(options, commandArgs) {
   return exitCode;
 }
 
+function browserEvidencePaths(value) {
+  const items = value.split(",").map((item) => item.trim()).filter(Boolean);
+  if (!items.length) fail("--screenshots must name at least one captured browser image.");
+  return items.map((item) => {
+    const absolute = path.resolve(REPO_ROOT, item);
+    if (absolute !== HARNESS_DIR && !absolute.startsWith(`${HARNESS_DIR}${path.sep}`)) {
+      fail("Browser screenshots must be stored under the gitignored .agent-harness/ directory.");
+    }
+    if (!fs.existsSync(absolute)) fail(`Browser screenshot does not exist: ${item}`);
+    const stat = fs.lstatSync(absolute);
+    if (!stat.isFile() || stat.isSymbolicLink()) {
+      fail(`Browser screenshot must be a regular local file: ${item}`);
+    }
+    if (!/\.(?:png|jpe?g|webp)$/i.test(absolute)) {
+      fail(`Browser screenshot must be PNG, JPEG, or WebP: ${item}`);
+    }
+    return path.relative(REPO_ROOT, absolute);
+  });
+}
+
+function browserAuditUrl(value) {
+  const raw = assertSafeText("url", value, 1000);
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    fail("--url must be an absolute http(s) URL.");
+  }
+  if (!new Set(["http:", "https:"]).has(parsed.protocol)) {
+    fail("--url must be an absolute http(s) URL.");
+  }
+  for (const key of parsed.searchParams.keys()) {
+    if (/(?:^|_)(?:code|token|key|secret|password)(?:$|_)/i.test(key)) {
+      fail(`--url contains sensitive query parameter ${key}; record a safe route instead.`);
+    }
+  }
+  return parsed.toString();
+}
+
+function recordBrowserBypass(options) {
+  initStore({ quiet: true });
+  const sessionId = requireOption(options, "session");
+  const sessionPath = path.join(SESSIONS_DIR, `${sessionId}.json`);
+  if (!fs.existsSync(sessionPath)) fail(`Unknown harness session: ${sessionId}`);
+  const session = readJson(sessionPath);
+  if (session.status !== "active") fail(`Harness session ${sessionId} is not active.`);
+  if ((session.findings ?? []).length) {
+    fail("A session that owns UX findings cannot bypass live-browser evidence.");
+  }
+  if ((session.browserAudits ?? []).length) {
+    fail("Browser evidence already exists; do not downgrade this session to a bypass.");
+  }
+  const reason = browserBypassReason(requireOption(options, "reason"));
+  withWriteLock(() => {
+    const latestSession = readJson(sessionPath);
+    latestSession.browserImpact = "none";
+    latestSession.browserBypass = reason;
+    latestSession.findings ??= [];
+    latestSession.browserAudits ??= [];
+    writeJson(sessionPath, latestSession);
+  });
+  appendEvent("browser-bypass-recorded", { sessionId, reason });
+  console.log(`Browser UX bypass recorded for session ${sessionId}: ${reason}`);
+}
+
+function recordBrowserAudit(options) {
+  initStore({ quiet: true });
+  const sessionId = requireOption(options, "session");
+  const sessionPath = path.join(SESSIONS_DIR, `${sessionId}.json`);
+  if (!fs.existsSync(sessionPath)) fail(`Unknown harness session: ${sessionId}`);
+  const session = readJson(sessionPath);
+  if (session.status !== "active") fail(`Harness session ${sessionId} is not active.`);
+  if (session.browserImpact !== "required") {
+    fail(`Session ${sessionId} declared no browser impact and cannot record browser evidence.`);
+  }
+
+  const level = requireOption(options, "level");
+  if (!BROWSER_LEVELS.has(level)) fail("--level must be finding or phase.");
+  const suppliedFindings = parseFindings(String(options.findings ?? ""));
+  if (level === "finding" && !suppliedFindings.length) {
+    fail("Finding-level browser evidence requires --findings.");
+  }
+  const findings = level === "phase" && !suppliedFindings.length
+    ? session.findings
+    : suppliedFindings;
+  if (session.findings.length) {
+    const outsideSession = findings.filter((finding) => !session.findings.includes(finding));
+    if (outsideSession.length) {
+      fail(`Browser evidence includes finding(s) outside this session: ${outsideSession.join(", ")}`);
+    }
+  }
+  const tool = requireOption(options, "tool");
+  if (!BROWSER_TOOLS.has(tool)) {
+    fail(`--tool must be one of: ${[...BROWSER_TOOLS].join(", ")}.`);
+  }
+  const environment = requireOption(options, "environment");
+  if (!BROWSER_ENVIRONMENTS.has(environment)) {
+    fail(`--environment must be one of: ${[...BROWSER_ENVIRONMENTS].join(", ")}.`);
+  }
+  const result = requireOption(options, "result");
+  if (!BROWSER_RESULTS.has(result)) fail("--result must be pass or fail.");
+  const workspace = changeFingerprint("workspace");
+  const id = randomUUID();
+  const audit = {
+    schemaVersion: 1,
+    id,
+    sessionId,
+    level,
+    findings,
+    tool,
+    browser: assertSafeText("browser", requireOption(options, "browser"), 160),
+    environment,
+    url: browserAuditUrl(requireOption(options, "url")),
+    entrypoint: auditEvidence("entrypoint", requireOption(options, "entrypoint"), 600),
+    happyPath: auditEvidence("happy", requireOption(options, "happy"), 1000),
+    failureRecovery: auditEvidence(
+      "failure-recovery",
+      requireOption(options, "failure-recovery"),
+      1000,
+    ),
+    adversarial: auditEvidence("adversarial", requireOption(options, "adversarial"), 1000),
+    viewports: auditEvidence("viewports", requireOption(options, "viewports"), 500, 15),
+    focus: auditEvidence("focus", requireOption(options, "focus"), 800),
+    screenshots: browserEvidencePaths(requireOption(options, "screenshots")),
+    notes: options.notes ? assertSafeText("notes", String(options.notes), 1000) : null,
+    result,
+    branch: git(["branch", "--show-current"]) ?? "unknown",
+    commit: git(["rev-parse", "HEAD"]) ?? "unknown",
+    workspaceFingerprint: workspace.hash,
+    recordedAt: now(),
+  };
+  withWriteLock(() => {
+    const latestSession = readJson(sessionPath);
+    latestSession.browserAudits ??= [];
+    latestSession.browserAudits.push(audit);
+    writeJson(sessionPath, latestSession);
+  });
+  appendEvent("browser-audit-recorded", {
+    sessionId,
+    browserAuditId: id,
+    level,
+    findings,
+    environment,
+    result,
+  });
+  console.log(`BROWSER_AUDIT_ID=${id}`);
+  console.log(`Browser ${level} evidence recorded as ${result}.`);
+
+  if (result === "fail") {
+    const failureId = randomUUID();
+    const failure = {
+      schemaVersion: 1,
+      id: failureId,
+      sessionId,
+      scopes: session.scopes,
+      command: `browser-audit ${level}${findings.length ? ` ${findings.join(",")}` : ""}`,
+      cwd: ".",
+      branch: audit.branch,
+      commit: audit.commit,
+      exitCode: 1,
+      status: "pending",
+      browserAuditId: id,
+      createdAt: now(),
+    };
+    writeJson(path.join(FAILURES_DIR, `${failureId}.json`), failure);
+    appendEvent("validation-failed", { failureId, sessionId, browserAuditId: id });
+    console.error(`HARNESS_FAILURE_ID=${failureId}`);
+    console.error("The live-browser defect must be fixed, retested, and classified before finish.");
+    return 1;
+  }
+  return 0;
+}
+
 function resolveFailure(options) {
   initStore({ quiet: true });
   const id = requireOption(options, "failure");
@@ -603,7 +907,10 @@ function runDoctor({ ci = false, strict = false } = {}) {
   const requiredFiles = [
     "AGENTS.md",
     "CLAUDE.md",
+    ".githooks/pre-commit",
+    ".github/PULL_REQUEST_TEMPLATE.md",
     "docs/AGENT_HARNESS_STRATEGY.md",
+    "docs/templates/BROWSER_UX_AUDIT_EVIDENCE.md",
     "scripts/agent-harness.mjs",
     "scripts/agent-harness-seed.json",
     "scripts/agent-harness.test.mjs",
@@ -618,7 +925,13 @@ function runDoctor({ ci = false, strict = false } = {}) {
   const agents = fs.existsSync(path.join(REPO_ROOT, "AGENTS.md"))
     ? fs.readFileSync(path.join(REPO_ROOT, "AGENTS.md"), "utf8")
     : "";
-  for (const phrase of ["agent-harness.mjs start", "agent-harness.mjs doctor", "Required learning loop"]) {
+  for (const phrase of [
+    "agent-harness.mjs start",
+    "agent-harness.mjs browser-audit",
+    "agent-harness.mjs pre-commit",
+    "agent-harness.mjs doctor",
+    "Required learning loop",
+  ]) {
     if (!agents.includes(phrase)) errors.push(`AGENTS.md is missing contract phrase: ${phrase}`);
   }
   const claude = fs.existsSync(path.join(REPO_ROOT, "CLAUDE.md"))
@@ -647,6 +960,10 @@ function runDoctor({ ci = false, strict = false } = {}) {
     const trackedLocal = git(["ls-files", ".agent-harness"]);
     if (trackedLocal) errors.push("Files under .agent-harness/ must never be tracked");
   }
+  const hookPath = path.join(REPO_ROOT, ".githooks", "pre-commit");
+  if (fs.existsSync(hookPath) && (fs.statSync(hookPath).mode & 0o111) === 0) {
+    errors.push(".githooks/pre-commit must be executable");
+  }
   if (!ci) {
     try {
       const knowledge = initStore({ quiet: true });
@@ -656,6 +973,10 @@ function runDoctor({ ci = false, strict = false } = {}) {
       for (const entry of overdue) warnings.push(`Knowledge ${entry.id} is overdue for review`);
       const pending = pendingFailures();
       for (const failure of pending) warnings.push(`Pending failure ${failure.id} (${failure.command})`);
+      const configuredHooks = git(["config", "--get", "core.hooksPath"]);
+      if (configuredHooks !== ".githooks") {
+        errors.push("core.hooksPath must be configured to use .githooks");
+      }
     } catch (error) {
       errors.push(error.message);
     }
@@ -666,6 +987,69 @@ function runDoctor({ ci = false, strict = false } = {}) {
     fail(`Harness doctor failed with ${errors.length} error(s) and ${warnings.length} warning(s).`);
   }
   console.log(`Harness doctor passed${warnings.length ? ` with ${warnings.length} warning(s)` : ""}.`);
+}
+
+function assertBrowserCoverage(session, workspaceFingerprint) {
+  if (session.browserImpact === "none") return;
+  const audits = session.browserAudits ?? [];
+  const missingFindings = session.findings.filter(
+    (finding) =>
+      !audits.some(
+        (audit) =>
+          audit.level === "finding" &&
+          audit.result === "pass" &&
+          audit.findings.includes(finding),
+      ),
+  );
+  if (missingFindings.length) {
+    fail(
+      `Session ${session.id} lacks passing live-browser evidence for: ${missingFindings.join(", ")}.`,
+    );
+  }
+  const phaseAudit = [...audits].reverse().find(
+    (audit) =>
+      audit.level === "phase" &&
+      audit.result === "pass" &&
+      audit.workspaceFingerprint === workspaceFingerprint,
+  );
+  if (!phaseAudit) {
+    fail(
+      `Session ${session.id} needs a passing phase-level live-browser audit against the current final workspace fingerprint.`,
+    );
+  }
+  const phaseMissing = session.findings.filter((finding) => !phaseAudit.findings.includes(finding));
+  if (phaseMissing.length) {
+    fail(`The final phase browser audit does not cover: ${phaseMissing.join(", ")}.`);
+  }
+}
+
+function assertCommitReady() {
+  initStore({ quiet: true });
+  const staged = changeFingerprint("staged");
+  if (!staged.hash || staged.empty) {
+    fail("No staged phase diff exists for the harness pre-commit gate.");
+  }
+  const branch = git(["branch", "--show-current"]) ?? "unknown";
+  const sessions = fs.readdirSync(SESSIONS_DIR)
+    .filter((name) => name.endsWith(".json"))
+    .map((name) => readJson(path.join(SESSIONS_DIR, name)))
+    .filter(
+      (session) =>
+        session.status === "complete" &&
+        session.commitMode !== "none" &&
+        session.branch === branch &&
+        session.completionFingerprint === staged.hash,
+    )
+    .sort((a, b) => Date.parse(b.finishedAt) - Date.parse(a.finishedAt));
+  if (!sessions.length) {
+    fail(
+      "The staged diff does not match a completed harness session. Stage the exact phase diff, record required browser evidence, run doctor, and finish the session before committing.",
+    );
+  }
+  const session = sessions[0];
+  console.log(
+    `Pre-commit quality gate passed for ${session.feature} (${session.browserImpact === "required" ? "live-browser evidence" : "recorded non-browser bypass"}).`,
+  );
 }
 
 function finishSession(options) {
@@ -685,6 +1069,20 @@ function finishSession(options) {
       `Session ${id} has no passing validation. Run at least one relevant check through agent-harness.mjs run before finishing.`,
     );
   }
+  const workspace = changeFingerprint("workspace");
+  const staged = changeFingerprint("staged");
+  const noCommit = options["no-commit"] === true;
+  if (!noCommit) {
+    if (!staged.hash || staged.empty) {
+      fail("Stage the complete intended phase diff before finishing a commit-bound harness session.");
+    }
+    if (workspace.hash !== staged.hash) {
+      fail(
+        "The workspace and staged diff differ. Stage every intended file and remove unrelated/untracked work before final browser evidence and finish.",
+      );
+    }
+  }
+  assertBrowserCoverage(session, workspace.hash);
   session.summary = assertSafeText("summary", requireOption(options, "summary"), 1200);
   session.tests = assertSafeText("tests", requireOption(options, "tests"), 1200);
   runDoctor();
@@ -694,6 +1092,8 @@ function finishSession(options) {
     latestSession.summary = session.summary;
     latestSession.tests = session.tests;
     latestSession.status = "complete";
+    latestSession.commitMode = noCommit ? "none" : "phase";
+    latestSession.completionFingerprint = noCommit ? null : staged.hash;
     latestSession.endCommit = git(["rev-parse", "HEAD"]) ?? "unknown";
     latestSession.finishedAt = now();
     writeJson(filePath, latestSession);
@@ -714,7 +1114,9 @@ function printStatus() {
   const active = sessions.filter((session) => session.status === "active");
   console.log(`Active sessions: ${active.length}`);
   for (const session of active) {
-    console.log(`- ${session.id} ${session.feature} [${session.scopes.join(", ")}]`);
+    console.log(
+      `- ${session.id} ${session.feature} [${session.scopes.join(", ")}] browser=${session.browserImpact ?? "legacy"} audits=${session.browserAudits?.length ?? 0}`,
+    );
   }
   const pending = pendingFailures();
   console.log(`Pending failures: ${pending.length}`);
@@ -726,13 +1128,16 @@ function printHelp() {
 
 Commands:
   init
-  start --feature <name> [--scope frontend,backend]
+  start --feature <name> [--scope frontend,backend] [--findings UX-001,UX-002] [--browser-impact required|none --browser-bypass <reason>]
   context [--scope frontend,backend]
   run --session <id> [--scope scope] [--cwd path] -- <command> [args]
+  browser-audit --session <id> --level finding|phase --tool <browser skill> --browser <name> --environment local|preview|production --url <url> --entrypoint <text> --happy <text> --failure-recovery <text> --adversarial <text> --viewports <text> --focus <text> --screenshots <paths> --result pass|fail [--findings UX-001,UX-002]
+  browser-bypass --session <id> --reason <concrete non-browser reason>
   resolve --failure <id> --classification <type> [knowledge fields]
   record --scope <scope> --symptom <text> --cause <text> --prevention <text> --evidence <text> [--confidence verified]
   retire --id <entry-id> --reason <text>
-  finish --session <id> --summary <text> --tests <text>
+  finish --session <id> --summary <text> --tests <text> [--no-commit]
+  pre-commit
   status
   doctor [--ci] [--strict]
 
@@ -757,6 +1162,12 @@ function main() {
     case "run":
       process.exitCode = runCommand(options, commandArgs);
       break;
+    case "browser-audit":
+      process.exitCode = recordBrowserAudit(options);
+      break;
+    case "browser-bypass":
+      recordBrowserBypass(options);
+      break;
     case "resolve":
       resolveFailure(options);
       break;
@@ -768,6 +1179,9 @@ function main() {
       break;
     case "finish":
       finishSession(options);
+      break;
+    case "pre-commit":
+      assertCommitReady();
       break;
     case "status":
       printStatus();

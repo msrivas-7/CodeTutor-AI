@@ -14,16 +14,37 @@ function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "codetutor-agent-harness-"));
   fs.mkdirSync(path.join(root, "scripts"), { recursive: true });
   fs.mkdirSync(path.join(root, "docs"), { recursive: true });
+  fs.mkdirSync(path.join(root, "docs", "templates"), { recursive: true });
+  fs.mkdirSync(path.join(root, ".githooks"), { recursive: true });
+  fs.mkdirSync(path.join(root, ".github"), { recursive: true });
   fs.writeFileSync(path.join(root, ".gitignore"), ".agent-harness/\n");
   fs.writeFileSync(
     path.join(root, "AGENTS.md"),
-    "Required learning loop\nagent-harness.mjs start\nagent-harness.mjs doctor\n",
+    "Required learning loop\nagent-harness.mjs start\nagent-harness.mjs browser-audit\nagent-harness.mjs pre-commit\nagent-harness.mjs doctor\n",
   );
   fs.writeFileSync(path.join(root, "CLAUDE.md"), "@AGENTS.md\n");
   fs.writeFileSync(path.join(root, "docs", "AGENT_HARNESS_STRATEGY.md"), "# Strategy\n");
+  fs.writeFileSync(
+    path.join(root, "docs", "templates", "BROWSER_UX_AUDIT_EVIDENCE.md"),
+    "# Browser evidence\n",
+  );
+  fs.writeFileSync(path.join(root, ".github", "PULL_REQUEST_TEMPLATE.md"), "# PR\n");
+  const hook = path.join(root, ".githooks", "pre-commit");
+  fs.writeFileSync(hook, "#!/bin/sh\nexit 0\n");
+  fs.chmodSync(hook, 0o755);
   fs.writeFileSync(path.join(root, "scripts", "agent-harness.mjs"), "// fixture marker\n");
   fs.writeFileSync(path.join(root, "scripts", "agent-harness.test.mjs"), "// fixture marker\n");
   fs.writeFileSync(path.join(root, "scripts", "agent-harness-seed.json"), SEED);
+  assert.equal(spawnSync("git", ["init", "-q"], { cwd: root }).status, 0);
+  assert.equal(spawnSync("git", ["add", "."], { cwd: root }).status, 0);
+  assert.equal(
+    spawnSync(
+      "git",
+      ["-c", "user.name=Harness Test", "-c", "user.email=harness@example.test", "commit", "-qm", "fixture"],
+      { cwd: root },
+    ).status,
+    0,
+  );
   return root;
 }
 
@@ -129,7 +150,11 @@ test("rejects compound shell validations that can mask an earlier failure", () =
 
 test("blocks session completion until failed validation is classified", () => {
   const root = fixture();
-  const started = run(root, ["start", "--feature", "failure lifecycle", "--scope", "backend"]);
+  const started = run(root, [
+    "start", "--feature", "failure lifecycle", "--scope", "backend",
+    "--browser-impact", "none",
+    "--browser-bypass", "Exercises only the harness CLI failure lifecycle in an isolated fixture repository.",
+  ]);
   assert.equal(started.status, 0, started.stderr);
   const session = started.stdout.match(/HARNESS_SESSION_ID=([0-9a-f-]+)/)?.[1];
   assert.ok(session);
@@ -150,6 +175,7 @@ test("blocks session completion until failed validation is classified", () => {
     "--session", session,
     "--summary", "Handled the feature.",
     "--tests", "The test failed.",
+    "--no-commit",
   ]);
   assert.notEqual(premature.status, 0);
   assert.match(premature.stderr, /unresolved failure/i);
@@ -176,6 +202,7 @@ test("blocks session completion until failed validation is classified", () => {
     "--session", session,
     "--summary", "Verified the failure lifecycle.",
     "--tests", "Intentional failure was classified.",
+    "--no-commit",
   ]);
   assert.notEqual(blockedByDoctor.status, 0);
   const stillActive = JSON.parse(
@@ -188,13 +215,18 @@ test("blocks session completion until failed validation is classified", () => {
     "--session", session,
     "--summary", "Verified the failure lifecycle.",
     "--tests", "Intentional failure was classified; harness doctor passed.",
+    "--no-commit",
   ]);
   assert.equal(finished.status, 0, finished.stderr);
 });
 
 test("blocks session completion until a passing validation is recorded", () => {
   const root = fixture();
-  const started = run(root, ["start", "--feature", "empty evidence", "--scope", "frontend"]);
+  const started = run(root, [
+    "start", "--feature", "empty evidence", "--scope", "frontend",
+    "--browser-impact", "none",
+    "--browser-bypass", "Exercises only the harness empty-evidence guard in an isolated fixture repository.",
+  ]);
   assert.equal(started.status, 0, started.stderr);
   const session = started.stdout.match(/HARNESS_SESSION_ID=([0-9a-f-]+)/)?.[1];
   assert.ok(session);
@@ -204,6 +236,7 @@ test("blocks session completion until a passing validation is recorded", () => {
     "--session", session,
     "--summary", "No validation was run.",
     "--tests", "None.",
+    "--no-commit",
   ]);
   assert.notEqual(premature.status, 0);
   assert.match(premature.stderr, /no passing validation/i);
@@ -217,6 +250,84 @@ test("blocks session completion until a passing validation is recorded", () => {
     "--session", session,
     "--summary", "Validated the empty-evidence guard.",
     "--tests", "Recorded a passing validation.",
+    "--no-commit",
   ]);
   assert.equal(finished.status, 0, finished.stderr);
+});
+
+test("rejects vague browser bypasses", () => {
+  const root = fixture();
+  const started = run(root, [
+    "start", "--feature", "vague bypass", "--scope", "frontend",
+    "--browser-impact", "none", "--browser-bypass", "no UI",
+  ]);
+  assert.notEqual(started.status, 0);
+  assert.match(started.stderr, /concrete non-browser change/i);
+});
+
+test("requires finding and final-phase browser evidence and binds it to the staged commit", () => {
+  const root = fixture();
+  const started = run(root, [
+    "start", "--feature", "browser contract", "--scope", "frontend,e2e",
+    "--findings", "UX-001,UX-002",
+  ]);
+  assert.equal(started.status, 0, started.stderr);
+  const session = started.stdout.match(/HARNESS_SESSION_ID=([0-9a-f-]+)/)?.[1];
+  assert.ok(session);
+
+  const validation = run(root, [
+    "run", "--session", session, "--", process.execPath, "-e", "process.exit(0)",
+  ]);
+  assert.equal(validation.status, 0, validation.stderr);
+  fs.writeFileSync(path.join(root, "browser-change.txt"), "final staged browser change\n");
+  assert.equal(spawnSync("git", ["add", "browser-change.txt"], { cwd: root }).status, 0);
+
+  const premature = run(root, [
+    "finish", "--session", session,
+    "--summary", "Changed the browser experience.",
+    "--tests", "A deterministic check passed.",
+  ]);
+  assert.notEqual(premature.status, 0);
+  assert.match(premature.stderr, /lacks passing live-browser evidence/i);
+
+  const screenshotDir = path.join(root, ".agent-harness", "browser-evidence", session);
+  fs.mkdirSync(screenshotDir, { recursive: true });
+  const screenshot = path.join(screenshotDir, "proof.png");
+  fs.writeFileSync(screenshot, "fixture image evidence");
+  const common = [
+    "--session", session,
+    "--tool", "browser:control-in-app-browser",
+    "--browser", "In-app Chromium",
+    "--environment", "local",
+    "--url", "http://localhost:5173/lesson",
+    "--entrypoint", "Opened the real lesson route from the course page.",
+    "--happy", "Completed the intended interaction and observed the final learner-visible state.",
+    "--failure-recovery", "Interrupted the interaction, recovered, and retained the learner state.",
+    "--adversarial", "Repeated and reversed the controls while the transition was active.",
+    "--viewports", "1152x863 dark and 390x844 light",
+    "--focus", "Keyboard focus entered, remained within, and returned to the invoking control.",
+    "--screenshots", path.relative(root, screenshot),
+    "--result", "pass",
+  ];
+  for (const finding of ["UX-001", "UX-002"]) {
+    const audit = run(root, ["browser-audit", "--level", "finding", "--findings", finding, ...common]);
+    assert.equal(audit.status, 0, audit.stderr);
+  }
+  const phaseAudit = run(root, ["browser-audit", "--level", "phase", ...common]);
+  assert.equal(phaseAudit.status, 0, phaseAudit.stderr);
+
+  const finished = run(root, [
+    "finish", "--session", session,
+    "--summary", "Validated the complete browser evidence contract.",
+    "--tests", "Two finding audits, one final phase audit, and deterministic validation passed.",
+  ]);
+  assert.equal(finished.status, 0, finished.stderr);
+  const preCommit = run(root, ["pre-commit"]);
+  assert.equal(preCommit.status, 0, preCommit.stderr);
+
+  fs.appendFileSync(path.join(root, "browser-change.txt"), "late unverified change\n");
+  assert.equal(spawnSync("git", ["add", "browser-change.txt"], { cwd: root }).status, 0);
+  const stale = run(root, ["pre-commit"]);
+  assert.notEqual(stale.status, 0);
+  assert.match(stale.stderr, /does not match a completed harness session/i);
 });
