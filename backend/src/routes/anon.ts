@@ -58,6 +58,7 @@ import {
 import { incrementAnonRunCount } from "../db/anonRunCounts.js";
 import {
   deleteEvalSamplesForSubjectToken,
+  EvalSampleRevocationQuotaError,
   insertEvalSample,
 } from "../db/aiEvalSamples.js";
 import {
@@ -298,6 +299,9 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
       await deleteEvalSamplesForSubjectToken(parsed.data.subjectToken);
       return res.json({ ok: true });
     } catch (err) {
+      if (err instanceof EvalSampleRevocationQuotaError) {
+        return res.status(429).json({ error: "EVAL_DELETION_RATE_LIMITED" });
+      }
       next(err);
     }
   });

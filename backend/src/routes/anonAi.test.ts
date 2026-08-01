@@ -14,6 +14,7 @@ vi.mock("../services/share/killSwitches.js", () => ({
 vi.mock("../db/aiEvalSamples.js", () => ({
   insertEvalSample: vi.fn(async () => true),
   deleteEvalSamplesForSubjectToken: vi.fn(async () => 0),
+  EvalSampleRevocationQuotaError: class EvalSampleRevocationQuotaError extends Error {},
 }));
 
 vi.mock("./anonLaptopInvite.js", async () => {
@@ -99,7 +100,11 @@ const { createAnonRouter } = await import("./anon.js");
 const { openaiProvider } = await import("../services/ai/openaiProvider.js");
 const { reserveAIRequest, finalizeAIRequest } = await import("../db/aiReservations.js");
 const { flagSuspectApis } = await import("../services/ai/suspectApi.js");
-const { insertEvalSample, deleteEvalSamplesForSubjectToken } = await import("../db/aiEvalSamples.js");
+const {
+  insertEvalSample,
+  deleteEvalSamplesForSubjectToken,
+  EvalSampleRevocationQuotaError,
+} = await import("../db/aiEvalSamples.js");
 const { isAnonLessonEnabled, isAiEvalSamplingEnabled } = await import("../services/share/killSwitches.js");
 const { shouldSampleEvalRequest } = await import("../services/ai/evalSampling.js");
 
@@ -162,7 +167,8 @@ beforeEach(() => {
   vi.mocked(finalizeAIRequest).mockClear();
   vi.mocked(flagSuspectApis).mockReset();
   vi.mocked(insertEvalSample).mockClear();
-  vi.mocked(deleteEvalSamplesForSubjectToken).mockClear();
+  vi.mocked(deleteEvalSamplesForSubjectToken).mockReset();
+  vi.mocked(deleteEvalSamplesForSubjectToken).mockResolvedValue(0);
   vi.mocked(isAnonLessonEnabled).mockResolvedValue(true);
   vi.mocked(isAiEvalSamplingEnabled).mockResolvedValue(true);
   vi.mocked(openaiProvider.askStream).mockImplementation(
@@ -260,6 +266,15 @@ describe("B8 governed anonymous eval sampling", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true });
     expect(vi.mocked(deleteEvalSamplesForSubjectToken)).toHaveBeenCalledWith(subjectToken);
+  });
+
+  it("returns an honest retry response when the durable revocation quota is full", async () => {
+    vi.mocked(deleteEvalSamplesForSubjectToken).mockRejectedValueOnce(
+      new EvalSampleRevocationQuotaError(),
+    );
+    const response = await deleteSamples(subjectToken);
+    expect(response.status).toBe(429);
+    expect(await response.json()).toEqual({ error: "EVAL_DELETION_RATE_LIMITED" });
   });
 });
 

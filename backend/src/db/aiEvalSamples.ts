@@ -7,6 +7,13 @@ import {
 export type EvalReviewVerdict = "pass" | "fail" | "ambiguous" | "reject_privacy";
 export type EvalQueueResolution = "synthetic_case_authored" | "rejected";
 
+export class EvalSampleRevocationQuotaError extends Error {
+  constructor() {
+    super("anonymous eval-sample revocation quota exhausted");
+    this.name = "EvalSampleRevocationQuotaError";
+  }
+}
+
 export interface AdminEvalSample {
   id: string;
   model: string;
@@ -122,6 +129,47 @@ export async function deleteEvalSamplesForSubjectToken(token: string): Promise<n
   const hash = hashEvalSubjectToken(token);
   return (await sql.begin(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(hashtextextended(${hash}, 0))`;
+    const state = await tx<Array<{ revoked: boolean; sampled: boolean }>>`
+      SELECT
+        EXISTS (
+          SELECT 1
+            FROM private.ai_eval_sampling_revocations
+           WHERE subject_token_hash = ${hash}
+             AND expires_at > now()
+        ) AS revoked,
+        EXISTS (
+          SELECT 1
+            FROM public.ai_eval_samples
+           WHERE subject_token_hash = ${hash}
+        ) AS sampled
+    `;
+
+    if (!state[0]?.revoked && !state[0]?.sampled) {
+      // Keep the quota ledger itself bounded. A few UTC-day rows are retained
+      // beyond the 31-day tombstone window for incident investigation.
+      await tx`
+        DELETE FROM private.ai_eval_sampling_revocation_quota
+         WHERE quota_date < ((now() AT TIME ZONE 'UTC')::date - 45)
+      `;
+      const quota = await tx<Array<{ consumed: number }>>`
+        INSERT INTO private.ai_eval_sampling_revocation_quota (
+          quota_date,
+          consumed,
+          updated_at
+        ) VALUES (
+          (now() AT TIME ZONE 'UTC')::date,
+          1,
+          now()
+        )
+        ON CONFLICT (quota_date) DO UPDATE
+          SET consumed = ai_eval_sampling_revocation_quota.consumed + 1,
+              updated_at = now()
+        WHERE ai_eval_sampling_revocation_quota.consumed < 5000
+        RETURNING consumed
+      `;
+      if (quota.length === 0) throw new EvalSampleRevocationQuotaError();
+    }
+
     await tx`
       INSERT INTO private.ai_eval_sampling_revocations (
         subject_token_hash,
