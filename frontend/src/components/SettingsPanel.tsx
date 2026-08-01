@@ -1017,6 +1017,9 @@ function PublicSharesSection({
   const [error, setError] = useState<string | null>(null);
   const [revoking, setRevoking] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
+  const sectionHeadingRef = useRef<HTMLHeadingElement>(null);
+  const confirmButtonRef = useRef<HTMLButtonElement>(null);
+  const stopButtonRefs = useRef(new Map<string, HTMLButtonElement>());
 
   const load = useCallback(async () => {
     setStatus("loading");
@@ -1035,6 +1038,14 @@ function PublicSharesSection({
     void load();
   }, [load]);
 
+  useEffect(() => {
+    if (!confirming) return;
+    const frame = requestAnimationFrame(() => {
+      confirmButtonRef.current?.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [confirming]);
+
   const revoke = async (share: OwnerShare) => {
     setRevoking(share.shareToken);
     setError(null);
@@ -1049,6 +1060,9 @@ function PublicSharesSection({
         shared: false,
       });
       setConfirming(null);
+      requestAnimationFrame(() => {
+        sectionHeadingRef.current?.focus({ preventScroll: true });
+      });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not stop sharing.");
     } finally {
@@ -1056,11 +1070,26 @@ function PublicSharesSection({
     }
   };
 
+  const cancelConfirmation = () => {
+    const shareToken = confirming;
+    setConfirming(null);
+    requestAnimationFrame(() => {
+      if (shareToken) {
+        stopButtonRefs.current.get(shareToken)?.focus({ preventScroll: true });
+      }
+    });
+  };
+
   return (
     <section className="flex flex-col gap-2" aria-labelledby="public-shares-heading">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h3 id="public-shares-heading" className="text-xs font-semibold text-ink">
+          <h3
+            ref={sectionHeadingRef}
+            id="public-shares-heading"
+            tabIndex={-1}
+            className="text-xs font-semibold text-ink outline-none"
+          >
             My public shares
           </h3>
           <p className="mt-1 text-xs leading-relaxed text-faint">
@@ -1136,6 +1165,7 @@ function PublicSharesSection({
                       The current public link will stop working.
                     </span>
                     <button
+                      ref={confirmButtonRef}
                       type="button"
                       onClick={() => void revoke(share)}
                       disabled={revoking === share.shareToken}
@@ -1145,7 +1175,7 @@ function PublicSharesSection({
                     </button>
                     <button
                       type="button"
-                      onClick={() => setConfirming(null)}
+                      onClick={cancelConfirmation}
                       disabled={revoking === share.shareToken}
                       className="rounded-md border border-border bg-bg px-2.5 py-1.5 text-xs text-muted disabled:opacity-60"
                     >
@@ -1154,6 +1184,10 @@ function PublicSharesSection({
                   </div>
                 ) : (
                   <button
+                    ref={(node) => {
+                      if (node) stopButtonRefs.current.set(share.shareToken, node);
+                      else stopButtonRefs.current.delete(share.shareToken);
+                    }}
                     type="button"
                     onClick={() => setConfirming(share.shareToken)}
                     className="mt-2 text-xs font-semibold text-danger transition hover:text-danger/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-danger"

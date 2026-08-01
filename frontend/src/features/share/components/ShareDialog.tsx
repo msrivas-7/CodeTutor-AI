@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { Modal } from "../../../components/Modal";
 import { api } from "../../../api/client";
 import type {
@@ -62,6 +62,7 @@ function formatRelativeDate(iso: string): string {
 export interface ShareDialogProps {
   open: boolean;
   onClose: () => void;
+  returnFocusRef?: RefObject<HTMLElement | null>;
   onShareChanged?: (shared: boolean) => void;
   payload: {
     /** Fields submitted to POST /api/shares. */
@@ -79,7 +80,13 @@ export interface ShareDialogProps {
   };
 }
 
-export function ShareDialog({ open, onClose, payload, onShareChanged }: ShareDialogProps) {
+export function ShareDialog({
+  open,
+  onClose,
+  returnFocusRef,
+  payload,
+  onShareChanged,
+}: ShareDialogProps) {
   // Default OFF (privacy by default). The toggle lifts to ON only when
   // the user opts in.
   const [showName, setShowName] = useState(false);
@@ -93,6 +100,9 @@ export function ShareDialog({ open, onClose, payload, onShareChanged }: ShareDia
   const [shareToken, setShareToken] = useState<string | null>(null);
   const [copyState, setCopyState] = useState<"idle" | "copied">("idle");
   const copyTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const shareUrlInputRef = useRef<HTMLInputElement>(null);
+  const replaceLinkButtonRef = useRef<HTMLButtonElement>(null);
+  const revokeButtonRef = useRef<HTMLButtonElement>(null);
   // Phase 21C-ext: the 9:16 Story-format image is rendered in a
   // separate fire-and-forget pipeline server-side. Poll for it once
   // the share has been created; surface a "Save for Stories" download
@@ -239,6 +249,20 @@ export function ShareDialog({ open, onClose, payload, onShareChanged }: ShareDia
     };
   }, []);
 
+  // The compose button is removed when publishing succeeds. Without an
+  // explicit destination, browsers fall back to BODY and the learner gets
+  // no keyboard announcement that the public URL is ready. Move focus to
+  // the concrete artifact they can copy, both after creation and when an
+  // existing share is restored by the owner lookup.
+  useEffect(() => {
+    if (!open || phase !== "created") return;
+    const frame = requestAnimationFrame(() => {
+      shareUrlInputRef.current?.focus({ preventScroll: true });
+      shareUrlInputRef.current?.select();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [open, phase]);
+
   if (!open) return null;
 
   const previewName =
@@ -357,6 +381,10 @@ export function ShareDialog({ open, onClose, payload, onShareChanged }: ShareDia
       setCopyState("idle");
       setConfirmAction(null);
       onShareChanged?.(true);
+      requestAnimationFrame(() => {
+        shareUrlInputRef.current?.focus({ preventScroll: true });
+        shareUrlInputRef.current?.select();
+      });
     } catch (manageError) {
       setError((manageError as Error).message);
     } finally {
@@ -382,6 +410,17 @@ export function ShareDialog({ open, onClose, payload, onShareChanged }: ShareDia
   const shareUrl = shareToken
     ? publicShareUrl(shareToken, window.location.origin)
     : null;
+
+  const closeConfirmAction = () => {
+    if (managing) return;
+    const action = confirmAction;
+    setConfirmAction(null);
+    requestAnimationFrame(() => {
+      const destination =
+        action === "rotate" ? replaceLinkButtonRef.current : revokeButtonRef.current;
+      destination?.focus({ preventScroll: true });
+    });
+  };
 
   const handleDismiss = () => {
     if (!dismissReportedRef.current) {
@@ -410,7 +449,7 @@ export function ShareDialog({ open, onClose, payload, onShareChanged }: ShareDia
     try {
       await navigator.share({
         title: `${payload.preview.lessonTitle} — ${payload.preview.courseTitle}`,
-        text: `Just finished ${payload.preview.lessonTitle} on CodeTutor.`,
+        text: `Just finished ${payload.preview.lessonTitle} on CodeTutor AI.`,
         url: shareUrl,
       });
       api.postShareOutcome("share_completed", "authenticated");
@@ -425,6 +464,7 @@ export function ShareDialog({ open, onClose, payload, onShareChanged }: ShareDia
   return (
     <Modal
       onClose={handleDismiss}
+      returnFocusRef={returnFocusRef}
       role="dialog"
       labelledBy="share-dialog-title"
       describedBy="share-dialog-desc"
@@ -587,6 +627,7 @@ export function ShareDialog({ open, onClose, payload, onShareChanged }: ShareDia
           {/* Created state — copy URL + native share + view page */}
           <div className="mb-4 flex min-h-11 items-center gap-2 rounded-lg border border-border bg-elevated/40 p-2">
             <input
+              ref={shareUrlInputRef}
               readOnly
               value={shareUrl ?? ""}
               onFocus={(e) => e.currentTarget.select()}
@@ -668,6 +709,7 @@ export function ShareDialog({ open, onClose, payload, onShareChanged }: ShareDia
                 {managing === "refresh" ? "Updating code…" : "Update shared code"}
               </button>
               <button
+                ref={replaceLinkButtonRef}
                 type="button"
                 disabled={managing !== null}
                 onClick={() => setConfirmAction("rotate")}
@@ -676,6 +718,7 @@ export function ShareDialog({ open, onClose, payload, onShareChanged }: ShareDia
                 Replace public link
               </button>
               <button
+                ref={revokeButtonRef}
                 type="button"
                 disabled={managing !== null}
                 onClick={() => setConfirmAction("revoke")}
@@ -807,9 +850,7 @@ export function ShareDialog({ open, onClose, payload, onShareChanged }: ShareDia
       )}
       {confirmAction && (
         <Modal
-          onClose={() => {
-            if (!managing) setConfirmAction(null);
-          }}
+          onClose={closeConfirmAction}
           role="alertdialog"
           labelledBy="share-change-confirm-title"
           position="center"
@@ -830,7 +871,7 @@ export function ShareDialog({ open, onClose, payload, onShareChanged }: ShareDia
             <button
               type="button"
               disabled={managing !== null}
-              onClick={() => setConfirmAction(null)}
+              onClick={closeConfirmAction}
               className="min-h-11 flex-1 rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted transition hover:bg-elevated hover:text-ink"
             >
               Cancel

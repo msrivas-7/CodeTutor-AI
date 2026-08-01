@@ -851,13 +851,6 @@ export default function LessonPage({
   };
   const closeShareDialog = () => {
     setShareOpen(false);
-    // Pointer activation is not guaranteed to leave the trigger focused in
-    // every browser. Restore the actual opener after Modal's deferred cleanup
-    // so Escape, Close, revoke, and completion-panel entry all return to a
-    // meaningful lesson control instead of document.body.
-    window.setTimeout(() => {
-      if (shareTriggerRef.current?.isConnected) shareTriggerRef.current.focus();
-    }, 0);
   };
   // Pre-fetch: when the lesson is completed AND has code to share,
   // ask the backend whether this user already published a share for
@@ -2441,6 +2434,7 @@ export default function LessonPage({
         <ShareDialog
           open={shareOpen}
           onClose={closeShareDialog}
+          returnFocusRef={shareTriggerRef}
           onShareChanged={(shared) =>
             setShareStatus(shared ? "shared" : "none")
           }

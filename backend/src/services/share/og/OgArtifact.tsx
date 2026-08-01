@@ -147,7 +147,7 @@ export function OgArtifact(props: OgArtifactProps): React.ReactElement {
   const codeFontSize = 21;
 
   // Author line — anonymous when no displayName chosen.
-  const author = props.displayName ?? "A learner on CodeTutor";
+  const author = props.displayName ?? "A learner on CodeTutor AI";
 
   // Phase A — A3 (growth-marketing): polaroid-border attribution
   // framing. The artifact travels as a screenshot far more often than
@@ -228,7 +228,7 @@ export function OgArtifact(props: OgArtifactProps): React.ReactElement {
               color: BRAND.ink,
             }}
           >
-            CodeTutor
+            CodeTutor AI
           </div>
         </div>
       </div>
@@ -432,7 +432,7 @@ export function OgArtifact(props: OgArtifactProps): React.ReactElement {
             color: PAPER_INK,
           }}
         >
-          Made on CodeTutor
+          Made on CodeTutor AI
         </div>
         <div
           style={{

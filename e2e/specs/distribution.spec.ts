@@ -129,6 +129,20 @@ test.describe("B4 public distribution surface", () => {
     expect(new URL(page.url()).search).toBe("");
   });
 
+  test("public lesson skip link moves keyboard focus into the lesson", async ({
+    page,
+  }) => {
+    await page.goto("/lessons/python-fundamentals/variables/");
+    const skip = page.getByRole("link", { name: "Skip to lesson" });
+    await skip.focus();
+    await expect(skip).toBeFocused();
+
+    await page.keyboard.press("Enter");
+
+    await expect(page.locator("#main")).toBeFocused();
+    await expect(page).toHaveURL(/#main$/);
+  });
+
   test("a direct first touch cannot be overwritten by a later tagged CTA", criticalTest({
     risk: "p1",
     owner: "growth",

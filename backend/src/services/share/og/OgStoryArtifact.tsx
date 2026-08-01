@@ -137,7 +137,7 @@ export function OgStoryArtifact(
   const codeFontSize = 30;
   const codeLineHeight = 44;
 
-  const author = props.displayName ?? "A learner on CodeTutor";
+  const author = props.displayName ?? "A learner on CodeTutor AI";
 
   return (
     <div
@@ -210,7 +210,7 @@ export function OgStoryArtifact(
             color: BRAND.ink,
           }}
         >
-          CodeTutor
+          CodeTutor AI
         </div>
         <div
           style={{

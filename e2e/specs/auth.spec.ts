@@ -233,6 +233,46 @@ test.describe("auth flow", () => {
     await expect(page.getByRole("heading", { name: /sign in|welcome/i })).toBeVisible();
   });
 
+  test("unknown public URLs recover without pretending sign-in is required", async ({ page }) => {
+    const missingPath = "/this-route-should-not-exist";
+    await page.goto(missingPath);
+
+    await expect(page).toHaveURL(new RegExp(`${missingPath}$`));
+    const heading = page.getByRole("heading", {
+      name: "This page isn't here.",
+    });
+    await expect(heading).toBeVisible();
+    await expect(heading).toBeFocused();
+    await expect(page).toHaveTitle("Page not found · CodeTutor AI");
+    await expect(page).not.toHaveURL(/\/login/);
+
+    await expect(
+      page.getByText(/account, lesson progress, and code have not been changed/i),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: /go to homepage/i }),
+    ).toHaveAttribute("href", "/");
+    await expect(
+      page.getByRole("link", { name: /try the first lesson/i }),
+    ).toHaveAttribute(
+      "href",
+      "/try/lesson/python-fundamentals/hello-world",
+    );
+
+    // The public catalog is a generated document rather than a React
+    // route, so this must remain a real document navigation.
+    await page.getByRole("link", { name: /browse public lessons/i }).click();
+    await expect(page).toHaveURL(/\/learn-to-code\/$/);
+    await expect(
+      page.getByRole("heading", { name: /built to teach/i }),
+    ).toBeVisible();
+
+    await page.goBack();
+    await expect(page).toHaveURL(new RegExp(`${missingPath}$`));
+    await expect(heading).toBeVisible();
+    await expect(heading).toBeFocused();
+  });
+
   test("signup shows 'Check your email' panel with a resend option", async ({ page }) => {
     // Prod + dev both have email-confirmation ON, so submitting signup parks
     // the user on the "Check your email" panel (SignupPage.tsx `sent` state)

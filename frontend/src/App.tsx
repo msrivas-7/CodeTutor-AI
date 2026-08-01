@@ -25,6 +25,7 @@ const AuthCallbackPage = lazy(() => import("./pages/AuthCallbackPage"));
 const FirstRunPage = lazy(() => import("./features/firstRun/pages/FirstRunPage"));
 const SharePage = lazy(() => import("./features/share/pages/SharePage"));
 const TrustPage = lazy(() => import("./pages/TrustPage"));
+const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
 const AdminPage = lazy(() => import("./pages/AdminPage"));
 const OverviewSection = lazy(() =>
   import("./components/admin/OverviewSection").then((module) => ({
@@ -211,11 +212,12 @@ export default function App() {
             <Route path="anon" element={<AnonSection />} />
             <Route path="eval-quality" element={<EvalQualitySection />} />
           </Route>
-          {/* Catch-all under the auth layout: send authed users to
-              /start. Anonymous users get bounced to /login by RequireAuth
-              before this rule matches. */}
-          <Route path="*" element={<Navigate to="/start" replace />} />
         </Route>
+
+        {/* The global recovery route must remain outside RequireAuth.
+            A mistyped public URL is not an authentication request, and
+            sending anonymous visitors to sign-in creates a false dead end. */}
+        <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </Suspense>
   );
