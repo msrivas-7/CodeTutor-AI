@@ -33,6 +33,7 @@ permissions:
   contents: read
   id-token: write
   packages: write
+  pull-requests: read
 
 env:
   BACKEND_IMAGE: ghcr.io/msrivas-7/codetutor-backend
