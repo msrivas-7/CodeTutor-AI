@@ -6,14 +6,14 @@ import type {
 } from "../backends/index.js";
 import { parseSignedEnvelope } from "./envelope.js";
 import type {
-  FunctionTest,
   HarnessBackend,
+  HarnessSuite,
   RunTestsResult,
 } from "./types.js";
 
 export interface RunTestsOptions {
   handle: SessionHandle;
-  tests: FunctionTest[];
+  suite: HarnessSuite;
   timeoutMs?: number;
 }
 
@@ -85,9 +85,9 @@ export async function runTests(
   harness: HarnessBackend,
   opts: RunTestsOptions,
 ): Promise<RunTestsResult> {
-  const { handle, tests } = opts;
+  const { handle, suite } = opts;
   const timeoutMs = opts.timeoutMs ?? config.runner.execTimeoutMs;
-  const files = harness.prepareFiles(tests);
+  const files = harness.prepareFiles(suite);
   const filePaths = files.map((f) => f.name);
 
   const nonce = claimFreshNonce();

@@ -70,6 +70,9 @@ export const outputPanel = (page: Page): Locator =>
 export const stdinTab = (page: Page): Locator =>
   page.getByRole("tab", { name: /^stdin/i });
 
+export const stdinInput = (page: Page): Locator =>
+  page.getByRole("textbox", { name: "Program input (stdin)" });
+
 // "Combined" is the default view that shows both stderr + stdout. Named
 // `outputTab` in call sites because "combined" is an implementation detail.
 export const outputTab = (page: Page): Locator =>

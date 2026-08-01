@@ -100,6 +100,33 @@ export function FailedTestCallout({ failure, failingTest, consecutiveFails, onAs
   // "Ask tutor why" button feel discoverable rather than surprise.
   const showFirstFailHint = consecutiveFails < 2 && !!onAskTutor;
 
+  if (failure.evidence === "source") {
+    return (
+      <motion.div
+        ref={containerRef}
+        {...revealProps}
+        className="mt-3 rounded-xl border border-warn/30 bg-warn/5 p-3"
+        role="alert"
+        aria-live="polite"
+      >
+        <h3 ref={headingRef} tabIndex={-1} className="text-xs font-semibold text-warn focus:outline-none">
+          One required technique is still missing
+        </h3>
+        <p className="mt-1.5 text-[11px] leading-relaxed text-ink/80">
+          {failure.feedback || `Use the required approach for “${failure.name}” in code that actually runs.`}
+        </p>
+        {canAsk && (
+          <button
+            onClick={onAskTutor}
+            className="mt-2 rounded-md bg-violet/15 px-2.5 py-1 text-[11px] font-semibold text-violet transition hover:bg-violet/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet"
+          >
+            Ask tutor why
+          </button>
+        )}
+      </motion.div>
+    );
+  }
+
   if (failure.hidden) {
     return (
       <motion.div

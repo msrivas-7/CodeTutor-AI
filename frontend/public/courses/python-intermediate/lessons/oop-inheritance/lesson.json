@@ -60,9 +60,10 @@
       "pattern": "class SavingsAccount(Account)"
     },
     {
-      "type": "required_file_contains",
-      "file": "main.py",
-      "pattern": "super()"
+      "type": "source_checks",
+      "checks": [
+        { "name": "Delegate with super()", "kind": "python_call", "target": "super", "minCount": 2, "feedback": "Use super() in both SavingsAccount.__init__ and SavingsAccount.describe instead of duplicating Account logic." }
+      ]
     }
   ],
   "prerequisiteLessonIds": ["oop-classes"],

@@ -76,6 +76,7 @@ export function validateLesson(
   }
 
   const feedback: string[] = [];
+  const successFeedback: string[] = [];
   const nextHints: string[] = [];
   let allPassed = true;
   // Phase A — A1: track non-retrieval pass separately so LessonPage
@@ -101,8 +102,15 @@ export function validateLesson(
         }
         const expected = (rule.expected ?? "").trim();
         const actual = (result.stdout ?? "").trim();
-        if (actual.includes(expected)) {
-          feedback.push(`Output contains "${expected}" — correct!`);
+        const matches = rule.match === "exact"
+          ? actual === expected
+          : actual.includes(expected);
+        if (matches) {
+          successFeedback.push(
+            rule.match === "exact"
+              ? `Output matches "${expected}" — correct!`
+              : `Output contains "${expected}" — correct!`,
+          );
         } else if (actual.length === 0) {
           const printCall = extra.language ? PRINT_CALL_BY_LANGUAGE[extra.language] : "print()";
           feedback.push(`Your code ran but produced no output. Make sure you're using ${printCall}.`);
@@ -144,7 +152,7 @@ export function validateLesson(
           allPassed = false;
           allNonRetrievalPassed = false;
         } else {
-          feedback.push(`Output doesn't contain "${forbidden}" — good.`);
+          successFeedback.push(`Output doesn't contain "${forbidden}" — good.`);
         }
         break;
       }
@@ -159,7 +167,7 @@ export function validateLesson(
         }
         const pattern = rule.pattern ?? "";
         if (containsPattern(file.content, pattern)) {
-          feedback.push(`File "${targetPath}" contains the required code.`);
+          successFeedback.push(`File "${targetPath}" contains the required code.`);
         } else {
           feedback.push(`File "${targetPath}" is missing required code pattern.`);
           nextHints.push(`Make sure your code in ${targetPath} uses the required approach.`);
@@ -183,12 +191,13 @@ export function validateLesson(
           allNonRetrievalPassed = false;
           break;
         }
-        const failed = report.results.filter((r) => !r.passed);
+        const behaviorResults = report.results.filter((entry) => entry.evidence !== "source");
+        const failed = behaviorResults.filter((entry) => !entry.passed);
         if (failed.length === 0) {
-          feedback.push(`All ${report.results.length} tests pass — nice work!`);
+          successFeedback.push(`All ${behaviorResults.length} tests pass — nice work!`);
           break;
         }
-        const firstFail = pickFirstFailure(report);
+        const firstFail = pickFirstFailure({ ...report, results: behaviorResults });
         if (firstFail && !firstFail.hidden) {
           feedback.push(`Test "${firstFail.name}" didn't match.`);
           nextHints.push("Look at the failing example and compare your output to the expected value.");
@@ -198,6 +207,37 @@ export function validateLesson(
         }
         allPassed = false;
         allNonRetrievalPassed = false;
+        break;
+      }
+      case "source_checks": {
+        const report = extra.testReport ?? null;
+        if (!report) {
+          feedback.push("Check your work so we can verify the required technique.");
+          allPassed = false;
+          allNonRetrievalPassed = false;
+          break;
+        }
+        if (report.harnessError) {
+          feedback.push("Your code couldn't be inspected — fix the error above, then try again.");
+          allPassed = false;
+          allNonRetrievalPassed = false;
+          break;
+        }
+        const sourceResults = report.results.filter((entry) => entry.evidence === "source");
+        const firstFail = sourceResults.find((entry) => !entry.passed);
+        if (firstFail) {
+          feedback.push(
+            firstFail.feedback || `Use the required technique for “${firstFail.name}”.`,
+          );
+          allPassed = false;
+          allNonRetrievalPassed = false;
+        } else if (sourceResults.length === 0) {
+          feedback.push("The required technique could not be verified. Try checking again.");
+          allPassed = false;
+          allNonRetrievalPassed = false;
+        } else {
+          successFeedback.push("The required technique is present in working code.");
+        }
         break;
       }
       case "custom_validator": {
@@ -215,7 +255,7 @@ export function validateLesson(
         // rendered by RetrievalCheckPanel — the validator just reflects
         // whether the learner has passed it.
         if (extra.retrievalAnswered === true) {
-          feedback.push("Retrieval check passed — you've got the concept.");
+          successFeedback.push("Retrieval check passed — you've got the concept.");
         } else {
           feedback.push("One quick check before you finish — answer the question that appears.");
           // No nextHint here: the RetrievalCheckPanel is its own UI surface,
@@ -230,7 +270,7 @@ export function validateLesson(
   return {
     passed: allPassed,
     passedExceptRetrieval: allNonRetrievalPassed,
-    feedback,
+    feedback: allPassed ? successFeedback : feedback,
     nextHints: nextHints.length > 0 ? nextHints : undefined,
   };
 }

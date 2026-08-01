@@ -56,6 +56,8 @@
         { "name": "first of empty is None", "call": "Query([]).first()", "expected": "None" },
         { "name": "repr format", "call": "repr(Query([1, 2, 3]))", "expected": "'Query(3 rows)'" },
         { "name": "where returns Query", "call": "type(Query([1]).where(lambda r: True)).__name__", "expected": "'Query'" },
+        { "name": "where returns a distinct Query without mutating the original", "setup": "original = Query([{'n': 1}, {'n': 2}, {'n': 3}])\nfiltered = original.where(lambda row: row['n'] >= 2)", "call": "[filtered is not original, list(original), list(filtered)]", "expected": "[True, [{'n': 1}, {'n': 2}, {'n': 3}], [{'n': 2}, {'n': 3}]]", "hidden": true, "category": "immutability" },
+        { "name": "sort_by returns a distinct Query without reordering the original", "setup": "original = Query([{'n': 3}, {'n': 1}, {'n': 2}])\nsorted_query = original.sort_by(lambda row: row['n'])", "call": "[sorted_query is not original, [row['n'] for row in original], [row['n'] for row in sorted_query]]", "expected": "[True, [3, 1, 2], [1, 2, 3]]", "hidden": true, "category": "immutability" },
         { "name": "chained operations", "call": "Query([{'a': 3}, {'a': 1}, {'a': 2}]).sort_by(lambda r: r['a']).first()", "expected": "{'a': 1}", "hidden": true }
       ]
     },

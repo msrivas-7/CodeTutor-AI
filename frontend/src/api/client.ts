@@ -205,7 +205,7 @@ import type {
   TokenUsage,
   TutorSections,
 } from "../types";
-import type { CompletionRule, FunctionTest, TestReport } from "../features/learning/types";
+import type { CompletionRule, FunctionTest, SourceCheck, TestReport } from "../features/learning/types";
 
 export interface ExecuteTestsResponse {
   report: TestReport;
@@ -1158,13 +1158,14 @@ export const api = {
     sessionId: string,
     language: Language,
     tests: FunctionTest[],
+    sourceChecks: SourceCheck[] = [],
   ) => {
     const ctrl = registerSessionRequest(sessionId);
     try {
       const res = await authenticatedFetch("/api/execute/tests", {
         method: "POST",
         headers: { ...JSON_HEADERS, ...CSRF_HEADER },
-        body: JSON.stringify({ sessionId, language, tests }),
+        body: JSON.stringify({ sessionId, language, tests, sourceChecks }),
         signal: ctrl.signal,
       });
       if (!res.ok) {

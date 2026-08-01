@@ -72,7 +72,7 @@ test.describe("editor", () => {
 
     // Switch to stdin tab, type input, switch back, run a program that reads 2 lines.
     await S.stdinTab(page).click();
-    const stdinBox = page.locator("#output-panel-body");
+    const stdinBox = S.stdinInput(page);
     await stdinBox.click();
     await stdinBox.fill("hello\nworld");
     // Back to combined output so we can assert on stdout.
@@ -118,7 +118,7 @@ test.describe("editor", () => {
     await expect(S.runButton(page)).toBeEnabled({ timeout: 30_000 });
 
     await S.stdinTab(page).click();
-    const stdinBox = page.locator("#output-panel-body");
+    const stdinBox = S.stdinInput(page);
     await stdinBox.click();
     // Three codepoint families, one per line: compound emoji (ZWJ sequence),
     // CJK ideographs, Cyrillic. `input()` reads one line each.

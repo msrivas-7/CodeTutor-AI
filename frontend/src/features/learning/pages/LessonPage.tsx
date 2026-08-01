@@ -920,7 +920,10 @@ export default function LessonPage({
       : null;
   })();
   const showNext =
-    (validator.validation?.passed || lp?.status === "completed") && nextLessonId;
+    (validator.validation?.passed || lp?.status === "completed") &&
+    !validator.completionPresentationPending &&
+    !validator.showComplete &&
+    nextLessonId;
 
   return (
     <motion.div
@@ -1401,6 +1404,7 @@ export default function LessonPage({
                   currentIndex={practiceIndex}
                   completedIds={lp?.practiceCompletedIds ?? []}
                   validation={validator.practiceValidation}
+                  testReport={validator.practiceTestReport}
                   saveError={validator.practiceSaveError}
                   onSelectExercise={validator.handleSelectPracticeExercise}
                   onExitPractice={validator.handleExitPractice}
@@ -1437,7 +1441,7 @@ export default function LessonPage({
               aria-label="Code editor"
               className="flex h-[34vh] min-h-[200px] flex-col border-b border-border"
             >
-              {loader.resumed && (
+              {loader.resumed && !practiceMode && (
                 <div className="flex items-center gap-2 border-b border-accent/20 bg-accent/5 px-3 py-1 text-[11px] text-accent">
                   Your code was restored — resuming where you left off
                 </div>
@@ -1655,6 +1659,7 @@ export default function LessonPage({
                 currentIndex={practiceIndex}
                 completedIds={lp?.practiceCompletedIds ?? []}
                 validation={validator.practiceValidation}
+                testReport={validator.practiceTestReport}
                 saveError={validator.practiceSaveError}
                 onSelectExercise={validator.handleSelectPracticeExercise}
                 onExitPractice={validator.handleExitPractice}
@@ -1708,7 +1713,7 @@ export default function LessonPage({
             ref={layout.editorRef as React.RefObject<HTMLElement>}
             className="flex min-w-0 flex-1 flex-col overflow-hidden"
           >
-            {loader.resumed && (
+            {loader.resumed && !practiceMode && (
               <div className="flex items-center gap-2 border-b border-accent/20 bg-accent/5 px-3 py-1.5 text-[11px] text-accent">
                 <svg
                   className="h-3 w-3"
@@ -2027,7 +2032,8 @@ export default function LessonPage({
                 && validator.validation
                 && !validator.validation.passed
                 && !isRetrievalPending(validator.validation)
-                && validator.functionTests.length === 0 && (
+                && validator.functionTests.length === 0
+                && validator.sourceChecks.length === 0 && (
                 <div
                   role="alert"
                   className="mx-4 mt-1.5 flex max-h-24 flex-col gap-0.5 overflow-y-auto rounded-lg bg-danger/10 px-3 py-1.5 text-xs font-medium text-danger"

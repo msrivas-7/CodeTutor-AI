@@ -38,9 +38,10 @@
       "expected": "parsed: [42, 7, -3]\nskipped: ['hello', '']"
     },
     {
-      "type": "required_file_contains",
-      "file": "main.py",
-      "pattern": "except"
+      "type": "source_checks",
+      "checks": [
+        { "name": "Catch ValueError specifically", "kind": "python_specific_except", "target": "ValueError", "feedback": "Catch ValueError specifically; a bare except or broad Exception hides unrelated bugs." }
+      ]
     }
   ],
   "prerequisiteLessonIds": ["lambdas-and-higher-order"],
@@ -68,9 +69,10 @@
           ]
         },
         {
-          "type": "required_file_contains",
-          "file": "main.py",
-          "pattern": "except"
+          "type": "source_checks",
+          "checks": [
+            { "name": "Catch ValueError in safe_int", "kind": "python_specific_except", "target": "ValueError", "scope": "safe_int", "feedback": "Catch ValueError specifically inside safe_int()." }
+          ]
         }
       ],
       "hints": [
@@ -82,7 +84,7 @@
     {
       "id": "validate-age",
       "title": "Raise on invalid age",
-      "prompt": "Write `validate_age(age)` that returns `age` if it's a non-negative integer, or raises `ValueError` with the message `\"age must be non-negative\"` if `age < 0`. For example, `validate_age(25)` returns `25`, but `validate_age(-3)` should raise `ValueError(\"age must be non-negative\")`. Use the `raise` statement.\n\n(The automated tests check the success path. The raise-on-negative path is enforced by requiring a `raise` statement in your code — the lesson is about *writing* the raise, not catching it. Practice exercise 3 will exercise catching.)",
+      "prompt": "Write `validate_age(age)` that returns `age` if it's a non-negative integer, or raises `ValueError` with the message `\"age must be non-negative\"` if `age < 0`. For example, `validate_age(25)` returns `25`, but `validate_age(-3)` should raise `ValueError(\"age must be non-negative\")`. Use the `raise` statement.",
       "goal": "Raise a built-in exception with a descriptive message.",
       "starterCode": "def validate_age(age):\n    # TODO: if age < 0, raise ValueError(\"age must be non-negative\")\n    # otherwise return age\n    pass\n",
       "completionRules": [
@@ -92,18 +94,15 @@
             { "name": "valid adult age", "call": "validate_age(25)", "expected": "25" },
             { "name": "zero is valid", "call": "validate_age(0)", "expected": "0" },
             { "name": "boundary one", "call": "validate_age(1)", "expected": "1" },
-            { "name": "very large age", "call": "validate_age(150)", "expected": "150", "hidden": true }
+            { "name": "very large age", "call": "validate_age(150)", "expected": "150", "hidden": true },
+            { "name": "negative age raises the required error", "call": "validate_age(-3)", "expectedError": { "type": "ValueError", "message": "age must be non-negative" } }
           ]
         },
         {
-          "type": "required_file_contains",
-          "file": "main.py",
-          "pattern": "raise ValueError"
-        },
-        {
-          "type": "required_file_contains",
-          "file": "main.py",
-          "pattern": "age must be non-negative"
+          "type": "source_checks",
+          "checks": [
+            { "name": "Reachable ValueError raise", "kind": "python_raise", "target": "ValueError", "scope": "validate_age", "feedback": "Raise ValueError from the live negative-age branch inside validate_age()." }
+          ]
         }
       ],
       "hints": [
@@ -130,9 +129,10 @@
           ]
         },
         {
-          "type": "required_file_contains",
-          "file": "main.py",
-          "pattern": "except"
+          "type": "source_checks",
+          "checks": [
+            { "name": "Catch ValueError in parse_or_default", "kind": "python_specific_except", "target": "ValueError", "scope": "parse_or_default", "feedback": "Catch ValueError specifically inside parse_or_default()." }
+          ]
         }
       ],
       "hints": [

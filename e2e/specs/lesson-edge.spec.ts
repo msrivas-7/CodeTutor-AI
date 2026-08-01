@@ -35,10 +35,9 @@ test.describe("lesson edge cases", () => {
     // prints "Hi <name>! You are about <age> years old.".
     await setMonacoValue(page, readLessonSolution(COURSE_ID, "input-output"));
 
-    // Load canned stdin via the Stdin tab. The OutputPanel tab bar reuses the
-    // shared #output-panel-body textarea for stdin authoring.
+    // Load canned stdin via the Stdin tab's named textarea.
     await S.stdinTab(page).click();
-    const stdinBox = page.locator("#output-panel-body");
+    const stdinBox = S.stdinInput(page);
     await stdinBox.click();
     await stdinBox.fill("Alice\n2000\n");
     await S.outputTab(page).click();

@@ -23,6 +23,7 @@
 // reset on subsequent runs).
 
 import * as path from "node:path";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import * as dotenv from "dotenv";
 import postgres from "postgres";
@@ -34,32 +35,38 @@ dotenv.config({ path: path.resolve(__dirname, "..", "..", ".env") });
 
 const PYTHON = "python-fundamentals";
 const JS = "javascript-fundamentals";
+const PYTHON_INTERMEDIATE = "python-intermediate";
 
-const PYTHON_LESSONS = [
-  "hello-world",
-  "variables",
-  "input-output",
-  "conditionals",
-  "loops",
-  "functions",
-  "lists",
-  "dictionaries",
-  "debugging-basics",
-  "mini-project",
-  "capstone-word-frequency",
-  "capstone-task-tracker",
-] as const;
+function lessonOrder(courseId: string): string[] {
+  const coursePath = path.resolve(
+    __dirname,
+    "..",
+    "..",
+    "frontend",
+    "public",
+    "courses",
+    courseId,
+    "course.json",
+  );
+  const parsed = JSON.parse(readFileSync(coursePath, "utf8")) as {
+    lessonOrder?: unknown;
+  };
+  if (
+    !Array.isArray(parsed.lessonOrder) ||
+    parsed.lessonOrder.length === 0 ||
+    !parsed.lessonOrder.every((id) => typeof id === "string" && id.length > 0)
+  ) {
+    throw new Error(`invalid lessonOrder in ${coursePath}`);
+  }
+  return parsed.lessonOrder;
+}
 
-const JS_LESSONS = [
-  "hello-print",
-  "variables-and-strings",
-  "conditionals",
-  "loops",
-  "functions-basics",
-  "arrays-basics",
-  "objects-basics",
-  "mini-project",
-] as const;
+// Read canonical course manifests instead of maintaining a second list that
+// silently drifts as lessons are added. The complete-account QA scenario then
+// remains complete without an agent having to remember to update this file.
+const PYTHON_LESSONS = lessonOrder(PYTHON);
+const JS_LESSONS = lessonOrder(JS);
+const PYTHON_INTERMEDIATE_LESSONS = lessonOrder(PYTHON_INTERMEDIATE);
 
 // Broken capstone code — tokenize works, count_words returns a list of tuples
 // instead of a dict. Triggers exactly one visible-test failure on
@@ -278,7 +285,7 @@ const SCENARIOS: Scenario[] = [
     email: "user5@test.com",
     firstName: "Test",
     lastName: "User 5",
-    label: "Both courses fully complete — celebration replay, all-✓ LessonList",
+    label: "All public courses complete — celebration replay, all-✓ LessonList",
     preferences: ONBOARDING_DONE,
     courses: [
       {
@@ -293,10 +300,17 @@ const SCENARIOS: Scenario[] = [
         completedLessons: [...JS_LESSONS],
         lastLessonId: JS_LESSONS[JS_LESSONS.length - 1],
       },
+      {
+        courseId: PYTHON_INTERMEDIATE,
+        status: "completed",
+        completedLessons: [...PYTHON_INTERMEDIATE_LESSONS],
+        lastLessonId: PYTHON_INTERMEDIATE_LESSONS[PYTHON_INTERMEDIATE_LESSONS.length - 1],
+      },
     ],
     lessons: [
       ...completed(PYTHON, PYTHON_LESSONS),
       ...completed(JS, JS_LESSONS),
+      ...completed(PYTHON_INTERMEDIATE, PYTHON_INTERMEDIATE_LESSONS),
     ],
   },
 ];

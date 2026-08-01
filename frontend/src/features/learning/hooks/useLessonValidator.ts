@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject, type RefObject } from "react";
 import { useSearchParams } from "react-router-dom";
 import type { Options as ConfettiOptions } from "canvas-confetti";
-import type { FunctionTest, Lesson, TestReport, ValidationResult } from "../types";
+import type { FunctionTest, Lesson, SourceCheck, TestReport, ValidationResult } from "../types";
 import {
   beginProjectOperation,
   isProjectOperationCurrent,
@@ -154,6 +154,7 @@ export function useLessonValidator({
   const [searchParams, setSearchParams] = useSearchParams();
   const [validation, setValidation] = useState<ValidationResult | null>(null);
   const [showComplete, setShowComplete] = useState(false);
+  const [completionPresentationPending, setCompletionPresentationPending] = useState(false);
   const [completionSaving, setCompletionSaving] = useState(false);
   const [completionSaveError, setCompletionSaveError] = useState<string | null>(null);
   const [hasChecked, setHasChecked] = useState(false);
@@ -165,6 +166,7 @@ export function useLessonValidator({
   const [practiceSaving, setPracticeSaving] = useState(false);
   const [practiceRetryAt, setPracticeRetryAt] = useState<number | null>(null);
   const [testReport, setTestReport] = useState<TestReport | null>(null);
+  const [practiceTestReport, setPracticeTestReport] = useState<TestReport | null>(null);
   const [runningTests, setRunningTests] = useState(false);
   const testOperationRef = useRef<ProjectOperationIdentity | null>(null);
   // Mirror the local `runningTests` flag into runStore so the global
@@ -197,6 +199,8 @@ export function useLessonValidator({
   const startLesson = useProgressStore((s) => s.startLesson);
   const setPendingAsk = useAIStore((s) => s.setPendingAsk);
   const projectRevision = useProjectStore((s) => s.revision);
+  const currentRunResult = useRunStore((s) => s.result);
+  const currentRunError = useRunStore((s) => s.error);
 
   const beginTestOperation = (): ProjectOperationIdentity => {
     const operation = beginProjectOperation();
@@ -219,6 +223,7 @@ export function useLessonValidator({
     setRunningTests(false);
     setValidation(null);
     setShowComplete(false);
+    setCompletionPresentationPending(false);
     setCompletionSaving(false);
     setCompletionSaveError(null);
     setHasChecked(false);
@@ -232,6 +237,7 @@ export function useLessonValidator({
     setPracticeSaving(false);
     setPracticeRetryAt(null);
     setTestReport(null);
+    setPracticeTestReport(null);
     setLastFailedName(null);
     setSameFailStreak(0);
     setConfirmResetCode(false);
@@ -250,6 +256,12 @@ export function useLessonValidator({
     resetUndoRevisionRef.current = null;
   }, [projectRevision, resetUndo]);
 
+  useEffect(() => {
+    if (!resetUndo || (!currentRunResult && !currentRunError)) return;
+    setResetUndo(null);
+    resetUndoRevisionRef.current = null;
+  }, [currentRunResult, currentRunError, resetUndo]);
+
   // Any executable-source revision invalidates every current Check artifact.
   // Historical attempt counters remain useful, but pass/fail praise and late
   // harness responses are not allowed to describe the new revision.
@@ -258,10 +270,12 @@ export function useLessonValidator({
     testOperationRef.current = null;
     setRunningTests(false);
     setTestReport(null);
+    setPracticeTestReport(null);
     setValidation(null);
     setPracticeValidation(null);
     setPracticeSaveError(null);
     setShowComplete(false);
+    setCompletionPresentationPending(false);
     setHasChecked(false);
   }, [projectRevision, initializedRef]);
 
@@ -278,6 +292,13 @@ export function useLessonValidator({
     return out;
   })();
 
+  const sourceChecks: SourceCheck[] = (() => {
+    if (!lesson || practiceMode) return [];
+    return lesson.completionRules
+      .filter((rule) => rule.type === "source_checks")
+      .flatMap((rule) => rule.checks ?? []);
+  })();
+
   const handleRunExamples = useCallback(async () => {
     // Pass 2 P2 #5: anon path has no sessionId; api.snapshotProject /
     // executeTests are auth+session-keyed and would 401 → cascade.
@@ -287,7 +308,7 @@ export function useLessonValidator({
     // future anon-allowlisted lesson with function_tests.
     if (mode === "anon") return;
     if (!sessionId || sessionPhase !== "active" || runningTests || !courseId || !lessonId || !lesson) return;
-    if (functionTests.length === 0) return;
+    if (functionTests.length === 0 && sourceChecks.length === 0) return;
     const operation = beginTestOperation();
     setRunningTests(true);
     try {
@@ -297,7 +318,7 @@ export function useLessonValidator({
       // Always batch visible + hidden in one harness run — a single harness
       // invocation carries the full overhead (docker exec, boot, runtime
       // init); the per-test cost inside is negligible.
-      const res = await api.executeTests(sessionId, lesson.language, functionTests);
+      const res = await api.executeTests(sessionId, lesson.language, functionTests, sourceChecks);
       if (!testOperationIsCurrent(operation)) return;
       setTestReport(res.report);
     } catch (err) {
@@ -311,7 +332,7 @@ export function useLessonValidator({
     } finally {
       finishTestOperation(operation);
     }
-  }, [sessionId, sessionPhase, runningTests, courseId, lessonId, lesson, functionTests, mode]);
+  }, [sessionId, sessionPhase, runningTests, courseId, lessonId, lesson, functionTests, sourceChecks, mode]);
 
   const handleCheck = useCallback(async (overrides?: { retrievalAnswered?: boolean }) => {
     if (completionSaving) return;
@@ -355,13 +376,21 @@ export function useLessonValidator({
       const practiceFnTests = practiceRules
         .filter((r) => r.type === "function_tests")
         .flatMap((r) => r.tests ?? []);
+      const practiceSourceChecks = practiceRules
+        .filter((r) => r.type === "source_checks")
+        .flatMap((r) => r.checks ?? []);
       let practiceReport: TestReport | null = null;
-      if (practiceFnTests.length > 0 && sessionId) {
+      if ((practiceFnTests.length > 0 || practiceSourceChecks.length > 0) && sessionId) {
         setRunningTests(true);
         try {
           await api.snapshotProject(sessionId, files);
           if (!testOperationIsCurrent(operation)) return;
-          const res = await api.executeTests(sessionId, lesson.language, practiceFnTests);
+          const res = await api.executeTests(
+            sessionId,
+            lesson.language,
+            practiceFnTests,
+            practiceSourceChecks,
+          );
           if (!testOperationIsCurrent(operation)) return;
           practiceReport = res.report;
         } catch (err) {
@@ -377,6 +406,7 @@ export function useLessonValidator({
         }
       }
       if (!testOperationIsCurrent(operation)) return;
+      setPracticeTestReport(practiceReport);
       const v = validateLesson(result, files, exercise.completionRules, {
         testReport: practiceReport,
         language: lesson.language,
@@ -451,12 +481,17 @@ export function useLessonValidator({
     // validates against a fresh report. Ensures the callout reflects the
     // current code, not a stale Run-examples result.
     let latestReport = testReport;
-    if (functionTests.length > 0) {
+    if (functionTests.length > 0 || sourceChecks.length > 0) {
       setRunningTests(true);
       try {
         await api.snapshotProject(sessionId!, files);
         if (!testOperationIsCurrent(operation)) return;
-        const res = await api.executeTests(sessionId!, lesson.language, functionTests);
+        const res = await api.executeTests(
+          sessionId!,
+          lesson.language,
+          functionTests,
+          sourceChecks,
+        );
         if (!testOperationIsCurrent(operation)) return;
         latestReport = res.report;
         setTestReport(res.report);
@@ -495,7 +530,7 @@ export function useLessonValidator({
       const harnessErrored = Boolean(latestReport?.harnessError);
       if (!harnessErrored) {
         setFailedCheckCount((c) => c + 1);
-        if (latestReport && functionTests.length > 0) {
+        if (latestReport && (functionTests.length > 0 || sourceChecks.length > 0)) {
           const { visibleFails, hiddenFails } = countFailsByVisibility(latestReport);
           if (visibleFails > 0) setFailedVisibleTests((c) => c + 1);
           else if (hiddenFails > 0) setFailedHiddenTests((c) => c + 1);
@@ -514,6 +549,11 @@ export function useLessonValidator({
       setLastFailedName(null);
     }
     if (v.passed && (!validation?.passed || completionSaveError !== null)) {
+      // Lock completion navigation before the durable progress write begins.
+      // The progress store can publish `completed` as soon as the request
+      // resolves; setting this later creates a real frame where Next Lesson is
+      // actionable even though the completion presentation is not ready.
+      setCompletionPresentationPending(true);
       // Phase 27-v2.1: skip server-side completion PATCH on anon
       // (learnerId === null). Client-side validation has already
       // flipped to passed; the celebration UI fires regardless.
@@ -530,6 +570,7 @@ export function useLessonValidator({
           setValidation(v);
         } catch (cause) {
           if (!testOperationIsCurrent(operation)) return;
+          setCompletionPresentationPending(false);
           setCompletionSaveError(
             cause instanceof Error
               ? cause.message
@@ -590,10 +631,11 @@ export function useLessonValidator({
           });
         }, 220);
         if (!testOperationIsCurrent(operation)) return;
+        setCompletionPresentationPending(false);
         setShowComplete(true);
       }, CINEMA_DURATIONS.sonarHold);
     }
-  }, [lesson, courseId, lessonId, completeLesson, learnerId, totalLessons, validation, practiceMode, practiceIndex, completePracticeExercise, sessionId, functionTests, testReport, lastFailedName, retrievalAnswered, runningTests, practiceRetryAt, completionSaving, completionSaveError]);
+  }, [lesson, courseId, lessonId, completeLesson, learnerId, totalLessons, validation, practiceMode, practiceIndex, completePracticeExercise, sessionId, functionTests, sourceChecks, testReport, lastFailedName, retrievalAnswered, runningTests, practiceRetryAt, completionSaving, completionSaveError]);
 
   const applyPracticeStarter = useCallback((exerciseIndex: number, forceDefaults = false) => {
     if (!lesson?.practiceExercises || !courseId || !lessonId) return;
@@ -634,6 +676,7 @@ export function useLessonValidator({
       { stdin: "" },
     );
     setPracticeValidation(null);
+    setPracticeTestReport(null);
     setPracticeSaveError(null);
   }, [lesson, courseId, lessonId]);
 
@@ -660,6 +703,7 @@ export function useLessonValidator({
     setPracticeMode(true);
     setPracticeIndex(0);
     setShowComplete(false);
+    setCompletionPresentationPending(false);
     applyPracticeStarter(0);
   }, [lesson, applyPracticeStarter]);
 
@@ -690,6 +734,7 @@ export function useLessonValidator({
   const handleExitPractice = useCallback(() => {
     setPracticeMode(false);
     setPracticeValidation(null);
+    setPracticeTestReport(null);
     const lessonContext = lessonWorkspaceContextKey(mode, courseId, lessonId);
     if (lessonContext) {
       useProjectStore.getState().switchProjectContext(lessonContext);
@@ -960,6 +1005,7 @@ export function useLessonValidator({
     practiceSaving,
     practiceRetryAt,
     showComplete,
+    completionPresentationPending,
     setShowComplete,
     hasChecked,
     failedCheckCount,
@@ -981,7 +1027,9 @@ export function useLessonValidator({
     resetUndo,
     setResetUndo,
     functionTests,
+    sourceChecks,
     passedVisibleTests,
+    practiceTestReport,
     handleCheck,
     handleRunExamples,
     handleReset,

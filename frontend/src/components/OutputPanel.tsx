@@ -194,16 +194,21 @@ export function OutputPanel({
         </div>
       )}
       {tab === "stdin" ? (
-        <textarea
+        <div
           id="output-panel-body"
           role="tabpanel"
           aria-labelledby={`output-tab-${tab}`}
-          value={stdin}
-          onChange={(e) => setStdin(e.target.value)}
-          spellCheck={false}
-          placeholder={"Type input here — it will be piped to stdin on the next Run.\nOne line per prompt for programs that read with input()/scanf/fgets."}
-          className="min-h-0 flex-1 resize-none bg-bg p-3 font-mono text-[13px] leading-relaxed text-ink outline-none placeholder:text-faint sm:text-xs"
-        />
+          className="flex min-h-0 flex-1 bg-bg"
+        >
+          <textarea
+            aria-label="Program input (stdin)"
+            value={stdin}
+            onChange={(e) => setStdin(e.target.value)}
+            spellCheck={false}
+            placeholder={"Type input here — it will be piped to stdin on the next Run.\nOne line per prompt for programs that read with input()/scanf/fgets."}
+            className="min-h-0 flex-1 resize-none bg-bg p-3 font-mono text-[13px] leading-relaxed text-ink outline-none placeholder:text-faint sm:text-xs"
+          />
+        </div>
       ) : (
         <pre
           id="output-panel-body"

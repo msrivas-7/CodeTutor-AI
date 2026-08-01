@@ -32,6 +32,8 @@ import {
   type Language,
 } from "./language";
 import type { z } from "zod";
+import { harnessPython as productionPythonHarness } from "../../backend/src/services/execution/harness/pythonHarness.js";
+import { harnessJavaScript as productionJavaScriptHarness } from "../../backend/src/services/execution/harness/javascriptHarness.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -270,10 +272,11 @@ function runRulesAgainstSolution(args: RunArgs) {
         if (scriptExitCode !== 0) continue;
         const expected = rule.expected.trim();
         const actual = (scriptStdout ?? "").trim();
-        if (!actual.includes(expected)) {
+        const matches = rule.match === "exact" ? actual === expected : actual.includes(expected);
+        if (!matches) {
           failures.push({
             where,
-            message: `expected stdout to contain ${JSON.stringify(expected)} but got ${JSON.stringify(actual.slice(0, 200))}`,
+            message: `expected stdout to ${rule.match === "exact" ? "equal" : "contain"} ${JSON.stringify(expected)} but got ${JSON.stringify(actual.slice(0, 200))}`,
           });
         }
       } else if (rule.type === "required_file_contains") {
@@ -298,7 +301,7 @@ function runRulesAgainstSolution(args: RunArgs) {
           console.log(`[skip] ${where}  no function_tests harness for language "${language}"`);
           continue;
         }
-        const report = runHarness(language, tmp, rule.tests);
+        const report = runHarness(language, tmp, rule.tests, []);
         if (report.harnessError) {
           failures.push({
             where,
@@ -312,6 +315,19 @@ function runRulesAgainstSolution(args: RunArgs) {
           failures.push({
             where,
             message: `function_test "${first.name}" failed: expected ${first.expectedRepr ?? "?"} but got ${first.actualRepr ?? "(error: " + (first.error ?? "unknown").split("\n")[0] + ")"}`,
+          });
+        }
+      } else if (rule.type === "source_checks") {
+        const report = runHarness(language, tmp, [], rule.checks);
+        if (report.harnessError) {
+          failures.push({ where, message: `source-check harness error: ${report.harnessError.slice(0, 300)}` });
+          continue;
+        }
+        const failed = report.results.filter((result) => !result.passed);
+        if (failed.length > 0) {
+          failures.push({
+            where,
+            message: `source_check "${failed[0].name}" failed for the golden solution`,
           });
         }
       } else if (rule.type === "custom_validator") {
@@ -335,9 +351,14 @@ interface HarnessReport {
   harnessError: string | null;
 }
 
-function runHarness(language: Language, workspace: string, tests: unknown): HarnessReport {
+function runHarness(
+  language: Language,
+  workspace: string,
+  tests: unknown[],
+  sourceChecks: unknown[],
+): HarnessReport {
   const jsonPath = join(workspace, HARNESS_JSON);
-  writeFileSync(jsonPath, JSON.stringify(tests), "utf8");
+  writeFileSync(jsonPath, JSON.stringify({ tests, sourceChecks }), "utf8");
 
   const nonce = crypto.randomBytes(32).toString("hex");
   // Phase 17: nonce goes on stdin (not env). /proc/<pid>/environ leaks env
@@ -350,7 +371,7 @@ function runHarness(language: Language, workspace: string, tests: unknown): Harn
   const stdinPayload = `${nonce}\n`;
 
   if (language === "python") {
-    writeFileSync(join(workspace, HARNESS_PY), harnessPython(), "utf8");
+    writeFileSync(join(workspace, HARNESS_PY), productionPythonHarness(), "utf8");
     const r = spawnSync("python3", [HARNESS_PY], {
       cwd: workspace,
       encoding: "utf8",
@@ -361,7 +382,7 @@ function runHarness(language: Language, workspace: string, tests: unknown): Harn
     return parseSignedEnvelope(r.stdout ?? "", r.stderr ?? "", nonce);
   }
   if (language === "javascript") {
-    writeFileSync(join(workspace, HARNESS_JS), harnessJavaScript(), "utf8");
+    writeFileSync(join(workspace, HARNESS_JS), productionJavaScriptHarness(), "utf8");
     const r = spawnSync("node", [HARNESS_JS], {
       cwd: workspace,
       encoding: "utf8",

@@ -79,7 +79,7 @@
       "goal": "Combine conditions with &&, ||, and !.",
       "starterCode": "const year = 2024;\n// Print \"leap\" or \"not leap\"\n",
       "completionRules": [
-        { "type": "expected_stdout", "expected": "leap" }
+        { "type": "expected_stdout", "expected": "leap", "match": "exact" }
       ],
       "hints": [
         "`year % 4 === 0` tests divisibility by 4.",

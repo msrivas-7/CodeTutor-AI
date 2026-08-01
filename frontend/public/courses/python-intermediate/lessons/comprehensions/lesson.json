@@ -34,9 +34,12 @@
       "expected": "passing students: ['Alice', 'Cara']\ngrades by student: {'Alice': 87, 'Bob': 54, 'Cara': 91}\nunique grade tens: [5, 8, 9]"
     },
     {
-      "type": "required_file_contains",
-      "file": "main.py",
-      "pattern": "for "
+      "type": "source_checks",
+      "checks": [
+        { "name": "List comprehension", "kind": "python_list_comprehension", "feedback": "Build passing_students with a reachable list comprehension." },
+        { "name": "Dict comprehension", "kind": "python_dict_comprehension", "feedback": "Build grades_by_student with a reachable dict comprehension." },
+        { "name": "Set comprehension", "kind": "python_set_comprehension", "feedback": "Build unique grade tens with a reachable set comprehension." }
+      ]
     }
   ],
   "prerequisiteLessonIds": [],
@@ -63,9 +66,10 @@
           ]
         },
         {
-          "type": "required_file_contains",
-          "file": "main.py",
-          "pattern": "def squares"
+          "type": "source_checks",
+          "checks": [
+            { "name": "List comprehension in squares", "kind": "python_list_comprehension", "scope": "squares", "feedback": "Return the squares from a list comprehension inside squares()." }
+          ]
         }
       ],
       "hints": [
@@ -91,9 +95,10 @@
           ]
         },
         {
-          "type": "required_file_contains",
-          "file": "main.py",
-          "pattern": "def length_map"
+          "type": "source_checks",
+          "checks": [
+            { "name": "Dict comprehension in length_map", "kind": "python_dict_comprehension", "scope": "length_map", "feedback": "Build the mapping with a dict comprehension inside length_map()." }
+          ]
         }
       ],
       "hints": [
@@ -120,9 +125,10 @@
           ]
         },
         {
-          "type": "required_file_contains",
-          "file": "main.py",
-          "pattern": "def unique_lengths"
+          "type": "source_checks",
+          "checks": [
+            { "name": "Set comprehension in unique_lengths", "kind": "python_set_comprehension", "scope": "unique_lengths", "feedback": "Build the unique lengths with a filtered set comprehension inside unique_lengths()." }
+          ]
         }
       ],
       "hints": [

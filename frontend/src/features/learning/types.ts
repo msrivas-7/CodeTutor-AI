@@ -28,10 +28,38 @@ export interface Course {
 export interface FunctionTest {
   name: string;
   call: string;
-  expected: string;
+  expected?: string;
+  expectedError?: {
+    type: string;
+    message?: string;
+  };
+  beforeLoad?: string;
   setup?: string;
   hidden?: boolean;
   category?: string;
+}
+
+export interface SourceCheck {
+  name: string;
+  file?: string;
+  kind:
+    | "python_list_comprehension"
+    | "python_dict_comprehension"
+    | "python_set_comprehension"
+    | "python_generator_expression"
+    | "python_while_loop"
+    | "python_with_statement"
+    | "python_specific_except"
+    | "python_raise"
+    | "python_call"
+    | "python_lambda"
+    | "python_yield";
+  target?: string;
+  scope?: string;
+  minCount?: number;
+  hidden?: boolean;
+  category?: string;
+  feedback: string;
 }
 
 export interface TestCaseResult {
@@ -43,6 +71,8 @@ export interface TestCaseResult {
   expectedRepr: string | null;
   stdoutDuring: string;
   error: string | null;
+  feedback?: string | null;
+  evidence?: "behavior" | "source";
 }
 
 export interface TestReport {
@@ -58,11 +88,14 @@ export interface CompletionRule {
     | "required_file_contains"
     | "custom_validator"
     | "function_tests"
+    | "source_checks"
     | "retrieval_check";
   expected?: string;
+  match?: "contains" | "exact";
   file?: string;
   pattern?: string;
   tests?: FunctionTest[];
+  checks?: SourceCheck[];
   // Phase A — A1: retrieval_check variant fields. Optional on the
   // interface because they only appear when type === "retrieval_check".
   question?: string;

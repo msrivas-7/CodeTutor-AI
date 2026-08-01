@@ -66,6 +66,44 @@ describe("validateLesson", () => {
     expect(result.feedback.some((f) => f.includes("Goodbye"))).toBe(true);
   });
 
+  it("supports exact stdout so the opposite phrase cannot pass by substring", () => {
+    const wrong = { ...okRun, stdout: "not leap\n" };
+    const rules: CompletionRule[] = [
+      { type: "expected_stdout", expected: "leap", match: "exact" },
+    ];
+    const result = validateLesson(wrong, files, rules);
+    expect(result.passed).toBe(false);
+    expect(result.feedback[0]).toContain('Expected "leap"');
+  });
+
+  it("leads an overall failure with the failed source contract, not success praise", () => {
+    const rules: CompletionRule[] = [
+      { type: "expected_stdout", expected: "Hello, World!" },
+      {
+        type: "source_checks",
+        checks: [{
+          name: "Use a context manager",
+          kind: "python_with_statement",
+          feedback: "Use with open(...) for both reads and writes.",
+        }],
+      },
+    ];
+    const result = validateLesson(okRun, files, rules, {
+      testReport: report([
+        tc({
+          name: "Use a context manager",
+          passed: false,
+          evidence: "source",
+          feedback: "Use with open(...) for both reads and writes.",
+        }),
+      ]),
+    });
+    expect(result.passed).toBe(false);
+    expect(result.feedback).toEqual(["Use with open(...) for both reads and writes."]);
+    expect(result.nextHints).toBeUndefined();
+    expect(result.feedback.join(" ")).not.toMatch(/correct|nice work/i);
+  });
+
   it("fails expected_stdout when no run result exists", () => {
     const rules: CompletionRule[] = [
       { type: "expected_stdout", expected: "Hello" },

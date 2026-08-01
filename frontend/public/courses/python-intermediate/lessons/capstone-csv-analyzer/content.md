@@ -17,9 +17,9 @@ You'll build a small sales analyzer:
 
 ## Instructions
 
-The starter has the input data — a list of `(date, product, amount)` tuples — and the prints scaffolded.
+The starter has the input data — a list of `(date, product, amount)` tuples — and the prints scaffolded. Complete `analyze_sales(sales, path)` so the same pipeline works for both the sample and new datasets.
 
-Your job in `main.py`:
+Your job inside `analyze_sales`:
 
 1. **Write `sales.csv`** with a header line `date,product,amount` and one row per tuple, comma-separated.
 2. **Read** the file back into `lines` (a list of strings, no trailing newlines).

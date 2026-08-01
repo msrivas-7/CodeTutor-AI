@@ -63,7 +63,11 @@ Either works for this project. The non-mutating style scales better in real apps
 
 ### Formatting with template literals
 
-`` `${habit.name}: ${habit.done ? "done" : "todo"}` `` handles the per-line format. `done ? "done" : "todo"` is a **ternary** — a short `if/else` that returns a value.
+```javascript
+`${habit.name}: ${habit.done ? "done" : "todo"}`
+```
+
+This handles the per-line format. `done ? "done" : "todo"` is a **ternary** — a short `if/else` that returns a value.
 
 ## Hints
 

@@ -11,7 +11,7 @@ import {
   HARNESS_JSON,
 } from "./pythonHarness.js";
 import { parseSignedEnvelope } from "./envelope.js";
-import { TEST_SENTINEL, type FunctionTest } from "./types.js";
+import { TEST_SENTINEL, type FunctionTest, type SourceCheck } from "./types.js";
 
 // ── Generated-source sanity checks ────────────────────────────────
 describe("harnessPython (source)", () => {
@@ -47,7 +47,9 @@ describe("harnessPython (source)", () => {
 
   it("does not pass the expected value to the driver subprocess", () => {
     // The payload handed to the child must only carry setup + call.
-    expect(src).toMatch(/json\.dumps\(\{"setup"[^}]*"call"[^}]*\}\)/);
+    expect(src).toContain('"beforeLoad": test.get("beforeLoad")');
+    expect(src).toContain('"setup": test.get("setup")');
+    expect(src).toContain('"call": test.get("call")');
     expect(src).not.toMatch(/"expected":\s*test\[/);
   });
 
@@ -69,15 +71,15 @@ describe("pythonHarness (HarnessBackend adapter)", () => {
   });
 
   it("prepareFiles returns the harness script + serialized tests JSON", () => {
-    const files = pythonHarness.prepareFiles([
-      { name: "basic", call: "square(2)", expected: "4" },
-    ]);
+    const suite = {
+      tests: [{ name: "basic", call: "square(2)", expected: "4" }],
+      sourceChecks: [],
+    };
+    const files = pythonHarness.prepareFiles(suite);
     expect(files).toHaveLength(2);
     const byName = new Map(files.map((f) => [f.name, f.content]));
     expect(byName.get(HARNESS_PY)).toContain(TEST_SENTINEL);
-    expect(JSON.parse(byName.get(HARNESS_JSON)!)).toEqual([
-      { name: "basic", call: "square(2)", expected: "4" },
-    ]);
+    expect(JSON.parse(byName.get(HARNESS_JSON)!)).toEqual(suite);
   });
 
   it("execCommand invokes the harness script under python3", () => {
@@ -99,14 +101,18 @@ describe("pythonHarness integration (runs python3)", { timeout: 30_000 }, () => 
   const hasPython =
     spawnSync("python3", ["--version"], { encoding: "utf8" }).status === 0;
 
-  function runHarnessWith(mainPy: string, tests: FunctionTest[]) {
+  function runHarnessWith(
+    mainPy: string,
+    tests: FunctionTest[],
+    sourceChecks: SourceCheck[] = [],
+  ) {
     const nonce = crypto.randomBytes(32).toString("hex");
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pyharness-"));
     fs.writeFileSync(path.join(tmp, "main.py"), mainPy, "utf8");
     fs.writeFileSync(path.join(tmp, HARNESS_PY), harnessPython(), "utf8");
     fs.writeFileSync(
       path.join(tmp, HARNESS_JSON),
-      JSON.stringify(tests),
+      JSON.stringify({ tests, sourceChecks }),
       "utf8",
     );
     const r = spawnSync("python3", [HARNESS_PY], {
@@ -231,6 +237,74 @@ describe("pythonHarness integration (runs python3)", { timeout: 30_000 }, () => 
       );
       expect(report.results[0].passed).toBe(false);
       expect(report.results[0].error).toMatch(/invalid expected/i);
+    },
+  );
+
+  it.skipIf(!hasPython)(
+    "matches an expected exception by type and message",
+    () => {
+      const { report } = runHarnessWith(
+        "def validate_age(age):\n    if age < 0:\n        raise ValueError('age must be non-negative')\n    return age\n",
+        [{
+          name: "negative-age",
+          call: "validate_age(-3)",
+          expectedError: { type: "ValueError", message: "age must be non-negative" },
+        }],
+      );
+      expect(report.results[0]).toMatchObject({
+        passed: true,
+        evidence: "behavior",
+        actualRepr: "ValueError: age must be non-negative",
+      });
+    },
+  );
+
+  it.skipIf(!hasPython)(
+    "requires reachable Python syntax instead of accepting dead-code vocabulary",
+    () => {
+      const checks: SourceCheck[] = [{
+        name: "Use a list comprehension",
+        kind: "python_list_comprehension",
+        feedback: "Build squares with a reachable list comprehension.",
+      }];
+      const dead = runHarnessWith(
+        "if False:\n    squares = [n * n for n in range(4)]\nsquares = [0, 1, 4, 9]\n",
+        [],
+        checks,
+      ).report;
+      const live = runHarnessWith(
+        "squares = [n * n for n in range(4)]\n",
+        [],
+        checks,
+      ).report;
+      expect(dead.results[0]).toMatchObject({ passed: false, evidence: "source" });
+      expect(live.results[0]).toMatchObject({ passed: true, evidence: "source" });
+    },
+  );
+
+  it.skipIf(!hasPython)(
+    "can require reachable with blocks that specifically call open",
+    () => {
+      const checks: SourceCheck[] = [{
+        name: "Use two file context managers",
+        kind: "python_with_statement",
+        target: "open",
+        minCount: 2,
+        feedback: "Use with open for both file operations.",
+      }];
+      const manual = runHarnessWith(
+        "from contextlib import nullcontext\nf = open('x.txt', 'w')\nf.close()\nwith nullcontext():\n    pass\n",
+        [],
+        checks,
+      ).report;
+      const safe = runHarnessWith(
+        "with open('x.txt', 'w') as f:\n    f.write('x')\nwith open('x.txt') as f:\n    value = f.read()\n",
+        [],
+        checks,
+      ).report;
+
+      expect(manual.results[0]).toMatchObject({ passed: false, actualRepr: "0" });
+      expect(safe.results[0]).toMatchObject({ passed: true, actualRepr: "2" });
     },
   );
 

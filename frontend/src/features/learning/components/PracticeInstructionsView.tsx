@@ -1,6 +1,17 @@
 import { useEffect, useState } from "react";
-import type { PracticeExercise, ValidationResult } from "../types";
+import type { FunctionTest, PracticeExercise, TestReport, ValidationResult } from "../types";
 import { Modal } from "../../../components/Modal";
+import { pickFirstFailure } from "../utils/validator";
+
+function expectedTestOutcome(test: FunctionTest): string {
+  if (test.expectedError) {
+    const message = test.expectedError.message
+      ? `(${JSON.stringify(test.expectedError.message)})`
+      : "";
+    return `throws ${test.expectedError.type}${message}`;
+  }
+  return test.expected ?? "(expected result unavailable)";
+}
 
 function PracticeTestsMiniList({ exercise }: { exercise: PracticeExercise }) {
   const rule = exercise.completionRules.find((r) => r.type === "function_tests");
@@ -26,7 +37,7 @@ function PracticeTestsMiniList({ exercise }: { exercise: PracticeExercise }) {
             </code>
             <span className="text-muted">→</span>
             <code className="rounded bg-bg px-1.5 py-0.5 font-mono text-[11px] text-ink/80">
-              {t.expected}
+              {expectedTestOutcome(t)}
             </code>
           </li>
         ))}
@@ -40,6 +51,7 @@ interface PracticeInstructionsViewProps {
   currentIndex: number;
   completedIds: string[];
   validation: ValidationResult | null;
+  testReport?: TestReport | null;
   saveError?: string | null;
   onSelectExercise: (index: number) => void;
   onExitPractice: () => void;
@@ -54,6 +66,7 @@ export function PracticeInstructionsView({
   currentIndex,
   completedIds,
   validation,
+  testReport,
   saveError,
   onSelectExercise,
   onExitPractice,
@@ -68,10 +81,15 @@ export function PracticeInstructionsView({
   const [resetAttempted, setResetAttempted] = useState(false);
   const current = exercises[currentIndex];
   const isComplete = current ? completedIds.includes(current.id) : false;
+  // A saved completion is historical progress, but it must not contradict the
+  // learner's latest check. Keep the navigation dot checked while suppressing
+  // the current-code success banner and advance action after a failed recheck.
+  const showCurrentCompletion = isComplete && validation?.passed !== false;
   const completedCount = completedIds.filter((id) =>
     exercises.some((e) => e.id === id)
   ).length;
   const hasNext = currentIndex < exercises.length - 1;
+  const firstFailure = pickFirstFailure(testReport);
 
   useEffect(() => {
     setShowHints(false);
@@ -171,7 +189,7 @@ export function PracticeInstructionsView({
 
         <PracticeTestsMiniList exercise={current} />
 
-        {isComplete && (
+        {showCurrentCompletion && (
           <div className="mb-3 flex items-center gap-2 rounded-lg bg-success/10 px-3 py-2 text-xs text-success">
             <span>✓</span>
             <span>You've completed this challenge.</span>
@@ -224,6 +242,16 @@ export function PracticeInstructionsView({
               <div role="alert" className="rounded-lg bg-danger/10 px-3 py-2 text-xs text-danger">
                 <div className="font-semibold">Not quite yet.</div>
                 <div className="mt-0.5 opacity-80">{validation.feedback[0]}</div>
+                {firstFailure && firstFailure.evidence !== "source" && !firstFailure.hidden && (
+                  <dl className="mt-2 grid grid-cols-[auto,minmax(0,1fr)] gap-x-2 gap-y-1 rounded-md bg-bg/50 p-2 font-mono text-[10px]">
+                    <dt className="font-sans text-muted">Example</dt>
+                    <dd className="min-w-0 break-words text-ink">{firstFailure.name}</dd>
+                    <dt className="font-sans text-muted">Expected</dt>
+                    <dd className="min-w-0 break-words text-ink">{firstFailure.expectedRepr ?? "(unknown)"}</dd>
+                    <dt className="font-sans text-muted">Got</dt>
+                    <dd className="min-w-0 break-words text-danger">{firstFailure.error ?? firstFailure.actualRepr ?? "(no value)"}</dd>
+                  </dl>
+                )}
                 {validation.nextHints?.[0] && (
                   <div className="mt-1 text-[11px] opacity-70">
                     {validation.nextHints[0]}
@@ -234,7 +262,7 @@ export function PracticeInstructionsView({
           </div>
         )}
 
-        {isComplete && hasNext && (
+        {showCurrentCompletion && hasNext && (
           <button
             onClick={onNextExercise}
             className="mt-3 w-full rounded-lg bg-violet/20 px-3 py-2 text-xs font-semibold text-violet transition hover:bg-violet/30"
@@ -243,7 +271,7 @@ export function PracticeInstructionsView({
           </button>
         )}
 
-        {isComplete && !hasNext && (
+        {showCurrentCompletion && !hasNext && (
           <button
             onClick={onExitPractice}
             className="mt-3 w-full rounded-lg bg-success/20 px-3 py-2 text-xs font-semibold text-success transition hover:bg-success/30"

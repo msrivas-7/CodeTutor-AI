@@ -127,10 +127,10 @@
         {
           "type": "function_tests",
           "tests": [
-            { "name": "middle biggest", "call": "maxInArray([3, 9, 1, 4])", "expected": "9" },
-            { "name": "single element", "call": "maxInArray([42])", "expected": "42" },
-            { "name": "sorted ascending", "call": "maxInArray([1, 2, 3, 4, 5])", "expected": "5" },
-            { "name": "all negative", "call": "maxInArray([-10, -3, -25])", "expected": "-3", "hidden": true }
+            { "name": "middle biggest", "beforeLoad": "Math.max = () => { throw new Error('Math.max is not allowed in this challenge'); }; Object.freeze(Math);", "call": "maxInArray([3, 9, 1, 4])", "expected": "9" },
+            { "name": "single element", "beforeLoad": "Math.max = () => { throw new Error('Math.max is not allowed in this challenge'); }; Object.freeze(Math);", "call": "maxInArray([42])", "expected": "42" },
+            { "name": "sorted ascending", "beforeLoad": "Math.max = () => { throw new Error('Math.max is not allowed in this challenge'); }; Object.freeze(Math);", "call": "maxInArray([1, 2, 3, 4, 5])", "expected": "5" },
+            { "name": "all negative", "beforeLoad": "Math.max = () => { throw new Error('Math.max is not allowed in this challenge'); }; Object.freeze(Math);", "call": "maxInArray([-10, -3, -25])", "expected": "-3", "hidden": true }
           ]
         }
       ],

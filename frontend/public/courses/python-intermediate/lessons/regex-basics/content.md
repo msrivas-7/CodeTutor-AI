@@ -12,11 +12,11 @@ A *regular expression* — regex — is a tiny language for describing those sha
 
 ## Instructions
 
-The starter has a string of text mixing prose with HTTP status codes. Build three things and print each on its own line:
+Complete `analyze_text(text)` so it derives and returns three values from any input text. The supplied example then prints each value on its own line:
 
-1. **Every number** in the text. Use `re.findall(r"\d+", text)`. Print as `all numbers: <list>`.
-2. **The first error code.** Find the first match of the pattern `[Ee]rror (\d+)` using `re.search`. Pull out the captured digits with `.group(1)`. Print as `first error code: <code>`.
-3. **The redacted text.** Replace every run of digits with the literal string `###` using `re.sub`. Print as `redacted: <text>`.
+1. **Every number** in the text. Use `re.findall(r"\d+", text)`.
+2. **The first error code.** Find the first match of `[Ee]rror (\d+)` using `re.search`; return `None` if there is no such label.
+3. **The redacted text.** Replace every run of digits with the literal string `###` using `re.sub`.
 
 Your output must match exactly:
 

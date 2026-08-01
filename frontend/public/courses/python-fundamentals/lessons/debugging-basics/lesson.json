@@ -32,7 +32,8 @@
   "completionRules": [
     {
       "type": "expected_stdout",
-      "expected": "All bugs fixed!\nResult: [2, 4, 6, 8, 10]"
+      "expected": "All bugs fixed!\nResult: [4, 8, 12, 16, 20]",
+      "match": "exact"
     }
   ],
   "prerequisiteLessonIds": [

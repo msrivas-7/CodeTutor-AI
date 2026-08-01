@@ -1,12 +1,12 @@
 # Debugging Basics — Fix the Bugs!
 # This code has 4 bugs. Fix them all so it prints:
 #   All bugs fixed!
-#   Result: [2, 4, 6, 8, 10]
+#   Result: [4, 8, 12, 16, 20]
 
 def double_evens(numbers)
     result = []
     for n in numbers:
-        if n % 2 == 0:
+        if n % 2 == 1:
             result.append(n * 2)
     return results
 

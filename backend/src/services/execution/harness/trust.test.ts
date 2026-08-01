@@ -42,7 +42,11 @@ function runPython(mainPy: string, tests: FunctionTest[]) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "trust-py-"));
   fs.writeFileSync(path.join(tmp, "main.py"), mainPy, "utf8");
   fs.writeFileSync(path.join(tmp, HARNESS_PY), harnessPython(), "utf8");
-  fs.writeFileSync(path.join(tmp, PY_JSON), JSON.stringify(tests), "utf8");
+  fs.writeFileSync(
+    path.join(tmp, PY_JSON),
+    JSON.stringify({ tests, sourceChecks: [] }),
+    "utf8",
+  );
   const r = spawnSync("python3", [HARNESS_PY], {
     cwd: tmp,
     encoding: "utf8",
@@ -63,7 +67,11 @@ function runJs(mainJs: string, tests: FunctionTest[]) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "trust-js-"));
   fs.writeFileSync(path.join(tmp, "main.js"), mainJs, "utf8");
   fs.writeFileSync(path.join(tmp, HARNESS_JS), harnessJavaScript(), "utf8");
-  fs.writeFileSync(path.join(tmp, JS_JSON), JSON.stringify(tests), "utf8");
+  fs.writeFileSync(
+    path.join(tmp, JS_JSON),
+    JSON.stringify({ tests, sourceChecks: [] }),
+    "utf8",
+  );
   const r = spawnSync("node", [HARNESS_JS], {
     cwd: tmp,
     encoding: "utf8",

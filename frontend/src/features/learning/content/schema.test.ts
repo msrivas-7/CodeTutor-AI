@@ -78,6 +78,22 @@ describe("content schemas", () => {
       category: "edge",
     };
     expect(functionTestSchema.parse(sample)).toEqual(sample);
+    expect(() => functionTestSchema.parse({ name: "missing", call: "f()" })).toThrow();
+    expect(() =>
+      functionTestSchema.parse({
+        name: "ambiguous",
+        call: "f()",
+        expected: "1",
+        expectedError: { type: "ValueError" },
+      }),
+    ).toThrow();
+    expect(
+      functionTestSchema.parse({
+        name: "raises",
+        call: "f()",
+        expectedError: { type: "ValueError", message: "bad value" },
+      }),
+    ).toBeTruthy();
   });
 
   it("completionRuleSchema accepts all six variants", () => {

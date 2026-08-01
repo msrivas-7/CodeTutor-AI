@@ -59,6 +59,7 @@ export function useLessonRunner({
   const sessionPhase = useSessionStore((s) => s.phase);
   const running = useRunStore((s) => s.running);
   const lastResult = useRunStore((s) => s.result);
+  const inputRevision = useRunStore((s) => s.inputRevision);
   const setPendingAsk = useAIStore((s) => s.setPendingAsk);
   const incrementRun = useProgressStore((s) => s.incrementRun);
   const saveCode = useProgressStore((s) => s.saveCode);
@@ -175,6 +176,18 @@ export function useLessonRunner({
     }
   }, [projectFiles, initializedRef]);
 
+  // Stdin is part of the executable input just like source code. Changing it
+  // invalidates the old run result in runStore; keep the coaching evidence in
+  // lockstep so the UI cannot turn green until the new input is actually run.
+  useEffect(() => {
+    setHasRun(false);
+  }, [inputRevision]);
+
+  useEffect(() => {
+    setHasRun(false);
+    setHasEdited(false);
+  }, [courseId, lessonId]);
+
   const handleExplainError = useCallback(() => {
     if (!lastResult?.stderr) return;
     const errText = lastResult.stderr.trim().slice(0, 500);
@@ -193,11 +206,15 @@ export function useLessonRunner({
       ? !!lesson && !running
       : !!sessionId && sessionPhase === "active" && !running;
 
+  const currentWorkspaceReady = Boolean(
+    courseId && lessonId && initializedRef.current === `${courseId}/${lessonId}`,
+  );
+
   return {
     handleRun,
     handleExplainError,
-    hasRun,
-    hasEdited,
+    hasRun: currentWorkspaceReady && hasRun,
+    hasEdited: currentWorkspaceReady && hasEdited,
     editCount,
     canRun,
     hasStderr,

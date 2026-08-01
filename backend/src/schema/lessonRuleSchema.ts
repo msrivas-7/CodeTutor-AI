@@ -18,19 +18,55 @@
 
 import { z } from "zod";
 
-export const functionTestSchema = z.object({
+export const functionTestSchema = z
+  .object({
+    name: z.string().min(1),
+    call: z.string().min(1),
+    expected: z.string().min(1).optional(),
+    expectedError: z
+      .object({
+        type: z.string().min(1),
+        message: z.string().min(1).optional(),
+      })
+      .optional(),
+    beforeLoad: z.string().optional(),
+    setup: z.string().optional(),
+    hidden: z.boolean().optional(),
+    category: z.string().optional(),
+  })
+  .refine((test) => (test.expected === undefined) !== (test.expectedError === undefined), {
+    message: "exactly one of expected or expectedError is required",
+  });
+
+export const sourceCheckSchema = z.object({
   name: z.string().min(1),
-  call: z.string().min(1),
-  expected: z.string().min(1),
-  setup: z.string().optional(),
+  file: z.string().optional(),
+  kind: z.enum([
+    "python_list_comprehension",
+    "python_dict_comprehension",
+    "python_set_comprehension",
+    "python_generator_expression",
+    "python_while_loop",
+    "python_with_statement",
+    "python_specific_except",
+    "python_raise",
+    "python_call",
+    "python_lambda",
+    "python_yield",
+  ]),
+  target: z.string().optional(),
+  scope: z.string().optional(),
+  minCount: z.number().int().positive().optional(),
   hidden: z.boolean().optional(),
   category: z.string().optional(),
+  feedback: z.string().min(1),
 });
 
 export const completionRuleSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("expected_stdout"),
     expected: z.string(),
+    match: z.enum(["contains", "exact"]).optional(),
   }),
   // Paired with expected_stdout to reject "lazy-pass" outputs (e.g.
   // lesson 1 forbids "Hello, World!" — the literal example shown in the
@@ -49,6 +85,10 @@ export const completionRuleSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("function_tests"),
     tests: z.array(functionTestSchema).min(1),
+  }),
+  z.object({
+    type: z.literal("source_checks"),
+    checks: z.array(sourceCheckSchema).min(1),
   }),
   z.object({
     type: z.literal("custom_validator"),
@@ -72,4 +112,5 @@ export const completionRuleSchema = z.discriminatedUnion("type", [
 ]);
 
 export type FunctionTestSpec = z.infer<typeof functionTestSchema>;
+export type SourceCheckSpec = z.infer<typeof sourceCheckSchema>;
 export type CompletionRule = z.infer<typeof completionRuleSchema>;

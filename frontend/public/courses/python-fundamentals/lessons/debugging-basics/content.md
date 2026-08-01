@@ -14,7 +14,7 @@ The starter code has **4 intentional bugs**. Your job is to find and fix all of 
 
 ```
 All bugs fixed!
-Result: [2, 4, 6, 8, 10]
+Result: [4, 8, 12, 16, 20]
 ```
 
 Run the code first — read the error message carefully. Fix one bug at a time, re-running after each fix.
@@ -52,3 +52,4 @@ Read from the bottom up:
 - The first error Python shows you might hide others — fix it and run again.
 - Read the error type first, then the line number. That tells you exactly where to look.
 - Compare what you expect a variable to be vs what it actually is.
+- Once the crashes are fixed, compare the function's condition with its name: `double_evens` should select even numbers.
