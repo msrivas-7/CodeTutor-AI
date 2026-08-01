@@ -30,8 +30,10 @@ import { expect, test } from "@playwright/test";
 const ALLOWED_PATH = "/try/lesson/python-fundamentals/hello-world";
 
 interface TelemetryEvent {
-  event: string;
+  event?: string;
   reason?: string;
+  outcome?: string;
+  surface?: string;
 }
 
 // Helper — install a recorder that catches all POST /api/telemetry/event
@@ -45,7 +47,7 @@ async function recordTelemetry(
   const events: TelemetryEvent[] = [];
   page.on("request", (req) => {
     if (req.method() !== "POST") return;
-    if (!req.url().includes("/api/telemetry/event")) return;
+    if (!req.url().includes("/api/telemetry/")) return;
     try {
       const body = req.postDataJSON() as TelemetryEvent;
       events.push(body);
@@ -190,7 +192,7 @@ test.describe("Phase 27-v2.2 Fix 6 — funnel telemetry", () => {
     );
   });
 
-  test("anon_wall_opened fires with reason='share' when the post-share wall opens", async ({
+  test("anon_wall_opened fires with reason='share' from the explicit save-progress action", async ({
     page,
   }) => {
     await page.route("**/api/anon/run", (route) =>
@@ -239,11 +241,187 @@ test.describe("Phase 27-v2.2 Fix 6 — funnel telemetry", () => {
       .click();
     const shareDialog = page.getByRole("dialog", { name: /your first one/i });
     await expect(shareDialog).toBeVisible({ timeout: 5_000 });
-    await shareDialog.getByRole("button", { name: /^done$/i }).click();
+    // Done is a truthful dismissal. Only the separately labelled save action
+    // creates conversion intent and therefore emits the share-wall event.
+    await shareDialog
+      .getByRole("button", { name: /save this progress with a free account/i })
+      .click();
     await waitForEvent(
       events,
       (e) => e.event === "anon_wall_opened" && e.reason === "share",
     );
     await expect(page.getByText(/Your share link is ready/i)).toBeVisible();
+  });
+
+  test("share actions keep copied, completed, cancelled, and dismissed distinct", async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      const target = window as Window & { __shareMode?: "complete" | "cancel" };
+      target.__shareMode = "complete";
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: { writeText: async () => undefined },
+      });
+      Object.defineProperty(navigator, "share", {
+        configurable: true,
+        value: async () => {
+          if (target.__shareMode === "cancel") {
+            throw new DOMException("cancelled", "AbortError");
+          }
+        },
+      });
+    });
+    await page.route("**/api/anon/run", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          stdout: "Hello, Maya!\n",
+          stderr: "",
+          exitCode: 0,
+          timedOut: false,
+          durationMs: 42,
+        }),
+      }),
+    );
+    await page.route("**/api/anon/shares", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          shareToken: "23456789abcd",
+          url: "/s/23456789abcd",
+        }),
+      }),
+    );
+    const events = await recordTelemetry(page);
+    await page.goto(ALLOWED_PATH);
+    await page.getByRole("button", { name: /run/i }).first().click();
+    await expect(page.getByText(/Hello, Maya!/).last()).toBeVisible();
+    await page.getByRole("button", { name: /check/i }).first().click();
+    const completion = page.getByRole("dialog", { name: /lesson complete/i });
+    await expect(completion).toBeVisible();
+    await completion.getByRole("button", { name: /share/i }).first().click();
+    const dialog = page.getByRole("dialog", { name: /your first one/i });
+    await expect(dialog).toBeVisible();
+
+    await dialog.getByRole("button", { name: /copy link/i }).click();
+    await waitForEvent(
+      events,
+      (event) =>
+        event.outcome === "copied" && event.surface === "anonymous",
+    );
+
+    await dialog.getByRole("button", { name: /^share/i }).click();
+    await waitForEvent(
+      events,
+      (event) =>
+        event.outcome === "share_completed" &&
+        event.surface === "anonymous",
+    );
+
+    await page.evaluate(() => {
+      (window as Window & { __shareMode?: "complete" | "cancel" }).__shareMode =
+        "cancel";
+    });
+    await dialog.getByRole("button", { name: /^share/i }).click();
+    await waitForEvent(
+      events,
+      (event) =>
+        event.outcome === "cancelled" && event.surface === "anonymous",
+    );
+
+    await dialog.getByRole("button", { name: /^done$/i }).click();
+    await waitForEvent(
+      events,
+      (event) =>
+        event.outcome === "dismissed" && event.surface === "anonymous",
+    );
+    await expect(dialog).toBeHidden();
+  });
+
+  test("share recovery stays keyboard-usable at 390px with reduced motion", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.route("**/api/anon/run", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          stdout: "Hello, Maya!\n",
+          stderr: "",
+          exitCode: 0,
+          timedOut: false,
+          durationMs: 42,
+        }),
+      }),
+    );
+    let createAttempts = 0;
+    await page.route("**/api/anon/shares", (route) => {
+      createAttempts += 1;
+      if (createAttempts === 1) {
+        return route.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "share preview temporarily unavailable" }),
+        });
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          shareToken: "23456789abcd",
+          url: "/s/23456789abcd",
+        }),
+      });
+    });
+
+    await page.goto(ALLOWED_PATH);
+    await page.getByRole("button", { name: /run/i }).first().click();
+    await expect(page.getByText(/Hello, Maya!/).last()).toBeVisible();
+    await page.getByRole("button", { name: /check/i }).first().click();
+    const completion = page.getByRole("dialog", { name: /lesson complete/i });
+    await expect(completion).toBeVisible();
+    const shareButton = completion
+      .getByRole("button", { name: /share/i })
+      .first();
+
+    await shareButton.click();
+    const fallback = page.getByRole("dialog", {
+      name: /your share link is ready/i,
+    });
+    await expect(fallback).toBeVisible();
+    expect(createAttempts).toBe(1);
+    await fallback.getByRole("button", { name: /maybe later/i }).click();
+    await expect(fallback).toBeHidden();
+    await expect(shareButton).toBeFocused();
+
+    await shareButton.click();
+    const shareDialog = page.getByRole("dialog", { name: /your first one/i });
+    await expect(shareDialog).toBeVisible();
+    expect(createAttempts).toBe(2);
+
+    const dimensions = await page.evaluate(() => ({
+      documentWidth: document.documentElement.scrollWidth,
+      viewportWidth: window.innerWidth,
+    }));
+    expect(dimensions.documentWidth).toBeLessThanOrEqual(
+      dimensions.viewportWidth + 1,
+    );
+    const panel = await shareDialog.boundingBox();
+    expect(panel).not.toBeNull();
+    expect(panel!.x).toBeGreaterThanOrEqual(0);
+    expect(panel!.x + panel!.width).toBeLessThanOrEqual(390);
+    expect(panel!.y + panel!.height).toBeLessThanOrEqual(844);
+    for (const name of [/copy link/i, /^done$/i]) {
+      const box = await shareDialog.getByRole("button", { name }).boundingBox();
+      expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+      expect(box?.width ?? 0).toBeGreaterThanOrEqual(44);
+    }
+    await page.keyboard.press("Tab");
+    await expect(shareDialog.locator(":focus")).toHaveCount(1);
   });
 });

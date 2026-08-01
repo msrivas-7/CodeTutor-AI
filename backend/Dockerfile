@@ -49,6 +49,10 @@ COPY --from=builder /build/dist ./dist
 # for this COPY to work (docker-compose passes `context: .`).
 COPY frontend/public/courses ./courses
 
+# Phase B1 retrieval answers are deliberately not part of the frontend public
+# course tree. Bake the private authored banks into the backend image only.
+COPY content/memory-warmups ./memory-warmups
+
 RUN chown -R app:app /app
 
 COPY backend/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh

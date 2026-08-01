@@ -6,6 +6,9 @@ import {
   byokDecryptFailures,
   execDuration,
   registry,
+  shareInteractions,
+  sharePreviewDuration,
+  sharePreviewRequests,
   sessionCount,
 } from "./metrics.js";
 
@@ -19,6 +22,9 @@ beforeEach(() => {
   aiExhaustionCtaClicks.reset();
   byokDecryptFailures.reset();
   backendUnhandledRejections.reset();
+  shareInteractions.reset();
+  sharePreviewDuration.reset();
+  sharePreviewRequests.reset();
 });
 
 describe("metrics exposition", () => {
@@ -123,5 +129,33 @@ describe("metrics exposition", () => {
     sessionCount.reset();
     const out = await registry.metrics();
     expect(out).toMatch(/^session_count 0$/m);
+  });
+
+  it("exposes bounded Release 0A preview and share-action signals", async () => {
+    sharePreviewRequests.inc({ outcome: "ok" });
+    sharePreviewRequests.inc({ outcome: "auth_replayed" });
+    sharePreviewDuration.observe({ outcome: "ok" }, 0.04);
+    shareInteractions.inc({ outcome: "copied", surface: "anonymous" });
+    shareInteractions.inc({
+      outcome: "share_completed",
+      surface: "authenticated",
+    });
+
+    const out = await registry.metrics();
+    expect(out).toMatch(
+      /share_preview_requests_total\{outcome="ok"\} 1/,
+    );
+    expect(out).toMatch(
+      /share_preview_requests_total\{outcome="auth_replayed"\} 1/,
+    );
+    expect(out).toMatch(
+      /share_preview_duration_seconds_count\{outcome="ok"\} 1/,
+    );
+    expect(out).toMatch(
+      /share_interactions_total\{outcome="copied",surface="anonymous"\} 1/,
+    );
+    expect(out).toMatch(
+      /share_interactions_total\{outcome="share_completed",surface="authenticated"\} 1/,
+    );
   });
 });

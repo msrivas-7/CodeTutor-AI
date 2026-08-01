@@ -196,13 +196,11 @@ test.describe("practice mode", () => {
     await expect(page.getByText(/\d+ of 3/)).toHaveCount(0);
   });
 
-  test("AI tutor receives the active exercise's lessonContext (not the lesson's main goal)", async ({ page }) => {
-    // Regression guard: GuidedTutorPanel used to always send the
-    // lesson's primary lessonTitle / lessonObjectives / completionRules
-    // — even in practice mode. The tutor would happily reason about
-    // "the lesson goal" while the learner was asking about a
-    // sub-exercise. Pin the override here so the body shape stays
-    // exercise-shaped while practice mode is active.
+  test("AI tutor sends the active exercise identity for server-resolved context", async ({ page }) => {
+    // Regression guard: practice mode must identify the active exercise so
+    // the backend can resolve the exercise-specific teaching context. The
+    // browser must not send author-controlled titles, objectives, or rules;
+    // those are now loaded from the server-authoritative lesson catalog.
     // Order matters: loadProfile calls resetServerState which DELETEs
     // the BYOK key, so seed AFTER loading the profile (otherwise the
     // composer renders disabled "Configure API key first").
@@ -242,24 +240,17 @@ test.describe("practice mode", () => {
     const ctx = body.lessonContext as Record<string, unknown>;
     expect(ctx).toBeTruthy();
 
-    // lessonTitle should carry the practice frame so the AI knows
-    // it's helping with a sub-exercise, not the lesson's main goal.
-    expect(ctx.lessonTitle).toMatch(/Practice:/i);
-    expect(ctx.lessonTitle).toMatch(/square function/i);
-
-    // lessonObjectives should be the exercise's prompt + goal — NOT
-    // the lesson "Functions"' main objectives. Sanity: at least one
-    // objective references squaring (the exercise's whole point).
-    expect(Array.isArray(ctx.lessonObjectives)).toBe(true);
-    const objectivesText = (ctx.lessonObjectives as string[]).join(" ").toLowerCase();
-    expect(objectivesText).toContain("square");
+    expect(ctx).toEqual({
+      courseId: COURSE_ID,
+      lessonId: LESSON_ID,
+      exerciseId: EX1,
+    });
   });
 
-  test("AI tutor receives the lesson's lessonContext (NOT exercise framing) when not in practice mode", async ({ page }) => {
-    // Complement to the prior spec — verifies the override fires ONLY
-    // in practice mode. Same lesson, no ?mode=practice deeplink. The
-    // lessonContext should carry the lesson's title + objectives, not
-    // any exercise framing.
+  test("AI tutor sends lesson identity without exercise framing outside practice mode", async ({ page }) => {
+    // Complement to the prior spec: the same lesson outside practice mode
+    // must explicitly identify no exercise. The backend then resolves the
+    // ordinary lesson context instead of an exercise-specific snapshot.
     // Same order constraint as the prior test (see comment above).
     await loadProfile(page, "capstones-pending");
     await seedApiKey(page, { key: "sk-test-e2e-padding-12345", model: "gpt-4o-mini" });
@@ -287,16 +278,11 @@ test.describe("practice mode", () => {
     const ctx = body.lessonContext as Record<string, unknown>;
     expect(ctx).toBeTruthy();
 
-    // Lesson mode: title is plain "Functions", no Practice frame.
-    expect(ctx.lessonTitle).toBe("Functions");
-
-    // Objectives are the lesson's main ones, not the exercise's.
-    expect(Array.isArray(ctx.lessonObjectives)).toBe(true);
-    const objectivesText = (ctx.lessonObjectives as string[]).join(" ").toLowerCase();
-    // Lesson objectives reference parameters / scope — none mention
-    // "square" (which is exercise-only).
-    expect(objectivesText).not.toContain("square");
-    expect(objectivesText).toMatch(/parameters|scope|def/);
+    expect(ctx).toEqual({
+      courseId: COURSE_ID,
+      lessonId: LESSON_ID,
+      exerciseId: null,
+    });
   });
 
   test("completion panel Start Practice opens practice view inline", async ({ page }) => {

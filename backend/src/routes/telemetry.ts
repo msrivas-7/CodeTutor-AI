@@ -7,10 +7,9 @@
 //   - The first event (anon_page_view) fires BEFORE any signup,
 //     before any session, before any ledger entry. Auth-gating it
 //     would defeat the funnel's first step.
-//   - The wall_opened / signup_completed / lesson2_reached events
-//     could in principle be auth-gated for the post-signup half,
-//     but keeping the route shape uniform across all four events
-//     is simpler than splitting it.
+//   - The post-signup events could in principle be auth-gated, but
+//     keeping one strict route for all six journey signals avoids a
+//     second client contract and preserves first-touch continuity.
 //
 // Defenses:
 //   - Tight per-IP rate limit (telemetryRateLimit below). Telemetry
@@ -38,13 +37,16 @@ import { Router, type Request, type Response } from "express";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { z } from "zod";
 import { db } from "../db/client.js";
-import { hashClientIp } from "../services/ai/ipHash.js";
+import { hashClientIp, hashShareRef } from "../services/ai/ipHash.js";
+import { shareInteractions } from "../services/metrics.js";
 
-// Funnel event labels — the four canonical conversion-path beats.
+// Funnel event labels — the six canonical journey signals.
 // Anything else gets 400'd at the zod parse. Keep this in sync with
 // the DB CHECK constraint at supabase/migrations/20260502000000.
 const EVENT_LABELS = [
   "anon_page_view",
+  "anon_first_run",
+  "anon_lesson_completed",
   "anon_wall_opened",
   "anon_signup_completed",
   "anon_lesson2_reached",
@@ -63,14 +65,51 @@ const WALL_REASONS = [
   "trial-paused",
 ] as const;
 
-const eventBody = z.object({
-  event: z.enum(EVENT_LABELS),
-  reason: z.enum(WALL_REASONS).optional(),
-});
+const slug = z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/);
+const attribution = z.discriminatedUnion("source", [
+  z.object({ source: z.literal("direct") }).strict(),
+  z
+    .object({
+      source: z.literal("organic"),
+      medium: z.enum(["lesson_page", "category_page"]),
+      campaign: slug,
+      content: slug.optional(),
+    })
+    .strict(),
+  z
+    .object({
+      source: z.literal("share"),
+      medium: z.literal("lesson_share"),
+      campaign: slug,
+      content: slug,
+      shareRef: z.string().regex(/^[a-z2-9]{12}$/),
+    })
+    .strict(),
+]);
 
-// Per-IP rate limit. One legitimate anon journey emits ≤4 events; a
-// 60/min/IP ceiling is ~14 minutes of journey-density before we
-// throttle, which is well above any real Maya pace. Hostile bots
+const eventBody = z
+  .object({
+    event: z.enum(EVENT_LABELS),
+    reason: z.enum(WALL_REASONS).optional(),
+    attribution: attribution.default({ source: "direct" }),
+  })
+  .strict();
+
+const shareOutcomeBody = z
+  .object({
+    outcome: z.enum([
+      "copied",
+      "share_completed",
+      "cancelled",
+      "dismissed",
+    ]),
+    surface: z.enum(["authenticated", "anonymous"]),
+  })
+  .strict();
+
+// Per-IP rate limit. One legitimate anon journey emits at most six
+// events; a 60/min/IP ceiling allows ten complete journeys per minute,
+// which is well above any real learner pace. Hostile bots
 // inflating funnel counts hit the wall fast.
 const telemetryRateLimit = rateLimit({
   windowMs: 60_000,
@@ -81,8 +120,34 @@ const telemetryRateLimit = rateLimit({
   message: { error: "Too many telemetry events; please slow down." },
 });
 
+// Share actions can legitimately cluster (copy, open native sheet, cancel,
+// dismiss), so keep their telemetry budget independent from the six-event
+// anonymous funnel. Dropped telemetry remains fail-soft and never affects UI.
+const shareTelemetryRateLimit = rateLimit({
+  windowMs: 60_000,
+  limit: 120,
+  keyGenerator: (req) => `share-telem:${ipKeyGenerator(req.ip ?? "")}`,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "Too many telemetry events; please slow down." },
+});
+
 export function createTelemetryRouter(): Router {
   const router = Router();
+
+  router.post(
+    "/share-outcome",
+    shareTelemetryRateLimit,
+    (req: Request, res: Response): void => {
+      const parsed = shareOutcomeBody.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ error: "invalid_share_outcome" });
+        return;
+      }
+      shareInteractions.inc(parsed.data);
+      res.status(204).end();
+    },
+  );
 
   router.post(
     "/event",
@@ -93,7 +158,7 @@ export function createTelemetryRouter(): Router {
         res.status(400).json({ error: "invalid_event_body" });
         return;
       }
-      const { event, reason } = parsed.data;
+      const { event, reason, attribution: firstTouch } = parsed.data;
 
       // Reason is only meaningful for anon_wall_opened. Coerce others
       // to null so an over-sharing client doesn't pollute the column.
@@ -110,11 +175,38 @@ export function createTelemetryRouter(): Router {
         return;
       }
       const ipHash = hashClientIp(req.ip);
+      const acquisitionMedium =
+        firstTouch.source === "direct" ? null : firstTouch.medium;
+      const acquisitionCampaign =
+        firstTouch.source === "direct" ? null : firstTouch.campaign;
+      const acquisitionContent =
+        firstTouch.source === "direct" ? null : (firstTouch.content ?? null);
+      const referringShareHash =
+        firstTouch.source === "share"
+          ? hashShareRef(firstTouch.shareRef)
+          : null;
       try {
         const sql = db();
         await sql`
-          INSERT INTO public.phase27_funnel_events (event, reason, ip_hash)
-          VALUES (${event}, ${reasonForDb}, ${ipHash})
+          INSERT INTO public.phase27_funnel_events (
+            event,
+            reason,
+            ip_hash,
+            acquisition_source,
+            acquisition_medium,
+            acquisition_campaign,
+            acquisition_content,
+            referring_share_hash
+          ) VALUES (
+            ${event},
+            ${reasonForDb},
+            ${ipHash},
+            ${firstTouch.source},
+            ${acquisitionMedium},
+            ${acquisitionCampaign},
+            ${acquisitionContent},
+            ${referringShareHash}
+          )
         `;
       } catch (err) {
         // 42P01 = undefined_table. If the migration hasn't been applied
@@ -123,10 +215,10 @@ export function createTelemetryRouter(): Router {
         // anon usage ledger uses (safeWriteAnonUsage / sumPlatformCost
         // TodayAnonGlobal).
         const code = (err as { code?: string }).code;
-        if (code === "42P01") {
+        if (code === "42P01" || code === "42703") {
           console.warn(
-            "[telemetry] phase27_funnel_events table missing; skipping write. " +
-              "Apply supabase/migrations/20260502000000_phase27_funnel_events.sql.",
+            "[telemetry] funnel schema unavailable; skipping write. " +
+              "Apply the pending phase27_funnel_events migrations.",
           );
         } else {
           console.error(

@@ -5,13 +5,14 @@ import type { LessonContext } from "./lessonContext.js";
 const full: LessonContext = {
   courseId: "python-fundamentals",
   lessonId: "hello-world",
+  exerciseId: null,
   lessonTitle: "Hello, World!",
   language: "python",
   lessonObjectives: ["Write and run a Python program", "Use print()"],
   teachesConceptTags: ["print", "strings"],
   usesConceptTags: ["syntax"],
   priorConcepts: ["identifiers", "whitespace"],
-  completionRules: [{ type: "expected_stdout", expected: "Hello, World!" }],
+  completionCriteria: ["produce the lesson's required output"],
   studentProgressSummary: "attempt 1, 0 runs",
   lessonOrder: 1,
   totalLessons: 10,
@@ -43,92 +44,17 @@ describe("buildLessonContextBlock", () => {
     expect(block).toMatch(/EARLIER lessons.*\(none declared\)/);
   });
 
-  it("renders expected_stdout rule as task description", () => {
+  it("renders the server-projected completion criteria", () => {
     const block = buildLessonContextBlock(full);
-    expect(block).toMatch(/produce stdout containing "Hello, World!"/);
+    expect(block).toMatch(/produce the lesson's required output/);
   });
 
-  it("renders required_file_contains rule with file name", () => {
+  it("joins multiple safe criteria without needing raw validator rules", () => {
     const ctx: LessonContext = {
       ...full,
-      completionRules: [{ type: "required_file_contains", file: "main.py", pattern: "print" }],
-    };
-    const block = buildLessonContextBlock(ctx);
-    expect(block).toMatch(/write code in main\.py containing `print`/);
-  });
-
-  it("defaults to main.py when file is not specified in required_file_contains", () => {
-    const ctx: LessonContext = {
-      ...full,
-      completionRules: [{ type: "required_file_contains", pattern: "def " }],
-    };
-    const block = buildLessonContextBlock(ctx);
-    expect(block).toMatch(/write code in main\.py containing `def `/);
-  });
-
-  it("uses the language's entry file for required_file_contains fallback (javascript)", () => {
-    const ctx: LessonContext = {
-      ...full,
-      language: "javascript",
-      completionRules: [{ type: "required_file_contains", pattern: "function" }],
-    };
-    const block = buildLessonContextBlock(ctx);
-    expect(block).toMatch(/write code in main\.js containing `function`/);
-  });
-
-  it("describes function_tests as defining the tested functions", () => {
-    const ctx: LessonContext = {
-      ...full,
-      completionRules: [
-        { type: "function_tests", tests: [{ name: "t", call: "f(1)", expected: "1" }] },
-      ],
-    };
-    const block = buildLessonContextBlock(ctx);
-    expect(block).toMatch(/define the tested function/);
-  });
-
-  it("renders forbidden_in_stdout rule as avoid task description", () => {
-    const ctx: LessonContext = {
-      ...full,
-      completionRules: [{ type: "forbidden_in_stdout", pattern: "YOUR_NAME" }],
-    };
-    const block = buildLessonContextBlock(ctx);
-    expect(block).toMatch(/avoid producing stdout containing "YOUR_NAME"/);
-  });
-
-  it("renders custom_validator as pass custom validation", () => {
-    const ctx: LessonContext = {
-      ...full,
-      completionRules: [{ type: "custom_validator" }],
-    };
-    const block = buildLessonContextBlock(ctx);
-    expect(block).toMatch(/pass custom validation/);
-  });
-
-  it("renders retrieval_check rule with do-not-reveal warning to the tutor", () => {
-    const ctx: LessonContext = {
-      ...full,
-      completionRules: [
-        {
-          type: "retrieval_check",
-          question: "What does print() do?",
-          choices: ["Nothing", "Shows text", "Math"],
-          correctIndex: 1,
-        },
-      ],
-    };
-    const block = buildLessonContextBlock(ctx);
-    expect(block).toMatch(/comprehension question/);
-    expect(block).toMatch(/do NOT reveal the answer/);
-    expect(block).not.toMatch(/pass custom validation/);
-  });
-
-  it("joins multiple rules with '; and '", () => {
-    const ctx: LessonContext = {
-      ...full,
-      completionRules: [
-        { type: "expected_stdout", expected: "Hello" },
-        { type: "required_file_contains", file: "main.py", pattern: "print" },
+      completionCriteria: [
+        "produce the lesson's required output",
+        "use the required lesson construct in main.py",
       ],
     };
     const block = buildLessonContextBlock(ctx);

@@ -129,6 +129,29 @@ export const practiceExerciseSchema = z
     },
   );
 
+export const assistanceMoveSchema = z.object({
+  id: kebabOrSnake,
+  trigger: z.object({
+    type: z.literal("repeated_error"),
+    errorCode: z.literal("python-unclosed-parenthesis"),
+    // V0 deliberately supports one reviewed threshold. Making this an
+    // arbitrary author-controlled number would silently change the product's
+    // intervention policy from content.
+    minAttempts: z.literal(2),
+  }),
+  learningMove: z.literal("observe"),
+  conceptTags: z.array(nonEmptyString).min(1),
+  question: nonEmptyString,
+  maxScaffoldLevel: z.literal(1),
+  productiveResponse: nonEmptyString,
+  endsWhen: z.literal("evidence_changes"),
+});
+
+export const assistanceMovesSchema = z.object({
+  version: z.literal(1),
+  moves: z.array(assistanceMoveSchema).min(1),
+});
+
 export const lessonMetaSchema = z.object({
   id: kebabOrSnake,
   courseId: courseId,
@@ -161,6 +184,7 @@ export const lessonMetaSchema = z.object({
   recap: z.string().optional(),
   practicePrompts: z.array(z.string()).optional(),
   practiceExercises: z.array(practiceExerciseSchema).optional(),
+  assistanceMoves: assistanceMovesSchema.optional(),
   // Phase A — A7 (founder identity): the "post-credits" beat shown on
   // LessonCompletePanel. Soft, optional, lesson-author-controlled.
   // Phrasing convention: "In the next lesson, you'll …" — NEVER
@@ -206,3 +230,5 @@ export type LessonMetaSchemaInferred = z.infer<typeof lessonMetaSchema>;
 export type PracticeExerciseSchemaInferred = z.infer<typeof practiceExerciseSchema>;
 export type CompletionRuleSchemaInferred = z.infer<typeof completionRuleSchema>;
 export type FunctionTestSchemaInferred = z.infer<typeof functionTestSchema>;
+export type AssistanceMoveSchemaInferred = z.infer<typeof assistanceMoveSchema>;
+export type AssistanceMovesSchemaInferred = z.infer<typeof assistanceMovesSchema>;

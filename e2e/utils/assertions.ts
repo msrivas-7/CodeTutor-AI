@@ -28,7 +28,10 @@ export async function expectCheckFailed(page: Page): Promise<void> {
   await expect(
     page
       .locator('[role="status"], [role="alert"]')
-      .filter({ hasText: /failed|not quite|try again|doesn'?t match/i })
+      .filter({
+        hasText:
+          /failed|not quite|try again|doesn'?t match|got something else/i,
+      })
       .first()
   ).toBeVisible({ timeout: 15_000 });
 }

@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { SimpleMarketingNav } from "../features/marketing/components/SimpleMarketingNav";
 import { MarketingFooter } from "../features/marketing/components/MarketingFooter";
+import { FIRST_LESSON_CONTRACT } from "../productContract";
 
 // Phase A — A7 (per competitive-intel): the public /why-not-chatgpt page.
 // The cheapest positioning win: every beginner's honest first question is
@@ -29,7 +30,7 @@ const DIFFERENCES: Array<{ title: string; them: string; us: string }> = [
   {
     title: "What 'done' means",
     them: "ChatGPT's Study mode can quiz you and check understanding, but a general conversation does not own this course's completion rules.",
-    us: "A lesson counts only when your code passes real checks — and you answer a cold retrieval question before we call it complete.",
+    us: "A lesson counts only when your code passes real checks — and you answer a quick question from memory before we call it complete.",
   },
   {
     title: "Where the code runs",
@@ -124,13 +125,13 @@ export default function WhyNotChatGPTPage() {
 
         <div className="mt-12 flex flex-col items-start gap-3">
           <Link
-            to="/try/lesson/python-fundamentals/hello-world"
+            to={FIRST_LESSON_CONTRACT.route}
             className="inline-flex min-h-11 items-center rounded-lg bg-gradient-to-r from-accent to-violet px-6 py-3 text-sm font-bold text-bg shadow-glow transition hover:opacity-90"
           >
             Judge for yourself — try lesson 1, no signup →
           </Link>
           <p className="text-sm leading-relaxed text-muted">
-            Ten minutes, in your browser. The tutor is designed to guide the
+            About {FIRST_LESSON_CONTRACT.estimatedMinutes} minutes, in your browser. The tutor is designed to guide the
             next thought without replacing your work — that's the point.
           </p>
         </div>

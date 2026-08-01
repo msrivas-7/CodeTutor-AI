@@ -1,5 +1,10 @@
 import { useState, type Ref } from "react";
-import { useProjectStore, starterStdin } from "../state/projectStore";
+import {
+  beginProjectOperation,
+  isProjectOperationCurrent,
+  useProjectStore,
+  starterStdin,
+} from "../state/projectStore";
 import { useSessionStore } from "../state/sessionStore";
 import { useRunStore } from "../state/runStore";
 import { api } from "../api/client";
@@ -16,7 +21,7 @@ export function Toolbar({ langPickerRef, runButtonRef }: ToolbarProps = {}) {
   const { language, resetToStarter, snapshot } = useProjectStore();
   const sessionId = useSessionStore((s) => s.sessionId);
   const phase = useSessionStore((s) => s.phase);
-  const { running, setRunning, setResult, setError, stdin, setStdin } = useRunStore();
+  const { running, stdin, setStdin } = useRunStore();
   const keys = useShortcutLabels();
   const [pendingLang, setPendingLang] = useState<Language | null>(null);
 
@@ -24,17 +29,21 @@ export function Toolbar({ langPickerRef, runButtonRef }: ToolbarProps = {}) {
 
   const handleRun = async () => {
     if (!sessionId) return;
-    setRunning(true);
-    setError(null);
+    const operation = beginProjectOperation();
+    if (!useRunStore.getState().beginRun(operation.id)) return;
     try {
       const files = snapshot();
       await api.snapshotProject(sessionId, files);
+      if (!isProjectOperationCurrent(operation)) return;
       const result = await api.execute(sessionId, language, stdin || undefined);
-      setResult(result);
+      if (!isProjectOperationCurrent(operation)) return;
+      useRunStore.getState().commitRunResult(operation.id, result);
     } catch (err) {
-      setError((err as Error).message);
+      if (isProjectOperationCurrent(operation)) {
+        useRunStore.getState().commitRunError(operation.id, (err as Error).message);
+      }
     } finally {
-      setRunning(false);
+      useRunStore.getState().finishRun(operation.id);
     }
   };
 

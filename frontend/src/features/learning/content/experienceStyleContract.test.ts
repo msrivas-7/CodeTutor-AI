@@ -17,6 +17,8 @@ describe("critical experience style contract", () => {
     "src/features/learning/components/SignupWallDialog.tsx",
     "src/features/share/components/ShareDialog.tsx",
     "src/auth/OAuthButtons.tsx",
+    "src/auth/PasswordSignupForm.tsx",
+    "src/auth/ResendEmailButton.tsx",
     "src/pages/TrustPage.tsx",
   ];
 
@@ -39,6 +41,15 @@ describe("critical experience style contract", () => {
     expect(source("src/features/learning/components/CoachBubble.tsx")).toContain(
       'role="region"',
     );
+  });
+
+  it("keeps B5 account creation inline and celebration-styled", () => {
+    const wall = source("src/features/learning/components/SignupWallDialog.tsx");
+    expect(wall).toContain("<PasswordSignupForm");
+    expect(wall).not.toContain('to="/signup"');
+    expect(wall).toContain("max-w-2xl");
+    expect(wall).toContain("overflow-y-auto");
+    expect(wall).toContain("border-success/30");
   });
 
   it("keeps the shared modal responsible for stacked focus and background inertness", () => {

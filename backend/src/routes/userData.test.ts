@@ -31,6 +31,9 @@ vi.mock("../db/deletedAccounts.js", () => ({
 
 const { db, closeDb } = await import("../db/client.js");
 const { userDataRouter } = await import("./userData.js");
+const { getLessonConceptTags } = await import(
+  "../services/share/lessonCatalog.js"
+);
 const supabaseAdmin = await import("../db/supabaseAdmin.js");
 const deletedAccountsDb = await import("../db/deletedAccounts.js");
 
@@ -231,6 +234,161 @@ describe("course + lesson progress routes", () => {
     expect(body.course).toBe(true);
     expect(body.lessons).toBe(1);
   });
+});
+
+describe("Phase B1 concept memory routes", () => {
+  it("serves one server-owned warm-up without leaking its answer and records recall", async () => {
+    if (!dbReachable) return;
+    const userId = await mkUser();
+    for (const conceptTag of ["int", "str", "string-concat"]) {
+      await db()`
+        INSERT INTO public.learner_concept_ledger (
+          user_id, course_id, lesson_id, concept_tag, event_type, occurred_at
+        ) VALUES (
+          ${userId}, 'python-fundamentals', 'route-memory-exposure',
+          ${conceptTag}, 'used', now() - interval '6 days'
+        )
+      `;
+    }
+
+    const warmupRes = await req(
+      userId,
+      "/api/user/memory/warmup?courseId=python-fundamentals&lessonId=input-output",
+    );
+    expect(warmupRes.status).toBe(200);
+    const { warmup } = await warmupRes.json();
+    expect(warmup).toMatchObject({
+      courseId: "python-fundamentals",
+      lessonId: "input-output",
+      warmupId: "join-text-and-a-number",
+      attemptCount: 0,
+    });
+    expect(warmup).not.toHaveProperty("correctIndex");
+    expect(warmup).not.toHaveProperty("explanation");
+
+    const answerRes = await req(
+      userId,
+      `/api/user/memory/warmup/${warmup.episodeId}/answer`,
+      {
+        method: "POST",
+        body: JSON.stringify({ requestId: randomUUID(), choiceIndex: 1 }),
+      },
+    );
+    expect(answerRes.status).toBe(200);
+    await expect(answerRes.json()).resolves.toMatchObject({
+      isCorrect: true,
+      attemptNumber: 1,
+      completed: true,
+      firstAttemptCorrect: true,
+    });
+
+    const memoryRes = await req(
+      userId,
+      "/api/user/memory?courseId=python-fundamentals",
+    );
+    expect(memoryRes.status).toBe(200);
+    const memory = await memoryRes.json();
+    expect(memory.refreshAfterDays).toBe(5);
+    const remembered = memory.concepts.filter((item: { conceptTag: string }) =>
+      warmup.conceptTags.includes(item.conceptTag),
+    );
+    expect(remembered).toHaveLength(warmup.conceptTags.length);
+    expect(
+      remembered.every((item: { state: string }) => item.state === "remembered"),
+    ).toBe(true);
+  }, 30_000);
+
+  it("accepts bounded canonical practice evidence with the lesson patch", async () => {
+    if (!dbReachable) return;
+    const userId = await mkUser();
+    const requestId = randomUUID();
+    const patchRes = await req(
+      userId,
+      "/api/user/lessons/python-fundamentals/functions",
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          status: "in_progress",
+          practiceCompletedIds: ["square-function"],
+          practiceEvidence: {
+            exerciseId: "square-function",
+            requestId,
+            attemptCount: 2,
+            hintCount: 1,
+            timeSpentMs: 25_000,
+            modelAssisted: false,
+          },
+        }),
+      },
+    );
+    expect(patchRes.status).toBe(200);
+
+    const rows = await db()<Array<{
+      activity_id: string;
+      evidence_source: string;
+      attempt_count: number;
+      hint_count: number;
+    }>>`
+      SELECT activity_id, evidence_source, attempt_count, hint_count
+        FROM public.learner_concept_evidence
+       WHERE user_id = ${userId} AND request_id = ${requestId}::uuid
+    `;
+    expect(rows).toHaveLength(5);
+    expect(rows.every((row) => row.activity_id === "square-function")).toBe(true);
+    expect(rows.every((row) => row.evidence_source === "client_observed")).toBe(true);
+    expect(rows.every((row) => row.attempt_count === 2 && row.hint_count === 1)).toBe(true);
+
+    const legacyLedger = await db()<Array<{ count: number }>>`
+      SELECT count(*)::int AS count
+        FROM public.learner_concept_ledger
+       WHERE user_id = ${userId}
+         AND course_id = 'python-fundamentals'
+         AND lesson_id = 'functions'
+         AND event_type = 'practiced'
+    `;
+    const canonicalTags = await getLessonConceptTags(
+      "python-fundamentals",
+      "functions",
+    );
+    expect(canonicalTags).not.toBeNull();
+    expect(legacyLedger[0]?.count).toBe(
+      new Set([...(canonicalTags?.taught ?? []), ...(canonicalTags?.used ?? [])])
+        .size,
+    );
+  }, 30_000);
+
+  it("rejects malformed or mismatched evidence before mutating progress", async () => {
+    if (!dbReachable) return;
+    const userId = await mkUser();
+    const patchRes = await req(
+      userId,
+      "/api/user/lessons/python-fundamentals/functions",
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          practiceCompletedIds: ["square-function"],
+          practiceEvidence: {
+            exerciseId: "not-a-real-exercise",
+            requestId: randomUUID(),
+            attemptCount: 1,
+            hintCount: 0,
+            timeSpentMs: 1_000,
+            modelAssisted: false,
+          },
+        }),
+      },
+    );
+    expect(patchRes.status).toBe(400);
+
+    const rows = await db()<Array<{ count: number }>>`
+      SELECT count(*)::int AS count
+        FROM public.lesson_progress
+       WHERE user_id = ${userId}
+         AND course_id = 'python-fundamentals'
+         AND lesson_id = 'functions'
+    `;
+    expect(rows[0]?.count).toBe(0);
+  }, 30_000);
 });
 
 describe("editor project routes", () => {
@@ -484,6 +642,10 @@ describe("GET /api/user/export", () => {
     expect(Array.isArray(bundle.lessonProgress)).toBe(true);
     expect(Array.isArray(bundle.aiUsageLedger)).toBe(true);
     expect(Array.isArray(bundle.feedback)).toBe(true);
+    expect(Array.isArray(bundle.conceptExposure)).toBe(true);
+    expect(Array.isArray(bundle.conceptEvidence)).toBe(true);
+    expect(Array.isArray(bundle.retrievalEpisodes)).toBe(true);
+    expect(Array.isArray(bundle.retrievalAnswers)).toBe(true);
     // Nullable singletons are null when absent, not undefined.
     expect(bundle.editorProject).toBeNull();
     expect(bundle.paidAccessInterest).toBeNull();

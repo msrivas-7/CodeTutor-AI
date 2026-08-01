@@ -1,0 +1,216 @@
+{
+  "version": 1,
+  "lessons": {
+    "variables-and-strings": [
+      {
+        "id": "log-a-stored-name",
+        "version": 1,
+        "conceptTags": [
+          "console-log",
+          "strings"
+        ],
+        "prompt": "Suppose `name` stores the text \"Maya\". Which line logs the stored name rather than the word `name`?",
+        "choices": [
+          "console.log(name);",
+          "console.log(\"name\");",
+          "name.log();",
+          "console = name;"
+        ],
+        "correctIndex": 0,
+        "explanation": "Without quotes, `name` refers to the variable's value. Quotes would log the literal word `name`."
+      }
+    ],
+    "conditionals": [
+      {
+        "id": "choose-let-for-change",
+        "version": 1,
+        "conceptTags": [
+          "let",
+          "const"
+        ],
+        "prompt": "Which declaration should you use when a variable needs a new value later?",
+        "choices": [
+          "const score = 0;",
+          "let score = 0;",
+          "console.log(score);",
+          "\"score\" = 0;"
+        ],
+        "correctIndex": 1,
+        "explanation": "A `let` binding can be reassigned. A `const` binding cannot be pointed at a new value."
+      }
+    ],
+    "loops": [
+      {
+        "id": "read-a-js-comparison",
+        "version": 1,
+        "conceptTags": [
+          "comparison",
+          "let"
+        ],
+        "prompt": "If `let tries = 2`, which condition is true?",
+        "choices": [
+          "tries === 3",
+          "tries > 5",
+          "tries < 3",
+          "tries !== 2"
+        ],
+        "correctIndex": 2,
+        "explanation": "2 is less than 3, so `tries < 3` evaluates to `true`."
+      }
+    ],
+    "functions-basics": [
+      {
+        "id": "choose-an-if-branch",
+        "version": 1,
+        "conceptTags": [
+          "if",
+          "else",
+          "comparison"
+        ],
+        "prompt": "In an `if` / `else` statement, when does the `else` block run?",
+        "choices": [
+          "After every `if` block",
+          "Only when the condition is true",
+          "Before the condition is checked",
+          "When the `if` condition is false"
+        ],
+        "correctIndex": 3,
+        "explanation": "The `else` block is the fallback: it runs only when the paired `if` condition is false."
+      }
+    ],
+    "js-functions-deep-dive": [
+      {
+        "id": "remember-return-value",
+        "version": 1,
+        "conceptTags": [
+          "function-call",
+          "return"
+        ],
+        "prompt": "If `double(4)` returns 8, what can the caller do with that 8?",
+        "choices": [
+          "Store it, print it, or use it in another expression",
+          "Only see it inside `double`",
+          "Use it only as a function name",
+          "Nothing; returned values disappear"
+        ],
+        "correctIndex": 0,
+        "explanation": "A returned value goes back to the caller, where it can be stored or combined with other code."
+      }
+    ],
+    "arrays-basics": [
+      {
+        "id": "remember-loop-result",
+        "version": 1,
+        "conceptTags": [
+          "for-loop",
+          "return"
+        ],
+        "prompt": "A function builds a result inside a loop. Which statement sends that finished result back to the caller?",
+        "choices": [
+          "console.log = result;",
+          "return result;",
+          "for (result);",
+          "result.call();"
+        ],
+        "correctIndex": 1,
+        "explanation": "`return result;` ends the function call and gives `result` back to the caller."
+      }
+    ],
+    "objects-basics": [
+      {
+        "id": "remember-array-length",
+        "version": 1,
+        "conceptTags": [
+          "arrays"
+        ],
+        "prompt": "If `colors = [\"red\", \"blue\"]`, which expression gives the number of items?",
+        "choices": [
+          "colors[2]",
+          "length(colors)",
+          "colors.length",
+          "colors.size()"
+        ],
+        "correctIndex": 2,
+        "explanation": "JavaScript arrays expose their item count through the `.length` property."
+      }
+    ],
+    "js-debugging-basics": [
+      {
+        "id": "remember-zero-index",
+        "version": 1,
+        "conceptTags": [
+          "arrays",
+          "array-index"
+        ],
+        "prompt": "If `colors = [\"red\", \"blue\"]`, which expression reads the first item?",
+        "choices": [
+          "colors[1]",
+          "colors.first",
+          "colors(0)",
+          "colors[0]"
+        ],
+        "correctIndex": 3,
+        "explanation": "JavaScript array indexes start at 0, so `colors[0]` is the first item."
+      }
+    ],
+    "mini-project": [
+      {
+        "id": "read-an-object-property",
+        "version": 1,
+        "conceptTags": [
+          "objects",
+          "property-access"
+        ],
+        "prompt": "If `habit = { name: \"Read\" }`, which expression reads the stored name?",
+        "choices": [
+          "habit.name",
+          "habit[0]",
+          "name.habit",
+          "habit.name()"
+        ],
+        "correctIndex": 0,
+        "explanation": "Dot notation reads a named object property: `habit.name`."
+      }
+    ],
+    "js-capstone-event-tracker": [
+      {
+        "id": "keep-matching-array-items",
+        "version": 1,
+        "conceptTags": [
+          "arrays",
+          "filter",
+          "callbacks"
+        ],
+        "prompt": "Which array method creates a new array containing only the items whose callback returns true?",
+        "choices": [
+          "map",
+          "filter",
+          "console.log",
+          "Object.keys"
+        ],
+        "correctIndex": 1,
+        "explanation": "`filter` keeps matching items. `map` transforms every item instead."
+      }
+    ],
+    "js-capstone-todo-list": [
+      {
+        "id": "find-a-todo-flag",
+        "version": 1,
+        "conceptTags": [
+          "arrays",
+          "objects",
+          "property-access"
+        ],
+        "prompt": "`todos` is an array of objects. Which expression reads the `done` flag from the first todo?",
+        "choices": [
+          "todos.done[0]",
+          "todos[1].done",
+          "todos[0].done",
+          "done.todos(0)"
+        ],
+        "correctIndex": 2,
+        "explanation": "First select the first array item with `[0]`, then read that object's `.done` property."
+      }
+    ]
+  }
+}

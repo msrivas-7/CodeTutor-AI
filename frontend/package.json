@@ -27,10 +27,13 @@
     "qrcode.react": "^4.2.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^7.14.1",
+    "react-router-dom": "^7.18.2",
     "zustand": "^4.5.4"
   },
   "devDependencies": {
+    "@fontsource/fraunces": "^5.2.9",
+    "@fontsource/jetbrains-mono": "^5.2.8",
+    "@resvg/resvg-js": "^2.6.2",
     "@types/canvas-confetti": "^1.9.0",
     "@types/node": "^25.6.0",
     "@types/react": "^18.3.3",
@@ -41,6 +44,7 @@
     "lighthouse": "13.3.0",
     "postcss": "^8.4.39",
     "puppeteer-core": "24.43.1",
+    "satori": "^0.26.0",
     "tailwindcss": "^3.4.6",
     "tsx": "^4.21.0",
     "typescript": "^5.5.3",

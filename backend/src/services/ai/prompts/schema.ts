@@ -20,7 +20,7 @@ export const TUTOR_RESPONSE_SCHEMA = {
   properties: {
     intent: {
       type: "string",
-      enum: ["debug", "concept", "howto", "walkthrough", "checkin"],
+      enum: ["socratic", "debug", "concept", "howto", "walkthrough", "checkin"],
       description:
         "Your classification of the student's question. Pick the single best match.",
     },
@@ -45,6 +45,7 @@ export const TUTOR_RESPONSE_SCHEMA = {
     },
     walkthrough: {
       type: ["array", "null"],
+      maxItems: 6,
       description:
         "Ordered steps explaining the student's code. At most 6 steps. For walkthrough intent only.",
       items: {
@@ -59,15 +60,17 @@ export const TUTOR_RESPONSE_SCHEMA = {
           },
           line: {
             type: ["integer", "null"],
-            description: "Line number this step points at, or null.",
+            minimum: 1,
+            description: "1-indexed line number this step points at, or null.",
           },
         },
       },
     },
     checkQuestions: {
       type: ["array", "null"],
+      maxItems: 3,
       description:
-        "Up to 3 diagnostic questions FOR the student to answer (not for you). Debug intent.",
+        "One clarifying question for Socratic intent; up to 3 diagnostic questions for debug intent.",
       items: { type: "string" },
     },
     hint: {
@@ -89,6 +92,7 @@ export const TUTOR_RESPONSE_SCHEMA = {
     },
     citations: {
       type: ["array", "null"],
+      maxItems: 20,
       description:
         "Every file:line location you reference. Rendered as clickable chips.",
       items: {
@@ -97,8 +101,12 @@ export const TUTOR_RESPONSE_SCHEMA = {
         required: ["path", "line", "column", "reason"],
         properties: {
           path: { type: "string", description: "Exact file path as it appears in PROJECT FILES." },
-          line: { type: "integer", description: "1-indexed line number." },
-          column: { type: ["integer", "null"], description: "Optional 1-indexed column." },
+          line: { type: "integer", minimum: 1, description: "1-indexed line number." },
+          column: {
+            type: ["integer", "null"],
+            minimum: 0,
+            description: "Optional 1-indexed column; use null when unknown.",
+          },
           reason: {
             type: "string",
             description: "Short (≤60 chars) reason this location matters.",

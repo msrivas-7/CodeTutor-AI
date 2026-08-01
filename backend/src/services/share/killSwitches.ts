@@ -22,8 +22,10 @@ async function readBool(
     | "share_public_disabled"
     | "share_create_disabled"
     | "share_render_disabled"
+    | "share_preview_disabled"
     | "anon_lesson_enabled"
-    | "anon_laptop_invite_disabled",
+    | "anon_laptop_invite_disabled"
+    | "ai_eval_sampling_enabled",
   envFallback: boolean,
 ): Promise<boolean> {
   try {
@@ -40,7 +42,7 @@ async function readBool(
     // had explicitly disabled it. (Phase 27-v2.2 audit fix C1 —
     // staff-security + staff-sre convergence.) Fail CLOSED on the
     // anon switch: assume the trial is disabled until the DB recovers.
-    if (key === "anon_lesson_enabled") return false;
+    if (key === "anon_lesson_enabled" || key === "ai_eval_sampling_enabled") return false;
     // Phase A — A2: anon_laptop_invite_disabled defaults FALSE (handoff
     // enabled). DB outage → fall through to envFallback (false) → invite
     // path stays open. The handoff is a graceful-fallback feature: a
@@ -62,6 +64,12 @@ export function isShareRenderDisabled(): Promise<boolean> {
   return readBool("share_render_disabled", config.share.renderDisabled);
 }
 
+/** Release 0A: drain only crawler/unfurl metadata traffic. Human public
+ * share reads remain available through `share_public_disabled=false`. */
+export function isSharePreviewDisabled(): Promise<boolean> {
+  return readBool("share_preview_disabled", config.share.previewDisabled);
+}
+
 // Phase 27-v2.2 Fix 7c — anon trial path kill switch in system_config.
 // `anon_lesson_enabled=false` makes /api/anon/* return 503 on the next
 // request (after the 60s system_config cache TTL, or instantly for an
@@ -81,4 +89,10 @@ export function isAnonLessonEnabled(): Promise<boolean> {
 // enabled) — the handoff is a graceful-fallback feature.
 export function isAnonLaptopInviteDisabled(): Promise<boolean> {
   return readBool("anon_laptop_invite_disabled", false);
+}
+
+/** B8 sampling is independently drainable. A DB read failure fails closed so
+ * an unavailable governance store never causes silent sampling. */
+export function isAiEvalSamplingEnabled(): Promise<boolean> {
+  return readBool("ai_eval_sampling_enabled", true);
 }

@@ -37,6 +37,9 @@ npx playwright test specs/editor.spec.ts --debug
 # Single spec
 npx playwright test specs/learning.spec.ts
 
+# Advisory no-retry critical lane (the full suite is still the release gate)
+npx playwright test --grep @lane:critical --project=chromium --retries=0
+
 # Open the last HTML report
 npx playwright show-report
 ```
@@ -62,6 +65,7 @@ npm run test:real
 | `fixtures/monaco.ts` | `waitForMonacoReady` / `setMonacoValue` / `getMonacoValue` (uses `window.monaco` global) |
 | `fixtures/aiMocks.ts` | SSE scenario frames for `/api/ai/ask/stream` — matches production `data: {...}\n\n` wire format |
 | `fixtures/harnessResults.ts` | Canned `TestReport` payloads for `/api/execute/tests` |
+| `fixtures/testMetadata.ts` | Required risk/owner/browser/device/quarantine metadata for the advisory critical lane |
 | `fixtures/seeds/*.json` | Serialized `__dev__` profile localStorage seeds |
 | `utils/selectors.ts` | Centralized Playwright locators (role + aria-label first) |
 | `utils/assertions.ts` | Domain-level expects (`expectLessonComplete`, `expectStdoutContains`, …) |
@@ -73,7 +77,10 @@ npm run test:real
 - **Backend harness runs for real** for function-tests specs — it's fast and proves the full stack agrees.
 - **Don't boot the stack per-test.** `docker compose up -d` is the developer's one-time setup. `globalSetup` fails loudly if it's not running.
 - **Use `loadProfile(page, id)`** to land deterministically on "mid-course healthy / capstone-first-fail / all-complete" — it resets the worker user's DB rows then PATCHes the seed, so the next `page.goto` hydrates into the scenario without clicking through N lessons.
-- **Chromium only** for v1. Firefox/WebKit add 3× CI time with marginal value on a local-first desktop-only app.
+- **Chromium owns the exhaustive suite.** Firefox and WebKit run the focused cross-browser product journey in CI.
+- **Cross-cutting pre-lesson gates are explicit fixtures.** The shared authenticated fixture returns no memory warm-up by default so unrelated editor/lesson tests keep one owned boundary. `memory-warmup.spec.ts` opts into the real endpoint with `test.use({ memoryWarmupsEnabled: true })`; new gate behavior needs the same dedicated opt-in pattern.
+- **Critical means source-owned metadata, not a filename list.** Use `criticalTest(...)`; the shadow contract rejects missing dimensions, P2 risk, active quarantine, or erosion below the frozen floor.
+- **No browser coverage is demoted during shadow.** Lower-layer migration pilots run beside their original browser boundaries until the plan's catch-quality gate passes.
 - **One behavior per test.** Keep tests tight — if two paths diverge (pass vs fail), they're two tests.
 
 ## Adding a spec
@@ -93,4 +100,20 @@ npm run test:real
 
 ## CI
 
-See `.github/workflows/e2e.yml`. Docker stack is brought up in the job, Chromium cached, artifacts include the HTML report on failure.
+See `.github/workflows/e2e.yml`. The current PR model is:
+
+- six blocking Chromium shards for all 341 tests;
+- blocking Firefox and WebKit focused journeys;
+- one advisory, zero-retry Chromium critical lane (currently 41 tests in 15 files);
+- CI retries retain diagnostic traces, but `failOnFlakyTests` makes a flaky
+  result fail its shard so a targeted rerun cannot erase the original signal;
+- versioned shadow evidence that records queue-inclusive readiness and any miss where the critical lane passes but the full suite fails.
+
+`e2e/shadow/regression-corpus.json` freezes the initial P0/P1 catch corpus.
+`e2e/shadow/migration-pilots.json` records the three lower-layer pilots and the
+browser boundary retained for each. The one-time
+`.github/workflows/e2e-shard-benchmark.yml` measured four, six, and eight
+shards on commit `c6aa5f0`. All were reliable without retries; six was fastest
+at 316 seconds versus 340 for eight and 495 for four, so the blocking suite now
+uses six. Six also consumed the least aggregate runner time. The one-time label
+was removed after the measurement.

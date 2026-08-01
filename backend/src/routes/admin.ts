@@ -71,6 +71,7 @@ import { adminDashboardRouter } from "./adminDashboard.js";
 import { adminEmailLogRouter } from "./adminEmailLog.js";
 import { adminPlatformAuthRouter } from "./adminPlatformAuth.js";
 import { adminSessionsRouter } from "./adminSessions.js";
+import { adminEvalSamplesRouter } from "./adminEvalSamples.js";
 
 // Phrase-confirm strings. Server-validated; the UI sends them verbatim
 // when the dangerous action is requested.
@@ -98,6 +99,7 @@ const KEY_BOUNDS: Record<
   share_public_disabled: { type: "boolean" },
   share_create_disabled: { type: "boolean" },
   share_render_disabled: { type: "boolean" },
+  share_preview_disabled: { type: "boolean" },
   // Phase 24B ACI operational knobs.
   // - aci_overflow_enabled: runtime kill switch. False stops new ACI
   //   spawns (existing sessions ride out their lifetimes) and shrinks
@@ -155,6 +157,7 @@ const KEY_BOUNDS: Record<
   //   ceiling anyway, so higher values would only mask a misconfig.
   anon_daily_usd_cap: { type: "number", min: 0, max: 50 },
   anon_daily_runs_per_ip: { type: "number", min: 0, max: 5000 },
+  ai_eval_sampling_enabled: { type: "boolean" },
 };
 
 // Env defaults exposed in GET /api/admin/system-config so the UI can
@@ -177,6 +180,8 @@ function envDefaultFor(key: SystemConfigKey): boolean | number {
       return config.share.createDisabled;
     case "share_render_disabled":
       return config.share.renderDisabled;
+    case "share_preview_disabled":
+      return config.share.previewDisabled;
     case "aci_overflow_enabled":
       return config.aci.enabled;
     case "aci_daily_usd_cap":
@@ -201,6 +206,8 @@ function envDefaultFor(key: SystemConfigKey): boolean | number {
       return config.freeTier.anonDailyUsdCap;
     case "anon_daily_runs_per_ip":
       return config.freeTier.anonDailyRunsPerIp;
+    case "ai_eval_sampling_enabled":
+      return true;
   }
 }
 
@@ -1083,3 +1090,4 @@ adminRouter.use(adminEmailLogRouter);
 adminRouter.use(adminBudgetWatcherRouter);
 adminRouter.use(adminPlatformAuthRouter);
 adminRouter.use(adminAnonSummaryRouter);
+adminRouter.use(adminEvalSamplesRouter);

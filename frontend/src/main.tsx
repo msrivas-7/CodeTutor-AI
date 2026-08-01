@@ -7,10 +7,16 @@ import "./index.css";
 // at module load. Routes that don't transitively import theme.ts (e.g. the
 // standalone /dev/content dashboard) otherwise render in default dark.
 import "./util/theme";
+import { captureDistributionAttribution } from "./features/distribution/attribution";
 // Phase 18a: hydrate the Supabase auth store before React mounts so the
 // initial render reads a stable `loading: true` → resolved state rather
 // than flashing the login page to users with a persisted session.
 const FullApp = lazy(() => import("./App"));
+
+// Release B4: capture a bounded first-touch channel before any route can fire
+// funnel telemetry. This also removes the acquisition parameters from the
+// address bar while preserving unrelated query flags.
+captureDistributionAttribution();
 
 const PUBLIC_PATHS = new Set([
   "/",

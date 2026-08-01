@@ -1,9 +1,15 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { courseRegistryPlugin } from "./scripts/vitePluginCourseRegistry";
+import { discoveryBuildPlugin, discoverySitePlugin } from "./scripts/vitePluginDiscovery";
 
 export default defineConfig({
-  plugins: [react(), courseRegistryPlugin()],
+  plugins: [
+    react(),
+    courseRegistryPlugin(),
+    discoverySitePlugin(),
+    discoveryBuildPlugin(),
+  ],
   server: {
     port: 5173,
     // Phase 21C (post-audit): backend fetches the canonical course

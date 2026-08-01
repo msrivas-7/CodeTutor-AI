@@ -23,6 +23,7 @@
 // RLS is deny-all-by-default (migration line 75). All access goes
 // through the service-role pool used by `db()`.
 
+import { randomBytes } from "node:crypto";
 import { db } from "./client.js";
 import { HttpError } from "../middleware/errorHandler.js";
 
@@ -36,8 +37,7 @@ const ALPHABET = "abcdefghijkmnpqrstuvwxyz23456789"; // 32 chars; minus l, o, 0,
 
 export function generateInviteToken(): string {
   // 256 % 32 === 0, so plain modulo is unbiased.
-  const bytes = new Uint8Array(INVITE_TOKEN_LENGTH);
-  crypto.getRandomValues(bytes);
+  const bytes = randomBytes(INVITE_TOKEN_LENGTH);
   let out = "";
   for (let i = 0; i < INVITE_TOKEN_LENGTH; i++) {
     out += ALPHABET[bytes[i] % 32];

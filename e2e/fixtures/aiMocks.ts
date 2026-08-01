@@ -22,7 +22,7 @@
 import type { Page, Route } from "@playwright/test";
 
 export type TutorSections = {
-  intent?: "debug" | "concept" | "howto" | "walkthrough" | "checkin";
+  intent?: "socratic" | "debug" | "concept" | "howto" | "walkthrough" | "checkin";
   summary?: string | null;
   diagnose?: string | null;
   explain?: string | null;
@@ -45,10 +45,11 @@ export type TokenUsage = {
 
 type StreamFrame =
   | { delta: string }
-  | { done: true; raw: string; sections: TutorSections; usage?: TokenUsage }
+  | { done: true; raw: string; sections: TutorSections; usage?: TokenUsage; tutorProgressToken?: string }
   | { error: string };
 
 export type AIScenario =
+  | "socratic-first"
   | "first-turn-concept"
   | "debug-walkthrough"
   | "stuck-with-action-chips"
@@ -62,6 +63,18 @@ export type AIScenario =
 
 function framesFor(scenario: AIScenario): StreamFrame[] {
   switch (scenario) {
+    case "socratic-first": {
+      const sections: TutorSections = {
+        intent: "socratic",
+        checkQuestions: ["What did you expect to happen?"],
+      };
+      return [{
+        done: true,
+        raw: JSON.stringify(sections),
+        sections,
+        tutorProgressToken: "mock-signed-progress-proof",
+      }];
+    }
     case "first-turn-concept": {
       const sections: TutorSections = {
         intent: "concept",
@@ -328,8 +341,36 @@ export async function mockListModels(page: Page): Promise<void> {
       contentType: "application/json",
       body: JSON.stringify({
         models: [
-          { id: "gpt-4o-mini", label: "GPT-4o mini", supportsStream: true },
-          { id: "gpt-4o", label: "GPT-4o", supportsStream: true },
+          {
+            id: "gpt-4.1-nano",
+            label: "GPT-4.1 nano",
+            supportsStream: true,
+            qualityStatus: "evaluated",
+            contextualTutorEligible: true,
+            qualityLabel: "Evaluated for CodeTutor",
+            evalSetVersion: "2.1.0+evaluator.2.2.0",
+            registryVersion: "2026-07-31.v3",
+          },
+          {
+            id: "gpt-4o-mini",
+            label: "GPT-4o mini",
+            supportsStream: true,
+            qualityStatus: "unevaluated",
+            contextualTutorEligible: false,
+            qualityLabel: "Not evaluated for teaching quality",
+            evalSetVersion: null,
+            registryVersion: "2026-07-31.v3",
+          },
+          {
+            id: "gpt-4o",
+            label: "GPT-4o",
+            supportsStream: true,
+            qualityStatus: "unevaluated",
+            contextualTutorEligible: false,
+            qualityLabel: "Not evaluated for teaching quality",
+            evalSetVersion: null,
+            registryVersion: "2026-07-31.v3",
+          },
         ],
       }),
     });

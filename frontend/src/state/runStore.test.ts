@@ -1,5 +1,15 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { useRunStore } from "./runStore";
+import type { RunResult } from "../types";
+
+const okResult: RunResult = {
+  stdout: "ok\n",
+  stderr: "",
+  exitCode: 0,
+  errorType: "none",
+  durationMs: 4,
+  stage: "run",
+};
 
 describe("runStore", () => {
   afterEach(() => {
@@ -36,6 +46,65 @@ describe("runStore", () => {
       useRunStore.getState().setRunningTests(true);
       useRunStore.getState().reset();
       expect(useRunStore.getState().runningTests).toBe(false);
+    });
+  });
+
+  describe("Run operation identity", () => {
+    it("publishes only through the active operation id", () => {
+      const store = useRunStore.getState();
+      expect(store.beginRun("run-a")).toBe(true);
+      expect(store.commitRunResult("run-b", okResult)).toBe(false);
+      expect(useRunStore.getState().result).toBeNull();
+
+      expect(store.commitRunResult("run-a", okResult)).toBe(true);
+      store.finishRun("run-a");
+      expect(useRunStore.getState().result).toEqual(okResult);
+      expect(useRunStore.getState().running).toBe(false);
+    });
+
+    it("rejects a late result after navigation invalidates the operation", () => {
+      const store = useRunStore.getState();
+      store.switchRunContext("lesson:course/a");
+      expect(store.beginRun("lesson-a-run")).toBe(true);
+
+      store.switchRunContext("lesson:course/b");
+      expect(useRunStore.getState().activeRunId).toBeNull();
+      expect(store.commitRunResult("lesson-a-run", okResult)).toBe(false);
+      expect(useRunStore.getState().result).toBeNull();
+    });
+
+    it("a late finally from an old run cannot stop a newer run", () => {
+      const store = useRunStore.getState();
+      expect(store.beginRun("old")).toBe(true);
+      store.invalidateEvidence();
+      expect(store.beginRun("new")).toBe(true);
+
+      store.finishRun("old");
+      expect(useRunStore.getState().running).toBe(true);
+      expect(useRunStore.getState().activeRunId).toBe("new");
+    });
+  });
+
+  describe("execution-input identity", () => {
+    it("advances when stdin changes but not for an identical value", () => {
+      const store = useRunStore.getState();
+      const initial = store.inputRevision;
+
+      store.setStdin(store.stdin);
+      expect(useRunStore.getState().inputRevision).toBe(initial);
+
+      store.setStdin(`${store.stdin}new input\n`);
+      expect(useRunStore.getState().inputRevision).toBe(initial + 1);
+    });
+
+    it("stays monotonic across context switches and sign-out reset", () => {
+      const initial = useRunStore.getState().inputRevision;
+      useRunStore.getState().switchRunContext("lesson:course/a");
+      const afterSwitch = useRunStore.getState().inputRevision;
+      expect(afterSwitch).toBeGreaterThan(initial);
+
+      useRunStore.getState().reset();
+      expect(useRunStore.getState().inputRevision).toBeGreaterThan(afterSwitch);
     });
   });
 });

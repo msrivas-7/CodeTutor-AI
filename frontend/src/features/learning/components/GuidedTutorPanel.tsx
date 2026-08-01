@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useAIStore } from "../../../state/aiStore";
-import { usePreferencesStore } from "../../../state/preferencesStore";
+import {
+  usePreferencesStore,
+  type Persona,
+} from "../../../state/preferencesStore";
 import { useProjectStore } from "../../../state/projectStore";
 import { useRunStore } from "../../../state/runStore";
 import { useAIStatus } from "../../../state/useAIStatus";
@@ -23,6 +26,7 @@ import { useShortcutLabels } from "../../../util/platform";
 import { useSavedTutorMessages } from "../hooks/useSavedTutorMessages";
 import { useProgressStore } from "../stores/progressStore";
 import type { LessonMeta, PracticeExercise } from "../types";
+import { EvalSamplingConsentControl } from "../../anon/EvalSamplingConsentControl";
 
 interface GuidedTutorPanelProps {
   lessonMeta: LessonMeta;
@@ -102,6 +106,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
     sessionUsage,
   } = useAIStore();
   const hasKey = usePreferencesStore((s) => s.hasOpenaiKey);
+  const persona = usePreferencesStore((s) => s.persona);
   // Phase 27-v2.1 — anon skips this fetch; the panel's chip + setup-warning
   // surfaces are conditionally rendered for authed only (anon has no BYOK
   // surface, no platform quota counter — its limit is server-side L_anon).
@@ -208,33 +213,15 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
       diffSinceLastTurn,
       runsSinceLastTurn,
       editsSinceLastTurn,
-      persona: "beginner",
+      persona: resolveTutorPersona(mode, persona),
       selection,
       lessonContext: {
         courseId: lessonMeta.courseId,
         lessonId: lessonMeta.id,
-        // In practice mode, override the three fields the backend
-        // prompt actually uses (lessonTitle, lessonObjectives,
-        // completionRules) with the active exercise's framing so the
-        // tutor reasons about THIS exercise, not the lesson's main
-        // goal. Other fields (concept tags, priorConcepts, lessonOrder,
-        // totalLessons) stay — they're the same broader context.
-        lessonTitle: activePracticeExercise
-          ? `${lessonMeta.title} → Practice: ${activePracticeExercise.title}`
-          : lessonMeta.title,
-        language: lessonMeta.language,
-        lessonObjectives: activePracticeExercise
-          ? [activePracticeExercise.prompt, `Goal: ${activePracticeExercise.goal}`]
-          : lessonMeta.objectives,
-        teachesConceptTags: lessonMeta.teachesConceptTags,
-        usesConceptTags: lessonMeta.usesConceptTags,
-        priorConcepts,
-        completionRules: activePracticeExercise
-          ? activePracticeExercise.completionRules
-          : lessonMeta.completionRules,
-        studentProgressSummary: progressSummary,
-        lessonOrder: lessonMeta.order,
-        totalLessons,
+        // Identity is the only browser-owned guided context. The backend
+        // reloads goals, concepts, completion categories, and learner
+        // progress from server-authoritative sources.
+        exerciseId: activePracticeExercise?.id ?? null,
       },
     }),
   });
@@ -515,8 +502,12 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
           />
         ) : (
           <>
+            {mode === "anon" && <EvalSamplingConsentControl />}
             {activeSelection && (
-              <SelectionPreview selection={activeSelection} onClear={() => setActiveSelection(null)} />
+              <SelectionPreview
+                selection={activeSelection.selection}
+                onClear={() => setActiveSelection(null)}
+              />
             )}
             <textarea
               ref={textareaRef}
@@ -582,4 +573,13 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
       </div>
     </div>
   );
+}
+
+/** Anonymous lesson 1 is intentionally beginner-framed; signed-in learning
+ * must honor the learner's persisted tutor preference. */
+export function resolveTutorPersona(
+  mode: "authed" | "anon",
+  persona: Persona,
+): Persona {
+  return mode === "anon" ? "beginner" : persona;
 }

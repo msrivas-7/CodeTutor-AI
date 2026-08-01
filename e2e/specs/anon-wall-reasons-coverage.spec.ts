@@ -1,23 +1,24 @@
 // Phase 27-v2.1 — SignupWallDialog reasons coverage.
 //
-// The wall fires from three call sites with three reason codes:
+// The B5 continuation card fires from distinct conversion moments:
 //
 //   reason="save"        — header "Sign up to save" pill click. Copy:
-//                          "Sign up to save?" / "Takes 10 seconds.
-//                          From the moment you sign up, your code and
-//                          progress save automatically..." / "Sign up
-//                          for free"
+//                          "Sign up to save?" / "Create your account
+//                          here. Once it is confirmed, your future code and
+//                          progress save automatically..."
+//                          / "Create account & start saving"
 //   reason="next-lesson" — celebration dismiss / Next Lesson click /
 //                          header in-page Next Lesson click / practice
 //                          start (medium-lock). Copy: "Lesson 2 is
-//                          queued up." / "Save your spot — takes 10
-//                          seconds..." / "Start lesson 2" / "Maybe
-//                          later" (dismiss link)
+//                          queued up." / "Save your spot. Your code,
+//                          your name...come with you." / "Create account
+//                          & continue" / "Maybe later"
 //   reason="exhausted"   — anon AI 429 ANON_EXHAUSTED. Copy: "You're
 //                          getting it." / "free tutor questions" /
-//                          "Sign up for free"
+//                          "Create account & keep going"
 //
-// This spec verifies all three reasons render distinct, on-brand
+// The same file also covers share and trial-paused recovery. It verifies all
+// reasons render distinct, on-brand
 // copy. It catches:
 //   - Copy collision (two reasons accidentally sharing a CTA)
 //   - Default-reason fallback bug (an unset reason rendering "save")
@@ -130,7 +131,51 @@ test.describe("Phase 27-v2.1 — SignupWallDialog reasons coverage", () => {
     await expect(page.getByText(/Lesson 2 is queued up/i)).toHaveCount(0);
   });
 
-  test("share artifact is usable above completion, then the honest post-share wall opens", async ({
+  test("phone Maybe later returns to the completed lesson; signup stays explicit", async ({
+    browser,
+  }) => {
+    const context = await browser.newContext({
+      viewport: { width: 390, height: 844 },
+      isMobile: true,
+      hasTouch: true,
+    });
+    const page = await context.newPage();
+    await page.addInitScript(SEED_FLAGS);
+    await page.route("**/api/anon/run", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          stdout: "Hello, Maya!\n",
+          stderr: "",
+          exitCode: 0,
+          timedOut: false,
+          durationMs: 42,
+        }),
+      }),
+    );
+    await page.goto(PATH);
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible({ timeout: 10_000 });
+    await page.getByRole("button", { name: /run/i }).first().click();
+    await page.getByRole("button", { name: /check/i }).first().click();
+    const completion = page.getByRole("dialog", { name: /lesson complete/i });
+    await expect(completion).toBeVisible({ timeout: 10_000 });
+    await completion.getByRole("button", { name: /next lesson/i }).click();
+
+    const handoff = page.getByRole("dialog", { name: /lesson 2 needs more screen/i });
+    await expect(handoff).toBeVisible();
+    await expect(
+      handoff.getByRole("button", { name: /create an account instead/i }),
+    ).toBeVisible();
+    await handoff.getByRole("button", { name: /^maybe later$/i }).click();
+    await expect(handoff).toHaveCount(0);
+    await expect(page.getByRole("heading", { level: 1, name: /Hello, World!/i })).toBeVisible();
+    await expect(page.getByText(/Nice work! You can practice more/i)).toBeVisible();
+    await expect(page.getByText(/Lesson 2 is queued up/i)).toHaveCount(0);
+    await context.close();
+  });
+
+  test("share dismissal returns to completion; only explicit save opens the wall", async ({
     page,
   }) => {
     // Phase 27-v2.2 Fix 1 — anon share lever. The pre-fix behavior
@@ -217,41 +262,39 @@ test.describe("Phase 27-v2.1 — SignupWallDialog reasons coverage", () => {
     await expect(shareDialog.locator(":focus")).toHaveCount(1);
     await page.keyboard.press("Escape");
     await expect(shareDialog).toHaveCount(0);
-    // The product contract intentionally follows any share-dialog dismissal
-    // with the conversion wall. The completion layer must remain mounted under
-    // that new top layer; a single Escape must never tear down both dialogs.
+    // Escape means dismiss: it returns to the completed lesson without
+    // manufacturing a second conversion dialog.
     await expect(page.locator('[data-modal-layer="55"]')).toBeVisible();
-    await expect(page.getByText(/Your share link is ready/i)).toBeVisible();
-    const dismissWall = page.getByRole("button", { name: /maybe later/i });
-    await dismissWall.click();
+    await expect(page.getByText(/Your share link is ready/i)).toHaveCount(0);
     await expect(page.getByRole("dialog", { name: /lesson complete/i })).toBeVisible();
     await expect(celebrationShareButton).toBeFocused();
 
     await celebrationShareButton.click();
     await expect(shareDialog).toBeVisible({ timeout: 5_000 });
     await shareDialog.getByRole("button", { name: /^done$/i }).click();
+    await expect(page.getByText(/Your share link is ready/i)).toHaveCount(0);
+    await expect(page.getByRole("dialog", { name: /lesson complete/i })).toBeVisible();
 
-    // The conversion ask now acknowledges the link already exists.
-    await expect(page.getByText(/Your share link is ready/i)).toBeVisible({ timeout: 5_000 });
-    // "Maybe later" dismiss copy (continuation framing).
-    await expect(
-      page.getByRole("button", { name: /maybe later/i }),
-    ).toBeVisible();
-    // Different from the other three reasons.
-    await expect(page.getByText(/Sign up to save\?/i)).toHaveCount(0);
-    await expect(page.getByText(/Lesson 2 is queued up/i)).toHaveCount(0);
-    await expect(page.getByText(/You're getting it\./i)).toHaveCount(0);
-
-    // Backdrop dismissal follows the same deterministic share -> wall
-    // transition as Escape and Done. Click the exposed corner of the top
-    // backdrop so the event target is the backdrop itself, not the panel.
-    await page.getByRole("button", { name: /maybe later/i }).click();
+    // Backdrop follows the same truthful dismiss contract.
     await celebrationShareButton.click();
     await expect(shareDialog).toBeVisible({ timeout: 5_000 });
     await page.locator('[data-modal-layer="60"]').click({ position: { x: 2, y: 2 } });
     await expect(shareDialog).toHaveCount(0);
+    await expect(page.getByText(/Your share link is ready/i)).toHaveCount(0);
+
+    // A separately labelled save action is the only path from the artifact
+    // dialog into account creation.
+    await celebrationShareButton.click();
+    await expect(shareDialog).toBeVisible({ timeout: 5_000 });
+    await shareDialog
+      .getByRole("button", { name: /save this progress with a free account/i })
+      .click();
     await expect(page.getByText(/Your share link is ready/i)).toBeVisible({
       timeout: 5_000,
     });
+    await expect(page.getByRole("button", { name: /maybe later/i })).toBeVisible();
+    await expect(page.getByText(/Sign up to save\?/i)).toHaveCount(0);
+    await expect(page.getByText(/Lesson 2 is queued up/i)).toHaveCount(0);
+    await expect(page.getByText(/You're getting it\./i)).toHaveCount(0);
   });
 });

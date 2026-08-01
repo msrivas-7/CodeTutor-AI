@@ -1,6 +1,6 @@
 # Contextual Learning and Delivery Velocity Plan
 
-> **Status:** Audited revision — ready to begin remediation after founder acknowledgement; not approved for learner-visible contextual rollout
+> **Status:** Every currently eligible engineering lane is implemented and green through B8 on the active roadmap branch. Release 1C is correctly held because its powered 1B learner experiment, two-human eval calibration, and named approvals are missing; B6 has not shipped and cannot start without affirmative evidence that its seven-day-average DAU trigger fired; and the 1D shadow clock begins only after merge. See `docs/CONTEXTUAL_LEARNING_ROADMAP_FINAL_AUDIT.md` for the closeout matrix and explicit non-claims.
 >
 > **Prepared:** 2026-07-30
 >
@@ -73,8 +73,8 @@ The persona audit is structured expert scrutiny performed against 18 role profil
 |---|---|
 | Q1: phone completion within 2pp of desktop | Pending qualifying real traffic |
 | Q2: lesson-2 learners pass cold lesson-3 retrieval ≥80% | Pending; the immediate recognition checkpoint is not cold retrieval evidence |
-| Q3: share views/completion ≥0.3 | Pending real traffic; share correctness and attribution must first be fixed |
-| Q4: operational floor | Partial; controls exist, but atomic AI admission and the required drill remain open |
+| Q3: share views/completion ≥0.3 | Pending real traffic; share correctness and bounded attribution are now implemented in 0A/B4 |
+| Q4: operational floor | Partial; controls and atomic AI admission now exist, but the required production drill/evidence remains open |
 | Q5: five-stranger session | Missing |
 
 Engineering may continue behind reversible flags while traffic-dependent evidence remains pending. The five-stranger session must occur before broad learner-visible contextual guidance/tutor rollout unless the founder records a dated exception.
@@ -141,21 +141,32 @@ Default first remediation cycle: 0P, 0B, the exact-answer repair from 0C, atomic
 | Limited learner rollout | Explicitly bounded external cohort with rollback and approved measurement | No, unless a dated founder exception names the risk and expiry |
 | Broad rollout | Default-on for eligible learners | No; requires limited-rollout evidence and all product gates |
 
-Founder acknowledgement records: approval to begin remediation, named human owners, accepted concurrency, the temporary disposition of the currently enabled platform-funded tutor while 0D is built, any stranger-gate exception, and any change to the provisional economics thresholds. The preview-authentication ADR and test-confidence method are engineering approvals, not founder product choices.
+The original founder-acknowledgement gate covered approval to begin remediation,
+named human owners, accepted concurrency, the temporary disposition of the
+platform-funded tutor before 0D, any stranger-gate exception, and changes to the
+provisional economics thresholds. Release 0D is now implemented; future held
+lanes and any exceptions still require their named human record. The
+preview-authentication ADR and test-confidence method are engineering approvals,
+not founder product choices.
 
-## 4. Confirmed repository debt before feature expansion
+## 4. Historical repository debt identified before feature expansion
 
-### P0 — test isolation
+This section preserves the evidence that justified the workstream. Every item
+below is closed in the named release; it is not a description of the current
+branch. The current implementation and remaining external gates are recorded in
+Section 7 and `docs/CONTEXTUAL_LEARNING_ROADMAP_FINAL_AUDIT.md`.
+
+### Closed in 0B — test isolation
 
 The configured global teardown deletes every `e2e-w*` test user rather than only the current run suffix. All Chromium shards and Firefox/WebKit jobs share one Supabase project. One completed job can therefore delete identities another job is still using.
 
 This contaminates the cross-device preference failure. Fix teardown isolation before deciding that product persistence is broken.
 
-### P0 — complete-answer leakage
+### Closed in 0C/B2 — complete-answer leakage
 
 The first-run stronger hint explicitly gives the full working line after two wrong attempts. That violates the public and locked “complete answer never” contract.
 
-### P0 — tutor eval gate is not authoritative
+### Closed in 0D/B2 — tutor eval gate is not authoritative
 
 The current eval substrate has these confirmed gaps:
 
@@ -165,27 +176,27 @@ The current eval substrate has these confirmed gaps:
 - limited gate runs can compare a partial sample with the full baseline;
 - cases are single-turn and omit run, diff, selection, history, activity, and stale-context behavior.
 
-### P0 — AI quota checking is non-atomic
+### Closed in 0D — AI quota checking is non-atomic
 
 Current quota checks release their advisory lock before provider usage and the ledger insert. Concurrent requests can observe the same remaining quota. Caps and kill switches limit total damage but do not make admission atomic.
 
-### P0 — asynchronous results can become current in the wrong context
+### Closed in 1A — asynchronous results can become current in the wrong context
 
 Run and tutor request lifecycles lack sufficient lesson/revision/operation guards. A late result can land after edit, reset, navigation, or lesson/practice switch.
 
-### P0 — deployment can outrun main E2E
+### Closed in 0P — deployment can outrun main E2E
 
 Frontend deployment, backend deployment, CI, and E2E are independent `push: main` workflows. A production workflow can finish before the main E2E result for the same commit.
 
-### P1 — authenticated pedagogic context is browser-authored
+### Closed in 0D — authenticated pedagogic context is browser-authored
 
 The authenticated tutor accepts lesson title, objectives, concept tags, completion rules, and progress from the browser and inserts them into the trusted prompt section. The anonymous route already uses a safer server-pinned model.
 
-### P1 — guided tutor ignores authenticated proficiency
+### Closed in 0C — guided tutor ignores authenticated proficiency
 
 The guided tutor hardcodes `persona: "beginner"` even though beginner/intermediate/advanced is persisted and the general editor tutor honors it.
 
-### P1 — conversion dialogs do not distinguish intent cleanly
+### Closed in 0C/B5 — conversion dialogs do not distinguish intent cleanly
 
 Anonymous share-modal dismissal schedules the signup wall even when the learner merely closes the dialog. Phone “Maybe later” can lead directly into another conversion surface. Labels and destinations must agree.
 
@@ -415,6 +426,14 @@ Complexity is a planning band, not a deadline.
 
 **Complexity:** approximately one week.
 
+**Boundary at closeout (2026-07-31):** the implementation and automated
+promotion-safety gate are complete on `main` at `c786e23`. “0P passes” for the
+controlled 1B moderated-research prerequisite means this implementation and its
+automated evidence are green; the sessions run on a controlled preview and do
+not promote production. The live rollback/forward-promotion drill is a separate
+post-merge operational obligation required before declaring the production
+gate fully exercised.
+
 Deliver:
 
 - build immutable frontend and backend artifacts once;
@@ -478,6 +497,25 @@ Exit:
 
 **Complexity:** one to two weeks.
 
+**Engineering release status (2026-07-31):** complete on
+`dev/contextual-learning-roadmap`. The phase and its follow-up fixes passed the
+full PR matrix, deployed-preview, cross-browser, and review-thread gates before
+later roadmap lanes began.
+The executable public-claims inventory is
+`frontend/src/productContract.ts`. Local evidence includes 385/385 frontend
+unit/contract tests, a production build, content lint, golden-solution
+verification, and 34/34 executed changed-surface Chromium tests, including the
+corrected iPhone-13 CTA check (the opt-in real-provider check was intentionally
+skipped). The fresh-browser journey is covered independently at desktop and
+390×844. A draft-PR WebKit failure also exposed and repaired Safari's
+click-without-focus behavior: the share opener is now passed explicitly so
+Escape restores focus across engines. The focused Chromium suite passes 7/7
+and the WebKit critical journey passes 2/2 locally. Cinematic duration remains
+unchanged by explicit product decision. The deployed PR preview returns 200,
+has zero observed console/page errors or horizontal overflow at desktop and
+390×844, routes both primary CTAs to the anonymous lesson, mounts the lesson
+workspace, and restores focus to the share opener after Escape.
+
 Deliver:
 
 - remove exact-answer scripted rescue;
@@ -501,6 +539,31 @@ Exit:
 ### Release 0D — AI trust foundation
 
 **Complexity:** two to four weeks.
+
+**Engineering release status (2026-07-31):** complete on
+`dev/contextual-learning-roadmap`. The forward-only Supabase migration was
+applied, and the phase passed the full PR, deployed-preview, model-quality,
+security, and review-thread gates before later roadmap lanes began. The platform
+tutor now reserves capacity transactionally before a provider call, finalizes
+usage idempotently (including conservative accounting when provider usage is
+unknown), and reclaims bounded expired reservations after crashes. Lesson and
+mastery context is reconstructed by the server, prompts use an explicit
+trusted/untrusted projection, tutor intent and text-only output are validated,
+and contextual BYOK is limited to the versioned evaluated-model registry. The
+tracked eval contract pins its dataset, evaluator, quality-contract hashes,
+approved model, per-intent floors, and observed baseline so a reduced or stale
+gate cannot masquerade as approval.
+
+Local evidence includes 983 passing backend tests (21 intentional skips), 386
+passing frontend tests, backend/frontend typechecks, 5/5 real PostgreSQL
+reservation and identity-isolation integration cases against the actual
+migrations, 50/50 full live-model eval cases with zero hidden errors and all
+intent/posture floors at 100%, 6/6 agent-harness lifecycle tests, and 2/2
+retry-disabled Chromium model-quality journeys at desktop and 390×844. A
+production-dependency gate has zero unreviewed high/critical findings; its one
+RSC-only exception is exact-version pinned, documented, and time bounded. The
+release workflow independently blocks promotion when remote migration history
+does not match the candidate.
 
 Deliver:
 
@@ -528,6 +591,29 @@ If the provider may have accepted a call but the outcome is unknown, conservativ
 
 **Complexity:** two to four weeks.
 
+**Engineering release status (2026-07-31):** complete on
+`dev/contextual-learning-roadmap`. The phase passed the full PR,
+deployed-preview, lifecycle-fault, cross-browser, and review-thread gates before
+later roadmap lanes began. The project store now owns a monotonic revision across source,
+language, reset, replacement, hydration/session, and project-context changes.
+Run, Check, and tutor work captures that identity plus a per-operation ID;
+stdin has a separate monotonic input revision. Results, errors, progress,
+celebration, and stream chunks publish only while the captured identity is
+current. Editor selections carry the revision they came from, and current Run
+or Check failure suppresses historical completion praise. Context switches
+also clear evidence-derived pending asks. The implementation adds no guidance,
+persisted telemetry, or AI request.
+
+Local evidence includes 398/398 frontend tests, frontend and E2E typechecks, a
+production build, and 3/3 retry-disabled Chromium lifecycle-fault cases that
+hold successful Run, Check, and tutor responses until after navigation or an
+edit. Eight existing retry-disabled Chromium regressions also pass across
+editor Run/stdin, lesson Check/completion/navigation, tutor streaming/cancel,
+and browser back/forward restoration of project and conversation state. The
+runtime dependency remains acyclic: `projectStore → runStore → aiStore`, while
+the only reverse reference from `aiStore` is a type-only project-version
+import removed from the emitted graph.
+
 Deliver:
 
 - project revision and async operation identity;
@@ -549,6 +635,46 @@ Exit:
 ### Release 1B — Visible deterministic guide proof
 
 **Complexity:** two to four weeks.
+
+**Engineering release status (2026-07-31):** complete for build/test and
+internal dogfood on `dev/contextual-learning-roadmap` behind the default-off
+preview flag `?contextGuide=1`. The phase passed the full PR, deployed-preview,
+accessibility, cross-browser, and review-thread gates. Engineering prerequisites
+now permit the five moderated research sessions once a named human research
+owner records the consent, privacy, script, evidence, and rollback plan. The
+sessions do not need to pass before they can begin; they must pass before any
+limited or broad learner rollout.
+The proof recognizes only an allowlisted Python unclosed-parenthesis
+error tied to a current project file and line. It requires two learner-initiated
+attempts on distinct source revisions, selects reviewed lesson-authored copy,
+and never imports or invokes an AI/network path. The result bridge and editor
+line become one attention owner: generic coach/error encouragement and the
+manual tutor-error CTA yield while it is visible. Edit, rerun, dismissal,
+navigation, successful/non-matching Run, or changed evidence ends or resets the
+session-only episode according to the contract below.
+
+Local evidence includes 410/410 frontend tests, frontend and E2E typechecks,
+content lint with zero errors, a production build, and 3/3 retry-disabled
+Chromium plus 3/3 retry-disabled WebKit browser proofs. Those proofs cover desktop authored-copy selection,
+zero automatic AI requests, current-line focus, dismissal persistence and
+changed-evidence recovery; 390×844 reduced-motion cue/target co-visibility and
+44px actions; and a 390×500 software-keyboard viewport with Run/Check recovery
+still reachable. The active-guide state also passes an axe scan (with Monaco's
+separately audited canvas internals excluded), exposes a polite screen-reader
+status, and records named before-repeat/after-authored-move screenshots in the
+Playwright report. Fifteen adjacent retry-disabled Chromium journeys also pass
+across stale-context rejection, anonymous conversion, the supported viewport
+matrix, light/reduced-motion, 200% zoom, and software-keyboard behavior. Local
+Firefox did not reach test code because its macOS headless SWGL renderer failed
+to launch; the GitHub-hosted Linux Firefox job remains the authoritative
+Firefox release gate rather than treating a pre-page renderer failure as a
+product verdict.
+
+This is engineering and internal-dogfood evidence only. The five-session
+usability-falsification protocol remains pending, so the flag stays default-off.
+The protocol itself is the next permitted moderated-research activity after the
+named human research record above exists; limited and broad rollout remain
+unapproved until the protocol and later applicable gates pass.
 
 Deliver one canonical experience:
 
@@ -572,6 +698,12 @@ Exit:
 - the five-session usability-falsification protocol in Section 5 passes before any external rollout, or a dated founder exception is recorded.
 
 ### Release 1C — Contextual tutor offer
+
+**Gate audit (2026-07-31):** not eligible to start. The current tutor boundary
+has the required engineering mechanisms, but no powered 1B learner-experiment
+result or two-human eval-calibration artifact exists, and the lane has no named
+human DRI/approver record. See `docs/RELEASE_1C_ENTRY_GATE.md` for the complete
+evidence matrix. No learner-visible contextual tutor rollout is approved.
 
 **Entry gate:** Release 1B's preregistered experiment passes the primary recovery rule and every applicable guardrail in Section 10.3; B2, eval v2, authority, idempotency, cost, and security gates also pass. Five qualitative sessions alone cannot unlock 1C.
 
@@ -597,6 +729,22 @@ Exit:
 
 **Complexity:** two to four weeks.
 
+**Implementation status (2026-07-30):** the initial additive pilot is built on
+the active roadmap branch. It contains source-owned metadata, a 36-test/13-file
+zero-retry critical lane, a frozen 10-case P0/P1 corpus, three lower-layer
+migration pilots with their browser boundaries retained, queue-inclusive miss
+evidence, and a label-triggered same-commit 4/6/8 shard benchmark whose 6- and
+8-shard alternatives run sequentially to protect the shared Supabase project.
+[Run 30604240871](https://github.com/msrivas-7/CodeTutor-AI/actions/runs/30604240871)
+completed without retries on commit `c6aa5f0`: six shards were
+fastest at 316 seconds, versus 340 seconds for eight and 495 seconds for four.
+It also used the least aggregate runner time: about 27.3 runner-minutes versus
+37.3 for eight and 29.4 for four.
+The blocking full Chromium suite therefore keeps all 333 tests and moves from
+four to six shards; no test was selected away or demoted. The 30-day/50-eligible-
+run clock begins only after this implementation merges and produces its first
+eligible evidence artifact; no demotion decision has been made.
+
 Deliver:
 
 - source-owned Playwright tags/annotations for risk, owner, browser/device, and quarantine;
@@ -616,6 +764,98 @@ Exit:
 - after demotion, the full suite runs daily for 30 days and one P0/P1 miss immediately restores PR blocking;
 - only then consider demoting exhaustive PR Chromium.
 
+### Parallel Release B1 — Memory read-side
+
+**Implementation status (2026-07-31):** implementation is complete on
+`dev/contextual-learning-roadmap`. The development Supabase project has the three
+forward migrations applied. Local browser evidence, the 18-lens persona review,
+all 28 required PR checks, preview deployment and HTTP route health, and the
+review-thread audit are green. The B1 harness session finished with zero pending
+incidents. This does not claim the
+locked D7 retention outcome, and it does not surface the full learner-facing
+mastery graph reserved for Phase C.
+
+Deliver:
+
+- keep the A6 ledger honest as exposure history rather than relabeling it as
+  mastery;
+- add bounded practice and retrieval evidence with own-user read RLS, revoked
+  browser writes, cascade deletion, export coverage, retry/concurrency safety,
+  and server-owned canonical scoring;
+- derive `unseen → encountered → practiced → remembered → retained` without
+  allowing speed, completion, pasted work, practice alone, or recall after
+  feedback to become high-confidence retention;
+- author and lint one deterministic retrieval bank per public course;
+- place at most one due warm-up before a lesson whose prior concepts have not
+  been retrieved recently, with no model call and one primary attention owner;
+- record practice identity, attempts, authored/tutor help dose, elapsed time,
+  and model assistance as supporting evidence;
+- fail open to the lesson on memory-service failure while making retry and the
+  degraded state explicit.
+
+Exit:
+
+- real PostgreSQL cases prove cross-user RLS without application `WHERE`
+  clauses, denial of direct authenticated writes, successful backend-owned
+  writes, idempotent practice/retrieval writes, concurrent episode creation,
+  first-attempt versus feedback-supported classification, five-day spacing,
+  and immediate-repeat suppression;
+- route and browser tests prove the answer never reaches the client before a
+  choice, errors recover without trapping the learner, keyboard/focus/mobile/
+  reduced-motion contracts hold, and no automatic AI request occurs;
+- content lint, unit suites, typechecks, production builds, migrations, full
+  PR CI, deployed preview, and review threads are green;
+- the release packet records rollback, privacy/export, operational bounds, and
+  the distinction between engineering correctness and pending real-user D7
+  evidence.
+
+Detailed evidence lives in `docs/RELEASE_B1_MEMORY_READ_SIDE_PACKET.md`.
+The phase-specific persona verdict lives in
+`docs/B1_MEMORY_READ_SIDE_PERSONA_AUDIT.md`.
+
+### Parallel Release B2 — Socratic default
+
+**Implementation status (2026-07-31):** complete on
+`dev/contextual-learning-roadmap` at phase commit `9994ae4`. Local validation,
+the complete 60-case live model gate, all 28 required remote checks, deployed
+public-preview browser verification, the harness, persona audit, and two
+post-push review-thread audits are green. The server enforces one clarifying
+question on the first successful task turn, permits a bounded approach only
+after a learner reply, and prevents a complete answer on every turn. The same
+contract covers authenticated, anonymous, guided, editor, scripted, and
+generated help.
+
+Deliver:
+
+- make the server—not browser history—the authority for the question-to-
+  approach transition;
+- bind a short-lived signed progression proof to actor and canonical task and
+  fail closed on absent, malformed, forged, expired, or cross-context input;
+- allow exactly one open question and no other guidance on turn one;
+- apply complete-answer enforcement to every learner-visible prose field and
+  mirror it with an independent deterministic release backstop;
+- remove exact-answer scripted rescue and keep scripted copy out of model
+  history;
+- render one calm, non-clickable “Your turn” question card without moving focus
+  or adding an automatic model call;
+- expand eval v2 to 60 cases with ten Socratic cases and six balanced intents.
+
+Exit:
+
+- unit, route, hostile-token, policy, store, stale-operation, auth/anon browser,
+  mobile, accessibility, and cross-browser tests pass;
+- the complete retry-disabled Chromium corpus and hostile security suite pass;
+- the 60-case live model gate completes with zero errors/deterministic failures,
+  ≥95% overall posture, ≥90% per-intent posture/helpfulness, and every absolute
+  case green;
+- the reviewed baseline fingerprint matches the shipped prompt, output policy,
+  evaluator, dataset, and model registry;
+- full PR CI, preview checks, and review threads are green before B3 begins.
+
+Detailed evidence lives in `docs/RELEASE_B2_SOCRATIC_DEFAULT_PACKET.md`.
+The phase-specific persona verdict lives in
+`docs/B2_SOCRATIC_DEFAULT_PERSONA_AUDIT.md`.
+
 ### Parallel Release B4 — Distribution surface
 
 B4 begins after share correctness and is never blocked by releases 1A–1D.
@@ -631,17 +871,170 @@ Deliver:
 
 Actual organic traffic remains the locked outcome; pre-launch work proves crawler correctness only.
 
+**Engineering release status (2026-07-31):** complete through final B4 fix
+`a79dcd4`. Its remote matrix passed 28 checks with only the expected open-PR
+preview-close job skipped; the later integrated roadmap head passes the expanded
+29-check matrix. The deployed PR preview was rechecked at desktop and 390px with
+zero console errors or horizontal overflow. The build derives 3
+public course pages, 38 lesson documents, 38 unique 1200 × 630 lesson images,
+`sitemap.xml`, `robots.txt`, and a public-only registry from the structured
+course tree. Raw HTML carries unique metadata and structured data; unknown or
+internal reserved paths fail closed with 404. Organic/category and share CTAs
+carry an allowlisted first touch through landing, first run, completion,
+signup, and lesson 2; the server stores only coarse enums/bounded slugs and a
+domain-separated share hash. The admin surface reports channel cohorts without
+raw referrer URLs or tokens. Unit/build checks, a real dev-database telemetry
+integration, the critical E2E contract, Chromium phone/accessibility proof, and
+the production dependency audit pass. Production indexing and the locked
+organic-traffic observation window remain pending; no traffic outcome is
+claimed. Detailed release evidence lives in
+`docs/RELEASE_B4_DISTRIBUTION_PACKET.md`.
+
+### Parallel Release B5 — Continuation card
+
+**Engineering release status (2026-07-31):** complete at `d2b3c62` on
+`dev/contextual-learning-roadmap`; local, persona, full remote CI, Linux
+Firefox, deployed-preview desktop/phone, harness, and PR-thread gates pass.
+
+Deliver:
+
+- restage anonymous account creation inside the lesson using the completion
+  celebration's panel language and ordinary `dialog` semantics;
+- keep OAuth, email fields, validation, loading, provider errors,
+  confirmation, resend, address correction, sign-in, and dismissal inline;
+- preserve reason-specific, truthful continuation copy without claiming that
+  incomplete anonymous work has been persisted;
+- reuse the existing one-shot handoff for completed next/share paths and
+  prefill a real extracted learner name when available;
+- retain no-request-before-submit, server/provider-owned auth policy, and the
+  existing `/auth/callback` boundary;
+- cover stacked-modal restaging, focus/inert cleanup, reduced motion, 44px
+  controls, phone scrolling, and no horizontal overflow.
+
+Exit:
+
+- the full frontend unit suite, typecheck, production build, and E2E typecheck
+  pass;
+- retry-disabled Chromium covers inline submission, metadata, confirmation,
+  resend, every wall reason, direct-signup parity, telemetry, modal chaining,
+  focus recovery, and phone layout;
+- WebKit and the normal CI Firefox project cover the critical desktop/phone
+  journey;
+- a rendered desktop/phone audit verifies the initial, confirmation, and
+  scroll states with no page errors or overflow;
+- the 18-lens audit has no P0/P1 open, full PR CI/preview is green, and every
+  actionable review thread is resolved.
+
+Detailed evidence lives in `docs/RELEASE_B5_CONTINUATION_CARD_PACKET.md`.
+The phase-specific persona verdict lives in
+`docs/B5_CONTINUATION_CARD_PERSONA_AUDIT.md`.
+
+### Parallel Release B7 — Suspect-symbol telemetry
+
+**Engineering release status (2026-07-31):** implementation, calibration,
+persona, backend regression, typecheck, build, approved-baseline, and complete
+live model gates pass at `8cf02ed`. All 29 remote checks, including the full
+unchanged browser matrix and shadow evidence, pass; only the expected
+preview-close job is skipped while the PR remains open. The thread-aware audit
+found zero reviews and zero review threads.
+
+Deliver:
+
+- scan only code-formatted tutor output after response completion;
+- trust reviewed runtime/stdlib symbols, symbols present in learner files, and
+  functions/classes/variables/methods concretely declared in the same tutor
+  code span;
+- treat learner questions as untrusted evidence rather than symbol authority;
+- flag unknown call terminals and invented dotted-call roots without exempting
+  plausible snake-case or camel-case names;
+- emit a bounded, versioned `tutor_suspect_api` counter/log event without raw
+  code, paths, questions, prompts, or tutor prose;
+- preserve response delivery exactly: no block, mutation, retry, extra model
+  call, database write, or learner-visible state;
+- calibrate against a versioned, balanced labeled corpus and make the corpus,
+  evaluator, and detector part of the approved AI quality fingerprint.
+
+Exit:
+
+- the 44-case corpus remains balanced across Python/JavaScript and
+  fabricated/clean cases and clears ≥95% precision, recall, exact-case, and
+  clean-case rates;
+- always-empty and always-flag mutations fail the calibration gate;
+- authenticated sync, authenticated stream, and anonymous stream route
+  contracts prove the completed response is observed once;
+- the complete backend suite, typecheck, production build, baseline verifier,
+  and full 60-case live model gate pass on the final fingerprint;
+- the 18-lens audit has no P0/P1 open, full PR CI is green, and every actionable
+  review thread is resolved.
+
+Detailed evidence lives in
+`docs/RELEASE_B7_SUSPECT_SYMBOL_TELEMETRY_PACKET.md`. The phase-specific
+persona verdict lives in `docs/B7_SUSPECT_SYMBOL_PERSONA_AUDIT.md`.
+
+### Parallel Release B8 — Governed anonymous eval sampling
+
+**Engineering release status (2026-07-31):** implementation commit `edd8b0a`
+passes the local implementation, real-database privacy/lifecycle, full backend/
+frontend regression, production build, eval-governance, database-lint,
+Chromium/WebKit browser, and 18-lens gates. Its complete remote matrix passes
+29 checks with the single expected preview-close skip; the thread-aware PR
+audit found zero review threads and zero submitted reviews.
+
+Deliver:
+
+- show a plain-language, explicit, off-by-default consent control only on the
+  anonymous platform-funded tutor;
+- select a deterministic 5% of successful turns without adding a model call or
+  learner-visible response latency;
+- project through a conservative pre-insert redactor into a bounded schema with
+  no source files, selections, terminal data, paths, IPs, raw history, or BYOK;
+- give the browser a high-entropy deletion capability, support retryable
+  turn-off/delete, link retained rows for user export/account cascade, and
+  enforce an exact 30-day maximum with an executable expiry job;
+- keep tables backend-only, admin reads/reviews audited, repeated patterns
+  deduplicated, and the two-independent-reviewer cap concurrency-safe;
+- close two-reviewer consensus and move only disagreement into a weekly
+  synthesis queue; delete privacy-rejected candidates immediately;
+- prohibit direct traffic promotion into the golden holdout and make explicit
+  expert/synthetic provenance, independent authoring, two reviewers, unique
+  source patterns, and duplicate-content checks part of CI;
+- provide an independent sampling kill switch that fails closed while tutor
+  delivery and existing-sample deletion/expiry continue.
+
+Exit:
+
+- unit, route, real-Postgres, concurrency, expiry, access, export/deletion,
+  admin-audit, and provenance tests cover every B8 invariant and unhappy path;
+- the full backend/frontend suites, typechecks, production builds, approved
+  baseline, governance verifier, suspect-symbol calibration, content/solution
+  checks, and asset budgets pass;
+- retry-disabled Chromium covers default-off, request-time consent, deletion,
+  retry failure, disclosure, privacy navigation, axe, keyboard, and 390px
+  reduced-motion layout; WebKit covers the critical phone/privacy journey;
+- linked Supabase migrations are at parity and schema lint is clean;
+- the 18-lens audit has no P0/P1 open, full PR CI/preview is green, every
+  actionable review thread is resolved, and the harness session is finished.
+
+Detailed evidence lives in
+`docs/RELEASE_B8_GOVERNED_EVAL_SAMPLING_PACKET.md`. The phase-specific persona
+verdict lives in `docs/B8_GOVERNED_EVAL_SAMPLING_PERSONA_AUDIT.md`.
+
 ## 8. Test and CI strategy
 
 ### 8.1 Current baseline
 
-- 316 listed Playwright tests across 45 files;
-- approximately 10,520 E2E spec lines;
-- four Chromium shards plus Firefox/WebKit critical jobs;
+- 336 listed Playwright tests across 50 files after the B4 distribution contract
+  was added on 2026-07-30;
+- 11,666 E2E spec lines as re-counted after the B4 contract on 2026-07-30;
+- six Chromium shards plus Firefox/WebKit critical jobs, selected by the
+  same-commit 4/6/8 benchmark above;
 - two workers per shard;
-- six independent stack boots;
-- CI retries twice and local runs retry once;
-- stale E2E documentation still says Chromium-only and roughly 100 specs;
+- nine independent stack boots: six exhaustive, two cross-browser, and one
+  advisory critical lane;
+- CI retains up to two diagnostic retries but `failOnFlakyTests` fails any
+  shard that needed one; local runs retry once;
+- the E2E README now documents exhaustive Chromium, focused Firefox/WebKit,
+  and the additive 1D advisory lane;
 - frontend unit tests are predominantly pure Node tests, leaving a thin rendered-component middle.
 
 ### 8.2 Target layers
@@ -769,7 +1162,12 @@ Independent switches:
 
 Policy/telemetry failure disables the new cue/offer and leaves editor, Run, Check, and authored lesson instructions usable. It never disables or bypasses server authority, atomic admission, answer-leak protection, output safety, or eval-approved model constraints.
 
-The currently deployed learner-initiated tutor is a temporary explicit risk decision while 0D is built: the founder either disables platform-funded tutor access immediately, or records a dated acceptance with current caps/kill switch, no contextual expansion, an owner, and an expiry no later than the 0D release decision. After 0D, its protections are non-bypassable. Disable/rollback drill target: under 10 minutes.
+The pre-0D baseline treated the learner-initiated tutor as a temporary explicit
+risk decision. Release 0D is now implemented on this branch, so server
+authority, atomic admission, answer-leak protection, output safety, and model
+eligibility are non-bypassable. The production disable/rollback drill target
+remains under 10 minutes and must be recorded as operational evidence rather
+than inferred from automated tests.
 
 ## 10. Success and stop gates
 
@@ -797,6 +1195,12 @@ This authorizes Releases 0P–0D and 1A. It does not authorize external contextu
 
 Release 1B may be built and internally dogfooded before every item above is complete, but it cannot enter moderated research until 0P/0C/1A pass or external limited rollout until all applicable items pass. Release 1C additionally requires 0D, locked B2, and cost/security approval.
 
+For that moderated-research sentence, “0P passes” means the merged 0P
+implementation and automated candidate/promotion evidence pass. The controlled
+five-session preview does not wait on the separate live production
+rollback/forward-promotion drill. Limited or broad production rollout still
+requires every applicable operational gate.
+
 ### 10.3 Product metric dictionary
 
 The five-session protocol in Section 5 is qualitative falsification. Unmoderated product claims require a preregistered experiment and the minimal approved episode schema from Section 9.3.
@@ -810,7 +1214,7 @@ The five-session protocol in Section 5 is qualitative falsification. Unmoderated
 | Stale/wrong intervention | All dogfood, research, and rollout episodes | Cue/answer refers to a different epoch, lesson, revision, or normalized evidence key | Zero allowed in test/research; any confirmed production occurrence disables the affected switch and opens a P0 incident |
 | Cold retrieval | Learners reaching the roadmap's later cold task | First attempt succeeds without answer reveal or tutor assistance | Phase A uses the locked ≥80% lesson-3 threshold; 1B does not claim this outcome until the cold task is instrumented |
 | D7 retention | Learners exposed to the complete Phase B memory + Socratic treatment versus control | Returns and performs a qualifying learning action on day 7 | Locked Phase B decision: ≥30% relative improvement; this is not attributed to 1B alone |
-| Tutor-induced dropoff | Tutor users versus preregistered comparable/control cohort | Leaves the lesson or becomes inactive within the preregistered window after tutor response | Definition/window and non-inferiority margin are frozen before B3; model upgrade cannot ship if it regresses |
+| Tutor-induced dropoff | Tutor users versus preregistered comparable/control cohort | Leaves the lesson or becomes inactive within the preregistered window after tutor response | The B3 engineering candidate may merge in the current pre-traffic state under its synthetic quality/economics gate, but production stays safely on Nano until a named operator records the definition, window, baseline, non-inferiority margin, power, owner, stop decision, and bounded cohort/routing control. Only then may exact switch value `0` activate Mini; missing, invalid, or `1` keeps/returns Nano, so organic traffic cannot silently scale exposure |
 
 The experiment record names randomization unit, exclusions, control, exposure version, baseline, analysis window, owner, and stop decision. Before launch, power every primary/guardrail comparison at 80% for its stated margin using the measured baseline; the required analyzable sample is the largest of those calculations, and no success decision occurs below it. Correctness tests prove the mechanism; they do not satisfy this table.
 
@@ -828,32 +1232,35 @@ The experiment record names randomization unit, exclusions, control, exposure ve
 - If contextual prompts exceed cost/size guardrails without quality benefit, reduce context or stop rollout.
 - If guidance creates more interruptions, stale advice, or answer-seeking, fall back to current-state correctness and explicit help.
 
-## 11. Priority backlog
+## 11. Original priority backlog and closeout disposition
+
+This is the original severity order, retained for traceability rather than a
+list of unfinished engineering work.
 
 ### P0
 
-1. **0P:** gate production promotion on the approved candidate manifest and exact artifact digests.
-2. **0B:** suffix-scoped E2E teardown, non-test-user deletion guard, and overlapping-run proof.
-3. **1A:** late Run/Check/tutor operation identity and stale-result rejection.
-4. **0D:** atomic platform-AI reservation/admission and complete eval gate v2.
-5. **0C:** remove first-run complete-answer rescue.
-6. **0A:** internal non-counting share preview path and truthful share outcomes.
-7. **0D before 1C:** server-authoritative authenticated lesson/mastery context.
+1. **0P — implementation complete:** approved candidate manifest and exact artifact promotion; the post-merge live rollback/forward drill remains operational evidence.
+2. **0B — complete:** suffix-scoped E2E teardown, non-test-user deletion guard, and overlapping-run proof.
+3. **1A — complete:** late Run/Check/tutor operation identity and stale-result rejection.
+4. **0D — complete:** atomic platform-AI reservation/admission and complete eval gate v2.
+5. **0C — complete:** first-run complete-answer rescue removed.
+6. **0A — engineering complete:** internal non-counting share preview path and truthful share outcomes; real-destination production unfurls remain external evidence.
+7. **0D before 1C — prerequisite complete:** server-authoritative authenticated lesson/mastery context; 1C remains held by its other conjunctive gates.
 
 ### P1
 
-8. **0C:** honor learner persona and complete product-contract/first-use corrections.
-9. **1B:** build only the minimum `AssistanceContextV0` and phone-visible repeated-error proof.
-10. **B4:** distribution in parallel after 0A.
-11. **1D:** CI shadow pilot and three lower-layer migrations after 0P/0B.
+8. **0C — complete:** learner persona and product-contract/first-use corrections.
+9. **1B — engineering/internal-dogfood complete:** minimum `AssistanceContextV0` and phone-visible repeated-error proof; moderated research and external rollout remain gated.
+10. **B4 — engineering complete:** distribution after 0A; production indexing and traffic outcomes remain external evidence.
+11. **1D — additive implementation complete:** CI shadow pilot and three lower-layer migrations; its 30-day/50-run clock begins after merge.
 
 ### P2
 
-12. B1/B2 groundwork per the locked roadmap.
-13. Contextual tutor offer after 0D, 1B, and B2 entry gates.
-14. B3/B7/B8 integrations per the locked roadmap.
-15. Full cost/performance/operations reporting.
-16. Broader visual polish after correctness and attention placement.
+12. **B1/B2 — complete for engineering:** locked memory and Socratic groundwork; real-user outcomes remain pending.
+13. **1C — correctly held:** contextual tutor offer cannot start until every entry gate passes.
+14. **B3/B7/B8 — engineering complete:** real-user dropoff and other product outcomes remain pending.
+15. **Reporting — engineering controls complete:** real-traffic cost/performance/outcome reporting begins only when traffic exists.
+16. **Visual polish — completed for the eligible surfaces in this workstream:** future polish remains ordinary product-roadmap work.
 
 ## 12. Explicit non-goals
 

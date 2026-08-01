@@ -60,6 +60,11 @@ const AnonSection = lazy(() =>
     default: module.AnonSection,
   })),
 );
+const EvalQualitySection = lazy(() =>
+  import("./components/admin/EvalQualitySection").then((module) => ({
+    default: module.EvalQualitySection,
+  })),
+);
 
 // Dev-only /dev/content dashboard. Guarded by import.meta.env.DEV so the
 // import (and its transitive deps) are stripped from prod bundles.
@@ -202,6 +207,7 @@ export default function App() {
             <Route path="email" element={<EmailLogSection />} />
             <Route path="audit" element={<AuditLogSection />} />
             <Route path="anon" element={<AnonSection />} />
+            <Route path="eval-quality" element={<EvalQualitySection />} />
           </Route>
           {/* Catch-all under the auth layout: send authed users to
               /start. Anonymous users get bounced to /login by RequireAuth

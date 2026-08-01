@@ -73,7 +73,7 @@ test.describe("test identity namespace guard", () => {
   });
 
   test("requires the exact suffix and approved domain", () => {
-    const suffix = "shard-4-run999-attempt2";
+    const suffix = "shard-6-run999-attempt2";
     const email = buildCurrentRunTestEmail("auth-a1", suffix);
 
     expect(isCurrentRunTestEmail(email, suffix)).toBe(true);
@@ -114,7 +114,7 @@ test.describe("test identity namespace guard", () => {
     );
     const recentCi = fakeUser(
       "recent-ci",
-      buildCurrentRunTestEmail("w0", "shard-4-run82-attempt1"),
+      buildCurrentRunTestEmail("w0", "shard-6-run82-attempt1"),
       recent,
     );
     const staleLocal = fakeUser(
@@ -173,8 +173,8 @@ test.describe("test identity namespace guard", () => {
 
   test("600 varied overlapping namespaces record zero cross-run deletions", async () => {
     for (let iteration = 0; iteration < 600; iteration += 1) {
-      const runA = `shard-${(iteration % 4) + 1}-run${1000 + iteration}-attempt1`;
-      const runB = `shard-${((iteration + 1) % 4) + 1}-run${2000 + iteration}-attempt2`;
+      const runA = `shard-${(iteration % 6) + 1}-run${1000 + iteration}-attempt1`;
+      const runB = `shard-${((iteration + 1) % 6) + 1}-run${2000 + iteration}-attempt2`;
       const a = fakeUser(`a-${iteration}`, buildCurrentRunTestEmail("w0", runA));
       const b = fakeUser(`b-${iteration}`, buildCurrentRunTestEmail("w1", runB));
       const order = iteration % 2 === 0 ? [a, b] : [b, a];

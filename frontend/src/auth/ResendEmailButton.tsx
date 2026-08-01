@@ -57,15 +57,15 @@ export function ResendEmailButton({ onResend, label }: Props) {
         type="button"
         onClick={handle}
         disabled={disabled}
-        className="text-[11px] text-accent hover:underline disabled:cursor-not-allowed disabled:text-faint disabled:no-underline"
+        className="inline-flex min-h-11 items-center rounded-md px-2 text-sm font-medium text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:text-faint disabled:no-underline"
       >
         {text}
       </button>
       {state === "sent" && cooldown > 0 && (
-        <span className="text-[10px] text-success">Email sent again.</span>
+        <span className="text-sm text-success">Email sent again.</span>
       )}
       {err && (
-        <span role="alert" className="text-[10px] text-danger">
+        <span role="alert" className="text-sm text-danger">
           {err}
         </span>
       )}

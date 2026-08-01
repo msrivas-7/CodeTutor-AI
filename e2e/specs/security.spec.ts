@@ -16,6 +16,7 @@
 
 import { execFileSync } from "node:child_process";
 import { expect, request, test } from "@playwright/test";
+import { criticalTest } from "../fixtures/testMetadata";
 
 const BACKEND = process.env.E2E_API_URL ?? "http://localhost:4000";
 
@@ -24,7 +25,16 @@ const BACKEND = process.env.E2E_API_URL ?? "http://localhost:4000";
 // the test itself becomes the regression check for the guard.
 const CSRF: Record<string, string> = { "X-Requested-With": "codetutor" };
 
-test.describe("security posture", () => {
+test.describe(
+  "security posture",
+  criticalTest({
+    risk: "p0",
+    owner: "security",
+    browsers: ["chromium"],
+    devices: ["desktop"],
+    quarantine: { state: "none" },
+  }),
+  () => {
   // Note: the rate-limit 429 behavior (AI, mutation, session-create) is
   // proven in backend unit tests (middleware/{ai,mutation}RateLimit.test.ts)
   // where we mount fresh middleware against an ephemeral express app and
@@ -120,7 +130,8 @@ test.describe("security posture", () => {
     expect(deniedNetworksStatus, "/networks should be denied by allowlist").toBe(403);
     expect(deniedVolumesStatus, "/volumes should be denied by allowlist").toBe(403);
   });
-});
+  },
+);
 
 // Runs a short node one-liner inside the backend container that issues an
 // HTTP GET to socket-proxy:2375 and prints the status code. We use node

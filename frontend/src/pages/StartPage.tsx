@@ -14,6 +14,7 @@ import { StreakChip } from "../features/learning/components/StreakChip";
 import type { Course, CourseProgress, LessonMeta } from "../features/learning/types";
 import { clearAnonStash, readAnonStash, writeAnonStash } from "../features/anon/anonStash";
 import { PENDING_INVITE_KEY } from "../features/anon/InviteCapture";
+import { evalSamplingSubjectTokenForHandoff } from "../features/anon/evalSamplingConsent";
 import { api } from "../api/client";
 
 // Phase A — A2 (device contract): module-level cache to dedupe magic-link
@@ -221,6 +222,7 @@ export default function StartPage() {
               code: res.code,
               name: res.name,
               flags,
+              evalSamplingSubjectToken: evalSamplingSubjectTokenForHandoff(),
             }),
             timeoutPromise,
           ]);
@@ -296,6 +298,7 @@ export default function StartPage() {
         code: stash.code,
         name: stash.name,
         flags: stash.flags,
+        evalSamplingSubjectToken: evalSamplingSubjectTokenForHandoff(),
       }),
       timeoutPromise,
     ])

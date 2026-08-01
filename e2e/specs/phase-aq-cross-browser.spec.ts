@@ -6,7 +6,8 @@
 // retrieval, completion, stacked sharing, conversion, and phone layout.
 
 import { expect, test, type Page } from "@playwright/test";
-import { waitForMonacoReady } from "../fixtures/monaco";
+import { setMonacoValue, waitForMonacoReady } from "../fixtures/monaco";
+import { criticalTest } from "../fixtures/testMetadata";
 
 const LESSON_PATH = "/try/lesson/python-fundamentals/hello-world";
 const RETRIEVAL_KEY =
@@ -57,10 +58,38 @@ async function openLesson(page: Page) {
   await expect(page.getByRole("button", { name: /run/i }).first()).toBeVisible();
 }
 
-test.describe("Phase A-Q — Firefox and WebKit critical journey", () => {
+test.describe(
+  "Phase A-Q — Firefox and WebKit critical journey",
+  criticalTest({
+    risk: "p1",
+    owner: "learning",
+    browsers: ["chromium", "firefox", "webkit"],
+    devices: ["desktop", "phone"],
+    quarantine: { state: "none" },
+  }),
+  () => {
   test("desktop discovery reaches a usable share artifact and signup", async ({ page }) => {
+    const signupEmail = "cross-browser-b5@example.com";
     await seedFirstRun(page, true);
     await mockSuccessfulRun(page);
+    await page.route("**/auth/v1/signup**", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: "00000000-0000-0000-0000-000000000006",
+          email: signupEmail,
+          role: "",
+          aud: "authenticated",
+          confirmation_sent_at: new Date().toISOString(),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          identities: [],
+          app_metadata: { provider: "email", providers: ["email"] },
+          user_metadata: {},
+        }),
+      }),
+    );
     await page.route("**/api/anon/shares", async (route) => {
       const payload = route.request().postDataJSON() as {
         attemptCount: number;
@@ -92,6 +121,7 @@ test.describe("Phase A-Q — Firefox and WebKit critical journey", () => {
     ).toBeVisible();
 
     await openLesson(page);
+    await setMonacoValue(page, 'print("Hello, Maya!")\n');
     await page.getByRole("button", { name: /run/i }).first().click();
     await expect(page.getByText(/Hello, Maya!/).last()).toBeVisible();
     await page.getByRole("button", { name: /check/i }).first().click();
@@ -111,24 +141,54 @@ test.describe("Phase A-Q — Firefox and WebKit critical journey", () => {
     await expect(shareDialog.locator(":focus")).toHaveCount(1);
     await page.keyboard.press("Escape");
     await expect(shareDialog).toHaveCount(0);
+    await expect(completion).toBeVisible();
+    await expect(shareButton).toBeFocused();
+
+    // Dismissal must return to the completed lesson without converting the
+    // user. Conversion is reserved for the explicit save-progress action.
+    await shareButton.click();
+    await shareDialog
+      .getByRole("button", { name: /save this progress with a free account/i })
+      .click();
     await expect(page.getByText(/Your share link is ready/i)).toBeVisible();
 
-    const signup = page.getByRole("link", { name: /save my progress/i });
-    await expect(signup).toHaveAttribute("href", "/signup");
-    await signup.click();
-    await expect(page).toHaveURL(/\/signup$/);
+    const continuation = page.getByRole("dialog", {
+      name: /your share link is ready/i,
+    });
+    await expect(continuation.getByLabel(/first name/i)).toHaveValue("Maya");
+    expect(new URL(page.url()).pathname).toBe(LESSON_PATH);
+    for (const destination of ["Terms", "Privacy notice"]) {
+      const link = continuation.getByRole("link", {
+        name: destination,
+        exact: true,
+      });
+      await expect(link).toBeVisible();
+      await expect
+        .poll(
+          async () => (await link.boundingBox())?.height ?? 0,
+          { message: `${destination} touch target` },
+        )
+        .toBeGreaterThanOrEqual(44);
+    }
+    await continuation.getByLabel(/email/i).fill(signupEmail);
+    await continuation
+      .getByLabel("Password", { exact: true })
+      .fill("E2ePass9!secure");
+    await continuation
+      .getByLabel(/confirm password/i)
+      .fill("E2ePass9!secure");
+    await continuation
+      .getByRole("button", { name: /create account & save progress/i })
+      .click();
+    const confirmation = page.getByRole("dialog", { name: /check your email/i });
+    await expect(
+      confirmation.getByRole("heading", { name: /check your email/i }),
+    ).toBeVisible();
+    await confirmation.getByRole("button", { name: /back to lesson/i }).click();
+    await expect(confirmation).toHaveCount(0);
     await expect(page.locator("#root")).not.toHaveAttribute("inert", "");
     await expect(page.locator("#root")).not.toHaveAttribute("aria-hidden", "true");
-    await expect(
-      page.getByRole("heading", { name: /create your account/i }),
-    ).toBeVisible();
-    const trustFooter = page.getByRole("contentinfo");
-    for (const destination of ["Privacy", "Terms", "Support"]) {
-      const link = trustFooter.getByRole("link", { name: destination, exact: true });
-      await expect(link).toBeVisible();
-      const box = await link.boundingBox();
-      expect(box?.height ?? 0, `${destination} touch target`).toBeGreaterThanOrEqual(44);
-    }
+    expect(new URL(page.url()).pathname).toBe(LESSON_PATH);
   });
 
   test("phone discovery, retrieval, and completion remain usable", async ({ page }) => {
@@ -143,7 +203,7 @@ test.describe("Phase A-Q — Firefox and WebKit critical journey", () => {
     ).toBeVisible();
     await expectNoHorizontalOverflow(page);
     const landingCta = page
-      .getByRole("link", { name: /start your first lesson/i })
+      .getByRole("link", { name: /try your first lesson/i })
       .first();
     const ctaBox = await landingCta.boundingBox();
     expect(ctaBox?.height ?? 0).toBeGreaterThanOrEqual(44);
@@ -169,5 +229,26 @@ test.describe("Phase A-Q — Firefox and WebKit critical journey", () => {
       page.getByRole("dialog", { name: /lesson complete/i }),
     ).toBeVisible();
     await expectNoHorizontalOverflow(page);
+
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: /sign up to save/i }).click();
+    const continuation = page.getByRole("dialog", { name: /sign up to save/i });
+    await expect(continuation).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    const scroll = await continuation.evaluate((node) => ({
+      clientHeight: node.clientHeight,
+      scrollHeight: node.scrollHeight,
+    }));
+    expect(scroll.scrollHeight).toBeGreaterThan(scroll.clientHeight);
+    const submit = continuation.getByRole("button", {
+      name: /create account & start saving/i,
+    });
+    await submit.scrollIntoViewIfNeeded();
+    await expect
+      .poll(async () => (await submit.boundingBox())?.height ?? 0)
+      .toBeGreaterThanOrEqual(44);
+    await page.keyboard.press("Escape");
+    await expect(continuation).toHaveCount(0);
   });
-});
+  },
+);

@@ -6,6 +6,23 @@ function parseIntEnv(v: string | undefined): number | undefined {
   return Number.isFinite(n) && Number.isInteger(n) && n > 0 ? n : undefined;
 }
 
+/**
+ * B3 ships an evaluated candidate without allowing organic traffic to activate
+ * it accidentally. Production is safe-off unless an operator explicitly sets
+ * the switch to "0"; "1", an invalid value, or a missing value keeps Nano.
+ * Non-production keeps the candidate on by default for evaluation and dogfood.
+ */
+export function resolveCheckinMiniDisabled(
+  env: Partial<Pick<NodeJS.ProcessEnv, "NODE_ENV" | "PLATFORM_CHECKIN_MINI_DISABLED">> =
+    process.env,
+): boolean {
+  const value = env.PLATFORM_CHECKIN_MINI_DISABLED;
+  if (value === "0") return false;
+  if (value === "1") return true;
+  if (value) return true;
+  return env.NODE_ENV === "production";
+}
+
 // Phase 26 (audit M-1): collect every BYOK master-key version from env
 // into a single Map<version, base64-string>. The format `BYOK_ENCRYPTION_KEY_VN`
 // (case-sensitive, N a positive integer) is the canonical shape. The
@@ -110,6 +127,14 @@ export const config = {
   aiRateLimit: {
     windowMs: num(process.env.AI_RATE_LIMIT_WINDOW_MS, 60_000),
     max: num(process.env.AI_RATE_LIMIT_MAX, 60),
+  },
+
+  // B3: independent activation/rollback switch for the evidence-promoted Mini
+  // candidate. Production defaults safely to Nano until an operator explicitly
+  // sets "0"; setting "1" returns only progressed platform check-ins to Nano
+  // without disabling BYOK or the rest of the tutor.
+  tutorRouting: {
+    checkinMiniDisabled: resolveCheckinMiniDisabled(),
   },
 
   // Deadline for a single AI call to finish. Bounds how long we hold an
@@ -342,6 +367,33 @@ export const config = {
     publicDisabled: process.env.SHARE_PUBLIC_DISABLED === "1",
     createDisabled: process.env.SHARE_CREATE_DISABLED === "1",
     renderDisabled: process.env.SHARE_RENDER_DISABLED === "1",
+    // Release 0A: the crawler/unfurl adapter has its own kill switch and
+    // purpose-specific HMAC credential. Keeping this separate from
+    // publicDisabled means on-call can drain preview traffic without taking
+    // the human-facing /api/shares/:token reader path down.
+    previewDisabled: process.env.SHARE_PREVIEW_DISABLED === "1",
+    previewAuth: {
+      currentKeyId:
+        process.env.SHARE_PREVIEW_HMAC_CURRENT_KEY_ID ?? "v1",
+      currentSecret:
+        process.env.SHARE_PREVIEW_HMAC_CURRENT_SECRET ?? "",
+      previousKeyId:
+        process.env.SHARE_PREVIEW_HMAC_PREVIOUS_KEY_ID ?? "",
+      previousSecret:
+        process.env.SHARE_PREVIEW_HMAC_PREVIOUS_SECRET ?? "",
+      maxSkewMs: num(process.env.SHARE_PREVIEW_HMAC_MAX_SKEW_MS, 30_000),
+      nonceCacheMax: num(
+        process.env.SHARE_PREVIEW_NONCE_CACHE_MAX,
+        10_000,
+      ),
+    },
+    previewRateLimit: {
+      windowMs: num(
+        process.env.SHARE_PREVIEW_RATE_LIMIT_WINDOW_MS,
+        60_000,
+      ),
+      max: num(process.env.SHARE_PREVIEW_RATE_LIMIT_MAX, 600),
+    },
     // The lesson catalog used to be fetched from the frontend over
     // HTTP, but post-audit we now bake `frontend/public/courses` into
     // the backend image at build time and read from disk — eliminates
@@ -455,6 +507,8 @@ delete process.env.ACS_CONNECTION_STRING;
 // is reachable from any module via process.env scans, so collapse the
 // surface area to the single `config.email.unsubscribeSecret` reference.
 delete process.env.EMAIL_UNSUBSCRIBE_SECRET;
+delete process.env.SHARE_PREVIEW_HMAC_CURRENT_SECRET;
+delete process.env.SHARE_PREVIEW_HMAC_PREVIOUS_SECRET;
 
 export function assertConfigValid(): void {
   if (!config.supabase.url || config.supabase.url.trim() === "") {
@@ -505,6 +559,78 @@ export function assertConfigValid(): void {
     throw new Error(
       `[config] BYOK_CURRENT_VERSION=${config.byokCurrentVersion} but no master key is configured for that version. ` +
         `Set BYOK_ENCRYPTION_KEY_V${config.byokCurrentVersion} (or BYOK_ENCRYPTION_KEY for V1).`,
+    );
+  }
+  const previewAuth = config.share.previewAuth;
+  const keyIdPattern = /^[a-z0-9][a-z0-9._-]{0,31}$/;
+  const validatePreviewSecret = (label: string, value: string): void => {
+    if (!/^[A-Za-z0-9+/]{43}=$/.test(value)) {
+      throw new Error(`[config] ${label} must use canonical base64.`);
+    }
+    const decoded = Buffer.from(value, "base64");
+    if (decoded.length !== 32) {
+      throw new Error(
+        `[config] ${label} must be a base64-encoded 32-byte secret (got ${decoded.length} bytes).`,
+      );
+    }
+  };
+  if (previewAuth.currentSecret) {
+    if (!keyIdPattern.test(previewAuth.currentKeyId)) {
+      throw new Error(
+        "[config] SHARE_PREVIEW_HMAC_CURRENT_KEY_ID has an invalid shape.",
+      );
+    }
+    validatePreviewSecret(
+      "SHARE_PREVIEW_HMAC_CURRENT_SECRET",
+      previewAuth.currentSecret,
+    );
+  }
+  const hasPreviousId = previewAuth.previousKeyId.length > 0;
+  const hasPreviousSecret = previewAuth.previousSecret.length > 0;
+  if (hasPreviousId !== hasPreviousSecret) {
+    throw new Error(
+      "[config] SHARE_PREVIEW_HMAC_PREVIOUS_KEY_ID and SHARE_PREVIEW_HMAC_PREVIOUS_SECRET must be configured together.",
+    );
+  }
+  if (hasPreviousSecret) {
+    if (!previewAuth.currentSecret) {
+      throw new Error(
+        "[config] A previous share-preview key cannot be configured without a current key.",
+      );
+    }
+    if (!keyIdPattern.test(previewAuth.previousKeyId)) {
+      throw new Error(
+        "[config] SHARE_PREVIEW_HMAC_PREVIOUS_KEY_ID has an invalid shape.",
+      );
+    }
+    if (previewAuth.previousKeyId === previewAuth.currentKeyId) {
+      throw new Error(
+        "[config] Current and previous share-preview key IDs must differ.",
+      );
+    }
+    validatePreviewSecret(
+      "SHARE_PREVIEW_HMAC_PREVIOUS_SECRET",
+      previewAuth.previousSecret,
+    );
+  }
+  if (
+    !Number.isFinite(previewAuth.maxSkewMs) ||
+    previewAuth.maxSkewMs <= 0 ||
+    !Number.isInteger(previewAuth.nonceCacheMax) ||
+    previewAuth.nonceCacheMax <= 0
+  ) {
+    throw new Error(
+      "[config] Share-preview freshness and nonce-cache limits must be positive.",
+    );
+  }
+  if (
+    !Number.isFinite(config.share.previewRateLimit.windowMs) ||
+    config.share.previewRateLimit.windowMs <= 0 ||
+    !Number.isInteger(config.share.previewRateLimit.max) ||
+    config.share.previewRateLimit.max <= 0
+  ) {
+    throw new Error(
+      "[config] Share-preview rate-limit window and max must be positive.",
     );
   }
   if (config.freeTier.enabled) {

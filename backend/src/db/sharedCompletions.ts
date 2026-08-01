@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { db } from "./client.js";
 import { HttpError } from "../middleware/errorHandler.js";
@@ -105,8 +106,7 @@ const ALPHABET = "abcdefghijkmnpqrstuvwxyz23456789"; // base32 minus look-alikes
 
 export function generateShareToken(): string {
   // 256 % ALPHABET.length === 0, so plain modulo is unbiased.
-  const bytes = new Uint8Array(TOKEN_LENGTH);
-  crypto.getRandomValues(bytes);
+  const bytes = randomBytes(TOKEN_LENGTH);
   let out = "";
   for (let i = 0; i < TOKEN_LENGTH; i++) {
     out += ALPHABET[bytes[i] % 32];

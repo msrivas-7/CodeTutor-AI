@@ -11,7 +11,7 @@ The authoring pipeline is:
 5. Run `npm run verify:solutions` — must be clean.
 6. Open a PR. CI re-runs both commands and fails if either breaks.
 
-Everything under `frontend/public/courses/<courseId>/` is plain JSON + Markdown + source files. No build step; files are fetched at runtime.
+Everything under `frontend/public/courses/<courseId>/` is plain JSON + Markdown + source files. The interactive app fetches it at runtime, and the production build also derives crawlable course/lesson pages, sitemap entries, and lesson social images from the same files.
 
 ## Languages
 
@@ -26,6 +26,17 @@ A course declares its `language` in `course.json`; every lesson inherits it via 
 `frontend/scripts/language.ts` is the scripts-side source of truth: `SCAFFOLD_LANGUAGES` (which languages `new-lesson`/`new-practice` accept), `entryFileFor(language)` (e.g., `main.py` / `main.js`), `fileExtForLanguage`, per-language `functionStub`, and `hasFunctionTestsHarnessLanguage(language)`. The per-language authoring floor lives in `FUNCTION_TESTS_ORDER_FLOOR_BY_LANGUAGE` inside `scripts/content-lint.ts` — it tracks when each course introduces the concept of user-defined functions. Templates live under `scripts/templates/<language>/`. When adding a new language, add SCAFFOLD entry + templates here, pick a floor, and register a backend `HarnessBackend` in `backend/src/services/execution/harness/` before attempting to author `function_tests` lessons.
 
 An `"internal": true` flag on `course.json` hides a course from learner-facing listings (`courseLoader.listPublicCourses()` filters these out) while keeping it visible to the dev content-health dashboard and all CI tooling. Use this for smoke-test courses like `_internal-js-smoke` that only exist to keep non-Python code paths exercised end-to-end.
+
+### Public discovery output
+
+Every non-internal course automatically produces:
+
+- `/learn-to-code/<courseId>/` for the course index;
+- `/lessons/<courseId>/<lessonId>/` for each lesson walkthrough;
+- `/lesson-og/<courseId>/<lessonId>.png` for its 1200 × 630 social image;
+- entries in `/sitemap.xml` and the public course registry.
+
+Titles, descriptions, objectives, concepts, order, time estimates, and Markdown are taken directly from `course.json`, `lesson.json`, and `content.md`. Do not author a separate SEO copy tree. Keep lesson titles and descriptions specific, and treat a public course as publishable material. Courses marked `"internal": true` are removed from production course assets as well as every discovery surface. `npm run build` is the end-to-end proof for this generated output.
 
 ---
 
@@ -47,6 +58,9 @@ frontend/public/courses/
             └─ practice/
                └─ <exerciseId>.py   (one per practiceExercise)
                └─ <exerciseId>.stdin (optional)
+
+content/memory-warmups/
+└─ python-fundamentals.json   (server-only prompts, answers, explanations)
 ```
 
 The `solution/` folder is not shipped to learners — it lives in the repo so CI can verify your rules are actually satisfiable.
@@ -120,6 +134,55 @@ The Zod schema at `frontend/src/features/learning/content/schema.ts` is the sour
 - Every entry in `usesConceptTags` must have been taught by an earlier lesson OR be listed in `course.baseVocabulary`. Otherwise the lesson is referencing something the learner hasn't seen.
 - The same tag taught by two lessons produces a *warning*, not an error — occasional rewording is legal.
 
+## `content/memory-warmups/<courseId>.json`
+
+Every public course keeps its Phase B1 retrieval prompts in one versioned,
+reviewable server-only bank. It must never live under `frontend/public`: that
+directory is downloadable by any browser. The backend bakes the private bank
+into its own image, projects only the prompt and choices, and checks each
+answer without sending `correctIndex` or the explanation first.
+
+```jsonc
+{
+  "version": 1,
+  "lessons": {
+    "input-output": [
+      {
+        "id": "join-text-and-a-number",
+        "version": 1,
+        "conceptTags": ["int", "str", "string-concat"],
+        "prompt": "If `age = 12`, which expression creates the text `Age: 12`?",
+        "choices": ["\"Age: \" + str(age)", "\"Age: \" + age"],
+        "correctIndex": 0,
+        "explanation": "Convert the integer with `str(age)` before joining it to text."
+      }
+    ]
+  }
+}
+```
+
+Authoring rules:
+
+- Every public lesson with a non-empty `usesConceptTags` array needs at least
+  one warm-up. First lessons with no prior concepts intentionally have none.
+- Every warm-up tag must be a subset of that lesson's `usesConceptTags`.
+  A pre-lesson check must retrieve earlier knowledge, never teach or test the
+  concept the learner is about to encounter.
+- Keep one unambiguous correct choice and two to four plausible choices. The
+  explanation should teach why without shaming the learner.
+- Balance correct-choice positions across canonical lesson order. No one
+  position may hold more than half a public bank and the same position may not
+  repeat more than three times; `lint:content` enforces both so learners cannot
+  succeed by always choosing the first button.
+- Increment the item `version` whenever scoring meaning changes. An in-flight
+  episode tied to old content then fails safely and asks the learner to reload.
+- Do not put hidden validator values, personal data, model-written copy, or
+  arbitrary telemetry fields in this file.
+- `npm run lint:content` validates coverage, IDs, choice bounds, duplicates,
+  unknown lessons, concept-tag scope, and rejects any answer bank accidentally
+  placed in the public course tree. It deliberately cannot judge factual
+  correctness; curriculum review remains required.
+
 ### Completion rule types
 
 There are three active rule types (plus a dead `custom_validator` that's reserved but not implemented).
@@ -188,7 +251,7 @@ If a lesson is function-shaped, drop `expected_stdout` in favor of `function_tes
 
 ### Practice exercises
 
-Each `practiceExercises[i]` has its own `completionRules`, independent of the main lesson. The same rule types apply. Practice rules are graded in a fresh session and do not affect main-lesson completion.
+Each `practiceExercises[i]` has its own `completionRules`, independent of the main lesson. The same rule types apply. Practice rules are graded in a fresh session and do not affect main-lesson completion. A successful authenticated practice check also records bounded client-observed evidence (canonical exercise ID/concepts, attempt and hint counts, elapsed time, and whether tutor help was used). This supports the memory read model but can never prove retained knowledge by itself.
 
 - IDs must be unique within the lesson.
 - Hints follow the same 3-rung ladder as main lessons (nudge → name the tool → smallest working example).

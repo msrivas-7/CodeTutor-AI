@@ -16,7 +16,7 @@
 // (migration line 75). All writes here go through the service-role
 // pool (`db()`).
 
-import { db } from "./client.js";
+import { db, withRlsContext } from "./client.js";
 
 export type ConceptEventType = "taught" | "used" | "practiced";
 
@@ -34,12 +34,55 @@ export interface ConceptLedgerWriteInput {
   practiced?: string[];
 }
 
+export interface TutorConceptEvidence {
+  conceptTag: string;
+  taught: boolean;
+  used: boolean;
+  practiced: boolean;
+}
+
+/**
+ * Server-only, user-scoped read for the contextual tutor. There is no client
+ * read route and the query always binds the authenticated user id; callers
+ * cannot nominate a different learner whose mastery should be loaded.
+ */
+export async function getTutorConceptEvidence(
+  userId: string,
+  conceptTags: string[],
+): Promise<TutorConceptEvidence[]> {
+  const tags = dedup(conceptTags).slice(0, 100);
+  if (tags.length === 0) return [];
+  const rows = await withRlsContext(userId, async (tx) => tx<
+    Array<{
+      concept_tag: string;
+      taught: boolean;
+      used: boolean;
+      practiced: boolean;
+    }>
+  >`
+    SELECT concept_tag,
+           bool_or(event_type = 'taught') AS taught,
+           bool_or(event_type = 'used') AS used,
+           bool_or(event_type = 'practiced') AS practiced
+      FROM public.learner_concept_ledger
+     WHERE user_id = ${userId}
+       AND concept_tag = ANY(${tags}::text[])
+     GROUP BY concept_tag
+     ORDER BY concept_tag
+  `);
+  return rows.map((row) => ({
+    conceptTag: row.concept_tag,
+    taught: row.taught,
+    used: row.used,
+    practiced: row.practiced,
+  }));
+}
+
 /**
  * Write concept-tag rows for a single lesson completion. Returns the
  * count of NEW rows inserted (skipping rows that already exist via
- * ON CONFLICT DO NOTHING). Caller fires-and-forgets — failures are
- * logged but don't propagate (the user's lesson completion succeeded
- * regardless of ledger health).
+ * ON CONFLICT DO NOTHING). Callers await this write before closing their
+ * request lifecycle so a successful response cannot race process shutdown.
  */
 export async function writeConceptTags(
   input: ConceptLedgerWriteInput,
@@ -62,74 +105,25 @@ export async function writeConceptTags(
     rows.push({ tag, ev: "practiced" });
   if (rows.length === 0) return 0;
 
-  // ON CONFLICT (uq_learner_concept_ledger_user OR …_ip) DO NOTHING.
-  // The two unique partial indexes are mutually exclusive (each gates
-  // on user_id IS NOT NULL vs IS NULL) — postgres-js with no explicit
-  // conflict target relies on the table's primary key, so we have to
-  // reach for an explicit conflict target. Using ON CONFLICT
-  // (user_id, course_id, lesson_id, concept_tag, event_type) requires
-  // a unique constraint matching that tuple — we don't have one (the
-  // unique indexes are partial, which postgres won't accept as the
-  // target). The simplest robust path: a pre-check SELECT for each
-  // row and an insert if absent. For the small N (lesson 1 has 3
-  // tags; max realistic per call is ~20), the round-trip cost is
-  // bounded.
-  //
-  // Alternative considered: bulk INSERT … SELECT … LEFT JOIN to
-  // self-anti-join. Too clever for v0; the pre-check shape is easy
-  // to reason about and tests against the actual UNIQUE constraints.
+  // A targetless ON CONFLICT DO NOTHING applies to every applicable unique
+  // index, including the mutually exclusive user/ip partial indexes. Insert
+  // the bounded lesson concept set in one statement: this is both race-safe
+  // and avoids an N×(SELECT + INSERT) remote-Postgres request path.
   const sql = db();
-  let inserted = 0;
-  for (const r of rows) {
-    // The partial unique index already prevents duplicates at the DB
-    // level — any race that bypasses our pre-check still 23505s on
-    // INSERT, which we catch and treat as "already there." So this
-    // is a fast path (skip the INSERT round trip for the common
-    // re-complete case) layered over a correct path (DB constraint).
-    const existing = userId
-      ? await sql<{ id: string }[]>`
-          SELECT id FROM public.learner_concept_ledger
-           WHERE user_id = ${userId}
-             AND course_id = ${input.courseId}
-             AND lesson_id = ${input.lessonId}
-             AND concept_tag = ${r.tag}
-             AND event_type = ${r.ev}
-           LIMIT 1
-        `
-      : await sql<{ id: string }[]>`
-          SELECT id FROM public.learner_concept_ledger
-           WHERE ip_hash = ${ipHash}
-             AND course_id = ${input.courseId}
-             AND lesson_id = ${input.lessonId}
-             AND concept_tag = ${r.tag}
-             AND event_type = ${r.ev}
-           LIMIT 1
-        `;
-    if (existing.length > 0) continue;
-    try {
-      await sql`
-        INSERT INTO public.learner_concept_ledger
-          (user_id, ip_hash, course_id, lesson_id, concept_tag, event_type)
-        VALUES
-          (${userId}, ${ipHash}, ${input.courseId}, ${input.lessonId}, ${r.tag}, ${r.ev})
-      `;
-      inserted += 1;
-    } catch (err) {
-      // 23505 = unique-violation (the row was inserted between the
-      // SELECT above and the INSERT here — concurrent re-completion).
-      // Treat as a no-op: the row exists, our intent is satisfied.
-      if (
-        err &&
-        typeof err === "object" &&
-        "code" in err &&
-        (err as { code: string }).code === "23505"
-      ) {
-        continue;
-      }
-      throw err;
-    }
-  }
-  return inserted;
+  const values = rows.map((row) => ({
+    user_id: userId,
+    ip_hash: ipHash,
+    course_id: input.courseId,
+    lesson_id: input.lessonId,
+    concept_tag: row.tag,
+    event_type: row.ev,
+  }));
+  const inserted = await sql<Array<{ id: string }>>`
+    INSERT INTO public.learner_concept_ledger ${sql(values)}
+    ON CONFLICT DO NOTHING
+    RETURNING id
+  `;
+  return inserted.length;
 }
 
 function dedup(tags: string[]): string[] {

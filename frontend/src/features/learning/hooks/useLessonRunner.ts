@@ -2,7 +2,11 @@ import { useCallback, useEffect, useState, type RefObject } from "react";
 import type { Lesson } from "../types";
 import type { RunResult } from "../../../types";
 import { useAIStore } from "../../../state/aiStore";
-import { useProjectStore } from "../../../state/projectStore";
+import {
+  beginProjectOperation,
+  isProjectOperationCurrent,
+  useProjectStore,
+} from "../../../state/projectStore";
 import { useRunStore } from "../../../state/runStore";
 import { useSessionStore } from "../../../state/sessionStore";
 import { useProgressStore } from "../stores/progressStore";
@@ -47,9 +51,6 @@ export function useLessonRunner({
   const sessionId = useSessionStore((s) => s.sessionId);
   const sessionPhase = useSessionStore((s) => s.phase);
   const running = useRunStore((s) => s.running);
-  const setRunning = useRunStore((s) => s.setRunning);
-  const setResult = useRunStore((s) => s.setResult);
-  const setRunError = useRunStore((s) => s.setError);
   const lastResult = useRunStore((s) => s.result);
   const setPendingAsk = useAIStore((s) => s.setPendingAsk);
   const incrementRun = useProgressStore((s) => s.incrementRun);
@@ -79,8 +80,8 @@ export function useLessonRunner({
     // "Checking…" fires a fresh snapshot that wipes the workspace the test
     // harness is still reading.
     if (useRunStore.getState().runningTests) return;
-    setRunning(true);
-    setRunError(null);
+    const operation = beginProjectOperation();
+    if (!useRunStore.getState().beginRun(operation.id)) return;
     try {
       const files = useProjectStore.getState().snapshot();
       const stdin = useRunStore.getState().stdin || undefined;
@@ -94,9 +95,11 @@ export function useLessonRunner({
         // Authed path — unchanged from v2: snapshot project then
         // execute against the persistent session container.
         await api.snapshotProject(sessionId!, files);
+        if (!isProjectOperationCurrent(operation)) return;
         result = await api.execute(sessionId!, lesson.language, stdin);
       }
-      setResult(result);
+      if (!isProjectOperationCurrent(operation)) return;
+      if (!useRunStore.getState().commitRunResult(operation.id, result)) return;
       setHasRun(true);
       // Cinema Kit — first-successful-run celebration. Session-scoped
       // (no schema change), per-lesson. Fires a single RingPulse +
@@ -123,22 +126,24 @@ export function useLessonRunner({
         }
       }
     } catch (err) {
+      if (!isProjectOperationCurrent(operation)) return;
       const msg = (err as Error).message;
       // Phase A — A5: the anon daily run cap surfaces as a 429 with a
       // machine code in the body; translate it for the run panel
       // instead of printing raw JSON. Signup is the honest escape
       // hatch — the authed path has its own (larger) budget.
       if (mode === "anon" && msg.includes("ANON_RUN_CAP_EXCEEDED")) {
-        setRunError(
+        useRunStore.getState().commitRunError(
+          operation.id,
           "You've hit today's free-trial run limit. Sign up to keep going — or come back tomorrow.",
         );
       } else {
-        setRunError(msg);
+        useRunStore.getState().commitRunError(operation.id, msg);
       }
     } finally {
-      setRunning(false);
+      useRunStore.getState().finishRun(operation.id);
     }
-  }, [mode, sessionId, sessionPhase, running, courseId, lessonId, lesson, setRunning, setRunError, setResult, incrementRun, saveOutput, saveCode, practiceMode]);
+  }, [mode, sessionId, sessionPhase, running, courseId, lessonId, lesson, incrementRun, saveOutput, saveCode, practiceMode]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

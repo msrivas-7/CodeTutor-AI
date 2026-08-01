@@ -25,7 +25,7 @@
 // Accessibility is owned by the shared Modal contract: labelled dialog,
 // focus entry/trap/restore, Escape, backdrop dismissal, and safe-area spacing.
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { api } from "../../../api/client";
 import { isApiError } from "../../../api/ApiError";
 import { Modal } from "../../../components/Modal";
@@ -44,10 +44,7 @@ export interface PhoneGraduationDialogProps {
    *  inbox (since the dialog is a phone-only surface and the user
    *  has now moved on). */
   onDismiss: () => void;
-  /** Caller-provided fallback. Fires when the dialog is dismissed
-   *  WITHOUT a successful send — the AnonLessonPage wrapper opens the
-   *  existing SignupWallDialog reason="next-lesson" so the funnel
-   *  still has an ask. */
+  /** Explicit account-creation action. Dismissal never invokes this. */
   onFallbackToWall: () => void;
 }
 
@@ -66,7 +63,6 @@ export function PhoneGraduationDialog({
   const [email, setEmail] = useState("");
   const [showQR, setShowQR] = useState(false);
   const [phase, setPhase] = useState<Phase>({ kind: "form" });
-  const submittedSuccessfullyRef = useRef(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -78,7 +74,6 @@ export function PhoneGraduationDialog({
         code,
         name,
       });
-      submittedSuccessfullyRef.current = true;
       setPhase({ kind: "sent", url: res.url, warn: res.warn ?? null });
     } catch (err) {
       // Map structured backend error codes into user-facing copy.
@@ -104,12 +99,12 @@ export function PhoneGraduationDialog({
   }
 
   function handleDismiss() {
-    if (submittedSuccessfullyRef.current) {
-      onDismiss();
-    } else {
-      onDismiss();
-      onFallbackToWall();
-    }
+    onDismiss();
+  }
+
+  function handleExplicitSignup() {
+    onDismiss();
+    onFallbackToWall();
   }
 
   // Pull the structured `error` code out of a thrown ApiError. The
@@ -179,6 +174,13 @@ export function PhoneGraduationDialog({
             >
               Maybe later
             </button>
+            <button
+              type="button"
+              onClick={handleExplicitSignup}
+              className="min-h-11 rounded-md px-4 py-2 text-sm font-medium text-accent transition hover:bg-accent/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              Create an account instead
+            </button>
           </form>
         ) : phase.kind === "sent" ? (
           <div className="flex flex-col gap-3">
@@ -214,7 +216,7 @@ export function PhoneGraduationDialog({
             </p>
             <button
               type="button"
-              onClick={handleDismiss}
+              onClick={handleExplicitSignup}
               className="min-h-11 rounded-md bg-accent px-4 py-2 text-sm font-semibold text-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               Sign up to keep going

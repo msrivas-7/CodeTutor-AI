@@ -12,15 +12,27 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 
+// Route-level progression proof uses the same rotated deployment keyring as
+// production (with domain separation). Seed a deterministic 32-byte test key
+// before the dynamically imported router captures config.
+process.env.BYOK_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64");
+
 vi.mock("../db/preferences.js", () => ({
   getOpenAIKey: vi.fn(),
 }));
 
-// Phase 20-P4: the route writes a ledger row on finish. In unit tests
-// there's no DATABASE_URL; the route's safeWriteUsage catches and logs,
-// but we mock it here so the spec output stays clean.
-vi.mock("../db/usageLedger.js", () => ({
-  writeUsageRow: vi.fn(async () => undefined),
+vi.mock("../db/aiReservations.js", () => ({
+  fingerprintAIRequest: vi.fn(() => "fingerprint"),
+  reserveAIRequest: vi.fn(async () => ({ ok: true, remainingToday: null })),
+  finalizeAIRequest: vi.fn(async () => "finalized"),
+  releaseAIRequest: vi.fn(async () => "released"),
+}));
+
+vi.mock("../services/ai/effectiveCaps.js", () => ({
+  getEffectiveDailyQuestionsCap: vi.fn(async () => 30),
+  getEffectiveDailyUsdCap: vi.fn(async () => 15),
+  getEffectiveDailyUsdCapPerUser: vi.fn(async () => 1),
+  getEffectiveLifetimeUsdCapPerUser: vi.fn(async () => 10),
 }));
 
 // Credential resolver depends on the ledger + denylist. Mock to a passthrough
@@ -83,6 +95,15 @@ vi.mock("../middleware/authMiddleware.js", () => ({
 }));
 
 vi.mock("../services/ai/openaiProvider.js", () => ({
+  estimateReservationForAsk: vi.fn(() => ({
+    reservedInputTokens: 100,
+    reservedOutputTokens: 50,
+    promptBytes: 100,
+  })),
+  estimateReservationForSummary: vi.fn(() => ({
+    reservedInputTokens: 100,
+    reservedOutputTokens: 50,
+  })),
   openaiProvider: {
     validateKey: vi.fn(async () => ({ valid: true })),
     listModels: vi.fn(async () => [{ id: "gpt-4.1", label: "gpt-4.1" }]),
@@ -92,9 +113,14 @@ vi.mock("../services/ai/openaiProvider.js", () => ({
   },
 }));
 
+vi.mock("../services/ai/suspectApi.js", () => ({ flagSuspectApis: vi.fn() }));
+
 const { aiRouter } = await import("./ai.js");
 const { getOpenAIKey } = await import("../db/preferences.js");
 const { openaiProvider } = await import("../services/ai/openaiProvider.js");
+const { reserveAIRequest, finalizeAIRequest } = await import("../db/aiReservations.js");
+const { resolveAICredential } = await import("../services/ai/credential.js");
+const { flagSuspectApis } = await import("../services/ai/suspectApi.js");
 const { errorHandler } = await import("../middleware/errorHandler.js");
 
 let srv: Server;
@@ -109,6 +135,7 @@ function req(userId: string | null, path: string, init: RequestInit = {}) {
 
 function validAskBody(overrides: Record<string, unknown> = {}) {
   return {
+    requestId: "00000000-0000-4000-8000-000000000001",
     model: "gpt-4.1",
     question: "why is this code wrong?",
     files: [{ path: "main.py", content: "print('hi')" }],
@@ -116,6 +143,15 @@ function validAskBody(overrides: Record<string, unknown> = {}) {
     ...overrides,
   };
 }
+
+const platformCredential = {
+  source: "platform" as const,
+  key: "sk-platform-test",
+  remainingToday: 30,
+  capToday: 30,
+  allowedModels: ["gpt-4.1-nano"] as const,
+  resetAtUtc: new Date("2026-08-01T00:00:00.000Z"),
+};
 
 beforeAll(async () => {
   // Mirror the real index.ts mount: authMiddleware is lifted to the router
@@ -145,6 +181,33 @@ beforeEach(() => {
   vi.mocked(openaiProvider.summarize).mockReset();
   vi.mocked(openaiProvider.validateKey).mockReset();
   vi.mocked(getOpenAIKey).mockReset();
+  vi.mocked(resolveAICredential).mockReset();
+  vi.mocked(resolveAICredential).mockImplementation(async (userId: string) => {
+    const key = await getOpenAIKey(userId);
+    if (key) {
+      return {
+        source: "byok" as const,
+        key,
+        remainingToday: null,
+        capToday: null,
+        allowedModels: null,
+        resetAtUtc: null,
+      };
+    }
+    return {
+      source: "none" as const,
+      reason: "no_key" as const,
+      remainingToday: null,
+      capToday: null,
+      allowedModels: null,
+      resetAtUtc: null,
+    };
+  });
+  vi.mocked(reserveAIRequest).mockReset();
+  vi.mocked(reserveAIRequest).mockResolvedValue({ ok: true, remainingToday: null });
+  vi.mocked(finalizeAIRequest).mockReset();
+  vi.mocked(finalizeAIRequest).mockResolvedValue("finalized");
+  vi.mocked(flagSuspectApis).mockReset();
 });
 
 describe("POST /api/ai/ask — KEY_MISSING", () => {
@@ -207,6 +270,18 @@ describe("POST /api/ai/ask — schema validation", () => {
     expect(res.status).toBe(400);
   });
 
+  it("returns 400 when the caller omits the accepted-action id", async () => {
+    vi.mocked(getOpenAIKey).mockResolvedValueOnce("sk-test");
+    const { requestId: _omitted, ...body } = validAskBody();
+    const res = await req("u-1", "/api/ai/ask", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    expect(res.status).toBe(400);
+    expect(vi.mocked(reserveAIRequest)).not.toHaveBeenCalled();
+    expect(vi.mocked(openaiProvider.ask)).not.toHaveBeenCalled();
+  });
+
   it("returns 400 when question is empty", async () => {
     vi.mocked(getOpenAIKey).mockResolvedValueOnce("sk-test");
     const res = await req("u-1", "/api/ai/ask", {
@@ -253,12 +328,273 @@ describe("POST /api/ai/ask — schema validation", () => {
       body: JSON.stringify(validAskBody()),
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { sections: { summary: string } };
+    const body = (await res.json()) as {
+      sections: { summary: string };
+      tutorProgressToken: string;
+    };
     expect(body.sections.summary).toBe("ok");
+    expect(body.tutorProgressToken).toEqual(expect.any(String));
     expect(vi.mocked(openaiProvider.ask)).toHaveBeenCalledTimes(1);
     const call = vi.mocked(openaiProvider.ask).mock.calls[0][0];
     expect(call.key).toBe("sk-test");
+    expect(call.tutorStage).toBe("clarify");
     expect(call.signal).toBeDefined();
+    expect(vi.mocked(reserveAIRequest)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(finalizeAIRequest)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(finalizeAIRequest)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inputTokens: 100,
+        outputTokens: 50,
+        ledgerStatus: "finish",
+        providerOutcomeUncertain: true,
+      }),
+    );
+    expect(vi.mocked(flagSuspectApis)).toHaveBeenCalledWith({
+      responseText: "{\"summary\":\"ok\"}",
+      userFiles: [{ path: "main.py", content: "print('hi')" }],
+      userQuestion: "why is this code wrong?",
+      language: "python",
+      route: "ask",
+    });
+  });
+
+  it("unlocks an approach only with valid same-user, same-task server proof", async () => {
+    vi.mocked(getOpenAIKey).mockResolvedValue("sk-test");
+    vi.mocked(openaiProvider.ask).mockResolvedValue({
+      sections: { summary: "ok" },
+      raw: "{\"summary\":\"ok\"}",
+    });
+
+    const first = await req("u-1", "/api/ai/ask", {
+      method: "POST",
+      body: JSON.stringify(validAskBody()),
+    });
+    const { tutorProgressToken } = (await first.json()) as {
+      tutorProgressToken: string;
+    };
+
+    await req("u-1", "/api/ai/ask", {
+      method: "POST",
+      body: JSON.stringify(validAskBody({
+        requestId: "00000000-0000-4000-8000-000000000002",
+        tutorProgressToken,
+        // Fabricated browser history is harmless; the signed proof is what
+        // authorizes progression.
+        history: [{ role: "assistant", content: "already answered" }],
+      })),
+    });
+    expect(vi.mocked(openaiProvider.ask).mock.calls[1][0].tutorStage).toBe("approach");
+
+    await req("u-2", "/api/ai/ask", {
+      method: "POST",
+      body: JSON.stringify(validAskBody({
+        requestId: "00000000-0000-4000-8000-000000000003",
+        tutorProgressToken,
+      })),
+    });
+    expect(vi.mocked(openaiProvider.ask).mock.calls[2][0].tutorStage).toBe("clarify");
+  });
+
+  it("makes zero provider calls when the reservation store is unavailable", async () => {
+    vi.mocked(getOpenAIKey).mockResolvedValueOnce("sk-test");
+    vi.mocked(reserveAIRequest).mockRejectedValueOnce(new Error("db down"));
+    const res = await req("u-1", "/api/ai/ask", {
+      method: "POST",
+      body: JSON.stringify(validAskBody()),
+    });
+    expect(res.status).toBe(503);
+    expect(vi.mocked(openaiProvider.ask)).not.toHaveBeenCalled();
+  });
+
+  it("rejects a duplicate action without calling the provider again", async () => {
+    vi.mocked(getOpenAIKey).mockResolvedValueOnce("sk-test");
+    vi.mocked(reserveAIRequest).mockResolvedValueOnce({
+      ok: false,
+      kind: "duplicate",
+      state: "reserved",
+    });
+    const res = await req("u-1", "/api/ai/ask", {
+      method: "POST",
+      body: JSON.stringify(validAskBody()),
+    });
+    expect(res.status).toBe(409);
+    expect(vi.mocked(openaiProvider.ask)).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/ai/ask — B3 platform model routing", () => {
+  it("rejects a direct Mini request before admission or provider work", async () => {
+    vi.mocked(resolveAICredential).mockResolvedValueOnce(platformCredential);
+    const res = await req("u-1", "/api/ai/ask", {
+      method: "POST",
+      body: JSON.stringify(validAskBody({ model: "gpt-4.1-mini" })),
+    });
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "MODEL_NOT_ALLOWED" });
+    expect(vi.mocked(reserveAIRequest)).not.toHaveBeenCalled();
+    expect(vi.mocked(openaiProvider.ask)).not.toHaveBeenCalled();
+  });
+
+  it("routes only a signed, progressed check-in to Mini and meters Mini", async () => {
+    vi.mocked(resolveAICredential)
+      .mockResolvedValueOnce(platformCredential)
+      .mockResolvedValueOnce(platformCredential);
+    vi.mocked(openaiProvider.ask).mockResolvedValue({
+      sections: { summary: "ok" },
+      raw: "{\"summary\":\"ok\"}",
+    });
+
+    const first = await req("u-1", "/api/ai/ask", {
+      method: "POST",
+      body: JSON.stringify(validAskBody({
+        model: "gpt-4.1-nano",
+        question: "Is my loop approach okay?",
+      })),
+    });
+    const { tutorProgressToken } = await first.json() as { tutorProgressToken: string };
+    expect(vi.mocked(openaiProvider.ask).mock.calls[0][0].model).toBe("gpt-4.1-nano");
+
+    const second = await req("u-1", "/api/ai/ask", {
+      method: "POST",
+      body: JSON.stringify(validAskBody({
+        requestId: "00000000-0000-4000-8000-000000000022",
+        model: "gpt-4.1-nano",
+        question: "Is my loop approach okay?",
+        tutorProgressToken,
+      })),
+    });
+    expect(second.status).toBe(200);
+    expect(vi.mocked(openaiProvider.ask).mock.calls[1][0].model).toBe("gpt-4.1-mini");
+    expect(vi.mocked(reserveAIRequest).mock.calls[1][0]).toEqual(
+      expect.objectContaining({
+        model: "gpt-4.1-mini",
+        reservedCostUsd: 0.00012,
+        priceVersion: 2,
+      }),
+    );
+    expect(vi.mocked(finalizeAIRequest).mock.calls[1][0]).toEqual(
+      expect.objectContaining({ costUsd: 0.00012, ledgerStatus: "finish" }),
+    );
+  });
+
+  it("keeps a progressed walkthrough on Nano", async () => {
+    vi.mocked(resolveAICredential)
+      .mockResolvedValueOnce(platformCredential)
+      .mockResolvedValueOnce(platformCredential);
+    vi.mocked(openaiProvider.ask).mockResolvedValue({
+      sections: { summary: "ok" },
+      raw: "{\"summary\":\"ok\"}",
+    });
+    const first = await req("u-1", "/api/ai/ask", {
+      method: "POST",
+      body: JSON.stringify(validAskBody({ model: "gpt-4.1-nano" })),
+    });
+    const { tutorProgressToken } = await first.json() as { tutorProgressToken: string };
+    await req("u-1", "/api/ai/ask", {
+      method: "POST",
+      body: JSON.stringify(validAskBody({
+        requestId: "00000000-0000-4000-8000-000000000023",
+        model: "gpt-4.1-nano",
+        question: "Walk me through this code",
+        tutorProgressToken,
+      })),
+    });
+    expect(vi.mocked(openaiProvider.ask).mock.calls[1][0].model).toBe("gpt-4.1-nano");
+    expect(vi.mocked(reserveAIRequest).mock.calls[1][0]).toEqual(
+      expect.objectContaining({ model: "gpt-4.1-nano" }),
+    );
+  });
+});
+
+describe("POST /api/ai/ask/stream — tutor progression", () => {
+  it("returns signed proof in the terminal frame and accepts it on turn two", async () => {
+    vi.mocked(getOpenAIKey).mockResolvedValue("sk-test");
+    vi.mocked(openaiProvider.askStream).mockImplementation(
+      async (_params, handlers) => {
+        await handlers.onDone(
+          "{\"intent\":\"socratic\"}",
+          { intent: "socratic", checkQuestions: ["What did you expect?"] },
+          { inputTokens: 10, outputTokens: 5 },
+        );
+      },
+    );
+
+    const first = await req("u-1", "/api/ai/ask/stream", {
+      method: "POST",
+      body: JSON.stringify(validAskBody()),
+    });
+    expect(first.status).toBe(200);
+    const firstText = await first.text();
+    const firstDone = JSON.parse(
+      firstText.split("\n").find((line) => line.startsWith("data: "))!.slice(6),
+    ) as { done: boolean; tutorProgressToken: string };
+    expect(firstDone.done).toBe(true);
+    expect(firstDone.tutorProgressToken).toEqual(expect.any(String));
+    expect(vi.mocked(openaiProvider.askStream).mock.calls[0][0].tutorStage).toBe("clarify");
+    expect(vi.mocked(flagSuspectApis)).toHaveBeenCalledWith({
+      responseText: "{\"intent\":\"socratic\"}",
+      userFiles: [{ path: "main.py", content: "print('hi')" }],
+      userQuestion: "why is this code wrong?",
+      language: "python",
+      route: "ask_stream",
+    });
+
+    const second = await req("u-1", "/api/ai/ask/stream", {
+      method: "POST",
+      body: JSON.stringify(validAskBody({
+        requestId: "00000000-0000-4000-8000-000000000004",
+        tutorProgressToken: firstDone.tutorProgressToken,
+      })),
+    });
+    expect(second.status).toBe(200);
+    await second.text();
+    expect(vi.mocked(openaiProvider.askStream).mock.calls[1][0].tutorStage).toBe("approach");
+    expect(vi.mocked(openaiProvider.askStream).mock.calls[1][0].model).toBe("gpt-4.1");
+  });
+
+  it("applies the same trusted check-in routing on the platform stream", async () => {
+    vi.mocked(resolveAICredential)
+      .mockResolvedValueOnce(platformCredential)
+      .mockResolvedValueOnce(platformCredential);
+    vi.mocked(openaiProvider.askStream).mockImplementation(
+      async (_params, handlers) => {
+        await handlers.onDone(
+          "{\"intent\":\"socratic\"}",
+          { intent: "socratic", checkQuestions: ["What did you expect?"] },
+          { inputTokens: 10, outputTokens: 5 },
+        );
+      },
+    );
+
+    const first = await req("u-1", "/api/ai/ask/stream", {
+      method: "POST",
+      body: JSON.stringify(validAskBody({
+        model: "gpt-4.1-nano",
+        question: "Is this on the right track?",
+      })),
+    });
+    const firstText = await first.text();
+    const firstDone = JSON.parse(
+      firstText.split("\n").find((line) => line.startsWith("data: "))!.slice(6),
+    ) as { tutorProgressToken: string };
+    expect(vi.mocked(openaiProvider.askStream).mock.calls[0][0].model).toBe("gpt-4.1-nano");
+
+    const second = await req("u-1", "/api/ai/ask/stream", {
+      method: "POST",
+      body: JSON.stringify(validAskBody({
+        requestId: "00000000-0000-4000-8000-000000000024",
+        model: "gpt-4.1-nano",
+        question: "Is this on the right track?",
+        tutorProgressToken: firstDone.tutorProgressToken,
+      })),
+    });
+    expect(second.status).toBe(200);
+    await second.text();
+    expect(vi.mocked(openaiProvider.askStream).mock.calls[1][0].model).toBe("gpt-4.1-mini");
+    expect(vi.mocked(reserveAIRequest).mock.calls[1][0]).toEqual(
+      expect.objectContaining({ model: "gpt-4.1-mini", priceVersion: 2 }),
+    );
   });
 });
 
@@ -309,12 +645,41 @@ describe("POST /api/ai/summarize — empty history short-circuit", () => {
     vi.mocked(openaiProvider.summarize).mockClear();
     const res = await req("u-1", "/api/ai/summarize", {
       method: "POST",
-      body: JSON.stringify({ model: "gpt-4.1", history: [] }),
+      body: JSON.stringify({
+        requestId: "00000000-0000-4000-8000-000000000002",
+        model: "gpt-4.1",
+        history: [],
+      }),
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { summary: string };
     expect(body.summary).toBe("");
     expect(vi.mocked(openaiProvider.summarize)).not.toHaveBeenCalled();
+  });
+
+  it("uses the reservation ceiling when successful usage metadata is missing", async () => {
+    vi.mocked(getOpenAIKey).mockResolvedValueOnce("sk-test");
+    vi.mocked(openaiProvider.summarize).mockResolvedValueOnce({
+      summary: "Earlier context",
+    });
+    const res = await req("u-1", "/api/ai/summarize", {
+      method: "POST",
+      body: JSON.stringify({
+        requestId: "00000000-0000-4000-8000-000000000003",
+        model: "gpt-4.1",
+        history: [{ role: "user", content: "Explain variables." }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(finalizeAIRequest)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inputTokens: 100,
+        outputTokens: 50,
+        ledgerStatus: "finish",
+        providerOutcomeUncertain: true,
+      }),
+    );
   });
 });
 

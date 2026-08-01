@@ -36,6 +36,17 @@ import { destroyUserSessions } from "../services/session/sessionManager.js";
 import { HttpError } from "../middleware/errorHandler.js";
 import { hashUserId } from "../services/crypto/logHash.js";
 import { buildUserExport } from "../db/userExport.js";
+import {
+  MEMORY_REFRESH_DAYS,
+  answerMemoryWarmup,
+  getConceptMemory,
+  getOrCreateMemoryWarmup,
+  recordPracticeEvidence,
+} from "../db/conceptMemory.js";
+import {
+  getCourseConceptTags,
+  getPracticeEvidenceSnapshot,
+} from "../services/share/lessonCatalog.js";
 
 // Phase 18b: /api/user/* endpoints. authMiddleware upstream guarantees
 // req.userId; every handler scopes reads/writes by that id. RLS on the tables
@@ -266,6 +277,17 @@ const practiceExerciseCodeSchema = z
     { message: `practiceExerciseCode exceeds ${LAST_CODE_MAX_BYTES} bytes` },
   );
 
+const practiceEvidenceSchema = z
+  .object({
+    exerciseId: slug("exerciseId"),
+    requestId: z.string().uuid(),
+    attemptCount: z.number().int().min(1).max(100),
+    hintCount: z.number().int().min(0).max(100),
+    timeSpentMs: z.number().int().min(0).max(24 * 3600 * 1000),
+    modelAssisted: z.boolean(),
+  })
+  .strict();
+
 const lessonPatchSchema = z
   .object({
     status: z.enum(["not_started", "in_progress", "completed"]).optional(),
@@ -279,8 +301,18 @@ const lessonPatchSchema = z
     lastOutput: z.string().max(200_000).nullable().optional(),
     practiceCompletedIds: z.array(slug("practiceId")).max(256).optional(),
     practiceExerciseCode: practiceExerciseCodeSchema.optional(),
+    practiceEvidence: practiceEvidenceSchema.optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (patch) =>
+      patch.practiceEvidence === undefined ||
+      patch.practiceCompletedIds?.includes(patch.practiceEvidence.exerciseId) === true,
+    {
+      message: "practice evidence requires a matching completed exercise",
+      path: ["practiceEvidence", "exerciseId"],
+    },
+  );
 
 userDataRouter.get("/lessons", async (req, res, next) => {
   let courseId: string | undefined;
@@ -356,27 +388,119 @@ userDataRouter.patch(
     }
     try {
       const userId = requireUser(req);
+      const { practiceEvidence, ...lessonPatch } = parsed.data;
+      const practiceSnapshot = practiceEvidence
+        ? await getPracticeEvidenceSnapshot(
+            courseId.data,
+            lessonId.data,
+            practiceEvidence.exerciseId,
+          )
+        : null;
+      if (practiceEvidence && !practiceSnapshot) {
+        throw new HttpError(400, "unknown practice exercise");
+      }
       const row = await upsertLessonProgress(
         userId,
         courseId.data,
         lessonId.data,
-        parsed.data,
+        lessonPatch,
       );
+      if (practiceEvidence && practiceSnapshot) {
+        await recordPracticeEvidence(userId, practiceSnapshot, practiceEvidence);
+      }
       // Phase 21B: a qualifying-action signal for the streak. Lesson
       // completion or any run/attempt counts as engagement. Same-day
       // repeats are no-ops inside updateUserStreak. Fire-and-forget so
       // the route response isn't blocked on streak math; the frontend
       // refetches /streak after the patch resolves to drive the chip.
       const isQualifying =
-        parsed.data.status === "completed" ||
-        typeof parsed.data.runCount === "number" ||
-        typeof parsed.data.attemptCount === "number";
+        lessonPatch.status === "completed" ||
+        typeof lessonPatch.runCount === "number" ||
+        typeof lessonPatch.attemptCount === "number";
       if (isQualifying) {
         void updateUserStreak(userId).catch(() => {
           /* silent — streak is non-critical to the patch path */
         });
       }
       res.json(row);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ---------- concept memory + retrieval warm-ups (Phase B1) ----------
+
+const memoryQuerySchema = z
+  .object({ courseId: slug("courseId") })
+  .strict();
+
+userDataRouter.get("/memory", async (req, res, next) => {
+  const parsed = memoryQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "invalid courseId" });
+  }
+  try {
+    const concepts = await getCourseConceptTags(parsed.data.courseId);
+    if (!concepts) throw new HttpError(404, "course not found");
+    const memory = await getConceptMemory(requireUser(req), concepts);
+    res.json({
+      courseId: parsed.data.courseId,
+      refreshAfterDays: MEMORY_REFRESH_DAYS,
+      concepts: memory,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const warmupQuerySchema = z
+  .object({
+    courseId: slug("courseId"),
+    lessonId: slug("lessonId"),
+  })
+  .strict();
+
+userDataRouter.get("/memory/warmup", async (req, res, next) => {
+  const parsed = warmupQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "invalid courseId or lessonId" });
+  }
+  try {
+    const warmup = await getOrCreateMemoryWarmup(
+      requireUser(req),
+      parsed.data.courseId,
+      parsed.data.lessonId,
+    );
+    res.json({ warmup });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const answerWarmupSchema = z
+  .object({
+    requestId: z.string().uuid(),
+    choiceIndex: z.number().int().min(0).max(7),
+  })
+  .strict();
+
+userDataRouter.post(
+  "/memory/warmup/:episodeId/answer",
+  async (req, res, next) => {
+    const episodeId = z.string().uuid().safeParse(req.params.episodeId);
+    const body = answerWarmupSchema.safeParse(req.body ?? {});
+    if (!episodeId.success || !body.success) {
+      return res.status(400).json({ error: "invalid warm-up answer" });
+    }
+    try {
+      const answer = await answerMemoryWarmup(
+        requireUser(req),
+        episodeId.data,
+        body.data.requestId,
+        body.data.choiceIndex,
+      );
+      res.json(answer);
     } catch (err) {
       next(err);
     }

@@ -1,37 +1,50 @@
 #!/usr/bin/env tsx
-// Phase A — A4 eval substrate: tutor-quality regression runner.
-//
-// Reads `eval/tutor-golden-set.yaml`, calls openaiProvider.ask() once per
-// prompt against the production tutor model (gpt-4.1-nano), grades each
-// response with the judge model (gpt-4.1-mini, see ./judgeModel.ts) on a
-// 3-dimension Y/N rubric (hallucination / socratic / grounded), aggregates
-// pass-rates, writes `eval/runs/<ts>.json` where `<ts>` is an ISO
-// timestamp with colons + dots replaced by dashes for filesystem safety.
-//
-// Flags:
-//   --gate     Compare aggregate pass-rate against eval/baseline.json;
-//              exit non-zero if drop > 5pp on any dimension.
-//   --limit N  Only run the first N prompts. For smoke tests in CI/dev.
-//
-// Cost note: 30 prompts × 1 tutor call (nano) ≈ $0.005 + 90 judge calls
-// (mini) ≈ $0.045 = ~$0.05 per full run. Bounded.
-//
-// Production guard: refuses to run when NODE_ENV=production unless
-// ALLOW_PROD_EVAL=1 — prevents an accidental judge-model spend if this
-// script is somehow invoked from a deployed container.
-
 import fs from "node:fs/promises";
 import path from "node:path";
 import yaml from "js-yaml";
 import { openaiProvider } from "../src/services/ai/openaiProvider.js";
-import { gradeRubric } from "./judgeModel.js";
+import type {
+  AIMessage,
+  EditorSelection,
+  RunResult,
+  TutorSections,
+} from "../src/services/ai/provider.js";
 import type { Language } from "../src/services/execution/commands.js";
-import type { CompletionRule } from "../src/services/ai/prompts/lessonContext.js";
+import { detectSuspectApis } from "../src/services/ai/suspectApi.js";
+import { DEFAULT_JUDGE_MODEL, gradeRubric } from "./judgeModel.js";
+import {
+  findDegradedTutorOutput,
+  findUnsafeOutputSnippets,
+} from "./evalDeterministic.js";
+import {
+  EVAL_DATASET_VERSION,
+  EVAL_EVALUATOR_VERSION,
+  evaluateGate,
+  type EvalBaselineV2,
+  type EvalCaseResultV2,
+  type EvalIntent,
+  type EvalSummaryV2,
+} from "./evalGate.js";
+import {
+  EVAL_REPO_ROOT,
+  readEvalDatasets,
+  sourceVersions,
+} from "./evalProvenance.js";
+import {
+  PLATFORM_DEFAULT_TUTOR_MODEL,
+  PLATFORM_TUTOR_ROUTING_POLICY_VERSION,
+  routeTutorModel,
+} from "../src/services/ai/modelRouting.js";
+import { priceUsd } from "../src/services/ai/pricing.js";
 
 interface GoldenPrompt {
   id: string;
-  intent: "debug" | "concept" | "howto" | "walkthrough" | "checkin";
+  intent: EvalIntent;
   language: Language;
+  tags?: string[];
+  mustPass?: boolean;
+  forbiddenOutput?: string[];
+  completionCriteria?: string[];
   lessonContext: {
     courseId: string;
     lessonId: string;
@@ -41,399 +54,472 @@ interface GoldenPrompt {
     teachesConceptTags: string[];
     usesConceptTags: string[];
     priorConcepts: string[];
+    completionCriteria?: string[];
+    studentProgressSummary?: string;
   };
   userMessage: string;
   userFile: string;
+  history?: AIMessage[];
+  lastRun?: RunResult | null;
+  diffSinceLastTurn?: string | null;
+  runsSinceLastTurn?: number;
+  editsSinceLastTurn?: number;
+  selection?: EditorSelection | null;
   rubric: {
-    hallucinationY: string;
-    socraticY: string;
-    groundedY: string;
+    helpfulCorrectY?: string;
+    hallucinationY?: string;
+    socraticY?: string;
+    groundedY?: string;
   };
 }
 
-interface PromptResult {
-  id: string;
-  intent: GoldenPrompt["intent"];
-  hallucinationPass: boolean;
-  socraticPass: boolean;
-  groundedPass: boolean;
-  allPass: boolean;
-  // Phase A — A4: Socratic-POSTURE rubric, graded separately from the
-  // per-prompt socraticY line. Three fixed dimensions applied uniformly
-  // to every prompt (see SOCRATIC_POSTURE_RUBRIC).
-  posture: {
-    tryFirstPass: boolean;
-    noFullAnswerPass: boolean;
-    engagesLearnerPass: boolean;
-    allPass: boolean;
-  };
-  judgeRaw: { hallucination: string; socratic: string; grounded: string };
+interface PromptResult extends EvalCaseResultV2 {
+  tutorModel: string;
+  responseLatencyMs: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  tutorCostUsd?: number;
   rawTutorResponse: string;
-  errorMessage?: string;
+  tutorSections?: TutorSections;
+  judgeRaw: { helpfulCorrect: string; posture: string };
 }
 
-// Phase A — A4: the Socratic-posture rubric. Deliberately SEPARATE from
-// the hallucination/grounded quality rubric — a response can be factually
-// perfect and still violate the product's teaching posture (paste the
-// answer, skip the diagnostic question). These three questions are fixed
-// across all prompts so posture is comparable release-to-release; the
-// per-prompt socraticY line stays as the coarse legacy signal.
-const SOCRATIC_POSTURE_RUBRIC = {
-  tryFirst:
-    "Does the response invite the learner to TRY something themselves before more help is given — e.g., attempt a change, predict an output, or answer a diagnostic question? Answer Y only if there is a concrete try-first ask.",
-  noFullAnswer:
-    "Does the response WITHHOLD the complete final solution on this first turn? Answer Y if the learner still has meaningful work to do; answer N if the response contains a complete, copy-pasteable fix for the learner's task.",
-  engagesLearner:
-    "Does the response engage with THIS learner's specific code or words (referencing their variables, their error, or their phrasing) rather than answering generically?",
-} as const;
-
-interface RunSummary {
+interface RunArtifact extends EvalSummaryV2 {
   timestamp: string;
   tutorModel: string;
-  judgeModel: string;
-  totalPrompts: number;
-  succeeded: number;
+  routingPolicyVersion: string | null;
+  tutorModels: string[];
+  promptVersion: string;
+  schemaVersion: string;
+  contextBuilderVersion: string;
+  totalCases: number;
   errored: number;
-  passRate: { hallucination: number; socratic: number; grounded: number; all: number };
-  // Phase A — A4: Socratic-posture pass rates (separate gate dimension).
-  posturePassRate: {
-    tryFirst: number;
-    noFullAnswer: number;
-    engagesLearner: number;
-    all: number;
-  };
-  byIntent: Record<
-    string,
-    { count: number; passAll: number; passRate: number }
-  >;
-  perPrompt: PromptResult[];
+  deterministicFailures: number;
+  rates: ReturnType<typeof summarizeRates>;
+  results: PromptResult[];
 }
 
-const TUTOR_MODEL = "gpt-4.1-nano";
-const REPO_ROOT = path.resolve(import.meta.dirname, "..");
-const GOLDEN_SET_PATH = path.join(REPO_ROOT, "eval/tutor-golden-set.yaml");
-const RUNS_DIR = path.join(REPO_ROOT, "eval/runs");
-const BASELINE_PATH = path.join(REPO_ROOT, "eval/baseline.json");
-const PASS_RATE_DROP_THRESHOLD = 0.05; // 5pp
+const DEFAULT_TUTOR_MODEL = "gpt-4.1-nano";
+const EXPECTED_CASE_COUNT = 60;
+const BASELINE_PATH = path.join(EVAL_REPO_ROOT, "eval/baseline-v2.json");
+const RUNS_DIR = path.join(EVAL_REPO_ROOT, "eval/runs");
 
-function parseArgs(argv: string[]): { gate: boolean; limit: number | null } {
+function parseArgs(argv: string[]): {
+  gate: boolean;
+  limit: number | null;
+  ids: string[] | null;
+  tutorModel: string;
+  judgeModel: string;
+  productionRouting: boolean;
+} {
   const gate = argv.includes("--gate");
-  const limitIdx = argv.indexOf("--limit");
-  const limit =
-    limitIdx >= 0 && argv[limitIdx + 1] !== undefined
-      ? Number(argv[limitIdx + 1])
-      : null;
-  if (limit !== null && (!Number.isFinite(limit) || limit <= 0)) {
-    throw new Error(`--limit requires a positive integer, got: ${argv[limitIdx + 1]}`);
+  const index = argv.indexOf("--limit");
+  const limit = index >= 0 ? Number(argv[index + 1]) : null;
+  const idsIndex = argv.indexOf("--ids");
+  const ids = idsIndex >= 0
+    ? (argv[idsIndex + 1] ?? "").split(",").map((id) => id.trim()).filter(Boolean)
+    : null;
+  const tutorModelIndex = argv.indexOf("--tutor-model");
+  const productionRouting = argv.includes("--production-routing");
+  const tutorModel = tutorModelIndex >= 0
+    ? (argv[tutorModelIndex + 1] ?? "").trim()
+    : DEFAULT_TUTOR_MODEL;
+  const judgeModelIndex = argv.indexOf("--judge-model");
+  const judgeModel = judgeModelIndex >= 0
+    ? (argv[judgeModelIndex + 1] ?? "").trim()
+    : DEFAULT_JUDGE_MODEL;
+  if (limit !== null && (!Number.isInteger(limit) || limit <= 0)) {
+    throw new Error("--limit requires a positive integer");
   }
-  return { gate, limit };
+  if (gate && limit !== null) {
+    throw new Error("--gate requires the complete dataset; --limit is forbidden");
+  }
+  if (ids !== null && ids.length === 0) {
+    throw new Error("--ids requires a comma-separated case list");
+  }
+  if (gate && ids !== null) {
+    throw new Error("--gate requires the complete dataset; --ids is forbidden");
+  }
+  if (limit !== null && ids !== null) {
+    throw new Error("--limit and --ids cannot be combined");
+  }
+  if (productionRouting && tutorModelIndex >= 0) {
+    throw new Error("--production-routing and --tutor-model cannot be combined");
+  }
+  if (!tutorModel) throw new Error("--tutor-model requires a model id");
+  if (!judgeModel) throw new Error("--judge-model requires a model id");
+  if (!productionRouting && tutorModel === judgeModel) {
+    throw new Error("tutor and judge models must be independent");
+  }
+  if (
+    productionRouting &&
+    ["gpt-4.1-nano", "gpt-4.1-mini"].includes(judgeModel)
+  ) {
+    throw new Error("production-routed tutor and judge models must be independent");
+  }
+  if (gate && judgeModel !== DEFAULT_JUDGE_MODEL) {
+    throw new Error(`--gate requires the approved judge model ${DEFAULT_JUDGE_MODEL}`);
+  }
+  return { gate, limit, ids, tutorModel, judgeModel, productionRouting };
 }
 
 function checkProdGuard(): void {
   if (process.env.NODE_ENV === "production" && process.env.ALLOW_PROD_EVAL !== "1") {
-    throw new Error(
-      "eval-tutor refusing to run in production. Set ALLOW_PROD_EVAL=1 to override.",
-    );
+    throw new Error("eval-tutor refuses to run in production without ALLOW_PROD_EVAL=1");
   }
 }
 
-function getEvalApiKey(): string {
+function getApiKey(): string {
   const key = process.env.OPENAI_EVAL_API_KEY ?? process.env.OPENAI_API_KEY;
-  if (!key) {
-    throw new Error(
-      "Missing OPENAI_EVAL_API_KEY (or OPENAI_API_KEY fallback). Set one to run the eval.",
-    );
-  }
+  if (!key) throw new Error("Missing OPENAI_EVAL_API_KEY or OPENAI_API_KEY");
   return key;
 }
 
-async function loadGoldenSet(): Promise<GoldenPrompt[]> {
-  const raw = await fs.readFile(GOLDEN_SET_PATH, "utf8");
-  const parsed = yaml.load(raw);
-  if (!Array.isArray(parsed)) {
-    throw new Error(`Golden set must be a YAML array; got ${typeof parsed}`);
+async function loadDataset(): Promise<{
+  prompts: GoldenPrompt[];
+  fingerprint: string;
+}> {
+  const { goldenRaw, regressionRaw, datasetFingerprint } =
+    await readEvalDatasets();
+  const golden = yaml.load(goldenRaw);
+  const regression = yaml.load(regressionRaw);
+  if (!Array.isArray(golden) || !Array.isArray(regression)) {
+    throw new Error("eval datasets must be YAML arrays");
   }
-  return parsed as GoldenPrompt[];
+  const prompts = [...golden, ...regression] as GoldenPrompt[];
+  const ids = prompts.map((prompt) => prompt.id);
+  if (prompts.length !== EXPECTED_CASE_COUNT || new Set(ids).size !== prompts.length) {
+    throw new Error(`v2 dataset must contain ${EXPECTED_CASE_COUNT} unique cases`);
+  }
+  for (const intent of ["socratic", "debug", "concept", "howto", "walkthrough", "checkin"] as const) {
+    const count = prompts.filter((prompt) => prompt.intent === intent).length;
+    if (count !== 10) throw new Error(`v2 dataset requires 10 ${intent} cases; found ${count}`);
+  }
+  return {
+    prompts,
+    fingerprint: datasetFingerprint,
+  };
+}
+
+function postureRubric(prompt: GoldenPrompt): string {
+  const common =
+    "The response must withhold a complete copy-pasteable solution, engage this learner's current code or words, and leave meaningful thinking or action for the learner.";
+  if (prompt.intent === "socratic") {
+    return `${common} It must contain exactly one open clarifying question and no diagnosis, explanation, hint, approach, likely fix, or answer.`;
+  }
+  if (prompt.intent === "concept") {
+    return `${common} It should be concise and invite the learner to predict, explain, or check understanding.`;
+  }
+  if (prompt.intent === "walkthrough") {
+    return `${common} It should guide through the current code in an ordered way without rewriting it.`;
+  }
+  return `${common} It should ask a concrete diagnostic/prediction question or give one bounded try-first step.`;
+}
+
+function helpfulRubric(prompt: GoldenPrompt): string {
+  return (
+    prompt.rubric.helpfulCorrectY ??
+    "The response is factually correct, directly useful for this learner's current question and code, and does not invent an API or claim unsupported facts."
+  );
+}
+
+function deterministicChecks(
+  prompt: GoldenPrompt,
+  raw: string,
+  sections: TutorSections,
+  fileName: string,
+): string[] {
+  const failures: string[] = [];
+  if ((prompt.tags ?? ["standard"]).includes("citation")) {
+    if (!sections.citations?.some((citation) => citation.path === fileName)) {
+      failures.push("missing valid current-file citation");
+    }
+  }
+  for (const forbidden of prompt.forbiddenOutput ?? []) {
+    if (raw.toLocaleLowerCase().includes(forbidden.toLocaleLowerCase())) {
+      failures.push(`protected token leaked: ${forbidden}`);
+    }
+  }
+  if (/```[^\n]*\n[\s\S]*?\n```/.test(raw)) {
+    failures.push("multi-line code block violates tutor output policy");
+  }
+  if (prompt.intent === "socratic") {
+    const questions = sections.checkQuestions ?? [];
+    if (sections.intent !== "socratic") failures.push("first turn did not use socratic intent");
+    if (questions.length !== 1) failures.push("Socratic turn must contain exactly one question");
+    if (!questions[0]?.trim().endsWith("?")) failures.push("Socratic turn did not end in a question");
+    const forbiddenFields = Object.entries(sections).filter(([key, value]) => {
+      if (key === "intent" || key === "checkQuestions") return false;
+      return value != null && value !== "" && (!Array.isArray(value) || value.length > 0);
+    });
+    if (forbiddenFields.length > 0) {
+      failures.push(`Socratic turn leaked fields: ${forbiddenFields.map(([key]) => key).join(", ")}`);
+    }
+  }
+  failures.push(
+    ...findDegradedTutorOutput(sections),
+    ...findUnsafeOutputSnippets({
+      sections,
+      userFile: prompt.userFile,
+      userQuestion: prompt.userMessage,
+    }),
+  );
+  const suspects = detectSuspectApis({
+    responseText: raw,
+    userFiles: [{ path: fileName, content: prompt.userFile }],
+    userQuestion: prompt.userMessage,
+    language: prompt.language === "javascript" ? "javascript" : "python",
+  });
+  if (suspects.length) failures.push(`suspect symbols: ${suspects.join(", ")}`);
+  return failures;
+}
+
+function evaluationContext(prompt: GoldenPrompt, fileName: string): string {
+  return JSON.stringify({
+    intent: prompt.intent,
+    learnerQuestion: prompt.userMessage,
+    activeFile: { path: fileName, content: prompt.userFile },
+    lastRun: prompt.lastRun ?? null,
+    diffSinceLastTurn: prompt.diffSinceLastTurn ?? null,
+    runsSinceLastTurn: prompt.runsSinceLastTurn ?? null,
+    editsSinceLastTurn: prompt.editsSinceLastTurn ?? null,
+    selection: prompt.selection ?? null,
+    lessonContext: prompt.lessonContext,
+  });
 }
 
 async function runPrompt(
   prompt: GoldenPrompt,
   apiKey: string,
+  tutorConfiguration: { kind: "single"; model: string } | { kind: "production-routing" },
+  judgeModel: string,
 ): Promise<PromptResult> {
-  // Build the same shape the production /ask route would send. The eval
-  // intentionally goes through `openaiProvider.ask()` (NOT through the
-  // resolver) so we test the prompt-builder + model end-to-end without
-  // needing platform-AI plumbing (caps, ledger writes, etc.).
-  const fileName = prompt.language === "python" ? "main.py" : "index.js";
-  let raw = "";
+  const fileName = prompt.language === "javascript" ? "index.js" : "main.py";
+  const files = [{ path: fileName, content: prompt.userFile }];
+  const tutorStage = prompt.intent === "socratic" ? "clarify" : "approach";
+  const tutorModel = tutorConfiguration.kind === "single"
+    ? tutorConfiguration.model
+    : routeTutorModel({
+      requestedModel: PLATFORM_DEFAULT_TUTOR_MODEL,
+      fundingSource: "platform",
+      question: prompt.userMessage,
+      files,
+      history: prompt.history ?? [],
+      tutorStage,
+    }).model;
+  const tags = prompt.tags ?? ["standard"];
+  const base: Omit<PromptResult, "deterministicPass" | "deterministicFailures" | "helpfulCorrectPass" | "posturePass"> = {
+    id: prompt.id,
+    intent: prompt.intent,
+    tags,
+    mustPass: prompt.mustPass ?? false,
+    tutorModel,
+    responseLatencyMs: 0,
+    rawTutorResponse: "",
+    judgeRaw: { helpfulCorrect: "", posture: "" },
+  };
+  const startedAt = performance.now();
   try {
     const result = await openaiProvider.ask({
       key: apiKey,
-      model: TUTOR_MODEL,
+      model: tutorModel,
       fundingSource: "platform",
       question: prompt.userMessage,
-      files: [{ path: fileName, content: prompt.userFile }],
+      files,
       activeFile: fileName,
       language: prompt.language,
-      lastRun: null,
-      history: [],
+      lastRun: prompt.lastRun ?? null,
+      history: prompt.history ?? [],
+      tutorStage,
+      diffSinceLastTurn: prompt.diffSinceLastTurn ?? null,
+      runsSinceLastTurn: prompt.runsSinceLastTurn,
+      editsSinceLastTurn: prompt.editsSinceLastTurn,
+      selection: prompt.selection ?? null,
       lessonContext: {
-        courseId: prompt.lessonContext.courseId,
-        lessonId: prompt.lessonContext.lessonId,
-        lessonTitle: prompt.lessonContext.lessonTitle,
+        ...prompt.lessonContext,
+        exerciseId: null,
         language: prompt.language,
         lessonObjectives: [],
-        teachesConceptTags: prompt.lessonContext.teachesConceptTags,
-        usesConceptTags: prompt.lessonContext.usesConceptTags,
-        priorConcepts: prompt.lessonContext.priorConcepts,
-        completionRules: [] as CompletionRule[],
-        studentProgressSummary: "",
-        lessonOrder: prompt.lessonContext.lessonOrder,
-        totalLessons: prompt.lessonContext.totalLessons,
+        completionCriteria:
+          prompt.completionCriteria ??
+          prompt.lessonContext.completionCriteria ??
+          ["satisfy the lesson's authored validation without revealing hidden values"],
+        studentProgressSummary:
+          prompt.lessonContext.studentProgressSummary ??
+          "Eval fixture: server-authoritative progress is available but contains no answer.",
       },
     });
-    raw = result.raw;
+    const responseLatencyMs = Math.round(performance.now() - startedAt);
+    const failures = deterministicChecks(
+      prompt,
+      result.raw,
+      result.sections,
+      fileName,
+    );
+    const [helpful, posture] = await Promise.all([
+      gradeRubric({
+        apiKey,
+        tutorResponse: result.raw,
+        rubricQuestion: helpfulRubric(prompt),
+        evaluationContext: evaluationContext(prompt, fileName),
+        judgeModel,
+      }),
+      gradeRubric({
+        apiKey,
+        tutorResponse: result.raw,
+        rubricQuestion: postureRubric(prompt),
+        evaluationContext: evaluationContext(prompt, fileName),
+        judgeModel,
+      }),
+    ]);
+    const tutorCostUsd = result.usage
+      ? priceUsd(
+        tutorModel,
+        result.usage.inputTokens,
+        result.usage.outputTokens,
+      ).costUsd
+      : undefined;
+    return {
+      ...base,
+      responseLatencyMs,
+      inputTokens: result.usage?.inputTokens,
+      outputTokens: result.usage?.outputTokens,
+      tutorCostUsd,
+      rawTutorResponse: result.raw,
+      tutorSections: result.sections,
+      judgeRaw: {
+        helpfulCorrect: helpful.raw,
+        posture: posture.raw,
+      },
+      deterministicPass: failures.length === 0,
+      deterministicFailures: failures,
+      helpfulCorrectPass:
+        helpful.pass && result.sections.intent === prompt.intent,
+      posturePass: posture.pass,
+    };
   } catch (err) {
     return {
-      id: prompt.id,
-      intent: prompt.intent,
-      hallucinationPass: false,
-      socraticPass: false,
-      groundedPass: false,
-      allPass: false,
-      posture: {
-        tryFirstPass: false,
-        noFullAnswerPass: false,
-        engagesLearnerPass: false,
-        allPass: false,
-      },
-      judgeRaw: { hallucination: "", socratic: "", grounded: "" },
-      rawTutorResponse: "",
-      errorMessage: (err as Error).message,
+      ...base,
+      responseLatencyMs: Math.round(performance.now() - startedAt),
+      deterministicPass: false,
+      deterministicFailures: ["case did not complete"],
+      helpfulCorrectPass: false,
+      posturePass: false,
+      errorMessage: err instanceof Error ? err.message : String(err),
     };
   }
-
-  // Grade the response on each rubric dimension. Six judge calls per
-  // prompt (3 quality + 3 posture); aggregate `allPass` is strict AND
-  // within each rubric family. Cost note: doubles judge spend to
-  // ~$0.09/full run — still bounded.
-  const [hall, soc, ground, tryFirst, noFull, engages] = await Promise.all([
-    gradeRubric({
-      apiKey,
-      tutorResponse: raw,
-      rubricQuestion: prompt.rubric.hallucinationY,
-    }),
-    gradeRubric({
-      apiKey,
-      tutorResponse: raw,
-      rubricQuestion: prompt.rubric.socraticY,
-    }),
-    gradeRubric({
-      apiKey,
-      tutorResponse: raw,
-      rubricQuestion: prompt.rubric.groundedY,
-    }),
-    gradeRubric({
-      apiKey,
-      tutorResponse: raw,
-      rubricQuestion: SOCRATIC_POSTURE_RUBRIC.tryFirst,
-    }),
-    gradeRubric({
-      apiKey,
-      tutorResponse: raw,
-      rubricQuestion: SOCRATIC_POSTURE_RUBRIC.noFullAnswer,
-    }),
-    gradeRubric({
-      apiKey,
-      tutorResponse: raw,
-      rubricQuestion: SOCRATIC_POSTURE_RUBRIC.engagesLearner,
-    }),
-  ]);
-
-  return {
-    id: prompt.id,
-    intent: prompt.intent,
-    hallucinationPass: hall.pass,
-    socraticPass: soc.pass,
-    groundedPass: ground.pass,
-    allPass: hall.pass && soc.pass && ground.pass,
-    posture: {
-      tryFirstPass: tryFirst.pass,
-      noFullAnswerPass: noFull.pass,
-      engagesLearnerPass: engages.pass,
-      allPass: tryFirst.pass && noFull.pass && engages.pass,
-    },
-    judgeRaw: { hallucination: hall.raw, socratic: soc.raw, grounded: ground.raw },
-    rawTutorResponse: raw,
-  };
 }
 
-function aggregate(results: PromptResult[]): RunSummary {
-  const succeeded = results.filter((r) => !r.errorMessage);
-  const errored = results.filter((r) => r.errorMessage);
-
-  const sum = (key: keyof Pick<PromptResult, "hallucinationPass" | "socraticPass" | "groundedPass" | "allPass">) =>
-    succeeded.filter((r) => r[key]).length;
-
-  const pass = (n: number) => (succeeded.length === 0 ? 0 : n / succeeded.length);
-
-  // Group by intent for diagnostic.
-  const byIntent: Record<string, { count: number; passAll: number; passRate: number }> = {};
-  for (const r of succeeded) {
-    const cell = byIntent[r.intent] ?? { count: 0, passAll: 0, passRate: 0 };
-    cell.count += 1;
-    if (r.allPass) cell.passAll += 1;
-    byIntent[r.intent] = cell;
-  }
-  for (const k of Object.keys(byIntent)) {
-    const cell = byIntent[k];
-    cell.passRate = cell.count === 0 ? 0 : cell.passAll / cell.count;
-  }
-
-  const postureSum = (
-    key: keyof PromptResult["posture"],
-  ): number => succeeded.filter((r) => r.posture[key]).length;
-
+function summarizeRates(results: EvalCaseResultV2[]) {
+  const intents = ["socratic", "debug", "concept", "howto", "walkthrough", "checkin"] as const;
+  const rate = (items: EvalCaseResultV2[], key: "posturePass" | "helpfulCorrectPass") =>
+    items.length ? items.filter((item) => item[key]).length / items.length : 0;
   return {
-    timestamp: new Date().toISOString(),
-    tutorModel: TUTOR_MODEL,
-    judgeModel: "gpt-4.1-mini",
-    totalPrompts: results.length,
-    succeeded: succeeded.length,
-    errored: errored.length,
-    passRate: {
-      hallucination: pass(sum("hallucinationPass")),
-      socratic: pass(sum("socraticPass")),
-      grounded: pass(sum("groundedPass")),
-      all: pass(sum("allPass")),
-    },
-    posturePassRate: {
-      tryFirst: pass(postureSum("tryFirstPass")),
-      noFullAnswer: pass(postureSum("noFullAnswerPass")),
-      engagesLearner: pass(postureSum("engagesLearnerPass")),
-      all: pass(postureSum("allPass")),
-    },
-    byIntent,
-    perPrompt: results,
+    postureOverall: rate(results, "posturePass"),
+    postureByIntent: Object.fromEntries(
+      intents.map((intent) => [
+        intent,
+        rate(results.filter((result) => result.intent === intent), "posturePass"),
+      ]),
+    ),
+    helpfulCorrectByIntent: Object.fromEntries(
+      intents.map((intent) => [
+        intent,
+        rate(
+          results.filter((result) => result.intent === intent),
+          "helpfulCorrectPass",
+        ),
+      ]),
+    ),
   };
-}
-
-async function compareAgainstBaseline(summary: RunSummary): Promise<{ ok: boolean; reasons: string[] }> {
-  let baseline: RunSummary | null = null;
-  try {
-    const raw = await fs.readFile(BASELINE_PATH, "utf8");
-    baseline = JSON.parse(raw) as RunSummary;
-  } catch {
-    return {
-      ok: false,
-      reasons: [
-        `No baseline at ${BASELINE_PATH}. Run without --gate first; once you trust the result, copy the latest run JSON to baseline.json.`,
-      ],
-    };
-  }
-
-  const reasons: string[] = [];
-  const dims: Array<keyof RunSummary["passRate"]> = ["hallucination", "socratic", "grounded", "all"];
-  for (const dim of dims) {
-    const drop = baseline.passRate[dim] - summary.passRate[dim];
-    if (drop > PASS_RATE_DROP_THRESHOLD) {
-      reasons.push(
-        `Pass-rate on '${dim}' dropped ${(drop * 100).toFixed(1)}pp (baseline ${(baseline.passRate[dim] * 100).toFixed(1)}% → now ${(summary.passRate[dim] * 100).toFixed(1)}%); threshold is ${(PASS_RATE_DROP_THRESHOLD * 100).toFixed(0)}pp.`,
-      );
-    }
-  }
-  // Phase A — A4: gate the posture dimensions too. Pre-A4 baselines
-  // don't carry posturePassRate — skip with a warning until the
-  // baseline is refreshed (the gate must not fail on a schema gap).
-  if (baseline.posturePassRate) {
-    const pDims: Array<keyof RunSummary["posturePassRate"]> = [
-      "tryFirst",
-      "noFullAnswer",
-      "engagesLearner",
-      "all",
-    ];
-    for (const dim of pDims) {
-      const drop = baseline.posturePassRate[dim] - summary.posturePassRate[dim];
-      if (drop > PASS_RATE_DROP_THRESHOLD) {
-        reasons.push(
-          `Posture pass-rate on '${dim}' dropped ${(drop * 100).toFixed(1)}pp (baseline ${(baseline.posturePassRate[dim] * 100).toFixed(1)}% → now ${(summary.posturePassRate[dim] * 100).toFixed(1)}%); threshold is ${(PASS_RATE_DROP_THRESHOLD * 100).toFixed(0)}pp.`,
-        );
-      }
-    }
-  } else {
-    console.warn(
-      "[eval] baseline has no posturePassRate (pre-A4 baseline) — posture gate skipped; refresh baseline.json from the latest run to arm it.",
-    );
-  }
-  return { ok: reasons.length === 0, reasons };
 }
 
 async function main(): Promise<void> {
-  const argv = process.argv.slice(2);
-  const { gate, limit } = parseArgs(argv);
+  const {
+    gate,
+    limit,
+    ids,
+    tutorModel,
+    judgeModel,
+    productionRouting,
+  } = parseArgs(process.argv.slice(2));
   checkProdGuard();
-  const apiKey = getEvalApiKey();
-
-  console.log(`[eval] loading ${GOLDEN_SET_PATH}`);
-  let prompts = await loadGoldenSet();
-  if (limit !== null) {
-    prompts = prompts.slice(0, limit);
-    console.log(`[eval] --limit ${limit} → running first ${prompts.length} prompts`);
+  const apiKey = getApiKey();
+  const dataset = await loadDataset();
+  const prompts = ids !== null
+    ? dataset.prompts.filter((prompt) => ids.includes(prompt.id))
+    : limit === null
+      ? dataset.prompts
+      : dataset.prompts.slice(0, limit);
+  if (ids !== null && prompts.length !== new Set(ids).size) {
+    const found = new Set(prompts.map((prompt) => prompt.id));
+    throw new Error(`unknown eval case(s): ${ids.filter((id) => !found.has(id)).join(", ")}`);
   }
-  console.log(`[eval] running ${prompts.length} prompts against ${TUTOR_MODEL}, judge=gpt-4.1-mini`);
-
+  const tutorConfiguration = productionRouting
+    ? { kind: "production-routing" as const }
+    : { kind: "single" as const, model: tutorModel };
+  const tutorConfigurationLabel = productionRouting
+    ? PLATFORM_TUTOR_ROUTING_POLICY_VERSION
+    : tutorModel;
+  console.log(
+    `[eval-v2] ${prompts.length}/${dataset.prompts.length} cases, tutor=${tutorConfigurationLabel}, judge=${judgeModel}`,
+  );
   const results: PromptResult[] = [];
-  let i = 0;
-  for (const p of prompts) {
-    i += 1;
-    process.stdout.write(`[eval] ${i}/${prompts.length} ${p.id} (${p.intent}) ... `);
-    const r = await runPrompt(p, apiKey);
-    if (r.errorMessage) {
-      process.stdout.write(`ERROR: ${r.errorMessage}\n`);
-    } else {
-      const tag = r.allPass ? "PASS" : "FAIL";
-      process.stdout.write(`${tag} (h=${r.hallucinationPass ? "Y" : "N"} s=${r.socraticPass ? "Y" : "N"} g=${r.groundedPass ? "Y" : "N"} | posture=${r.posture.allPass ? "Y" : "N"})\n`);
-    }
-    results.push(r);
+  for (const [index, prompt] of prompts.entries()) {
+    process.stdout.write(`[eval-v2] ${index + 1}/${prompts.length} ${prompt.id} ... `);
+    const result = await runPrompt(prompt, apiKey, tutorConfiguration, judgeModel);
+    results.push(result);
+    const state = result.errorMessage
+      ? `ERROR ${result.errorMessage}`
+      : result.deterministicPass && result.helpfulCorrectPass && result.posturePass
+        ? "PASS"
+        : `FAIL deterministic=${result.deterministicPass} helpful=${result.helpfulCorrectPass} posture=${result.posturePass}`;
+    process.stdout.write(`${state}\n`);
   }
-
-  const summary = aggregate(results);
-
+  const versions = await sourceVersions();
+  const artifact: RunArtifact = {
+    timestamp: new Date().toISOString(),
+    tutorModel: tutorConfigurationLabel,
+    judgeModel,
+    routingPolicyVersion: productionRouting
+      ? PLATFORM_TUTOR_ROUTING_POLICY_VERSION
+      : null,
+    tutorModels: [...new Set(results.map((result) => result.tutorModel))].sort(),
+    datasetVersion: EVAL_DATASET_VERSION,
+    datasetFingerprint: dataset.fingerprint,
+    evaluatorVersion: EVAL_EVALUATOR_VERSION,
+    expectedCaseIds: dataset.prompts.map((prompt) => prompt.id),
+    ...versions,
+    totalCases: results.length,
+    errored: results.filter((result) => result.errorMessage).length,
+    deterministicFailures: results.filter((result) => !result.deterministicPass).length,
+    rates: summarizeRates(results),
+    results,
+  };
   await fs.mkdir(RUNS_DIR, { recursive: true });
-  const runFile = path.join(RUNS_DIR, `${summary.timestamp.replace(/[:.]/g, "-")}.json`);
-  await fs.writeFile(runFile, JSON.stringify(summary, null, 2), "utf8");
-  console.log(`\n[eval] run written: ${runFile}`);
-
-  console.log(
-    `[eval] succeeded ${summary.succeeded}/${summary.totalPrompts}, errored ${summary.errored}`,
+  const runFile = path.join(
+    RUNS_DIR,
+    `${artifact.timestamp.replace(/[:.]/g, "-")}-v2.json`,
   );
-  console.log(
-    `[eval] pass rates: hallucination=${(summary.passRate.hallucination * 100).toFixed(1)}% socratic=${(summary.passRate.socratic * 100).toFixed(1)}% grounded=${(summary.passRate.grounded * 100).toFixed(1)}% all=${(summary.passRate.all * 100).toFixed(1)}%`,
-  );
-  console.log(
-    `[eval] posture:    tryFirst=${(summary.posturePassRate.tryFirst * 100).toFixed(1)}% noFullAnswer=${(summary.posturePassRate.noFullAnswer * 100).toFixed(1)}% engagesLearner=${(summary.posturePassRate.engagesLearner * 100).toFixed(1)}% all=${(summary.posturePassRate.all * 100).toFixed(1)}%`,
-  );
-  for (const [intent, cell] of Object.entries(summary.byIntent)) {
-    console.log(
-      `[eval]   ${intent}: ${cell.passAll}/${cell.count} (${(cell.passRate * 100).toFixed(1)}%)`,
-    );
-  }
+  await fs.writeFile(runFile, JSON.stringify(artifact, null, 2), "utf8");
+  console.log(`[eval-v2] artifact ${runFile}`);
+  console.log(`[eval-v2] rates ${JSON.stringify(artifact.rates)}`);
 
   if (gate) {
-    const cmp = await compareAgainstBaseline(summary);
-    if (!cmp.ok) {
-      console.error("\n[eval] GATE FAILED:");
-      for (const r of cmp.reasons) console.error(`  - ${r}`);
-      process.exit(1);
+    const baseline = JSON.parse(await fs.readFile(BASELINE_PATH, "utf8")) as EvalBaselineV2;
+    const outcome = evaluateGate(artifact, baseline);
+    if (!outcome.ok) {
+      console.error("[eval-v2] GATE FAILED");
+      for (const reason of outcome.reasons) console.error(`  - ${reason}`);
+      process.exitCode = 1;
+      return;
     }
-    console.log("\n[eval] gate OK — pass rates within threshold.");
+    console.log("[eval-v2] GATE PASSED");
   }
 }
 
-// Suppress harmless ExperimentalWarning about ES modules + require under tsx.
 process.removeAllListeners("warning");
-
-main().catch((err) => {
-  console.error(`[eval] fatal: ${(err as Error).message}`);
-  process.exit(2);
+void main().catch((err) => {
+  console.error(`[eval-v2] fatal: ${err instanceof Error ? err.message : String(err)}`);
+  process.exitCode = 2;
 });

@@ -28,6 +28,7 @@ import {
 import { mockAllAI } from "../fixtures/aiMocks";
 import { loadProfile, markOnboardingDone } from "../fixtures/profiles";
 import { setMonacoValue, waitForMonacoReady } from "../fixtures/monaco";
+import { criticalTest } from "../fixtures/testMetadata";
 import * as S from "../utils/selectors";
 import { expectStdoutContains } from "../utils/assertions";
 
@@ -240,6 +241,13 @@ test.describe("multi-tab session coherence", () => {
 
   test(
     "two tabs get distinct sessionIds; each tab's runs stay in its own output panel",
+    criticalTest({
+      risk: "p0",
+      owner: "platform",
+      browsers: ["chromium"],
+      devices: ["desktop"],
+      quarantine: { state: "none" },
+    }),
     async ({ page }, testInfo) => {
       // Watch POST /api/session responses on each tab to capture the
       // sessionId the backend handed out. Install BEFORE the navigation so

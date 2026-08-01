@@ -64,6 +64,9 @@ export function ReadVignette() {
         }}
         className="rounded-lg border border-border-soft/70 bg-bg/60 p-4 font-mono text-[12.5px] leading-[1.65] text-ink/90 sm:text-[13.5px]"
       >
+        <p className="mb-2 font-sans text-xs font-semibold uppercase tracking-[0.15em] text-faint">
+          Example learner · Maya
+        </p>
         {CODE_LINES.map((line, i) => (
           <div key={i} className="whitespace-pre">
             {tokenize(line).map((seg, j) => (

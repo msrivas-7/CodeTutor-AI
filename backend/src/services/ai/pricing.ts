@@ -7,19 +7,22 @@
 // Bump PRICE_VERSION whenever PRICES_USD_PER_MILLION changes. The ledger's
 // partial indexes are independent of version, so no migration is needed.
 //
-// Fail-loud on unknown models: the server-side allowlist in the credential
-// resolver prevents the /summarize or /ask paths from ever reaching OpenAI
-// with a non-nano model under funding_source='platform'. If we ever extend
-// the allowlist, this table must be extended first — a thrown error here is
-// the canary that enforces it.
+// Fail-loud on unknown models. The public request allowlist and this internal
+// price table are intentionally separate: browsers may request only Nano on
+// the platform credential, while the server may route an evaluated intent to
+// another priced model. A thrown error here is the canary that prevents a new
+// internal route from becoming unmetered.
 
-export const PRICE_VERSION = 1;
+export const PRICE_VERSION = 2;
 
 const PRICES_USD_PER_MILLION: Record<string, { input: number; output: number }> = {
   // gpt-4.1-nano: $0.10/M input + $0.40/M output (public pricing, April 2026).
   // Average tutor exchange at 3K input + 1K output ≈ $0.0007/call; the free
   // tier's cost math in the plan is pegged to these numbers.
   "gpt-4.1-nano": { input: 0.10, output: 0.40 },
+  // gpt-4.1-mini: $0.40/M input + $1.60/M output. B3 permits this only
+  // for server-classified check-ins that passed the independent model gate.
+  "gpt-4.1-mini": { input: 0.40, output: 1.60 },
 };
 
 export interface PriceResult {
@@ -52,9 +55,10 @@ export function priceUsd(
 }
 
 export function isPlatformAllowedModel(model: string): boolean {
-  return Object.prototype.hasOwnProperty.call(PRICES_USD_PER_MILLION, model);
+  return (PLATFORM_ALLOWED_MODELS as readonly string[]).includes(model);
 }
 
-// The one model the platform credential is allowed to call. Used by the
-// credential resolver's response shape and by the route-layer model gate.
+// Models accepted from an untrusted client for a platform-funded request.
+// Internal routing models MUST NOT be added here: doing so would let a browser
+// select the more expensive model directly and bypass the intent gate.
 export const PLATFORM_ALLOWED_MODELS = ["gpt-4.1-nano"] as const;

@@ -1,4 +1,4 @@
-import type { AIMessage, EditorSelection, Persona, ProjectFile, RunResult } from "./provider.js";
+import type { AIMessage, EditorSelection, Persona, ProjectFile, RunResult, TutorStage } from "./provider.js";
 import type { Language } from "../execution/commands.js";
 import { TUTOR_CORE_PROMPT } from "./prompts/coreRules.js";
 import { PERSONA_BLOCK } from "./prompts/persona.js";
@@ -23,6 +23,7 @@ export interface GuidedSystemPromptOptions {
   runsSinceLastTurn?: number;
   editsSinceLastTurn?: number;
   persona?: Persona;
+  tutorStage?: TutorStage;
 }
 
 export function buildGuidedSystemPrompt(
@@ -36,6 +37,7 @@ export function buildGuidedSystemPrompt(
     question,
     runsSinceLastTurn: opts.runsSinceLastTurn,
     editsSinceLastTurn: opts.editsSinceLastTurn,
+    tutorStage: opts.tutorStage,
   });
   const lessonBlock = buildLessonContextBlock(lessonContext);
   const personaBlock = opts.persona ? PERSONA_BLOCK[opts.persona] : null;

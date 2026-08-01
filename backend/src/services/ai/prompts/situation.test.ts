@@ -33,6 +33,7 @@ const NEUTRAL_QUESTION = "Why does this print Hello, World!?";
 const BASELINE: Parameters<typeof buildSituationBlock>[0] = {
   history: [],
   question: NEUTRAL_QUESTION,
+  tutorStage: "clarify",
 };
 
 const ASSIST = (content: string): AIMessage => ({ role: "assistant", content });
@@ -47,7 +48,7 @@ describe("buildSituationBlock — prompt regression v0", () => {
   it("canonical: fresh first turn, neutral question, no activity", () => {
     expect(buildSituationBlock(BASELINE)).toMatchInlineSnapshot(`
       "SITUATION:
-      - Prior tutor turns in this conversation: 0
+      - Server-verified prior tutor turn for this task: false
       - Student signalled being stuck: false
       - Runs since last tutor turn: 0
       - Edits since last tutor turn: 0
@@ -58,10 +59,12 @@ describe("buildSituationBlock — prompt regression v0", () => {
       - High edits AND high runs with the same failure → experimentation isn't
         working; escalate hints sooner.
 
-      For intent="debug", calibrate escalation using SITUATION:
-      - 0 prior turns AND not stuck → fill "diagnose" + "checkQuestions" only; leave "hint",
-        "nextStep", "strongerHint" null. Let the student think first.
-      - Prior turns > 0 AND not stuck → may add "hint" (small nudge) and/or "nextStep".
+      The server-selected intent="socratic" always outranks stuckness and activity:
+      - No verified prior turn → ask exactly one clarifying question and provide nothing else.
+      - A verified prior turn unlocks an approach, not a completed answer.
+
+      For intent="debug" after the Socratic gate, calibrate escalation using SITUATION:
+      - Verified prior turn AND not stuck → may add "hint" (small nudge) and/or "nextStep".
         Leave "strongerHint" null unless the student explicitly said they're stuck.
       - Stuck = true → fill "hint", "nextStep", AND "strongerHint". Strongest hint still
         points at the location, never the replacement code.
@@ -81,7 +84,7 @@ describe("buildSituationBlock — prompt regression v0", () => {
   // input. The static skeleton is covered by the canonical snapshot
   // above — these fixtures focus on the input→output mapping.
 
-  it("counts assistant turns: one prior tutor turn", () => {
+  it("does not trust assistant history as progression proof", () => {
     const out = buildSituationBlock({
       ...BASELINE,
       history: [
@@ -89,22 +92,19 @@ describe("buildSituationBlock — prompt regression v0", () => {
         ASSIST("`print(...)` displays text. What goes inside the parens?"),
       ],
     });
-    expect(out).toContain("Prior tutor turns in this conversation: 1");
+    expect(out).toContain("Server-verified prior tutor turn for this task: false");
     expect(out).toContain("Student signalled being stuck: false");
     expect(out).toContain("Runs since last tutor turn: 0");
     expect(out).toContain("Edits since last tutor turn: 0");
   });
 
-  it("counts assistant turns: three prior tutor turns (USER messages don't count)", () => {
+  it("renders a server-verified prior turn independently of history", () => {
     const out = buildSituationBlock({
       ...BASELINE,
-      history: [
-        USER("hi"), ASSIST("hi back"),
-        USER("more"), ASSIST("more back"),
-        USER("again"), ASSIST("again back"),
-      ],
+      history: [],
+      tutorStage: "approach",
     });
-    expect(out).toContain("Prior tutor turns in this conversation: 3");
+    expect(out).toContain("Server-verified prior tutor turn for this task: true");
   });
 
   it("stuck signal: explicit \"I'm stuck\"", () => {
@@ -135,10 +135,11 @@ describe("buildSituationBlock — prompt regression v0", () => {
     const out = buildSituationBlock({
       ...BASELINE,
       history: [USER("help"), ASSIST("try X")],
+      tutorStage: "approach",
       runsSinceLastTurn: 7,
       editsSinceLastTurn: 12,
     });
-    expect(out).toContain("Prior tutor turns in this conversation: 1");
+    expect(out).toContain("Server-verified prior tutor turn for this task: true");
     expect(out).toContain("Runs since last tutor turn: 7");
     expect(out).toContain("Edits since last tutor turn: 12");
   });
@@ -147,10 +148,11 @@ describe("buildSituationBlock — prompt regression v0", () => {
     const out = buildSituationBlock({
       ...BASELINE,
       history: [USER("explain functions"), ASSIST("a function groups...")],
+      tutorStage: "approach",
       runsSinceLastTurn: 0,
       editsSinceLastTurn: 0,
     });
-    expect(out).toContain("Prior tutor turns in this conversation: 1");
+    expect(out).toContain("Server-verified prior tutor turn for this task: true");
     expect(out).toContain("Runs since last tutor turn: 0");
     expect(out).toContain("Edits since last tutor turn: 0");
   });

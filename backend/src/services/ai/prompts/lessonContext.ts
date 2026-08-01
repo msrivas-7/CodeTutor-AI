@@ -1,11 +1,11 @@
-import { commandFor, type Language } from "../../execution/commands.js";
-import type { CompletionRule, FunctionTestSpec } from "../../../schema/lessonRuleSchema.js";
-
-export type { CompletionRule, FunctionTestSpec };
+import type { Language } from "../../execution/commands.js";
 
 export interface LessonContext {
   courseId: string;
   lessonId: string;
+  // Retained after canonical resolution so progression proofs can bind to a
+  // specific practice task instead of treating the whole lesson as one task.
+  exerciseId: string | null;
   lessonTitle: string;
   // The language the lesson is authored in. Drives the default entry file
   // when a completion rule omits `file`, and is echoed back to the tutor so
@@ -22,7 +22,9 @@ export interface LessonContext {
   // baseVocabulary). Use to scope explanations: anything outside this set + the
   // lesson's own teaches/uses is "future material" and should be avoided.
   priorConcepts: string[];
-  completionRules: CompletionRule[];
+  // Server-projected categories only. Raw validator rules can contain hidden
+  // expected values and never enter the model prompt.
+  completionCriteria: string[];
   studentProgressSummary: string;
   lessonOrder?: number;
   totalLessons?: number;
@@ -33,23 +35,8 @@ function formatTagList(tags: string[]): string {
 }
 
 export function buildLessonContextBlock(ctx: LessonContext): string {
-  const entryFile = commandFor(ctx.language).entrypoint;
   const objectives = ctx.lessonObjectives.map((o) => `  - ${o}`).join("\n");
-  const task = ctx.completionRules
-    .map((r) => {
-      if (r.type === "expected_stdout") return `produce stdout containing "${r.expected}"`;
-      if (r.type === "forbidden_in_stdout") return `avoid producing stdout containing "${r.pattern}"`;
-      if (r.type === "required_file_contains") return `write code in ${r.file ?? entryFile} containing \`${r.pattern}\``;
-      if (r.type === "function_tests") return `define the tested function(s) at module scope so the harness can call them`;
-      // Phase A — A1: the retrieval check is a separate UI gate the
-      // learner answers in their own words; it isn't something the tutor
-      // helps "solve" in the editor. Calling it out as a write-this-code
-      // task (the prior fall-through "pass custom validation") would push
-      // the tutor toward giving away the multiple-choice answer.
-      if (r.type === "retrieval_check") return `answer a short comprehension question after the code is correct (this is a learner-facing check — do NOT reveal the answer)`;
-      return `pass custom validation`;
-    })
-    .join("; and ");
+  const task = ctx.completionCriteria.join("; and ");
 
   const orderInfo =
     ctx.lessonOrder && ctx.totalLessons
@@ -74,5 +61,6 @@ IMPORTANT LESSON RULES:
 - Do not introduce concepts that are NOT listed in "TEACHES", "USES", or "EARLIER lessons" above — those are future material the learner hasn't seen yet.
 - Reference the specific task the student is working on.
 - Guide toward the solution without giving it away.
+- Never reveal or confirm an authored retrieval/comprehension answer, even when the learner asks directly.
 - If the student is stuck, give progressively stronger hints tied to the lesson task.`;
 }

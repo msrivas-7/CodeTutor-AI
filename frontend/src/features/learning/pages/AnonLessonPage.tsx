@@ -12,6 +12,7 @@ import {
   extractNameFromCode,
   hasCinematicSeen,
   markCinematicSeen,
+  readAnonStash,
   writeAnonStash,
 } from "../../anon/anonStash";
 
@@ -80,7 +81,11 @@ export default function AnonLessonPage() {
   // SignupWallDialog state. LessonPage(mode="anon") fires the open via
   // onAnonSave (header "Sign up to save" pill, hint exhaustion) and
   // onAnonNext (LessonCompletePanel "Next lesson" CTA after Check pass).
-  const [wall, setWall] = useState<{ open: boolean; reason: SignupWallReason }>({
+  const [wall, setWall] = useState<{
+    open: boolean;
+    reason: SignupWallReason;
+    initialFirstName?: string;
+  }>({
     open: false,
     reason: "save",
   });
@@ -100,24 +105,40 @@ export default function AnonLessonPage() {
   }>({ open: false, code: "", name: null });
 
   // Phase A — A3 (anon-share unlock): the dialog renders the public
-  // /s/:token URL the server returned. Closing it opens the wall
-  // (reason="share") so the conversion ask still lands AFTER the
-  // share artifact lives.
+  // /s/:token URL the server returned. Closing it returns to the
+  // celebration; the wall opens only from the dialog's explicit save action.
   const [anonShare, setAnonShare] = useState<{
     open: boolean;
     url: string;
   }>({ open: false, url: "" });
   const anonShareTriggerRef = useRef<HTMLElement | null>(null);
-  const postShareWallTimerRef = useRef<number | null>(null);
+  const anonShareDismissCompletionRef = useRef<(() => void) | null>(null);
+  const anonShareDismissFocusPendingRef = useRef(false);
+  const wallDismissFocusPendingRef = useRef(false);
 
-  useEffect(
-    () => () => {
-      if (postShareWallTimerRef.current !== null) {
-        window.clearTimeout(postShareWallTimerRef.current);
-      }
-    },
-    [],
-  );
+  // Restore stacked-dialog focus only after React has committed the upper
+  // layer's removal and Modal has released `inert` from the celebration below.
+  // Scheduling from the click/Escape handler itself races that cleanup in
+  // Firefox; this effect runs in the post-commit phase across engines.
+  useEffect(() => {
+    if (anonShare.open || !anonShareDismissFocusPendingRef.current) return;
+    anonShareDismissFocusPendingRef.current = false;
+    const target = anonShareTriggerRef.current;
+    if (!target?.isConnected) return;
+    target.focus({ preventScroll: true });
+  }, [anonShare.open]);
+
+  useEffect(() => {
+    if (wall.open || !wallDismissFocusPendingRef.current) return;
+    wallDismissFocusPendingRef.current = false;
+    const shareTrigger = anonShareTriggerRef.current;
+    const target = shareTrigger?.isConnected
+      ? shareTrigger
+      : document.querySelector<HTMLElement>("[data-anon-signup-trigger]");
+    if (!target) return;
+    target.focus({ preventScroll: true });
+    anonShareTriggerRef.current = null;
+  }, [wall.open]);
 
   // Phase 27-v2.2 Fix 6 — funnel telemetry: anon_page_view fires at
   // most once per browser session per /try/ visit. Backend hashes the
@@ -155,7 +176,14 @@ export default function AnonLessonPage() {
   // pressure. openWall is the single point that does both — keeps the
   // setWall + telemetry pair atomic.
   const openWall = (reason: SignupWallReason) => {
-    setWall({ open: true, reason });
+    const files = useProjectStore.getState().snapshot();
+    const main = files.find((file) => file.path === "main.py") ?? files[0];
+    const liveName = extractNameFromCode(main?.content ?? "");
+    setWall({
+      open: true,
+      reason,
+      initialFirstName: readAnonStash()?.name ?? liveName ?? undefined,
+    });
     api.postFunnelEvent("anon_wall_opened", reason);
   };
   const onAnonSave = () => openWall("save");
@@ -168,18 +196,24 @@ export default function AnonLessonPage() {
   // BEFORE the wall opens. The share button on the celebration was
   // pivoting straight to the wall (reason="share") — so every share
   // click ate the K-factor moment at peak intent. Now the click
-  // creates a `/s/:token` row, the AnonShareDialog renders the URL
-  // (copy, native share, done), and the wall fires AFTER the dialog
-  // dismisses so the conversion ask still lands.
+    // creates a `/s/:token` row and the AnonShareDialog renders the URL
+    // (copy, native share, done). Signup remains an explicit choice.
   //
   // Failure modes (rate-limit, kill switch, 503): fall back to the
   // wall path silently — same medium-lock as before, no regression.
   // Note: the share gate in LessonPage still hides on practice mode
   // for both authed and anon — this callback only fires for non-
   // practice celebrations.
-  const onAnonShare = (payload: AnonSharePayload) => {
-    anonShareTriggerRef.current =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const onAnonShare = (
+    payload: AnonSharePayload,
+    trigger: HTMLButtonElement,
+    dismissCompletion: () => void,
+  ) => {
+    // Safari/WebKit does not consistently move DOM focus to a button when it
+    // is clicked. Carry the concrete opener through the callback so closing
+    // the stacked dialog always has a durable, cross-browser restore target.
+    anonShareTriggerRef.current = trigger;
+    anonShareDismissCompletionRef.current = dismissCompletion;
     if (!payload.codeSnippet.trim()) {
       // No code typed — shouldn't happen post-celebration, but if it
       // does, fall back to the wall instead of sending a 400.
@@ -209,7 +243,7 @@ export default function AnonLessonPage() {
   // paused framing.
   const onAnonTrialPaused = () => openWall("trial-paused");
 
-  const onAnonNext = () => {
+  const stashCompletedLesson = () => {
     // Read the live code out of the project store at the moment of
     // click — Monaco edits flow through setContent, so this captures
     // whatever the user just had on screen at the celebration moment.
@@ -231,12 +265,15 @@ export default function AnonLessonPage() {
         workspaceCoachDone: true,
       },
     });
+    return { code, parsedName };
+  };
+
+  const onAnonNext = () => {
+    const { code, parsedName } = stashCompletedLesson();
     if (isPhone) {
       // Phase A — A2 device contract: phone learners see the
-      // graduation handoff dialog instead of the wall. Dismissing the
-      // dialog WITHOUT a successful send falls back to the wall via
-      // PhoneGraduationDialog's onFallbackToWall callback so the
-      // funnel still has a conversion lever.
+      // graduation handoff dialog instead of the wall. Its dismiss action
+      // returns to the completed lesson; signup is separately labelled.
       setGraduation({ open: true, code, name: parsedName });
       api.postFunnelEvent("anon_wall_opened", "next-lesson");
       return;
@@ -285,6 +322,7 @@ export default function AnonLessonPage() {
         onAnonExhausted={onAnonExhausted}
         onAnonShare={onAnonShare}
         onAnonTrialPaused={onAnonTrialPaused}
+        onAnonFirstRun={() => api.postFunnelEvent("anon_first_run")}
         onAnonComplete={() => {
           // Phase A — A6: fire-and-forget concept-tag write on the
           // anon-completion beat. The authed-side write at handoff
@@ -295,25 +333,19 @@ export default function AnonLessonPage() {
             courseId: ANON_ALLOWED.courseId,
             lessonId: ANON_ALLOWED.lessonId,
           });
+          api.postFunnelEvent("anon_lesson_completed");
         }}
       />
       <SignupWallDialog
         open={wall.open}
         reason={wall.reason}
+        initialFirstName={wall.initialFirstName}
         onDismiss={() => {
-          const restoreTarget =
-            wall.reason === "share" ? anonShareTriggerRef.current : null;
-          setWall({ open: false, reason: wall.reason });
-          if (restoreTarget) {
-            // This wall follows a dismissed share dialog, so the Modal's
-            // immediate previous-focus element belonged to a portal that no
-            // longer exists. Restore to the durable celebration trigger once
-            // the wall's inert cleanup has completed.
-            window.requestAnimationFrame(() => {
-              if (restoreTarget.isConnected) restoreTarget.focus();
-              anonShareTriggerRef.current = null;
-            });
+          if (wall.reason === "share" && anonShareTriggerRef.current) {
+            wallDismissFocusPendingRef.current = true;
+            anonShareDismissCompletionRef.current = null;
           }
+          setWall((current) => ({ ...current, open: false }));
         }}
       />
       {graduation.open && (
@@ -328,17 +360,16 @@ export default function AnonLessonPage() {
         <AnonShareDialog
           url={anonShare.url}
           onDismiss={() => {
-            // Let the share Modal unmount and restore focus to its trigger
-            // before mounting the conversion wall. A zero-delay task gives
-            // React and the Modal cleanup a deterministic commit boundary.
-            // requestAnimationFrame is intentionally avoided here: WebKit can
-            // defer animation frames in headless/background tabs, which used
-            // to leave users with neither dialog nor conversion prompt.
+            anonShareDismissFocusPendingRef.current = true;
+            anonShareDismissCompletionRef.current = null;
             setAnonShare((s) => ({ ...s, open: false }));
-            postShareWallTimerRef.current = window.setTimeout(() => {
-              postShareWallTimerRef.current = null;
-              openWall("share");
-            }, 0);
+          }}
+          onSaveProgress={() => {
+            setAnonShare((s) => ({ ...s, open: false }));
+            anonShareDismissCompletionRef.current?.();
+            anonShareDismissCompletionRef.current = null;
+            stashCompletedLesson();
+            openWall("share");
           }}
         />
       )}

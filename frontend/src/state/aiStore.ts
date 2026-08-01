@@ -7,6 +7,7 @@ import type {
   TokenUsage,
   TutorSections,
 } from "../types";
+import type { ProjectVersion } from "./projectStore";
 import {
   usePreferencesStore,
   setPersona as setPersonaInPrefs,
@@ -26,6 +27,11 @@ import {
 // save/delete go through preferencesStore.saveOpenaiKey / forgetOpenaiKey.
 
 export type ModelsStatus = "idle" | "loading" | "loaded" | "error";
+
+export interface BoundEditorSelection {
+  selection: EditorSelection;
+  project: ProjectVersion;
+}
 
 interface AIState {
   models: AIModel[];
@@ -76,12 +82,16 @@ interface AIState {
   // Cmd+K handler and consumed + cleared by the next ask. `focusComposerNonce`
   // is a monotonic tick the composer watches so it can pull focus after a
   // selection is captured outside the panel.
-  activeSelection: EditorSelection | null;
+  activeSelection: BoundEditorSelection | null;
   focusComposerNonce: number;
 
   // Phase 5 — rolling token usage for the current conversation. Per-turn usage
   // also lives on each AIMessage; this is the aggregate for the header chip.
   sessionUsage: TokenUsage;
+  // Opaque server-signed proof that the first Socratic turn completed for
+  // this exact chat/task. It is cached with the conversation and cannot be
+  // manufactured from browser-owned history.
+  tutorProgressToken: string | null;
 
   setModels: (models: AIModel[]) => void;
   setModelsStatus: (status: ModelsStatus, error?: string | null) => void;
@@ -96,7 +106,8 @@ interface AIState {
   commitSummary: (summary: string, throughIndex: number) => void;
   setSummarizing: (on: boolean) => void;
 
-  setActiveSelection: (sel: EditorSelection | null) => void;
+  setActiveSelection: (sel: BoundEditorSelection | null) => void;
+  setTutorProgressToken: (token: string | null) => void;
   bumpFocusComposer: () => void;
 
   pushUser: (content: string) => void;
@@ -139,6 +150,7 @@ interface ChatSnapshot {
   conversationSummary: string | null;
   summarizedThrough: number;
   sessionUsage: TokenUsage;
+  tutorProgressToken: string | null;
 }
 
 // P-M4: bound the chat-cache to the 10 most-recently-touched conversations.
@@ -163,9 +175,9 @@ function touchChat(key: string, snap: ChatSnapshot): void {
 }
 
 function saveChatToCache(get: () => AIState): void {
-  const { chatContext, history, conversationSummary, summarizedThrough, sessionUsage } = get();
+  const { chatContext, history, conversationSummary, summarizedThrough, sessionUsage, tutorProgressToken } = get();
   if (!chatContext) return;
-  touchChat(chatContext, { history, conversationSummary, summarizedThrough, sessionUsage });
+  touchChat(chatContext, { history, conversationSummary, summarizedThrough, sessionUsage, tutorProgressToken });
 }
 
 export const useAIStore = create<AIState>((set, get) => ({
@@ -195,6 +207,7 @@ export const useAIStore = create<AIState>((set, get) => ({
   activeSelection: null,
   focusComposerNonce: 0,
   sessionUsage: { inputTokens: 0, outputTokens: 0 },
+  tutorProgressToken: null,
 
   chatContext: null,
 
@@ -228,6 +241,10 @@ export const useAIStore = create<AIState>((set, get) => ({
   setSummarizing: (on) => set({ summarizing: on }),
 
   setActiveSelection: (sel) => set({ activeSelection: sel }),
+  setTutorProgressToken: (token) => {
+    set({ tutorProgressToken: token });
+    saveChatToCache(get);
+  },
   bumpFocusComposer: () => set((s) => ({ focusComposerNonce: s.focusComposerNonce + 1 })),
 
   pushUser: (content) => {
@@ -289,6 +306,7 @@ export const useAIStore = create<AIState>((set, get) => ({
       summarizing: false,
       activeSelection: null,
       sessionUsage: { inputTokens: 0, outputTokens: 0 },
+      tutorProgressToken: null,
     });
     if (ctx) chatCache.delete(ctx);
   },
@@ -314,6 +332,7 @@ export const useAIStore = create<AIState>((set, get) => ({
       activeSelection: null,
       focusComposerNonce: 0,
       sessionUsage: { inputTokens: 0, outputTokens: 0 },
+      tutorProgressToken: null,
       chatContext: null,
     });
   },
@@ -326,6 +345,7 @@ export const useAIStore = create<AIState>((set, get) => ({
         conversationSummary: state.conversationSummary,
         summarizedThrough: state.summarizedThrough,
         sessionUsage: state.sessionUsage,
+        tutorProgressToken: state.tutorProgressToken,
       });
     }
 
@@ -341,6 +361,7 @@ export const useAIStore = create<AIState>((set, get) => ({
 
     set({
       chatContext: contextKey,
+      asking: false,
       history: saved?.history ?? [],
       conversationSummary: saved?.conversationSummary ?? null,
       summarizedThrough: saved?.summarizedThrough ?? 0,
@@ -351,7 +372,9 @@ export const useAIStore = create<AIState>((set, get) => ({
       runsSinceLastTurn: 0,
       editsSinceLastTurn: 0,
       activeSelection: null,
+      pendingAsk: null,
       sessionUsage: saved?.sessionUsage ?? { inputTokens: 0, outputTokens: 0 },
+      tutorProgressToken: saved?.tutorProgressToken ?? null,
     });
   },
 }));

@@ -1,113 +1,202 @@
-// Phase A — A4: fabricated-API regex post-pass detector.
-import { describe, expect, it } from "vitest";
-import { detectSuspectApis } from "./suspectApi.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { aiPlatformAbuseSignals } from "../metrics.js";
+import {
+  SUSPECT_API_DETECTOR_VERSION,
+  detectSuspectApis,
+  flagSuspectApis,
+} from "./suspectApi.js";
 
 const noFiles: Array<{ path: string; content: string }> = [];
 
-describe("detectSuspectApis — python", () => {
-  it("passes a clean stdlib-only response", () => {
-    const out = detectSuspectApis({
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe("detectSuspectApis — Python", () => {
+  it("passes runtime calls and symbols from learner files", () => {
+    expect(detectSuspectApis({
       responseText:
-        'Try running `print(len(name))` — what does `name.upper()` give you?',
-      userFiles: [{ path: "main.py", content: 'name = "Maya"\nprint(name)' }],
+        'Try `print(len(name))` and compare it with `name.upper()` and `greet()`.',
+      userFiles: [{
+        path: "main.py",
+        content: 'name = "Maya"\ndef greet():\n    print(name)',
+      }],
       userQuestion: "why is my name lowercase",
       language: "python",
-    });
-    expect(out).toEqual([]);
+    })).toEqual([]);
   });
 
-  it("flags a fabricated function presented as code", () => {
-    const out = detectSuspectApis({
-      responseText:
-        "You can use `python_autoformat(name)` to fix the casing.",
+  it("flags snake_case and camelCase fabrications", () => {
+    expect(detectSuspectApis({
+      responseText: "Use `python_autoformat(name)` and then `formatName(name)`.",
       userFiles: noFiles,
       userQuestion: "how do I fix casing",
       language: "python",
-    });
-    // snake_case heuristic skips multi-word names; use a single-word fake
-    const out2 = detectSuspectApis({
-      responseText: "Just call `stringify(name)` — Python does the rest.",
-      userFiles: noFiles,
-      userQuestion: "how do I fix casing",
-      language: "python",
-    });
-    expect(out).toEqual([]); // snake_case → assumed learner-defined
-    expect(out2).toEqual(["stringify"]);
+    })).toEqual(["python_autoformat", "formatName"]);
   });
 
-  it("allows symbols defined in the user's own files", () => {
-    const out = detectSuspectApis({
-      responseText: "What happens when you call `greet()` twice?",
-      userFiles: [
-        { path: "main.py", content: "def greet():\n    print('hi')" },
-      ],
-      userQuestion: "my function prints once",
-      language: "python",
-    });
-    expect(out).toEqual([]);
-  });
-
-  it("allows symbols the learner named in their question", () => {
-    const out = detectSuspectApis({
-      responseText: "`fetchall()` runs the query — where do you call it?",
+  it("does not trust a symbol merely because the learner asked about it", () => {
+    expect(detectSuspectApis({
+      responseText: "`fetchall()` runs the query for you.",
       userFiles: noFiles,
       userQuestion: "when should I use fetchall in sqlite",
       language: "python",
-    });
-    expect(out).toEqual([]);
+    })).toEqual(["fetchall"]);
   });
 
-  it("scans fenced blocks as well as inline code", () => {
-    const out = detectSuspectApis({
-      responseText: "Here is the idea:\n```python\nresult = quickparse(data)\n```",
+  it("allows a helper concretely defined in the same tutor snippet", () => {
+    expect(detectSuspectApis({
+      responseText:
+        "```python\ndef get_total(values):\n    return sum(values)\n\nprint(get_total([1, 2]))\n```",
+      userFiles: noFiles,
+      userQuestion: "how could I organize this",
+      language: "python",
+    })).toEqual([]);
+  });
+
+  it("still scans dependencies used by a newly defined helper", () => {
+    expect(detectSuspectApis({
+      responseText:
+        "```python\ndef get_total(values):\n    return magic_sum(values)\n\nget_total([1, 2])\n```",
+      userFiles: noFiles,
+      userQuestion: "how could I organize this",
+      language: "python",
+    })).toEqual(["magic_sum"]);
+  });
+
+  it("flags an invented receiver even when the method name is standard", () => {
+    expect(detectSuspectApis({
+      responseText: "Try `formatter.print(name)`.",
+      userFiles: noFiles,
+      userQuestion: "format this",
+      language: "python",
+    })).toEqual(["formatter"]);
+  });
+
+  it("scans fenced and inline code but ignores prose-only calls", () => {
+    expect(detectSuspectApis({
+      responseText:
+        "Some tools mention magicparse(x), but Python does not.\n```python\nquickparse(data)\n``` Then `finishparse(data)`.",
       userFiles: noFiles,
       userQuestion: "parse this",
       language: "python",
-    });
-    expect(out).toEqual(["quickparse"]);
-  });
-
-  it("ignores prose-only mentions (not formatted as code)", () => {
-    const out = detectSuspectApis({
-      responseText:
-        "Some languages have a magicparse(x) helper but Python does not.",
-      userFiles: noFiles,
-      userQuestion: "parsing",
-      language: "python",
-    });
-    expect(out).toEqual([]);
+    })).toEqual(["quickparse", "finishparse"]);
   });
 });
 
-describe("detectSuspectApis — javascript", () => {
-  it("passes builtin/prototype methods", () => {
-    const out = detectSuspectApis({
+describe("detectSuspectApis — JavaScript", () => {
+  it("passes runtime/prototype methods and learner symbols", () => {
+    expect(detectSuspectApis({
       responseText:
-        "What does `items.map(x => x * 2)` return before you `console.log(result)`?",
-      userFiles: [{ path: "index.js", content: "const items = [1,2,3];" }],
+        "What does `items.map(x => x * 2)` return before `console.log(result)`?",
+      userFiles: [{
+        path: "index.js",
+        content: "const items = [1, 2, 3]; const result = [];",
+      }],
       userQuestion: "map is confusing",
       language: "javascript",
-    });
-    expect(out).toEqual([]);
+    })).toEqual([]);
   });
 
-  it("flags a fabricated single-word global", () => {
-    const out = detectSuspectApis({
-      responseText: "Use `arrayify(items)` first.",
+  it("flags fabricated globals regardless of identifier style", () => {
+    expect(detectSuspectApis({
+      responseText: "Use `arrayify(items)` and then `sumTotals(items)`.",
       userFiles: noFiles,
       userQuestion: "how do I loop",
       language: "javascript",
-    });
-    expect(out).toEqual(["arrayify"]);
+    })).toEqual(["arrayify", "sumTotals"]);
   });
 
-  it("skips camelCase names (assumed learner-defined)", () => {
-    const out = detectSuspectApis({
-      responseText: "Try writing a `sumTotals()` function yourself first.",
+  it("allows same-snippet function, class, and variable declarations", () => {
+    expect(detectSuspectApis({
+      responseText:
+        "```javascript\nfunction double(value) { return value * 2; }\nclass Box {}\nconst values = [1, 2];\nconsole.log(values.map(double));\nnew Box();\n```",
       userFiles: noFiles,
-      userQuestion: "totals",
+      userQuestion: "show the pieces",
       language: "javascript",
+    })).toEqual([]);
+  });
+
+  it("allows a method concretely defined in the same tutor snippet", () => {
+    expect(detectSuspectApis({
+      responseText:
+        "```javascript\nclass Box {\n  open() { return true; }\n}\nconst box = new Box();\nconsole.log(box.open());\n```",
+      userFiles: noFiles,
+      userQuestion: "how do class methods work",
+      language: "javascript",
+    })).toEqual([]);
+  });
+
+  it("flags an invented receiver with a familiar prototype method", () => {
+    expect(detectSuspectApis({
+      responseText: "Call `collection.map(double)`.",
+      userFiles: [{ path: "index.js", content: "function double(x) { return x * 2; }" }],
+      userQuestion: "map these",
+      language: "javascript",
+    })).toEqual(["collection"]);
+  });
+
+  it("does not flag a fabricated method that the tutor explicitly rejects", () => {
+    expect(detectSuspectApis({
+      responseText:
+        "In JavaScript, arrays do not have a `printAll()` method. Use `items.forEach(console.log)` instead.",
+      userFiles: [{ path: "index.js", content: "const items = [1, 2];" }],
+      userQuestion: "can I call printAll?",
+      language: "javascript",
+    })).toEqual([]);
+  });
+
+  it("still flags a fabricated method when another sentence endorses it", () => {
+    expect(detectSuspectApis({
+      responseText:
+        "Arrays do not have a `printAll()` method. Call `items.printAll()` anyway.",
+      userFiles: [{ path: "index.js", content: "const items = [1, 2];" }],
+      userQuestion: "can I call printAll?",
+      language: "javascript",
+    })).toEqual(["printAll"]);
+  });
+});
+
+describe("flagSuspectApis", () => {
+  it("emits bounded, versioned telemetry without logging learner code", () => {
+    const increment = vi.spyOn(aiPlatformAbuseSignals, "inc").mockImplementation(() => undefined);
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const learnerCode = "const privateValue = 'do-not-log';";
+
+    expect(() => flagSuspectApis({
+      responseText: "Try `fabricatedOne()` and `fabricatedTwo()`.",
+      userFiles: [{ path: "index.js", content: learnerCode }],
+      userQuestion: "help",
+      language: "javascript",
+      route: "ask_stream",
+    })).not.toThrow();
+
+    expect(increment).toHaveBeenCalledWith({ signal: "tutor_suspect_api" });
+    const event = JSON.parse(String(warning.mock.calls[0]?.[0])) as Record<string, unknown>;
+    expect(event).toMatchObject({
+      evt: "tutor_suspect_api",
+      detectorVersion: SUSPECT_API_DETECTOR_VERSION,
+      route: "ask_stream",
+      language: "javascript",
+      symbolCount: 2,
+      symbols: ["fabricatedOne", "fabricatedTwo"],
     });
-    expect(out).toEqual([]);
+    expect(JSON.stringify(event)).not.toContain(learnerCode);
+  });
+
+  it("remains silent for a clean response", () => {
+    const increment = vi.spyOn(aiPlatformAbuseSignals, "inc").mockImplementation(() => undefined);
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    flagSuspectApis({
+      responseText: "Try `console.log(items.length)`.",
+      userFiles: [{ path: "index.js", content: "const items = [];" }],
+      userQuestion: "length?",
+      language: "javascript",
+      route: "ask",
+    });
+
+    expect(increment).not.toHaveBeenCalled();
+    expect(warning).not.toHaveBeenCalled();
   });
 });

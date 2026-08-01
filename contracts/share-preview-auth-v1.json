@@ -1,0 +1,10 @@
+{
+  "version": "codetutor-share-preview-v1",
+  "method": "GET",
+  "canonicalPath": "/api/internal/share-previews/abc234def567",
+  "timestamp": "1770000000",
+  "nonce": "AQIDBAUGBwgJCgsMDQ4PEA",
+  "keyId": "2026-07-a",
+  "secretRecipe": { "kind": "ascending-bytes", "start": 0, "length": 32 },
+  "signatureBase64Url": "ewncOILmetc4mOjJUBFSdcPSOafzRYjoDDnPj9BBvvc"
+}

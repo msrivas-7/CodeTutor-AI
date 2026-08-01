@@ -1,5 +1,7 @@
-import { describe, expect, it } from "vitest";
-import { formatReset } from "./FreeTierPill";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { formatReset, FreeTierPill } from "./FreeTierPill";
 
 // QA-M8: wall-clock phrasing is a learner-facing contract. "resets in Xh Ym"
 // used to be UTC-math and lied to anyone far enough from UTC that the user's
@@ -51,5 +53,48 @@ describe("formatReset", () => {
     const reset = new Date(now.getTime() + 3 * 60 * 60 * 1000 + 15 * 60 * 1000);
     const out = formatReset(reset.toISOString(), now);
     expect(out).not.toMatch(/\d+h \d+m/);
+  });
+});
+
+describe("FreeTierPill rendered state matrix", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function render(remaining: number, cap = 10) {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-30T10:00:00Z"));
+    return renderToStaticMarkup(
+      createElement(FreeTierPill, {
+        remaining,
+        cap,
+        resetAtUtc: "2026-07-30T12:00:00Z",
+      }),
+    );
+  }
+
+  it("renders the normal quota state as one complete polite status", () => {
+    const html = render(8);
+    expect(html).toContain('role="status"');
+    expect(html).toContain('aria-live="polite"');
+    expect(html).toContain('aria-atomic="true"');
+    expect(html).toContain("Free tutor · <span");
+    expect(html).toContain("8/10");
+    expect(html).not.toContain("running low");
+    expect(html).toContain("border-accent/40");
+  });
+
+  it("announces and styles the below-20-percent state without hiding the exact count", () => {
+    const html = render(1);
+    expect(html).toContain("Free tutor · running low · ");
+    expect(html).toContain("1/10");
+    expect(html).toContain("border-warn/40");
+    expect(html).toContain("Free tutor — 1 of 10 questions remaining today");
+  });
+
+  it("keeps exactly-20-percent remaining in the normal state", () => {
+    const html = render(2);
+    expect(html).not.toContain("running low");
+    expect(html).toContain("2/10");
   });
 });

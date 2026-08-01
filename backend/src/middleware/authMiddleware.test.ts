@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import express from "express";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
+import { webcrypto } from "node:crypto";
 import { SignJWT, exportJWK, generateKeyPair } from "jose";
 import { authMiddleware, __resetJwksCacheForTests } from "./authMiddleware.js";
 import { errorHandler } from "./errorHandler.js";
@@ -18,6 +19,26 @@ let authServer: Server;
 let authBase: string;
 const KID = "test-kid";
 const ALG = "ES256";
+
+// `jose` uses the WebCrypto global. Node 20+ exposes it by default, while the
+// production-compatible Node 18 Vitest worker does not consistently do so.
+// Install Node's standards-compatible implementation explicitly so this test
+// exercises JWT behavior instead of depending on a runner-specific global.
+if (!globalThis.crypto) {
+  Object.defineProperty(globalThis, "crypto", {
+    configurable: true,
+    value: webcrypto,
+  });
+}
+const nodeCryptoKey = (
+  webcrypto as unknown as { CryptoKey?: typeof CryptoKey }
+).CryptoKey;
+if (!globalThis.CryptoKey && nodeCryptoKey) {
+  Object.defineProperty(globalThis, "CryptoKey", {
+    configurable: true,
+    value: nodeCryptoKey,
+  });
+}
 
 async function startAuthServer(): Promise<void> {
   const app = express();
@@ -101,6 +122,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  if (!authServer) return;
   await new Promise<void>((r) => authServer.close(() => r()));
 });
 

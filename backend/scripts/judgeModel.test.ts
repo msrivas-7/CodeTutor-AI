@@ -103,4 +103,33 @@ describe("gradeRubric", () => {
       }),
     ).rejects.toThrow(/Judge model HTTP 401/);
   });
+
+  it("sends learner context to an independent configurable judge", async () => {
+    let requestBody = "";
+    const fetchImpl: JudgeFetcher = async (_url, init) => {
+      requestBody = init.body;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: "Y" } }] }),
+        text: async () => "",
+      };
+    };
+    await gradeRubric({
+      apiKey: "test",
+      tutorResponse: '{"diagnose":"Looks right"}',
+      rubricQuestion: "The verdict matches the actual code.",
+      evaluationContext: "QUESTION: Is this right?\nCODE:\nprint(name)",
+      judgeModel: "independent-judge",
+      fetchImpl,
+    });
+    const parsed = JSON.parse(requestBody) as {
+      model: string;
+      messages: Array<{ content: string }>;
+    };
+    expect(parsed.model).toBe("independent-judge");
+    expect(parsed.messages[0]?.content).toContain("untrusted evidence");
+    expect(parsed.messages[1]?.content).toContain("print(name)");
+    expect(parsed.messages[1]?.content).toContain("The verdict matches");
+  });
 });

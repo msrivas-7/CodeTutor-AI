@@ -24,6 +24,9 @@ import { SkipToContent } from "../../../components/SkipToContent";
 import { Modal } from "../../../components/Modal";
 import { LessonCompletePanel } from "../components/LessonCompletePanel";
 import { RetrievalCheckPanel } from "../components/RetrievalCheckPanel";
+import { MemoryWarmupCard } from "../components/MemoryWarmupCard";
+import { ContextualGuideBridge } from "../assistance/ContextualGuideBridge";
+import { useContextualGuide } from "../assistance/useContextualGuide";
 import { useSessionLifecycle } from "../../../hooks/useSessionLifecycle";
 import { useAuthStore } from "../../../auth/authStore";
 import { useAIStore } from "../../../state/aiStore";
@@ -42,6 +45,7 @@ import {
 import { useLessonLoader } from "../hooks/useLessonLoader";
 import { useLessonRunner } from "../hooks/useLessonRunner";
 import { useLessonValidator } from "../hooks/useLessonValidator";
+import { useMemoryWarmup } from "../hooks/useMemoryWarmup";
 import { useFirstRunChoreography } from "../../firstRun/useFirstRunChoreography";
 import { resolveFirstName } from "../../firstRun/resolveFirstName";
 import { useFirstRunStore } from "../../firstRun/useFirstRunStore";
@@ -122,8 +126,10 @@ interface LessonPageProps {
    *   the LessonCompletePanel celebration (the "Your first one — Share
    *   it" card). On anon, opening the auth-required ShareDialog would
    *   401-cascade and never produce a working share artifact. The
-   *   callback receives the live, validated lesson evidence so the
-   *   public artifact never invents mastery, time, attempts, or code.
+   *   callback receives the live, validated lesson evidence plus a
+   *   continuation-only completion dismissor. Ordinary share dismissal
+   *   still returns to the celebration; choosing account creation can
+   *   restage onto the lesson before the B5 card opens.
    *
    * onAnonTrialPaused: invoked when GuidedTutorPanel's anon stream
    *   returns 503 ANON_LESSON_DISABLED (operator flipped the kill
@@ -134,8 +140,14 @@ interface LessonPageProps {
   onAnonSave?: () => void;
   onAnonNext?: () => void;
   onAnonExhausted?: () => void;
-  onAnonShare?: (payload: AnonSharePayload) => void;
+  onAnonShare?: (
+    payload: AnonSharePayload,
+    trigger: HTMLButtonElement,
+    dismissCompletion: () => void,
+  ) => void;
   onAnonTrialPaused?: () => void;
+  /** Fired once after the first anonymous Run commits a result. */
+  onAnonFirstRun?: () => void;
   /**
    * Phase A — A6 (memory v0): fired EXACTLY ONCE when the celebration
    * mounts on the anon path. AnonLessonPage uses it to fire the
@@ -157,6 +169,7 @@ export default function LessonPage({
   onAnonExhausted,
   onAnonShare,
   onAnonTrialPaused,
+  onAnonFirstRun,
   onAnonComplete,
 }: LessonPageProps = {}) {
   const params = useParams<{
@@ -187,8 +200,12 @@ export default function LessonPage({
   const lessonProgressMap = useProgressStore((s) => s.lessonProgress);
   const hasOpenaiKey = usePreferencesStore((s) => s.hasOpenaiKey);
   const selectedModel = useAIStore((s) => s.selectedModel);
+  const tutorAsking = useAIStore((s) => s.asking);
   const tutorConfigured = !!selectedModel && hasOpenaiKey;
   const keys = useShortcutLabels();
+  const projectRevision = useProjectStore((s) => s.revision);
+  const projectContext = useProjectStore((s) => s.projectContext);
+  const projectPaths = useProjectStore((s) => s.order);
 
   // Practice-mode state sits at the page level so both the loader (for the
   // auto-save key) and the validator (for the check/run/enter-practice
@@ -287,7 +304,7 @@ export default function LessonPage({
     // the runStore could still hold the previous run's output from
     // the learner's last time through — the cinematic promises a
     // fresh moment, so the panel should mirror that.
-    useRunStore.setState({ result: null, error: null });
+    useRunStore.getState().invalidateEvidence();
   }, [isFirstRun, courseId, lessonId, learnerId]);
 
   const loader = useLessonLoader({
@@ -304,6 +321,11 @@ export default function LessonPage({
     // learnerId, nothing to resume from anyway; the force flag also
     // prevents in-memory project-store state from leaking across mounts).
     forceStarter: isFirstRun || mode === "anon",
+  });
+  const memoryWarmup = useMemoryWarmup({
+    enabled: mode === "authed" && learnerId !== null,
+    courseId: courseId ?? "",
+    lessonId: lessonId ?? "",
   });
 
   // Phase 21A: chat context key includes practice scope so lesson↔practice
@@ -440,6 +462,13 @@ export default function LessonPage({
   // is itself idempotent, but the network call is wasted on
   // dismiss/re-mount cycles.
   const anonCompleteFiredRef = useRef(false);
+  const anonFirstRunFiredRef = useRef(false);
+  useEffect(() => {
+    if (mode !== "anon" || !runner.hasRun || anonFirstRunFiredRef.current) return;
+    anonFirstRunFiredRef.current = true;
+    onAnonFirstRun?.();
+  }, [mode, runner.hasRun, onAnonFirstRun]);
+
   useEffect(() => {
     if (mode !== "anon") return;
     if (!validator.showComplete) return;
@@ -520,6 +549,42 @@ export default function LessonPage({
   // who clears mid-narration wipes the scripted turns and breaks
   // the flow. After "done" the product is fully back to normal.
   const tutorClearHidden = isChoreographed && firstRunStep !== "done";
+
+  // Phase 1B ships behind an explicit internal-preview URL flag. This keeps
+  // the proof deployable and browser-testable without exposing an unvalidated
+  // intervention to normal learners. The later rollout phase owns changing
+  // the default, not lesson content or this deterministic policy.
+  const contextualGuideEnabled =
+    searchParams.get("contextGuide") === "1" &&
+    !practiceMode &&
+    !!loader.lesson?.assistanceMoves;
+  const historicalLessonComplete =
+    courseId && lessonId
+      ? lessonProgressMap[`${courseId}/${lessonId}`]?.status === "completed"
+      : false;
+  const contextualGuide = useContextualGuide({
+    enabled: contextualGuideEnabled,
+    courseId: courseId ?? "",
+    lessonId: lessonId ?? "",
+    projectContext,
+    projectRevision,
+    projectPaths,
+    result: runner.lastResult,
+    assistanceMoves: loader.lesson?.assistanceMoves,
+    historicallyComplete: historicalLessonComplete,
+    blockingAttention:
+      memoryWarmup.blocking ||
+      validator.showComplete ||
+      (isChoreographed && firstRunStep !== "done"),
+    learnerRequestedTutor: tutorAsking,
+  });
+  const contextualGuideVisible =
+    contextualGuide.decision.kind === "result_bridge";
+  const viewContextualError = () => {
+    const evidence = contextualGuide.context.latestRunEvidence;
+    if (!evidence) return;
+    useProjectStore.getState().revealAt(evidence.path, evidence.line);
+  };
 
   // Phase 27-v2.1 — the praise turn parses the learner's typed name
   // out of the editor buffer (option d in the v2 plan). Authed users
@@ -632,6 +697,7 @@ export default function LessonPage({
     failedVisibleTests: validator.failedVisibleTests,
     failedHiddenTests: validator.failedHiddenTests,
     passedVisibleTests: validator.passedVisibleTests,
+    suppressed: contextualGuideVisible,
   };
 
   const nextLessonId = (() => {
@@ -686,7 +752,7 @@ export default function LessonPage({
         <FirstRunHandoffReveal runBtnRef={layout.runBtnRef} />
       )}
       <SkipToContent />
-      <header className="relative z-30 flex items-center gap-3 border-b border-border bg-panel/80 px-4 py-2 backdrop-blur">
+      <header className="relative z-30 flex min-w-0 items-center gap-1 border-b border-border bg-panel/80 px-2 py-2 backdrop-blur sm:gap-3 sm:px-4">
         <button
           onClick={() => nav(`/learn/course/${courseId}`)}
           className="inline-flex min-h-11 min-w-11 items-center justify-center rounded px-2 text-xs text-muted transition hover:bg-elevated hover:text-ink"
@@ -694,8 +760,8 @@ export default function LessonPage({
         >
           ← Back
         </button>
-        <Wordmark size="sm" />
-        <span className="h-4 w-px bg-border" aria-hidden="true" />
+        <Wordmark size="sm" className="shrink-0 whitespace-nowrap" />
+        <span className="hidden h-4 w-px bg-border sm:block" aria-hidden="true" />
         {/* Phase B: lesson title hoisted to the instructions panel
             at Fraunces 28px. The header now carries only a thin
             breadcrumb — the lesson order — so the chrome doesn't
@@ -703,7 +769,7 @@ export default function LessonPage({
             full title still appears in the document title (set
             elsewhere) and the meta. */}
         {lesson ? (
-          <span className="truncate text-[11px] text-muted">
+          <span className="hidden truncate text-[11px] text-muted sm:inline">
             Lesson {lesson.order}
           </span>
         ) : (
@@ -750,15 +816,15 @@ export default function LessonPage({
             </div>
           </div>
         )}
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex min-w-0 shrink-0 items-center gap-1 sm:gap-2">
           {runner.sessionPhase === "starting" && (
-            <span className="flex items-center gap-1 text-[10px] text-muted">
+            <span className="hidden items-center gap-1 text-[10px] text-muted sm:flex">
               <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-muted" />
-              Starting session…
+              Getting your workspace ready…
             </span>
           )}
           {runner.sessionPhase === "reconnecting" && (
-            <span className="text-[10px] text-yellow-300">Reconnecting…</span>
+            <span className="hidden text-[10px] text-yellow-300 sm:inline">Reconnecting…</span>
           )}
           {lp && (() => {
             const practiceTotal = lesson?.practiceExercises?.length ?? 0;
@@ -770,7 +836,7 @@ export default function LessonPage({
                 : 0;
             const practiceAllDone = practiceTotal > 0 && practiceDone === practiceTotal;
             return (
-              <div className="flex items-center overflow-hidden rounded-full">
+              <div className="hidden items-center overflow-hidden rounded-full sm:flex">
                 <span
                   className={`px-2.5 py-0.5 text-[10px] font-medium ${
                     lp.status === "completed"
@@ -870,6 +936,7 @@ export default function LessonPage({
             <button
               type="button"
               onClick={() => onAnonSave?.()}
+              data-anon-signup-trigger
               className="inline-flex min-h-11 items-center justify-center rounded-lg border border-border px-3 text-xs font-medium text-muted transition hover:bg-elevated hover:text-ink"
             >
               Sign up to save
@@ -929,6 +996,19 @@ export default function LessonPage({
             Setting your stage…
           </p>
         </div>
+      ) : lesson && memoryWarmup.blocking ? (
+        <MemoryWarmupCard
+          loading={memoryWarmup.loading}
+          warmup={memoryWarmup.warmup}
+          answer={memoryWarmup.answer}
+          submitting={memoryWarmup.submitting}
+          loadError={memoryWarmup.loadError}
+          answerError={memoryWarmup.answerError}
+          onSubmit={memoryWarmup.submitChoice}
+          onRetryAnswer={memoryWarmup.retryAnswer}
+          onRetryLoad={memoryWarmup.retryLoad}
+          onContinue={memoryWarmup.continueToLesson}
+        />
       ) : lesson && isPhoneNative ? (
         /* ---- Phone-native 390px lesson (Phase A — A2 part 2) ----
            One vertical reading flow: mission → code → output → tutor,
@@ -957,10 +1037,12 @@ export default function LessonPage({
                   currentIndex={practiceIndex}
                   completedIds={lp?.practiceCompletedIds ?? []}
                   validation={validator.practiceValidation}
+                  saveError={validator.practiceSaveError}
                   onSelectExercise={validator.handleSelectPracticeExercise}
                   onExitPractice={validator.handleExitPractice}
                   onNextExercise={validator.handleNextPracticeExercise}
                   onResetPractice={validator.handleResetPracticeProgress}
+                  onHintReveal={validator.handlePracticeHintReveal}
                 />
               ) : (
                 <LessonInstructionsPanel
@@ -1003,7 +1085,7 @@ export default function LessonPage({
                     <div className="p-4 text-sm text-muted">Loading editor…</div>
                   }
                 >
-                  <MonacoPane />
+                  <MonacoPane attentionTarget={contextualGuide.target} />
                 </Suspense>
               </div>
             </section>
@@ -1012,7 +1094,7 @@ export default function LessonPage({
               aria-label="Program output"
               className="h-[20vh] min-h-[110px] border-b border-border"
             >
-              <OutputPanel />
+              <OutputPanel suppressErrorEncouragement={contextualGuideVisible} />
             </section>
             {/* 4 — Tutor. Always open on phone (A2 part 1's default-open
                 promise) — a full-width section, not a side drawer. */}
@@ -1046,6 +1128,13 @@ export default function LessonPage({
               in ABOVE the bar so a failed check never hides the retry
               affordance. */}
           <div className="shrink-0 border-t border-border bg-panel/95 backdrop-blur">
+            <ContextualGuideBridge
+              compact
+              decision={contextualGuide.decision}
+              evidence={contextualGuide.context.latestRunEvidence}
+              onViewError={viewContextualError}
+              onDismiss={contextualGuide.dismiss}
+            />
             {!practiceMode
               && validator.validation
               && !validator.validation.passed
@@ -1063,7 +1152,7 @@ export default function LessonPage({
                 )}
               </div>
             )}
-            {runner.hasStderr && !runner.running && (
+            {runner.hasStderr && !runner.running && !contextualGuideVisible && (
               <div className="mx-3 mt-2">
                 <button
                   onClick={runner.handleExplainError}
@@ -1191,10 +1280,12 @@ export default function LessonPage({
                 currentIndex={practiceIndex}
                 completedIds={lp?.practiceCompletedIds ?? []}
                 validation={validator.practiceValidation}
+                saveError={validator.practiceSaveError}
                 onSelectExercise={validator.handleSelectPracticeExercise}
                 onExitPractice={validator.handleExitPractice}
                 onNextExercise={validator.handleNextPracticeExercise}
                 onResetPractice={validator.handleResetPracticeProgress}
+                onHintReveal={validator.handlePracticeHintReveal}
                 onCollapse={() => layout.setInstrCollapsed(true)}
               />
             ) : (
@@ -1261,7 +1352,7 @@ export default function LessonPage({
             <EditorTabs mode="lesson" />
             <div className="min-h-0 flex-1">
               <Suspense fallback={<div className="p-4 text-sm text-muted">Loading editor…</div>}>
-                <MonacoPane />
+                <MonacoPane attentionTarget={contextualGuide.target} />
               </Suspense>
             </div>
             <Splitter
@@ -1276,7 +1367,7 @@ export default function LessonPage({
               style={{ height: layout.outputH }}
               className="min-h-0 shrink-0"
             >
-              <OutputPanel />
+              <OutputPanel suppressErrorEncouragement={contextualGuideVisible} />
             </div>
 
             {/* Run toolbar — 2 rows: primary actions (+ overflow menu),
@@ -1286,6 +1377,12 @@ export default function LessonPage({
                 a menu). Reset LESSON (destructive — wipes progress)
                 stays behind ⋯ so beginners can't trigger it accidentally. */}
             <div className="border-t border-border bg-panel/80">
+              <ContextualGuideBridge
+                decision={contextualGuide.decision}
+                evidence={contextualGuide.context.latestRunEvidence}
+                onViewError={viewContextualError}
+                onDismiss={contextualGuide.dismiss}
+              />
               {/* Row 1 — Primary actions */}
               <div className="flex items-center gap-2 px-4 py-1.5">
                 <span className="relative inline-flex">
@@ -1411,7 +1508,7 @@ export default function LessonPage({
                     (diagnostic) to "What went wrong?" (a question a real tutor
                     would ask) — same handler, warmer framing. */}
                 <div className="min-w-0 xl:min-w-[160px]">
-                  {runner.hasStderr && !runner.running && (
+                  {runner.hasStderr && !runner.running && !contextualGuideVisible && (
                     <button
                       onClick={runner.handleExplainError}
                       // Phase B: tone fix. Copy says "let me help" but
@@ -1802,7 +1899,7 @@ export default function LessonPage({
             practiceMode
               ? undefined
               : mode === "anon"
-                ? () => {
+                ? (trigger) => {
                     const files = useProjectStore.getState().snapshot();
                     const entry = LANGUAGE_ENTRYPOINT[lesson.language];
                     const code =
@@ -1812,17 +1909,21 @@ export default function LessonPage({
                     const completedSnapshot = lp
                       ? { ...lp, status: "completed" as const }
                       : null;
-                    onAnonShare?.({
-                      mastery:
-                        computeMastery(completedSnapshot, lesson)?.level ?? "okay",
-                      timeSpentMs: Math.max(0, lp?.timeSpentMs ?? 0),
-                      // A validated completion represents at least one
-                      // Check, even if a stale local snapshot has not yet
-                      // observed the store update from that click.
-                      attemptCount: Math.max(1, lp?.attemptCount ?? 0),
-                      codeSnippet: code,
-                      displayName: extractNameFromCode(code),
-                    });
+                    onAnonShare?.(
+                      {
+                        mastery:
+                          computeMastery(completedSnapshot, lesson)?.level ?? "okay",
+                        timeSpentMs: Math.max(0, lp?.timeSpentMs ?? 0),
+                        // A validated completion represents at least one
+                        // Check, even if a stale local snapshot has not yet
+                        // observed the store update from that click.
+                        attemptCount: Math.max(1, lp?.attemptCount ?? 0),
+                        codeSnippet: code,
+                        displayName: extractNameFromCode(code),
+                      },
+                      trigger,
+                      () => validator.setShowComplete(false),
+                    );
                   }
                 : !!lp?.lastCode?.[LANGUAGE_ENTRYPOINT[lesson.language]]?.trim()
                   ? () => setShareOpen(true)

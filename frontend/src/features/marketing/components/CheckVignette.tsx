@@ -58,6 +58,9 @@ export function CheckVignette() {
           the print() call that runs cleanly once str(points) is in
           place above. */}
       <div className="space-y-2">
+        <p className="text-xs font-semibold uppercase tracking-[0.15em] text-faint">
+          Example result · Maya
+        </p>
         <div className="flex items-center gap-3">
           <div className="flex-1 rounded-lg border border-border-soft/70 bg-bg/60 px-3 py-2 font-mono text-[13.5px] leading-[1.6] text-ink/90 sm:text-[14.5px]">
             <span style={{ color: "rgb(192 132 252)" }}>print</span>

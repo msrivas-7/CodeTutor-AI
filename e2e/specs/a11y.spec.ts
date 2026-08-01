@@ -18,6 +18,7 @@ import { expect, test } from "../fixtures/auth";
 import { mockAllAI } from "../fixtures/aiMocks";
 import { waitForMonacoReady } from "../fixtures/monaco";
 import { loadProfile, markOnboardingDone } from "../fixtures/profiles";
+import { criticalTest } from "../fixtures/testMetadata";
 
 // Rules we intentionally skip and why:
 //   - "region": the top-level app shell wraps everything in <main>; axe
@@ -42,7 +43,16 @@ function severeViolations(results: { violations: Array<{ impact?: string | null;
   );
 }
 
-test.describe("a11y — axe-core regression fence", () => {
+test.describe(
+  "a11y — axe-core regression fence",
+  criticalTest({
+    risk: "p1",
+    owner: "accessibility",
+    browsers: ["chromium"],
+    devices: ["desktop"],
+    quarantine: { state: "none" },
+  }),
+  () => {
   test.beforeEach(async ({ page }) => {
     await mockAllAI(page);
     await markOnboardingDone(page);
@@ -129,4 +139,5 @@ test.describe("a11y — axe-core regression fence", () => {
       expect(severe).toEqual([]);
     });
   }
-});
+  },
+);

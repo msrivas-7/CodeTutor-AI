@@ -9,13 +9,14 @@ import type { LessonContext } from "./prompts/lessonContext.js";
 const lessonCtx: LessonContext = {
   courseId: "python-fundamentals",
   lessonId: "hello-world",
+  exerciseId: null,
   lessonTitle: "Hello, World!",
   language: "python",
   lessonObjectives: ["Write and run a Python program", "Use print()"],
   teachesConceptTags: ["print", "strings"],
   usesConceptTags: ["syntax"],
   priorConcepts: [],
-  completionRules: [{ type: "expected_stdout", expected: "Hello, World!" }],
+  completionCriteria: ["produce the lesson's required output"],
   studentProgressSummary: "attempt 2, 1 run, 0 hints",
   lessonOrder: 1,
   totalLessons: 10,
@@ -59,9 +60,9 @@ describe("buildGuidedSystemPrompt", () => {
   });
 
   it("includes SITUATION block", () => {
-    const prompt = buildGuidedSystemPrompt(oneTurn, "stuck", lessonCtx);
+    const prompt = buildGuidedSystemPrompt(oneTurn, "stuck", lessonCtx, { tutorStage: "approach" });
     expect(prompt).toMatch(/SITUATION:/);
-    expect(prompt).toMatch(/Prior tutor turns in this conversation: 1/);
+    expect(prompt).toMatch(/Server-verified prior tutor turn for this task: true/);
   });
 
   it("includes persona block when specified", () => {
@@ -90,7 +91,7 @@ describe("buildGuidedSystemPrompt", () => {
 
   it("includes completion criteria description", () => {
     const prompt = buildGuidedSystemPrompt(noHistory, "hi", lessonCtx);
-    expect(prompt).toMatch(/produce stdout containing "Hello, World!"/);
+    expect(prompt).toMatch(/produce the lesson's required output/);
   });
 
   it("includes student progress summary", () => {

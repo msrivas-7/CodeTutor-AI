@@ -1,0 +1,282 @@
+{
+  "version": 1,
+  "lessons": {
+    "comprehensions": [
+      {
+        "id": "remember-list-comprehension",
+        "version": 1,
+        "conceptTags": [
+          "comprehension",
+          "for",
+          "list"
+        ],
+        "prompt": "Which expression builds a list containing twice each number in `nums`?",
+        "choices": [
+          "[n * 2 for n in nums]",
+          "[for n in nums: n * 2]",
+          "nums * 2",
+          "list(n * 2)"
+        ],
+        "correctIndex": 0,
+        "explanation": "A list comprehension puts the output expression first, followed by the `for` clause."
+      }
+    ],
+    "lambdas-and-higher-order": [
+      {
+        "id": "remember-sorted-key",
+        "version": 1,
+        "conceptTags": [
+          "sorting",
+          "return"
+        ],
+        "prompt": "What does a `key` function give `sorted(...)`?",
+        "choices": [
+          "A new filename",
+          "A comparison value for each item",
+          "The number of loop iterations",
+          "A printed heading"
+        ],
+        "correctIndex": 1,
+        "explanation": "`sorted` calls the key function for each item and orders items by the values it returns."
+      }
+    ],
+    "error-handling": [
+      {
+        "id": "remember-int-conversion",
+        "version": 1,
+        "conceptTags": [
+          "int",
+          "strings"
+        ],
+        "prompt": "What can happen when Python evaluates `int(\"hello\")`?",
+        "choices": [
+          "It returns 0",
+          "It returns the text unchanged",
+          "It raises an error because the text is not a number",
+          "It prints `hello`"
+        ],
+        "correctIndex": 2,
+        "explanation": "`int(...)` can convert numeric text, but non-numeric text raises a conversion error."
+      }
+    ],
+    "file-io": [
+      {
+        "id": "remember-try-except",
+        "version": 1,
+        "conceptTags": [
+          "try",
+          "except",
+          "exception"
+        ],
+        "prompt": "What is the purpose of an `except` block?",
+        "choices": [
+          "Run before the `try` block",
+          "Repeat the `try` block forever",
+          "Turn every value into text",
+          "Handle a matching error raised in the `try` block"
+        ],
+        "correctIndex": 3,
+        "explanation": "If matching code in `try` raises an exception, Python transfers control to the corresponding `except` block."
+      }
+    ],
+    "modules-and-imports": [
+      {
+        "id": "remember-function-return",
+        "version": 1,
+        "conceptTags": [
+          "def",
+          "return"
+        ],
+        "prompt": "What does a returned value let code outside a function do?",
+        "choices": [
+          "Store or reuse the function's result",
+          "Change the function's name",
+          "Skip importing the function",
+          "Read every local variable directly"
+        ],
+        "correctIndex": 0,
+        "explanation": "`return` exposes one result to the caller while the function's local details stay inside the function."
+      }
+    ],
+    "oop-classes": [
+      {
+        "id": "remember-function-parameters",
+        "version": 1,
+        "conceptTags": [
+          "def",
+          "return"
+        ],
+        "prompt": "Why does a function define parameters?",
+        "choices": [
+          "To print every local variable",
+          "To receive values supplied by its caller",
+          "To import another file",
+          "To repeat the function automatically"
+        ],
+        "correctIndex": 1,
+        "explanation": "Parameters are names that receive the argument values provided when the function is called."
+      }
+    ],
+    "oop-inheritance": [
+      {
+        "id": "remember-init-self",
+        "version": 1,
+        "conceptTags": [
+          "class",
+          "__init__",
+          "self",
+          "instance-attribute"
+        ],
+        "prompt": "Inside `__init__`, what does `self.name = name` create?",
+        "choices": [
+          "A new class named `name`",
+          "A global variable only",
+          "A `name` attribute on this instance",
+          "A method call"
+        ],
+        "correctIndex": 2,
+        "explanation": "`self` refers to the instance being initialized, so `self.name` stores data on that instance."
+      }
+    ],
+    "dunder-methods": [
+      {
+        "id": "remember-instance-method",
+        "version": 1,
+        "conceptTags": [
+          "class",
+          "self",
+          "instance-method"
+        ],
+        "prompt": "Why is `self` the first parameter of an instance method?",
+        "choices": [
+          "It imports the class",
+          "It counts every instance",
+          "It makes the method static",
+          "It gives the method access to the current instance"
+        ],
+        "correctIndex": 3,
+        "explanation": "Python passes the current instance as `self`, letting the method read or change that instance's attributes."
+      }
+    ],
+    "iterators-and-generators": [
+      {
+        "id": "remember-range-loop",
+        "version": 1,
+        "conceptTags": [
+          "for",
+          "iteration",
+          "range"
+        ],
+        "prompt": "What values does `range(3)` provide to a `for` loop?",
+        "choices": [
+          "0, 1, 2",
+          "1, 2, 3",
+          "0, 1, 2, 3",
+          "Only 3"
+        ],
+        "correctIndex": 0,
+        "explanation": "`range(3)` starts at 0 and stops before 3, producing 0, 1, and 2."
+      }
+    ],
+    "decorators": [
+      {
+        "id": "remember-function-values",
+        "version": 1,
+        "conceptTags": [
+          "lambda",
+          "def",
+          "return"
+        ],
+        "prompt": "In Python, what can you do with a function value?",
+        "choices": [
+          "Only call it immediately",
+          "Store it in a variable or pass it to another function",
+          "Only print its source code",
+          "Convert it into a class automatically"
+        ],
+        "correctIndex": 1,
+        "explanation": "Functions are values: code can store, pass, and return them just like other objects."
+      }
+    ],
+    "testing-basics": [
+      {
+        "id": "remember-raise",
+        "version": 1,
+        "conceptTags": [
+          "raise",
+          "try",
+          "except"
+        ],
+        "prompt": "What does `raise ValueError(\"bad input\")` do?",
+        "choices": [
+          "Returns the text `bad input`",
+          "Prints a warning and continues",
+          "Creates and signals an exception",
+          "Imports `ValueError`"
+        ],
+        "correctIndex": 2,
+        "explanation": "`raise` signals an exception. A matching caller can handle it with `try` and `except`."
+      }
+    ],
+    "regex-basics": [
+      {
+        "id": "remember-import-name",
+        "version": 1,
+        "conceptTags": [
+          "import",
+          "module"
+        ],
+        "prompt": "After `import math`, how do you call the module's `sqrt` function?",
+        "choices": [
+          "sqrt.math(9)",
+          "import.sqrt(9)",
+          "math[\"sqrt\"] = 9",
+          "math.sqrt(9)"
+        ],
+        "correctIndex": 3,
+        "explanation": "A normal module import keeps the module name, so its members are accessed through `math.<name>`."
+      }
+    ],
+    "capstone-csv-analyzer": [
+      {
+        "id": "remember-with-open",
+        "version": 1,
+        "conceptTags": [
+          "with",
+          "open",
+          "dict"
+        ],
+        "prompt": "Why is `with open(path) as file:` useful in a data-processing program?",
+        "choices": [
+          "It closes the file reliably when the block ends",
+          "It converts every row to a dictionary automatically",
+          "It prevents all file errors",
+          "It sorts the file before reading"
+        ],
+        "correctIndex": 0,
+        "explanation": "The context manager owns cleanup, so the file is closed even when the block exits because of an error."
+      }
+    ],
+    "capstone-mini-orm": [
+      {
+        "id": "remember-instance-storage",
+        "version": 1,
+        "conceptTags": [
+          "class",
+          "__init__",
+          "self",
+          "instance-attribute"
+        ],
+        "prompt": "Where should one model object's field values usually live?",
+        "choices": [
+          "Only in the class name",
+          "On that instance, such as `self.fields`",
+          "Inside `print`",
+          "In the loop variable of every caller"
+        ],
+        "correctIndex": 1,
+        "explanation": "Instance attributes keep each object's state separate while methods provide shared behavior."
+      }
+    ]
+  }
+}

@@ -1,4 +1,5 @@
 import { db } from "./client.js";
+import { listUserEvalSamples } from "./aiEvalSamples.js";
 
 // P-3 scaffold: user-owned data export. One entry point queries every table
 // the learner owns a row in, strips non-user fields (encrypted secrets,
@@ -11,6 +12,10 @@ import { db } from "./client.js";
 //     `has_openai_key` boolean flag is included so the user knows whether
 //     they set one. Nonce is dropped to match.
 //   * `course_progress` / `lesson_progress` / `editor_project` — full rows.
+//   * concept exposure/evidence + retrieval episodes/answers — full learner-
+//     owned evidence history. Canonical correct answers are not stored in
+//     these tables, so the export contains only the learner's choice and the
+//     server-checked outcome.
 //   * `ai_usage_ledger` — tokens, cost, model, route, created_at only.
 //     Rows do not store prompts or outputs; the schema ensures this.
 //   * `paid_access_interest` / `ai_platform_denylist` — full row if present,
@@ -37,6 +42,11 @@ export interface UserExportBundle {
   paidAccessInterest: Record<string, unknown> | null;
   platformDenylist: Record<string, unknown> | null;
   feedback: Array<Record<string, unknown>>;
+  conceptExposure: Array<Record<string, unknown>>;
+  conceptEvidence: Array<Record<string, unknown>>;
+  retrievalEpisodes: Array<Record<string, unknown>>;
+  retrievalAnswers: Array<Record<string, unknown>>;
+  aiEvalSamples: Array<Record<string, unknown>>;
 }
 
 export async function buildUserExport(userId: string): Promise<UserExportBundle> {
@@ -54,6 +64,11 @@ export async function buildUserExport(userId: string): Promise<UserExportBundle>
     paidRows,
     denyRows,
     feedbackRows,
+    conceptExposureRows,
+    conceptEvidenceRows,
+    retrievalEpisodeRows,
+    retrievalAnswerRows,
+    aiEvalSampleRows,
   ] = await Promise.all([
     sql`
       SELECT persona, openai_model, theme, welcome_done, workspace_coach_done,
@@ -109,6 +124,36 @@ export async function buildUserExport(userId: string): Promise<UserExportBundle>
        WHERE user_id = ${userId}
        ORDER BY created_at DESC
     `,
+    sql`
+      SELECT concept_tag, course_id, lesson_id, event_type, occurred_at
+        FROM public.learner_concept_ledger
+       WHERE user_id = ${userId}
+       ORDER BY occurred_at DESC
+    `,
+    sql`
+      SELECT concept_tag, course_id, lesson_id, activity_id, evidence_type,
+             evidence_source, attempt_count, hint_count, time_spent_ms,
+             model_assisted, evidence_day, occurred_at
+        FROM public.learner_concept_evidence
+       WHERE user_id = ${userId}
+       ORDER BY occurred_at DESC
+    `,
+    sql`
+      SELECT id, course_id, lesson_id, warmup_id, warmup_version,
+             concept_tags, status, attempt_count, first_attempt_correct,
+             created_at, updated_at, completed_at
+        FROM public.learner_retrieval_episodes
+       WHERE user_id = ${userId}
+       ORDER BY created_at DESC
+    `,
+    sql`
+      SELECT request_id, episode_id, choice_index, is_correct,
+             attempt_number, answered_at
+        FROM public.learner_retrieval_answers
+       WHERE user_id = ${userId}
+       ORDER BY answered_at DESC
+    `,
+    listUserEvalSamples(userId),
   ]);
 
   return {
@@ -122,5 +167,10 @@ export async function buildUserExport(userId: string): Promise<UserExportBundle>
     paidAccessInterest: (paidRows[0] as Record<string, unknown>) ?? null,
     platformDenylist: (denyRows[0] as Record<string, unknown>) ?? null,
     feedback: feedbackRows as Array<Record<string, unknown>>,
+    conceptExposure: conceptExposureRows as Array<Record<string, unknown>>,
+    conceptEvidence: conceptEvidenceRows as Array<Record<string, unknown>>,
+    retrievalEpisodes: retrievalEpisodeRows as Array<Record<string, unknown>>,
+    retrievalAnswers: retrievalAnswerRows as Array<Record<string, unknown>>,
+    aiEvalSamples: aiEvalSampleRows,
   };
 }

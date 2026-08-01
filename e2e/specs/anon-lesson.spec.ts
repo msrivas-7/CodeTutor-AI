@@ -80,6 +80,53 @@ test.describe("anonymous lesson 1 (Phase 27 §3a)", () => {
     await expect(page.getByLabel(/ask the tutor/i)).toBeVisible();
   });
 
+  test("anonymous tutor preserves the same Socratic first-turn proof flow", async ({ page }) => {
+    await page.addInitScript(() => {
+      window.sessionStorage.setItem("codetutor.anonChoreographyDone", "1");
+    });
+    const requestBodies: Array<Record<string, unknown>> = [];
+    let requestIndex = 0;
+    await page.route("**/api/anon/ai/ask/stream", async (route) => {
+      requestBodies.push(route.request().postDataJSON() as Record<string, unknown>);
+      const first = requestIndex++ === 0;
+      const sections = first
+        ? {
+            intent: "socratic",
+            checkQuestions: ["What did you expect to happen?"],
+          }
+        : {
+            intent: "debug",
+            summary: "Now compare that expectation with the output you observed.",
+            nextStep: "Inspect the first place where those two differ.",
+          };
+      await route.fulfill({
+        status: 200,
+        contentType: "text/event-stream",
+        body: `data: ${JSON.stringify({
+          done: true,
+          raw: JSON.stringify(sections),
+          sections,
+          tutorProgressToken: "mock-anon-signed-progress-proof",
+        })}\n\n`,
+      });
+    });
+
+    await page.goto(ALLOWED_PATH);
+    const textarea = page.getByLabel(/ask the tutor/i);
+    await expect(textarea).toBeEnabled({ timeout: 10_000 });
+    await textarea.fill("Just solve this for me.");
+    await textarea.press("Enter");
+    await expect(page.getByText("What did you expect to happen?")).toBeVisible();
+    expect(requestBodies[0].tutorProgressToken).toBeUndefined();
+
+    await textarea.fill("I expected a greeting, but the output was empty.");
+    await textarea.press("Enter");
+    await expect(page.getByText(/now compare that expectation/i)).toBeVisible();
+    expect(requestBodies[1].tutorProgressToken).toBe(
+      "mock-anon-signed-progress-proof",
+    );
+  });
+
   test("clicking 'Sign up to save' (header) opens the signup wall", async ({
     page,
   }) => {
@@ -102,12 +149,13 @@ test.describe("anonymous lesson 1 (Phase 27 §3a)", () => {
     await expect(dialog).toBeVisible();
     await expect(dialog.getByText(/Sign up to save\?/i)).toBeVisible();
 
-    // CTA links to /signup; "Not yet" dismisses. Phase 27-v2.2 audit
-    // F1: CTA copy changed from "Sign up for free" to "Sign up — start
-    // free" to leave room for a future paid tier.
+    // B5 keeps account creation inside the continuation card. The request
+    // cannot fire until the learner explicitly completes and submits it.
+    await expect(dialog.getByLabel(/first name/i)).toBeVisible();
+    await expect(dialog.getByLabel(/email/i)).toBeVisible();
     await expect(
-      dialog.getByRole("link", { name: /sign up — start free/i }),
-    ).toHaveAttribute("href", "/signup");
+      dialog.getByRole("button", { name: /create account & start saving/i }),
+    ).toBeDisabled();
 
     // Esc dismisses (parity with every other modal in the product).
     await page.keyboard.press("Escape");
@@ -254,7 +302,7 @@ test.describe("first-run cinematic on /try/ (Phase 27-v2 Day 2)", () => {
     // useEffect to fire if it were going to.
     await page.waitForTimeout(1500);
     // No coach bubble on phone. CoachBubble has role="dialog"; the
-    // SignupWallDialog has role="alertdialog" so they don't collide.
+    // SignupWallDialog also uses role="dialog", but it is not open here.
     await expect(page.locator('[role="dialog"]')).toHaveCount(0);
     // The "Lesson Instructions" coach-step title text is also a strong
     // canary — if it appears anywhere, the coach mounted.
@@ -497,14 +545,14 @@ test.describe("marketing CTA → anonymous lesson (Phase 27 §3a sub-commit 3)",
     });
   });
 
-  test("anonymous visitor on / sees the 'Or try a lesson — no signup →' link pointing at /try/...", async ({
+  test("anonymous visitor on / sees the primary try-first-lesson link pointing at /try/...", async ({
     page,
   }) => {
     await page.goto("/");
     // Wait for hydration so the loading-state spacer resolves.
     const tryLink = page.getByRole("link", {
-      name: /or try a lesson — no signup/i,
-    });
+      name: /try your first lesson/i,
+    }).first();
     await expect(tryLink).toBeVisible({ timeout: 10_000 });
     await expect(tryLink).toHaveAttribute(
       "href",
@@ -517,7 +565,8 @@ test.describe("marketing CTA → anonymous lesson (Phase 27 §3a sub-commit 3)",
   }) => {
     await page.goto("/");
     await page
-      .getByRole("link", { name: /or try a lesson — no signup/i })
+      .getByRole("link", { name: /try your first lesson/i })
+      .first()
       .click();
     await expect(page).toHaveURL(new RegExp(ALLOWED_PATH.replace(/\//g, "\\/")), {
       timeout: 15_000,

@@ -1,11 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { AuthShell } from "../auth/AuthShell";
-import { OAuthButtons } from "../auth/OAuthButtons";
-import { PasswordField } from "../auth/PasswordField";
+import { PasswordSignupForm } from "../auth/PasswordSignupForm";
 import { ResendEmailButton } from "../auth/ResendEmailButton";
-import { isValidEmail } from "../auth/emailValidation";
-import { isPasswordAcceptable } from "../auth/passwordPolicy";
 import { useAuthStore } from "../auth/authStore";
 import { api } from "../api/client";
 import { readAnonStash } from "../features/anon/anonStash";
@@ -14,38 +11,18 @@ export default function SignupPage() {
   const nav = useNavigate();
   // Phase 20-P0 #9: when account-deletion finishes we redirect here with
   // `?deleted=1` so the user gets a gentle confirmation rather than a
-  // silent bounce. The banner auto-hides if they start typing — it's not
-  // a blocker, just a closure signal.
+  // silent bounce. It is a status message, not a blocker.
   const [searchParams] = useSearchParams();
   const justDeleted = searchParams.get("deleted") === "1";
   const user = useAuthStore((s) => s.user);
   const loading = useAuthStore((s) => s.loading);
-  const signUpWithPassword = useAuthStore((s) => s.signUpWithPassword);
   const resendSignupConfirmation = useAuthStore(
     (s) => s.resendSignupConfirmation,
   );
-  const clearError = useAuthStore((s) => s.clearError);
-
-  // Phase 22B: lastName dropped — the cinematic onboarding is firstName-only
-  // (3 spoken beats: hero "Hello, ${firstName}", greet, praise) and lastName
-  // appeared nowhere else in the experience. Cutting one field is a
-  // measurable conversion win on the signup wall without any narrative loss.
-  const [firstName, setFirstName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirm, setConfirm] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const [sent, setSent] = useState(false);
+  const [sentEmail, setSentEmail] = useState<string | null>(null);
   // Phase 27-v2.2 audit fix A3 follow-on (staff-pm P2-2): guard against
   // StrictMode / re-render double-fire of anon_signup_completed.
   const signupEventFiredRef = useRef(false);
-
-  // Display-name validation is intentionally permissive: names contain
-  // apostrophes (O'Neil), hyphens (Anne-Marie), spaces, and non-Latin
-  // characters. We check only length + non-emptiness; everything stricter
-  // tends to reject real people.
-  const firstNameValid = firstName.trim().length > 0 && firstName.trim().length <= 50;
 
   // If the Supabase project has email confirmation OFF (local dev default),
   // signUp completes with a live session attached. The auth subscriber will
@@ -53,7 +30,7 @@ export default function SignupPage() {
   // on the app — not parked on the "check your email" panel.
   // Phase 22C: in-product home is /start, not / (marketing page is /).
   useEffect(() => {
-    if (sent && user) {
+    if (sentEmail && user) {
       // Phase 27-v2.2 Fix 6 — funnel telemetry: anon_signup_completed
       // fires when a freshly-created user has the anon-trial stash
       // present (Maya converted from /try/). Direct-signup users (no
@@ -68,49 +45,17 @@ export default function SignupPage() {
       }
       nav("/start", { replace: true });
     }
-  }, [sent, user, nav]);
+  }, [sentEmail, user, nav]);
 
-  if (!loading && user && !sent) {
+  if (!loading && user && !sentEmail) {
     return <Navigate to="/start" replace />;
   }
 
-  const emailValid = email === "" || isValidEmail(email);
-  const confirmValid = confirm === "" || confirm === password;
-  const passwordOk = isPasswordAcceptable(password);
-  const canSubmit =
-    firstNameValid &&
-    isValidEmail(email) &&
-    passwordOk &&
-    password === confirm &&
-    !submitting;
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErr(null);
-    clearError();
-    setSubmitting(true);
-    try {
-      await signUpWithPassword(email.trim(), password, {
-        firstName: firstName.trim(),
-      });
-      // Supabase default: email confirmation is ON. Show the check-inbox
-      // panel rather than bouncing to `/` (which they can't access yet).
-      // If the project has confirmations disabled, onAuthStateChange will
-      // fire with a session immediately and RequireAuth flow takes over —
-      // the `sent` screen is then just a momentary message.
-      setSent(true);
-    } catch (e) {
-      setErr((e as Error).message);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  if (sent) {
+  if (sentEmail) {
     return (
       <AuthShell
         title="Check your email"
-        subtitle={`We sent a confirmation link to ${email}. Click it to activate your account.`}
+        subtitle={`We sent a confirmation link to ${sentEmail}. Click it to activate your account.`}
         footer={
           <button
             type="button"
@@ -127,7 +72,7 @@ export default function SignupPage() {
         </p>
         <div className="mt-3 flex justify-center">
           <ResendEmailButton
-            onResend={() => resendSignupConfirmation(email.trim())}
+            onResend={() => resendSignupConfirmation(sentEmail)}
             label="confirmation email"
           />
         </div>
@@ -156,121 +101,10 @@ export default function SignupPage() {
           Your account has been deleted.
         </div>
       )}
-      {/* Phase 20-P1: OAuth above the long signup form — most users finish
-          sign-up in 2 clicks via GitHub/Google and never see this form. */}
-      <OAuthButtons disabled={submitting} />
-
-      <div className="my-4 flex items-center gap-2 text-[10px] text-faint">
-        <div className="h-px flex-1 bg-border" />
-        <span>or sign up with email</span>
-        <div className="h-px flex-1 bg-border" />
-      </div>
-
-      <form onSubmit={handleSubmit} className="flex flex-col gap-3" noValidate>
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor="firstName" className="text-sm font-medium text-muted">
-            First name
-          </label>
-          <input
-            id="firstName"
-            type="text"
-            value={firstName}
-            onChange={(e) => setFirstName(e.target.value)}
-            placeholder="Ada"
-            autoComplete="given-name"
-            maxLength={50}
-            aria-invalid={firstName.length > 0 && !firstNameValid}
-            disabled={submitting}
-            className="min-h-11 rounded-md border border-border bg-elevated px-3 py-2 text-base text-ink transition placeholder:text-faint focus:border-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60 aria-[invalid=true]:border-danger/60 sm:text-sm"
-          />
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor="email" className="text-sm font-medium text-muted">
-            Email
-          </label>
-          <input
-            id="email"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@example.com"
-            autoComplete="email"
-            aria-invalid={!emailValid}
-            disabled={submitting}
-            className="min-h-11 rounded-md border border-border bg-elevated px-3 py-2 text-base text-ink transition placeholder:text-faint focus:border-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60 aria-[invalid=true]:border-danger/60 sm:text-sm"
-          />
-          {!emailValid && (
-            <span className="text-sm text-danger">
-              Enter a valid email address.
-            </span>
-          )}
-        </div>
-
-        <PasswordField
-          id="password"
-          label="Password"
-          value={password}
-          onChange={setPassword}
-          autoComplete="new-password"
-          disabled={submitting}
-          showPolicy
-          describedById="password-policy"
-        />
-
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor="confirm" className="text-sm font-medium text-muted">
-            Confirm password
-          </label>
-          <input
-            id="confirm"
-            type="password"
-            value={confirm}
-            onChange={(e) => setConfirm(e.target.value)}
-            autoComplete="new-password"
-            aria-invalid={!confirmValid}
-            disabled={submitting}
-            className="min-h-11 rounded-md border border-border bg-elevated px-3 py-2 text-base text-ink transition focus:border-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60 aria-[invalid=true]:border-danger/60 sm:text-sm"
-          />
-          {!confirmValid && (
-            <span className="text-sm text-danger">
-              Passwords don't match.
-            </span>
-          )}
-          {confirmValid && confirm.length > 0 && confirm === password && (
-            <span className="text-sm text-success">✓ Passwords match</span>
-          )}
-        </div>
-
-        {err && (
-          <div
-            role="alert"
-            className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger"
-          >
-            {err}
-          </div>
-        )}
-
-        <button
-          type="submit"
-          disabled={!canSubmit}
-          aria-busy={submitting}
-          className="min-h-11 rounded-md bg-accent px-4 py-2 text-sm font-semibold text-bg transition hover:bg-accentMuted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:bg-elevated disabled:text-faint"
-        >
-          {submitting ? "Creating account…" : "Create account"}
-        </button>
-      </form>
-      <p className="mt-4 text-center text-sm leading-relaxed text-faint">
-        By creating an account, you agree to the{" "}
-        <Link to="/terms" className="text-muted underline decoration-border underline-offset-2 hover:text-ink">
-          Terms
-        </Link>{" "}
-        and acknowledge the{" "}
-        <Link to="/privacy" className="text-muted underline decoration-border underline-offset-2 hover:text-ink">
-          Privacy notice
-        </Link>
-        .
-      </p>
+      <PasswordSignupForm
+        idPrefix="signup-page"
+        onSubmitted={setSentEmail}
+      />
     </AuthShell>
   );
 }

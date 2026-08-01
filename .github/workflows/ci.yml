@@ -21,7 +21,11 @@ jobs:
         with:
           node-version: '20'
       - name: Test immutable manifest and VM promotion rollback
-        run: node --test .github/scripts/release-manifest.test.mjs .github/scripts/vm-promote-candidate.test.mjs
+        run: node --test .github/scripts/e2e-shadow-evidence.test.mjs .github/scripts/e2e-shard-benchmark.test.mjs .github/scripts/release-manifest.test.mjs .github/scripts/vm-promote-candidate.test.mjs scripts/agent-harness.test.mjs scripts/e2e-shadow-contract.test.mjs scripts/production-dependency-audit.test.mjs
+      - name: Validate agent harness contract
+        run: node scripts/agent-harness.mjs doctor --ci
+      - name: Audit production dependencies
+        run: node scripts/production-dependency-audit.mjs
       - name: Parse promotion scripts
         run: bash -n infra/scripts/vm-promote-candidate.sh
       - name: Validate GitHub Actions workflows
@@ -153,6 +157,12 @@ jobs:
         run: |
           npm ci
           npm test
+          npm run eval:verify-baseline
+          npm run eval:verify-governance
+      - name: Backend — suspect API calibration
+        if: matrix.os == 'ubuntu-latest'
+        working-directory: backend
+        run: npm run eval:suspect-api
       - name: Frontend — install & test
         working-directory: frontend
         run: |

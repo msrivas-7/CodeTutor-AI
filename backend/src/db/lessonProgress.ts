@@ -194,16 +194,14 @@ export async function upsertLessonProgress(
   });
   const result = rowToLesson(rows[0]);
 
-  // Phase A — A6: write concept-tag rows on the completion transition
-  // AND on practice-exercise progress. Fire-and-forget — the user's
-  // completion succeeds regardless of ledger health; failures get
-  // logged but don't propagate. The DB layer (conceptLedger.
-  // writeConceptTags) is idempotent, and the soft cache below saves
-  // the round trips on repeated calls for the same (user, lesson) tuple.
+  // Phase A — A6: write concept-tag rows on the completion transition and on
+  // practice progress. Await the bounded idempotent write before returning so
+  // a successful HTTP response cannot race process shutdown. Ledger failure
+  // still fails open for progress, is logged, and clears the cache for retry.
   const cacheKey = `${userId}/${courseId}/${lessonId}`;
   if (result.status === "completed" && !completedConceptWriteCache.has(cacheKey)) {
     rememberConceptWrite(completedConceptWriteCache, cacheKey);
-    void writeConceptTagsForCompletion(userId, courseId, lessonId, "lesson").catch((err) => {
+    await writeConceptTagsForCompletion(userId, courseId, lessonId, "lesson").catch((err) => {
       completedConceptWriteCache.delete(cacheKey);
       console.error(
         JSON.stringify({
@@ -228,7 +226,7 @@ export async function upsertLessonProgress(
     !practiceConceptWriteCache.has(cacheKey)
   ) {
     rememberConceptWrite(practiceConceptWriteCache, cacheKey);
-    void writeConceptTagsForCompletion(userId, courseId, lessonId, "practice").catch((err) => {
+    await writeConceptTagsForCompletion(userId, courseId, lessonId, "practice").catch((err) => {
       practiceConceptWriteCache.delete(cacheKey);
       console.error(
         JSON.stringify({

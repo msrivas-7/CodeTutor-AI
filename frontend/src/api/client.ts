@@ -12,6 +12,7 @@ export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
 
 import { supabase } from "../auth/supabaseClient";
 import { ApiError } from "./ApiError";
+import { readDistributionAttribution } from "../features/distribution/attribution";
 
 // Read the response body once for an error path, then wrap it in ApiError.
 // We also `console.error` the raw so the detail survives in devtools even
@@ -316,6 +317,62 @@ export interface ServerLessonPatch {
   lastOutput?: string | null;
   practiceCompletedIds?: string[];
   practiceExerciseCode?: Record<string, Record<string, string>>;
+  practiceEvidence?: PracticeEvidencePayload;
+}
+
+export interface PracticeEvidencePayload {
+  exerciseId: string;
+  requestId: string;
+  attemptCount: number;
+  hintCount: number;
+  timeSpentMs: number;
+  modelAssisted: boolean;
+}
+
+export type ConceptMemoryState =
+  | "unseen"
+  | "encountered"
+  | "practiced"
+  | "remembered"
+  | "retained";
+
+export interface ConceptMemoryItem {
+  conceptTag: string;
+  state: ConceptMemoryState;
+  firstSeenAt: string | null;
+  lastSeenAt: string | null;
+  lastRetrievalAt: string | null;
+  practiceCount: number;
+  supportedRetrievalCount: number;
+  independentRetrievalCount: number;
+  refreshDue: boolean;
+}
+
+export interface ConceptMemoryResponse {
+  courseId: string;
+  refreshAfterDays: number;
+  concepts: ConceptMemoryItem[];
+}
+
+export interface MemoryWarmupPrompt {
+  episodeId: string;
+  courseId: string;
+  lessonId: string;
+  warmupId: string;
+  warmupVersion: number;
+  conceptTags: string[];
+  prompt: string;
+  choices: string[];
+  attemptCount: number;
+}
+
+export interface MemoryWarmupAnswer {
+  episodeId: string;
+  isCorrect: boolean;
+  attemptNumber: number;
+  completed: boolean;
+  firstAttemptCorrect: boolean;
+  explanation: string;
 }
 
 export interface EditorProjectPayload {
@@ -332,6 +389,8 @@ export interface EditorProjectResponse extends EditorProjectPayload {
 }
 
 export interface AskStreamRequest {
+  /** One identifier per user-accepted action; never reused for a new action. */
+  requestId: string;
   model: string;
   question: string;
   files: ProjectFile[];
@@ -339,6 +398,7 @@ export interface AskStreamRequest {
   language?: Language;
   lastRun?: RunResult | null;
   history: AIMessage[];
+  tutorProgressToken?: string;
   stdin?: string | null;
   diffSinceLastTurn?: string | null;
   runsSinceLastTurn?: number;
@@ -348,22 +408,22 @@ export interface AskStreamRequest {
   lessonContext?: {
     courseId: string;
     lessonId: string;
-    lessonTitle: string;
-    language: Language;
-    lessonObjectives: string[];
-    teachesConceptTags: string[];
-    usesConceptTags: string[];
-    priorConcepts: string[];
-    completionRules: CompletionRule[];
-    studentProgressSummary: string;
-    lessonOrder?: number;
-    totalLessons?: number;
+    exerciseId?: string | null;
   } | null;
+  evalSamplingConsent?: {
+    version: 1;
+    subjectToken: string;
+  };
 }
 
 export interface AskStreamHandlers {
   onDelta(chunk: string): void;
-  onDone(raw: string, sections: TutorSections, usage?: TokenUsage): void;
+  onDone(
+    raw: string,
+    sections: TutorSections,
+    usage?: TokenUsage,
+    tutorProgressToken?: string,
+  ): void;
   onError(message: string): void;
   signal?: AbortSignal;
 }
@@ -440,6 +500,7 @@ export type SystemConfigKey =
   | "share_public_disabled"
   | "share_create_disabled"
   | "share_render_disabled"
+  | "share_preview_disabled"
   // Phase 24B operational knobs — admin-toggleable for fast spike
   // response. `aci_overflow_enabled = false` is the runtime kill switch
   // (no new ACI spawns; cap shrinks to local-only). Daily $ cap and
@@ -462,7 +523,8 @@ export type SystemConfigKey =
   // Phase A — A5 operational floor: anon-only global daily $ ceiling
   // and per-IP daily container-spawn cap on /api/anon/run.
   | "anon_daily_usd_cap"
-  | "anon_daily_runs_per_ip";
+  | "anon_daily_runs_per_ip"
+  | "ai_eval_sampling_enabled";
 
 export interface SystemConfigEntry {
   value: boolean | number;
@@ -536,10 +598,20 @@ export interface AdminAnonSummary {
    *  for "did the page get hit / wall open / signup happen" sanity. */
   funnelEvents: {
     anon_page_view: number;
+    anon_first_run: number;
+    anon_lesson_completed: number;
     anon_wall_opened: number;
     anon_signup_completed: number;
     anon_lesson2_reached: number;
   };
+  distributionChannels: Array<{
+    source: "direct" | "organic" | "share";
+    anon_page_view: number;
+    anon_first_run: number;
+    anon_lesson_completed: number;
+    anon_signup_completed: number;
+    anon_lesson2_reached: number;
+  }>;
   killSwitch: {
     /** True if /api/anon/* is currently enabled. */
     enabled: boolean;
@@ -653,6 +725,43 @@ export interface AdminBudgetWatcherState {
   lastFiredKey: string | null;
   dailyCapUsd: number;
   spentTodayUsd: number;
+}
+
+export interface AdminEvalSample {
+  id: string;
+  model: string;
+  language: string;
+  courseId: string;
+  lessonId: string;
+  intent: string;
+  tutorStage: string;
+  questionRedacted: string;
+  responseRedacted: string;
+  contentFingerprint: string;
+  fileCount: number;
+  sourceBytesBucket: string;
+  historyTurnCount: number;
+  hadRunResult: boolean;
+  runErrorType: string | null;
+  sectionKeys: string[];
+  redactionCounts: { code: number; sensitive: number; identifiers: number };
+  disposition: "pending_review" | "review_complete" | "synthesis_queued" | "rejected";
+  reviewCount: number;
+  distinctVerdictCount: number;
+  createdAt: string;
+  expiresAt: string;
+}
+
+export interface AdminEvalSynthesisQueueItem {
+  id: string;
+  sampleId: string;
+  sourceFingerprint: string;
+  reviewCount: number;
+  distinctVerdictCount: number;
+  state: "pending_synthesis" | "synthetic_case_authored" | "rejected";
+  syntheticCaseId: string | null;
+  createdAt: string;
+  resolvedAt: string | null;
 }
 
 export interface AdminPlatformAuthState {
@@ -904,6 +1013,9 @@ export const api = {
     return (await res.json()) as RunResult;
   },
 
+  deleteAnonEvalSamples: (subjectToken: string) =>
+    delJson<{ ok: true }>("/api/anon/eval-samples", { subjectToken }),
+
   // Phase A — A2 (device contract): magic-link graduation handoff.
   // Returns the URL on success so the dialog can also render a QR that
   // an out-of-band laptop camera can scan without waiting for email
@@ -1048,6 +1160,24 @@ export const api = {
       `/api/user/lessons/${encodeURIComponent(courseId)}/${encodeURIComponent(lessonId)}`,
       body,
     ),
+  getConceptMemory: (courseId: string) =>
+    get<ConceptMemoryResponse>(
+      `/api/user/memory?courseId=${encodeURIComponent(courseId)}`,
+    ),
+  getMemoryWarmup: (courseId: string, lessonId: string) => {
+    const query = new URLSearchParams({ courseId, lessonId });
+    return get<{ warmup: MemoryWarmupPrompt | null }>(
+      `/api/user/memory/warmup?${query.toString()}`,
+    );
+  },
+  answerMemoryWarmup: (
+    episodeId: string,
+    body: { requestId: string; choiceIndex: number },
+  ) =>
+    post<MemoryWarmupAnswer>(
+      `/api/user/memory/warmup/${encodeURIComponent(episodeId)}/answer`,
+      body,
+    ),
   // P-H4: batch heartbeat flush. Items are additive per-lesson delta ms;
   // the backend adds each to the existing time_spent_ms. Used by the
   // useLessonLoader tick loop + pagehide flush path. Returns {written} so
@@ -1138,7 +1268,10 @@ export const api = {
   // Phase 18e: the key is stored server-side now; these routes look it up
   // via the authenticated userId, so the client no longer forwards one.
   summarizeHistory: (body: { model: string; history: AIMessage[] }) =>
-    post<{ summary: string }>("/api/ai/summarize", body),
+    post<{ summary: string }>("/api/ai/summarize", {
+      ...body,
+      requestId: crypto.randomUUID(),
+    }),
   listOpenAIModels: () => get<{ models: AIModel[] }>("/api/ai/models"),
 
   // Phase 20-P1: global feedback channel. Body-or-mood is required (backend
@@ -1331,6 +1464,7 @@ export const api = {
             raw?: string;
             sections?: TutorSections;
             usage?: TokenUsage;
+            tutorProgressToken?: string;
           };
           try {
             evt = JSON.parse(data);
@@ -1349,7 +1483,12 @@ export const api = {
           if (evt.done) {
             terminalFrameSeen = true;
             clearWatchdog();
-            handlers.onDone(evt.raw ?? "", evt.sections ?? {}, evt.usage);
+            handlers.onDone(
+              evt.raw ?? "",
+              evt.sections ?? {},
+              evt.usage,
+              evt.tutorProgressToken,
+            );
             return;
           }
         }
@@ -1553,6 +1692,42 @@ export const api = {
       body,
     ),
 
+  adminListEvalSamples: (disposition = "pending_review") =>
+    get<{ samples: AdminEvalSample[]; nextCursor: string | null }>(
+      `/api/admin/eval-samples?limit=100&disposition=${encodeURIComponent(disposition)}`,
+    ),
+
+  adminReviewEvalSample: (
+    sampleId: string,
+    body: {
+      verdict: "pass" | "fail" | "ambiguous" | "reject_privacy";
+      issueCodes: Array<
+        | "factual_error"
+        | "unhelpful"
+        | "too_much_answer"
+        | "poor_grounding"
+        | "unsafe_content"
+        | "redaction_concern"
+        | "ambiguous_rubric"
+      >;
+      note?: string | null;
+    },
+  ) => put<{ ok: true }>(`/api/admin/eval-samples/${sampleId}/review`, body),
+
+  adminListEvalSynthesisQueue: () =>
+    get<{ items: AdminEvalSynthesisQueueItem[] }>(
+      "/api/admin/eval-synthesis-queue?limit=100",
+    ),
+
+  adminResolveEvalSynthesisQueue: (
+    queueId: string,
+    body: {
+      state: "synthetic_case_authored" | "rejected";
+      syntheticCaseId?: string | null;
+      reason: string;
+    },
+  ) => put<{ ok: true }>(`/api/admin/eval-synthesis-queue/${queueId}`, body),
+
   // Phase 27-v2: anon→authed handoff. Called from StartPage on first
   // mount after a freshly-signed-up user lands there from SignupPage
   // / AuthCallbackPage. Body comes from sessionStorage (see
@@ -1575,6 +1750,8 @@ export const api = {
   postFunnelEvent: (
     event:
       | "anon_page_view"
+      | "anon_first_run"
+      | "anon_lesson_completed"
       | "anon_wall_opened"
       | "anon_signup_completed"
       | "anon_lesson2_reached",
@@ -1591,9 +1768,30 @@ export const api = {
     void fetch(`${API_BASE}/api/telemetry/event`, {
       method: "POST",
       headers: JSON_HEADERS,
-      body: JSON.stringify({ event, reason }),
+      body: JSON.stringify({
+        event,
+        reason,
+        attribution: readDistributionAttribution(),
+      }),
     }).catch(() => {
       /* swallow — telemetry must not break the UX */
+    });
+  },
+
+  // Release 0A: explicit distribution outcomes. These are deliberately
+  // separate from link creation: `share_completed` means the native share
+  // sheet resolved, while copied/cancelled/dismissed retain their own signal.
+  // The backend accepts only these two bounded enums and no token or code.
+  postShareOutcome: (
+    outcome: "copied" | "share_completed" | "cancelled" | "dismissed",
+    surface: "authenticated" | "anonymous",
+  ): void => {
+    void fetch(`${API_BASE}/api/telemetry/share-outcome`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ outcome, surface }),
+    }).catch(() => {
+      /* telemetry is never part of the share UX success path */
     });
   },
 };
@@ -1615,6 +1813,7 @@ export interface AnonHandoffBody {
     welcomeDone: boolean;
     workspaceCoachDone: boolean;
   };
+  evalSamplingSubjectToken?: string;
 }
 
 export interface AnonHandoffResponse {

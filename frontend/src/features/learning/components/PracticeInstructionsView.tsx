@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { PracticeExercise, ValidationResult } from "../types";
 import { Modal } from "../../../components/Modal";
 
@@ -40,10 +40,12 @@ interface PracticeInstructionsViewProps {
   currentIndex: number;
   completedIds: string[];
   validation: ValidationResult | null;
+  saveError?: string | null;
   onSelectExercise: (index: number) => void;
   onExitPractice: () => void;
   onNextExercise: () => void;
   onResetPractice: () => void;
+  onHintReveal?: () => void;
   onCollapse?: () => void;
 }
 
@@ -52,10 +54,12 @@ export function PracticeInstructionsView({
   currentIndex,
   completedIds,
   validation,
+  saveError,
   onSelectExercise,
   onExitPractice,
   onNextExercise,
   onResetPractice,
+  onHintReveal,
   onCollapse,
 }: PracticeInstructionsViewProps) {
   const [showHints, setShowHints] = useState(false);
@@ -66,6 +70,10 @@ export function PracticeInstructionsView({
     exercises.some((e) => e.id === id)
   ).length;
   const hasNext = currentIndex < exercises.length - 1;
+
+  useEffect(() => {
+    setShowHints(false);
+  }, [current?.id]);
 
   if (!current) return null;
 
@@ -168,7 +176,10 @@ export function PracticeInstructionsView({
         {current.hints && current.hints.length > 0 && (
           <div className="border-t border-border pt-3">
             <button
-              onClick={() => setShowHints((v) => !v)}
+              onClick={() => {
+                if (!showHints) onHintReveal?.();
+                setShowHints((v) => !v);
+              }}
               className="flex items-center gap-1 text-xs font-medium text-accent transition hover:text-accent/80"
             >
               <svg
@@ -215,6 +226,16 @@ export function PracticeInstructionsView({
                 )}
               </div>
             )}
+          </div>
+        )}
+
+        {saveError && (
+          <div
+            role="alert"
+            className="mt-3 rounded-lg border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-warn"
+          >
+            <div className="font-semibold">Practice result not saved</div>
+            <div className="mt-0.5 opacity-85">{saveError}</div>
           </div>
         )}
 

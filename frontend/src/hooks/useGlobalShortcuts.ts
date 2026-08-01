@@ -1,6 +1,10 @@
 import { useEffect } from "react";
 import { api } from "../api/client";
-import { useProjectStore } from "../state/projectStore";
+import {
+  beginProjectOperation,
+  isProjectOperationCurrent,
+  useProjectStore,
+} from "../state/projectStore";
 import { useSessionStore } from "../state/sessionStore";
 import { useRunStore } from "../state/runStore";
 
@@ -21,21 +25,25 @@ export function useGlobalShortcuts() {
         const runState = useRunStore.getState();
         const project = useProjectStore.getState();
         if (!state.sessionId || state.phase !== "active" || runState.running) return;
-        runState.setRunning(true);
-        runState.setError(null);
+        const operation = beginProjectOperation();
+        if (!runState.beginRun(operation.id)) return;
         try {
           const files = project.snapshot();
           await api.snapshotProject(state.sessionId, files);
+          if (!isProjectOperationCurrent(operation)) return;
           const result = await api.execute(
             state.sessionId,
             project.language,
             runState.stdin || undefined
           );
-          runState.setResult(result);
+          if (!isProjectOperationCurrent(operation)) return;
+          useRunStore.getState().commitRunResult(operation.id, result);
         } catch (err) {
-          runState.setError((err as Error).message);
+          if (isProjectOperationCurrent(operation)) {
+            useRunStore.getState().commitRunError(operation.id, (err as Error).message);
+          }
         } finally {
-          runState.setRunning(false);
+          useRunStore.getState().finishRun(operation.id);
         }
       }
     };

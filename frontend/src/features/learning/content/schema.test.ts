@@ -1,5 +1,7 @@
 import { describe, it, expect, expectTypeOf } from "vitest";
 import type {
+  AssistanceMove,
+  AssistanceMoves,
   CompletionRule,
   Course,
   FunctionTest,
@@ -7,12 +9,16 @@ import type {
   PracticeExercise,
 } from "../types";
 import {
+  assistanceMoveSchema,
+  assistanceMovesSchema,
   completionRuleSchema,
   courseSchema,
   functionTestSchema,
   lessonMetaSchema,
   practiceExerciseSchema,
   type CompletionRuleSchemaInferred,
+  type AssistanceMoveSchemaInferred,
+  type AssistanceMovesSchemaInferred,
   type CourseSchemaInferred,
   type FunctionTestSchemaInferred,
   type LessonMetaSchemaInferred,
@@ -20,6 +26,35 @@ import {
 } from "./schema";
 
 describe("content schemas", () => {
+  it("accepts only the versioned V0 authored assistance contract", () => {
+    const move: AssistanceMove = {
+      id: "notice-unclosed-parenthesis",
+      trigger: {
+        type: "repeated_error",
+        errorCode: "python-unclosed-parenthesis",
+        minAttempts: 2,
+      },
+      learningMove: "observe",
+      conceptTags: ["syntax"],
+      question: "Which opening parenthesis needs a partner?",
+      maxScaffoldLevel: 1,
+      productiveResponse: "Close it, then run again.",
+      endsWhen: "evidence_changes",
+    };
+    const authored: AssistanceMoves = { version: 1, moves: [move] };
+
+    expectTypeOf<AssistanceMoveSchemaInferred>().toMatchTypeOf<AssistanceMove>();
+    expectTypeOf<AssistanceMovesSchemaInferred>().toMatchTypeOf<AssistanceMoves>();
+    expect(assistanceMoveSchema.parse(move)).toEqual(move);
+    expect(assistanceMovesSchema.parse(authored)).toEqual(authored);
+    expect(() =>
+      assistanceMovesSchema.parse({
+        version: 1,
+        moves: [{ ...move, trigger: { ...move.trigger, minAttempts: 1 } }],
+      }),
+    ).toThrow();
+  });
+
   it("courseSchema inferred type matches Course", () => {
     expectTypeOf<CourseSchemaInferred>().toMatchTypeOf<Course>();
     const sample: Course = {

@@ -74,6 +74,43 @@ az keyvault secret set --vault-name "$KV" --name VITE-SUPABASE-ANON-KEY    --val
 az keyvault secret set --vault-name "$KV" --name CORS-ORIGIN               --value "https://codetutor.msrivas.com"
 ```
 
+### Release 0A share-preview credential
+
+The SWA managed API and VM backend share one purpose-specific HMAC key. Azure
+Static Web Apps application settings are API runtime environment variables,
+encrypted at rest and copied into PR staging environments. The VM side remains
+in Key Vault and is materialized by `refresh-env.sh`.
+
+Initial provisioning (do not print or persist the generated value):
+
+```bash
+KEY_ID="$(date -u +%Y-%m)-a"
+SHARE_PREVIEW_SECRET="$(openssl rand -base64 32)"
+
+az keyvault secret set --vault-name "$KV" \
+  --name SHARE-PREVIEW-HMAC-CURRENT-KEY-ID --value "$KEY_ID" --output none
+az keyvault secret set --vault-name "$KV" \
+  --name SHARE-PREVIEW-HMAC-CURRENT-SECRET --value "$SHARE_PREVIEW_SECRET" --output none
+az keyvault secret set --vault-name "$KV" \
+  --name SHARE-PREVIEW-DISABLED --value "0" --output none
+
+az staticwebapp appsettings set \
+  --name codetutor-ai-swa --resource-group codetutor-ai-prod-rg \
+  --setting-names \
+    "SHARE_PREVIEW_HMAC_KEY_ID=$KEY_ID" \
+    "SHARE_PREVIEW_HMAC_SECRET=$SHARE_PREVIEW_SECRET" \
+    "SHARE_PREVIEW_DISABLED=0" \
+  --output none
+
+unset SHARE_PREVIEW_SECRET
+```
+
+Refresh the VM and force-recreate the backend after Key Vault changes. Follow
+the overlap sequence in `docs/ADR_0A_SHARE_PREVIEW_AUTH.md` for rotation; never
+switch the SWA key before the backend accepts it as current or previous. To
+revoke an exposed key, engage both preview kill switches first. Human
+`/api/shares/:token` reads are deliberately independent.
+
 ### Phase 24B — ACI hybrid burst overflow (optional)
 
 Seed these to wire the AciExecutionBackend. With any required key

@@ -66,7 +66,7 @@ export function CoachRail(props: CoachRailProps) {
       <span className="flex-1">{nudge.message}</span>
       <button
         onClick={() => setDismissed((s) => new Set(s).add(nudge.id))}
-        className="shrink-0 rounded px-1 text-[11px] leading-none text-muted transition hover:text-ink"
+        className="-my-2 -mr-2 flex h-11 w-11 shrink-0 items-center justify-center rounded text-base leading-none text-muted transition hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
         title="Dismiss this tip"
         aria-label="Dismiss coach tip"
       >
@@ -86,11 +86,14 @@ export function pickNudge(
   const failedVisible = p.failedVisibleTests ?? 0;
   const failedHidden = p.failedHiddenTests ?? 0;
   const passedVisible = p.passedVisibleTests ?? 0;
+  const hasCurrentFailure = p.hasError || (p.hasChecked && !p.checkPassed);
 
   const rules: Array<Nudge & { condition: boolean }> = [
     {
       id: "completed-idle",
-      condition: p.lessonComplete,
+      // Completion is historical evidence. A failure from the current
+      // revision is more relevant and must never be covered by praise.
+      condition: p.lessonComplete && !hasCurrentFailure,
       icon: "🎯",
       message: "Nice work! You can practice more, or move on to the next lesson.",
     },

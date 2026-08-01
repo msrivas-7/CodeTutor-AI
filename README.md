@@ -4,6 +4,8 @@
 
 ### [Try it live → codetutor.msrivas.com](https://codetutor.msrivas.com)
 
+[Browse the public lesson library](https://codetutor.msrivas.com/learn-to-code/)
+
 [![CI](https://github.com/msrivas-7/CodeTutor-AI/actions/workflows/ci.yml/badge.svg)](https://github.com/msrivas-7/CodeTutor-AI/actions/workflows/ci.yml)
 [![E2E](https://github.com/msrivas-7/CodeTutor-AI/actions/workflows/e2e.yml/badge.svg)](https://github.com/msrivas-7/CodeTutor-AI/actions/workflows/e2e.yml)
 [![Languages](https://img.shields.io/badge/9_Languages-Python_%7C_JS_%7C_TS_%7C_C_%7C_C++_%7C_Java_%7C_Go_%7C_Rust_%7C_Ruby-38bdf8?style=flat-square)](https://codetutor.msrivas.com)
@@ -40,7 +42,7 @@ Most coding assistants solve the problem for you. **CodeTutor AI teaches you to 
 
 ## Guided Learning
 
-> Two structured beginner courses today: 12-lesson **Python Fundamentals** (through a mini-project + two capstones) and 8-lesson **JavaScript Fundamentals** (through a habit-tracker mini-project). Shared content pipeline, per-language test harness, and authoring scripts. _(More courses on the way.)_
+> Three structured courses and 38 public lessons today: 12-lesson **Python Fundamentals**, 12-lesson **JavaScript Fundamentals**, and 14-lesson **Python Intermediate**. The same source content powers the interactive product and crawlable public walkthroughs. _(More courses on the way.)_
 
 - **Learn by doing** — read, write, run, check your work. Loop.
 - **Tutor that teaches, not solves** — knows your lesson context, gives escalating hints, never spoils the answer

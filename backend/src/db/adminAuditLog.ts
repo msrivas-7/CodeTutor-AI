@@ -28,7 +28,11 @@ export type AuditEventType =
   | "platform_auth_unstick"
   // Phase 26 additions — must stay in sync with the CHECK constraint
   // in supabase/migrations/20260430080300_audit_force_signout_event.sql.
-  | "user_force_signout";
+  | "user_force_signout"
+  // Phase B8 governed eval sampling.
+  | "eval_sample_viewed"
+  | "eval_sample_reviewed"
+  | "eval_sample_queue_resolved";
 
 export interface AdminAuditLogRow {
   id: string;

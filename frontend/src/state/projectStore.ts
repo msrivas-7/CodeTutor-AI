@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { Language, ProjectFile } from "../types";
 import { useAIStore } from "./aiStore";
+import { useRunStore } from "./runStore";
 import { api } from "../api/client";
 import { currentGen } from "../auth/generation";
 import { STARTERS } from "../util/starters";
@@ -40,7 +41,20 @@ export interface RevealTarget {
   ticket: number;
 }
 
+export interface ProjectVersion {
+  contextKey: string | null;
+  revision: number;
+}
+
+export interface ProjectOperationIdentity {
+  id: string;
+  project: ProjectVersion;
+}
+
 interface ProjectState {
+  // Monotonic across every project context in this tab. It changes whenever
+  // executable source or the active project identity changes.
+  revision: number;
   language: Language;
   files: Record<string, string>;
   activeFile: string | null;
@@ -70,6 +84,13 @@ interface ProjectState {
   renameFile: (from: string, to: string) => { ok: boolean; error?: string };
   snapshot: () => ProjectFile[];
   resetToStarter: (lang: Language) => void;
+  replaceProject: (next: {
+    language?: Language;
+    files: Record<string, string>;
+    order: string[];
+    activeFile: string | null;
+    openTabs: string[];
+  }) => void;
   switchProjectContext: (
     contextKey: string,
     defaults?: {
@@ -104,10 +125,15 @@ function seedFor(lang: Language) {
 
 let revealTicket = 0;
 
+function invalidateDerivedEvidence(): void {
+  useRunStore.getState().invalidateEvidence();
+  useAIStore.getState().setActiveSelection(null);
+}
+
 // Side channel for editor-mode stdin pulled during hydrateEditor(). runStore
 // reads this (via `consumePendingEditorStdin()`) when Editor mode first
-// activates. Using a module-level slot keeps projectStore from importing
-// runStore (which imports starterStdin from here — cycle).
+// activates. Keeping it as a one-shot slot separates remote hydration timing
+// from run-context activation timing.
 let pendingEditorStdin: string | null = null;
 export function consumePendingEditorStdin(): string | null {
   const v = pendingEditorStdin;
@@ -117,6 +143,7 @@ export function consumePendingEditorStdin(): string | null {
 
 export const useProjectStore = create<ProjectState>((set, get) => ({
   language: "python",
+  revision: 0,
   ...seedFor("python"),
   pendingReveal: null,
   projectContext: null,
@@ -147,19 +174,20 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         // StartPage the context is null so it's safe to pre-seed.
         const state = get();
         if (state.projectContext === null || state.projectContext === "editor") {
-          set({
+          set((current) => ({
             language: snapshot.language,
             files: snapshot.files,
             order: snapshot.order,
             activeFile: snapshot.activeFile,
             openTabs: snapshot.openTabs,
             pendingReveal: null,
-          });
+            revision: current.revision + 1,
+          }));
+          invalidateDerivedEvidence();
         }
-        // Stash stdin on the store under a side channel — runStore reads it
-        // when it picks up the editor context. We don't call useRunStore
-        // directly here to avoid a projectStore → runStore circular import;
-        // useRunStore already imports from this module.
+        // Stash stdin under a side channel so runStore can consume it when
+        // editor context activates, without coupling hydration to run-context
+        // timing.
         pendingEditorStdin = remote.stdin;
       }
       set({ editorHydrated: true });
@@ -174,9 +202,18 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   resetEditorHydration: () => {
     projectCache.delete("editor");
     pendingEditorStdin = null;
-    set({ editorHydrated: false, editorHydrateError: null });
+    set((state) => ({
+      editorHydrated: false,
+      editorHydrateError: null,
+      revision: state.revision + 1,
+    }));
+    invalidateDerivedEvidence();
   },
-  setLanguage: (lang) => set({ language: lang }),
+  setLanguage: (lang) => {
+    if (lang === get().language) return;
+    set((s) => ({ language: lang, revision: s.revision + 1 }));
+    invalidateDerivedEvidence();
+  },
   setActive: (path) => set({ activeFile: path }),
   openFile: (path) =>
     set((s) => ({
@@ -207,11 +244,16 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }),
   setContent: (path, content) => {
     const prev = get().files[path];
-    set((s) => ({ files: { ...s.files, [path]: content } }));
     // Only count it as an edit if the content actually changed — Monaco fires
     // onChange on focus/blur round-trips in some cases, and we don't want to
     // inflate the counter the tutor reads.
-    if (prev !== content) useAIStore.getState().noteEdit();
+    if (prev === content) return;
+    set((s) => ({
+      files: { ...s.files, [path]: content },
+      revision: s.revision + 1,
+    }));
+    invalidateDerivedEvidence();
+    useAIStore.getState().noteEdit();
   },
   createFile: (path, content = "") => {
     const s = get();
@@ -224,25 +266,30 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       order: [...s.order, path],
       activeFile: path,
       openTabs: [...s.openTabs, path],
+      revision: s.revision + 1,
     });
+    invalidateDerivedEvidence();
+    useAIStore.getState().noteEdit();
     return { ok: true };
   },
-  deleteFile: (path) =>
-    set((s) => {
-      if (!s.files[path]) return s;
-      const files = { ...s.files };
-      delete files[path];
-      const order = s.order.filter((p) => p !== path);
-      const tabIdx = s.openTabs.indexOf(path);
-      const openTabs = s.openTabs.filter((p) => p !== path);
-      const activeFile =
-        s.activeFile === path
-          ? tabIdx >= 0
-            ? openTabs[tabIdx - 1] ?? openTabs[0] ?? order[0] ?? null
-            : order[0] ?? null
-          : s.activeFile;
-      return { files, order, activeFile, openTabs };
-    }),
+  deleteFile: (path) => {
+    const s = get();
+    if (!s.files[path]) return;
+    const files = { ...s.files };
+    delete files[path];
+    const order = s.order.filter((p) => p !== path);
+    const tabIdx = s.openTabs.indexOf(path);
+    const openTabs = s.openTabs.filter((p) => p !== path);
+    const activeFile =
+      s.activeFile === path
+        ? tabIdx >= 0
+          ? openTabs[tabIdx - 1] ?? openTabs[0] ?? order[0] ?? null
+          : order[0] ?? null
+        : s.activeFile;
+    set({ files, order, activeFile, openTabs, revision: s.revision + 1 });
+    invalidateDerivedEvidence();
+    useAIStore.getState().noteEdit();
+  },
   renameFile: (from, to) => {
     const s = get();
     if (!s.files[from]) return { ok: false, error: "source not found" };
@@ -255,15 +302,36 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const order = s.order.map((p) => (p === from ? to : p));
     const openTabs = s.openTabs.map((p) => (p === from ? to : p));
     const activeFile = s.activeFile === from ? to : s.activeFile;
-    set({ files, order, activeFile, openTabs });
+    set({ files, order, activeFile, openTabs, revision: s.revision + 1 });
+    invalidateDerivedEvidence();
+    useAIStore.getState().noteEdit();
     return { ok: true };
   },
   snapshot: () => {
     const s = get();
     return s.order.map((p) => ({ path: p, content: s.files[p] ?? "" }));
   },
-  resetToStarter: (lang) =>
-    set({ language: lang, ...seedFor(lang) }),
+  resetToStarter: (lang) => {
+    set((s) => ({
+      language: lang,
+      ...seedFor(lang),
+      pendingReveal: null,
+      revision: s.revision + 1,
+    }));
+    invalidateDerivedEvidence();
+  },
+  replaceProject: (next) => {
+    set((s) => ({
+      language: next.language ?? s.language,
+      files: next.files,
+      order: next.order,
+      activeFile: next.activeFile,
+      openTabs: next.openTabs,
+      pendingReveal: null,
+      revision: s.revision + 1,
+    }));
+    invalidateDerivedEvidence();
+  },
 
   switchProjectContext: (contextKey, defaults, options) => {
     const state = get();
@@ -296,7 +364,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }
 
     if (saved) {
-      set({
+      set((current) => ({
         projectContext: contextKey,
         language: saved.language,
         files: saved.files,
@@ -304,9 +372,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         activeFile: saved.activeFile,
         openTabs: saved.openTabs,
         pendingReveal: null,
-      });
+        revision: current.revision + 1,
+      }));
     } else if (defaults) {
-      set({
+      set((current) => ({
         projectContext: contextKey,
         language: defaults.language ?? "python",
         files: defaults.files,
@@ -314,15 +383,36 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         activeFile: defaults.activeFile,
         openTabs: defaults.openTabs,
         pendingReveal: null,
-      });
+        revision: current.revision + 1,
+      }));
     } else {
       const seed = seedFor("python");
-      set({
+      set((current) => ({
         projectContext: contextKey,
         language: "python",
         ...seed,
         pendingReveal: null,
-      });
+        revision: current.revision + 1,
+      }));
     }
+    invalidateDerivedEvidence();
   },
 }));
+
+export function captureProjectVersion(): ProjectVersion {
+  const state = useProjectStore.getState();
+  return { contextKey: state.projectContext, revision: state.revision };
+}
+
+export function isProjectVersionCurrent(version: ProjectVersion): boolean {
+  const state = useProjectStore.getState();
+  return state.projectContext === version.contextKey && state.revision === version.revision;
+}
+
+export function beginProjectOperation(): ProjectOperationIdentity {
+  return { id: crypto.randomUUID(), project: captureProjectVersion() };
+}
+
+export function isProjectOperationCurrent(operation: ProjectOperationIdentity): boolean {
+  return isProjectVersionCurrent(operation.project);
+}

@@ -1,6 +1,6 @@
 // Phase 22C: marketing page (`/`) e2e. Exercises:
 //   - anonymous visitor lands on / and sees the hero claim + nav
-//   - CTAs are present, link to /signup
+//   - the primary CTA starts the no-signup lesson; signup is secondary
 //   - "Sign in" anchor leads to /login
 //   - "How it works" anchor smooth-scrolls to the Section 2 content
 //   - logged-in users hitting / are NOT redirected; they see the
@@ -45,10 +45,14 @@ test.describe("marketing page (Phase 22C) — anonymous", () => {
 
     // Primary CTA (in-hero). Two CTAs on the page (hero + repeat) —
     // both share the label, so .first() is fine.
-    const heroCta = page.getByRole("link", { name: /start your first lesson/i });
+    const heroCta = page.getByRole("link", { name: /try your first lesson/i });
     await expect(heroCta.first()).toBeVisible();
     const heroHref = await heroCta.first().getAttribute("href");
-    expect(heroHref).toMatch(/\/signup/);
+    expect(heroHref).toMatch(/\/try\/lesson\/python-fundamentals\/hello-world/);
+    await expect(page.getByRole("link", { name: /create a free account/i })).toHaveAttribute(
+      "href",
+      /\/signup/,
+    );
 
     // Top-right Sign in anchor (in the marketing nav).
     const signIn = page.getByRole("link", { name: /^sign in$/i }).first();
@@ -56,11 +60,13 @@ test.describe("marketing page (Phase 22C) — anonymous", () => {
     await expect(signIn).toHaveAttribute("href", /\/login/);
   });
 
-  test("clicking the primary CTA navigates to /signup", async ({ page }) => {
+  test("clicking the primary CTA navigates directly to the no-signup lesson", async ({ page }) => {
     await page.goto("/");
-    const cta = page.getByRole("link", { name: /start your first lesson/i }).first();
+    const cta = page.getByRole("link", { name: /try your first lesson/i }).first();
     await cta.click();
-    await expect(page).toHaveURL(/\/signup$/);
+    await expect(page).toHaveURL(
+      /\/try\/lesson\/python-fundamentals\/hello-world$/,
+    );
   });
 
   test("the three How-it-works beats render below the hero", async ({
@@ -150,7 +156,7 @@ test.describe("marketing page (Phase 22C) — reduced motion", () => {
 
     // CTA still functions.
     const cta = page
-      .getByRole("link", { name: /start your first lesson/i })
+      .getByRole("link", { name: /try your first lesson/i })
       .first();
     await expect(cta).toBeVisible();
     const box = await cta.boundingBox();
@@ -200,7 +206,7 @@ test.describe("marketing page (Phase 22C) — mobile viewport", () => {
 
     // CTA is still tappable at the smallest breakpoint.
     const cta = page
-      .getByRole("link", { name: /start your first lesson/i })
+      .getByRole("link", { name: /try your first lesson/i })
       .first();
     await expect(cta).toBeVisible();
   });

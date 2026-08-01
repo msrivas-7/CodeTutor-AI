@@ -2,7 +2,6 @@
 // we can swap in Anthropic/etc. without touching routes or prompt code.
 
 import type { Language } from "../execution/commands.js";
-import type { CompletionRule } from "./prompts/lessonContext.js";
 
 export interface ProjectFile {
   path: string;
@@ -24,11 +23,18 @@ export interface AIMessage {
 }
 
 export type TutorIntent =
+  | "socratic"
   | "debug"
   | "concept"
   | "howto"
   | "walkthrough"
   | "checkin";
+
+// This value is owned by the server route, never inferred from browser
+// history. "clarify" is the safe default: one question only. A route may
+// supply "approach" only after it verifies the signed per-task progression
+// proof returned by a successfully completed first tutor turn.
+export type TutorStage = "clarify" | "approach";
 
 export type Persona = "beginner" | "intermediate" | "advanced";
 
@@ -73,6 +79,11 @@ export interface TutorSections {
 export interface AIModel {
   id: string;
   label: string;
+  qualityStatus?: "evaluated" | "unevaluated";
+  contextualTutorEligible?: boolean;
+  qualityLabel?: string;
+  evalSetVersion?: string | null;
+  registryVersion?: string;
 }
 
 // A span the student pulled out of the editor to focus the tutor on. Sent as
@@ -107,6 +118,7 @@ export interface AIAskParams {
   language?: Language;
   lastRun?: RunResult | null;
   history: AIMessage[];
+  tutorStage?: TutorStage;
   // Phase 2 context — everything below is optional; the prompt builder falls
   // back to sensible defaults when omitted.
   stdin?: string | null;
@@ -136,13 +148,14 @@ export interface AIAskParams {
   lessonContext?: {
     courseId: string;
     lessonId: string;
+    exerciseId: string | null;
     lessonTitle: string;
     language: Language;
     lessonObjectives: string[];
     teachesConceptTags: string[];
     usesConceptTags: string[];
     priorConcepts: string[];
-    completionRules: CompletionRule[];
+    completionCriteria: string[];
     studentProgressSummary: string;
     lessonOrder?: number;
     totalLessons?: number;
@@ -157,12 +170,16 @@ export interface AIAskResult {
 
 export interface AIStreamHandlers {
   onDelta(chunk: string): void;
-  onDone(raw: string, sections: TutorSections, usage?: TokenUsage): void;
+  onDone(
+    raw: string,
+    sections: TutorSections,
+    usage?: TokenUsage,
+  ): void | Promise<void>;
   // `status` carries the upstream HTTP status when the failure came from
   // the provider (e.g. 401 from OpenAI on bad key). Absent for transport
   // errors or parse failures where no status exists. Route handlers use
   // this to decide whether to trip the provider-auth kill flag.
-  onError(message: string, status?: number): void;
+  onError(message: string, status?: number): void | Promise<void>;
   // Fires when the client aborted (TCP close, request deadline) before a
   // terminal `response.completed` / `response.failed` event arrived.
   // Token counts are ESTIMATES (chars / 4): inputTokens = full prompt
@@ -171,7 +188,7 @@ export interface AIStreamHandlers {
   // caller uses these to record a real-cost ledger row so the free-tier
   // dollar caps (L2/L3/L4) still see the spend — even though the abort
   // row doesn't count against the 30/day question quota.
-  onAbort?(raw: string, estimatedUsage: TokenUsage): void;
+  onAbort?(raw: string, estimatedUsage: TokenUsage): void | Promise<void>;
 }
 
 // Error class thrown by the AI provider when an upstream HTTP call fails.
@@ -197,5 +214,6 @@ export interface AIProvider {
     model: string;
     fundingSource?: "byok" | "platform";
     history: AIMessage[];
+    signal?: AbortSignal;
   }): Promise<{ summary: string; usage?: TokenUsage }>;
 }

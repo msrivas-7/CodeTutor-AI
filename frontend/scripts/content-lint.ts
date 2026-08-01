@@ -23,7 +23,7 @@ import {
   resolveInheritedVocabulary,
 } from "../src/features/learning/content/conceptGraph";
 import { hasFunctionTestsHarness } from "../src/features/learning/content/harnessSupport";
-import type { z } from "zod";
+import { z } from "zod";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -43,6 +43,30 @@ type Lesson = z.infer<typeof lessonMetaSchema>;
 // ── Constants ──────────────────────────────────────────────────────
 const ROOT = resolve(__dirname, "..");
 const COURSES_DIR = resolve(ROOT, "public/courses");
+const MEMORY_WARMUPS_DIR = resolve(ROOT, "../content/memory-warmups");
+
+const memoryWarmupSchema = z
+  .object({
+    id: z.string().min(1).regex(/^[a-z0-9][a-z0-9_-]*$/i),
+    version: z.number().int().positive().max(1_000_000),
+    conceptTags: z.array(z.string().min(1).max(64)).min(1).max(12),
+    prompt: z.string().min(1).max(2_000),
+    choices: z.array(z.string().min(1).max(500)).min(2).max(4),
+    correctIndex: z.number().int().min(0),
+    explanation: z.string().min(1).max(2_000),
+  })
+  .refine((warmup) => warmup.correctIndex < warmup.choices.length, {
+    message: "correctIndex must reference an existing choice (0..choices.length-1)",
+    path: ["correctIndex"],
+  });
+
+const memoryWarmupBankSchema = z.object({
+  version: z.literal(1),
+  lessons: z.record(
+    z.string().min(1).regex(/^[a-z0-9][a-z0-9_-]*$/i),
+    z.array(memoryWarmupSchema).min(1).max(8),
+  ),
+});
 // Minimum lesson.order at which a lesson may declare function_tests. The
 // floor enforces the pedagogical rule that function declarations must have
 // been taught first — which happens at different points in each language's
@@ -276,6 +300,179 @@ function lintCourse(
   lintPrerequisites(lessons, course.lessonOrder, issues);
   lintCrossCourseRefs(course, coursesById, relCourse, issues);
   lintConceptGraph(course, coursesById, taughtByCourseId, lessons, issues);
+  lintMemoryWarmups(course, courseDir, lessons, issues);
+}
+
+// Phase B1: every learner-facing lesson that relies on prior concepts needs at
+// least one authored retrieval option. Correct answers live in the private
+// repository content tree, never under frontend/public where a browser could
+// download them before answering. Concept scope remains a strict subset of the
+// lesson's canonical usesConceptTags.
+function lintMemoryWarmups(
+  course: Course,
+  courseDir: string,
+  lessons: Array<{ lesson: Lesson; relPath: string }>,
+  issues: LintIssue[],
+) {
+  const accidentallyPublicPath = join(courseDir, "memory-warmups.json");
+  if (existsSync(accidentallyPublicPath)) {
+    issues.push({
+      severity: "error",
+      file: rel(accidentallyPublicPath),
+      message:
+        "memory warm-up answers must be server-only; move this bank to content/memory-warmups/<courseId>.json",
+    });
+  }
+
+  const bankPath = join(MEMORY_WARMUPS_DIR, `${course.id}.json`);
+  const relBank = rel(bankPath);
+  if (!existsSync(bankPath)) {
+    if (!course.internal) {
+      issues.push({
+        severity: "error",
+        file: relBank,
+        message: "public course is missing its private memory warm-up bank",
+      });
+    }
+    return;
+  }
+
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(bankPath, "utf8"));
+  } catch (error) {
+    issues.push({
+      severity: "error",
+      file: relBank,
+      message: `invalid JSON: ${(error as Error).message}`,
+    });
+    return;
+  }
+  const parsed = memoryWarmupBankSchema.safeParse(raw);
+  if (!parsed.success) {
+    for (const issue of parsed.error.issues) {
+      issues.push({
+        severity: "error",
+        file: relBank,
+        pointer: issue.path.join("."),
+        message: issue.message,
+      });
+    }
+    return;
+  }
+
+  const lessonById = new Map(lessons.map(({ lesson }) => [lesson.id, lesson]));
+  for (const lessonId of Object.keys(parsed.data.lessons)) {
+    if (!lessonById.has(lessonId)) {
+      issues.push({
+        severity: "error",
+        file: relBank,
+        pointer: `lessons.${lessonId}`,
+        message: `warm-up bank references unknown lesson "${lessonId}"`,
+      });
+    }
+  }
+
+  for (const { lesson, relPath } of lessons) {
+    const warmups = parsed.data.lessons[lesson.id] ?? [];
+    if (!course.internal && lesson.usesConceptTags.length > 0 && warmups.length === 0) {
+      issues.push({
+        severity: "error",
+        file: relBank,
+        pointer: `lessons.${lesson.id}`,
+        message: `lesson "${lesson.id}" uses prior concepts but has no authored memory warm-up`,
+      });
+      continue;
+    }
+    const allowedConcepts = new Set(lesson.usesConceptTags);
+    const ids = new Set<string>();
+    for (let index = 0; index < warmups.length; index += 1) {
+      const warmup = warmups[index];
+      if (ids.has(warmup.id)) {
+        issues.push({
+          severity: "error",
+          file: relBank,
+          pointer: `lessons.${lesson.id}[${index}].id`,
+          message: `duplicate warm-up id "${warmup.id}" for lesson "${lesson.id}"`,
+        });
+      }
+      ids.add(warmup.id);
+      for (const tag of warmup.conceptTags) {
+        if (!allowedConcepts.has(tag)) {
+          issues.push({
+            severity: "error",
+            file: relBank,
+            pointer: `lessons.${lesson.id}[${index}].conceptTags`,
+            message: `warm-up concept "${tag}" is not declared in ${lesson.id}.usesConceptTags`,
+          });
+        }
+      }
+      if (new Set(warmup.choices).size !== warmup.choices.length) {
+        issues.push({
+          severity: "error",
+          file: relBank,
+          pointer: `lessons.${lesson.id}[${index}].choices`,
+          message: "warm-up choices must be distinct",
+        });
+      }
+    }
+
+    // The lesson file remains the learner-facing concept authority. Point a
+    // missing uses-tag author back there rather than silently widening the
+    // memory system from a detached question bank.
+    if (warmups.length > 0 && lesson.usesConceptTags.length === 0) {
+      issues.push({
+        severity: "error",
+        file: relPath,
+        pointer: "usesConceptTags",
+        message: "lesson has memory warm-ups but declares no prior concepts",
+      });
+    }
+  }
+
+  // A deterministic bank must not teach the learner a deterministic button
+  // position. Balance is evaluated in canonical lesson/item order so adding a
+  // new course cannot silently turn "always choose the first option" into a
+  // successful strategy. This is an authoring-quality gate, not randomization:
+  // the server still scores the same versioned item consistently.
+  const orderedWarmups = lessons.flatMap(
+    ({ lesson }) => parsed.data.lessons[lesson.id] ?? [],
+  );
+  if (!course.internal && orderedWarmups.length >= 4) {
+    const positionCounts = new Map<number, number>();
+    let longestRun = 0;
+    let currentRun = 0;
+    let previousPosition: number | null = null;
+    for (const warmup of orderedWarmups) {
+      positionCounts.set(
+        warmup.correctIndex,
+        (positionCounts.get(warmup.correctIndex) ?? 0) + 1,
+      );
+      currentRun =
+        warmup.correctIndex === previousPosition ? currentRun + 1 : 1;
+      longestRun = Math.max(longestRun, currentRun);
+      previousPosition = warmup.correctIndex;
+    }
+    const largestBucket = Math.max(...positionCounts.values());
+    if (largestBucket > Math.ceil(orderedWarmups.length / 2)) {
+      issues.push({
+        severity: "error",
+        file: relBank,
+        pointer: "lessons",
+        message:
+          "correct answer positions are predictable; no one position may hold more than half the bank",
+      });
+    }
+    if (longestRun > 3) {
+      issues.push({
+        severity: "error",
+        file: relBank,
+        pointer: "lessons",
+        message:
+          "correct answer position repeats more than three times in canonical lesson order",
+      });
+    }
+  }
 }
 
 // Phase 22F2A — B5/B6: validate cross-course id references and surface

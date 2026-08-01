@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { readFencedCodeBlock } from "./LessonInstructionsPanel";
+import {
+  readFencedCodeBlock,
+  readOrderedListBlock,
+} from "./LessonInstructionsPanel";
 
 describe("readFencedCodeBlock", () => {
   it("renders a list-indented fenced example without exposing its delimiters", () => {
@@ -28,5 +31,34 @@ describe("readFencedCodeBlock", () => {
   it("does not treat inline backticks or four-space code as a fence", () => {
     expect(readFencedCodeBlock(["Use `print()` here"], 0)).toBeNull();
     expect(readFencedCodeBlock(["    ```python"], 0)).toBeNull();
+  });
+});
+
+describe("readOrderedListBlock", () => {
+  it("keeps fenced examples and later steps in one continuous list", () => {
+    const lines = [
+      "1. Type one line:",
+      "",
+      "   ```python",
+      '   print("Hello, Maya!")',
+      "   ```",
+      "",
+      "   Use your own name.",
+      "",
+      "2. Click Run.",
+      "",
+      "## Key concepts",
+    ];
+
+    expect(readOrderedListBlock(lines, 0)).toEqual({
+      items: [
+        {
+          lead: "Type one line:",
+          body: ["```python", 'print("Hello, Maya!")', "```", "", "Use your own name."],
+        },
+        { lead: "Click Run.", body: [] },
+      ],
+      endIndex: 9,
+    });
   });
 });

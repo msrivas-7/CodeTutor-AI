@@ -4,7 +4,7 @@ import { CinematicLighting } from "../components/cinema/CinematicLighting";
 import { FilmGrain } from "../components/cinema/FilmGrain";
 import { Wordmark } from "../components/Wordmark";
 
-const UPDATED = "July 30, 2026";
+const UPDATED = "July 31, 2026";
 const SUPPORT_EMAIL = "support@msrivas.com";
 
 interface SectionProps {
@@ -56,6 +56,23 @@ function PrivacyContent() {
         <p>
           If you save your own OpenAI API key, CodeTutor encrypts it at rest and uses it only
           to make tutor requests you initiate. The interface never returns the stored key.
+        </p>
+        <p>
+          Signed-out learners can separately choose to help improve tutor quality. This choice
+          is off by default. When enabled, 5% of successful, CodeTutor-funded anonymous tutor
+          turns are selected. Before anything is saved, CodeTutor removes source code, files,
+          selections, terminal input and output, paths, contact details, secrets, and unknown
+          identifiers. Raw history and network addresses are not included. Conversations made
+          with your own API key are never part of this program.
+        </p>
+        <p>
+          These redacted quality samples expire within 30 days and are available only through
+          audited administrator review. Turning the choice off stops new sampling and requests
+          deletion of retained samples from that browser. If you later create an account, any
+          retained samples from that browser are linked only so they appear in your export and
+          are removed when your account is deleted. Sampled traffic never enters the protected
+          evaluation holdout directly; reviewers can use a redacted pattern to author a new
+          synthetic test instead.
         </p>
       </Section>
       <Section title="Service providers">

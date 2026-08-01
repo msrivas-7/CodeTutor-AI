@@ -56,19 +56,20 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toMatch(/GUIDE, don't solve/);
   });
 
-  it("describes the five intents the model must classify into", () => {
+  it("describes all tutor intents including the server-enforced Socratic mode", () => {
     const prompt = buildSystemPrompt(noHistory, "anything");
     expect(prompt).toMatch(/\bdebug\b/);
     expect(prompt).toMatch(/\bconcept\b/);
     expect(prompt).toMatch(/\bhowto\b/);
     expect(prompt).toMatch(/\bwalkthrough\b/);
     expect(prompt).toMatch(/\bcheckin\b/);
+    expect(prompt).toMatch(/\bsocratic\b/);
   });
 
-  it("includes SITUATION block with counts and stuck flag", () => {
-    const prompt = buildSystemPrompt(oneTutorTurn, "why doesn't this work");
+  it("includes SITUATION block with verified stage and stuck flag", () => {
+    const prompt = buildSystemPrompt(oneTutorTurn, "why doesn't this work", { tutorStage: "approach" });
     expect(prompt).toMatch(/SITUATION:/);
-    expect(prompt).toMatch(/Prior tutor turns in this conversation: 1/);
+    expect(prompt).toMatch(/Server-verified prior tutor turn for this task: true/);
     expect(prompt).toMatch(/Student signalled being stuck: false/);
   });
 
@@ -90,27 +91,26 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toMatch(/Student signalled being stuck: true/);
   });
 
-  it("reports 0 prior tutor turns when history is empty", () => {
+  it("reports no verified prior turn by default", () => {
     const prompt = buildSystemPrompt(noHistory, "anything");
-    expect(prompt).toMatch(/Prior tutor turns in this conversation: 0/);
+    expect(prompt).toMatch(/Server-verified prior tutor turn for this task: false/);
   });
 
-  it("ignores user-role messages when counting tutor turns", () => {
-    // Three user messages but zero assistant messages — still 0 prior tutor turns.
+  it("ignores browser history when deciding progression", () => {
     const history: AIMessage[] = [
       { role: "user", content: "a" },
       { role: "user", content: "b" },
       { role: "user", content: "c" },
     ];
     expect(buildSystemPrompt(history, "another question")).toMatch(
-      /Prior tutor turns in this conversation: 0/,
+      /Server-verified prior tutor turn for this task: false/,
     );
   });
 
   it("keeps debug-intent escalation rules tied to the SITUATION flags", () => {
     const prompt = buildSystemPrompt(noHistory, "anything");
-    expect(prompt).toMatch(/intent="debug"/);
-    expect(prompt).toMatch(/0 prior turns AND not stuck/);
+    expect(prompt).toMatch(/intent="socratic"/);
+    expect(prompt).toMatch(/No verified prior turn/);
     expect(prompt).toMatch(/Stuck = true/);
   });
 });
@@ -123,11 +123,11 @@ describe("TUTOR_RESPONSE_SCHEMA", () => {
     expect(required.sort()).toEqual(props.sort());
   });
 
-  it("exposes the five intent values as an enum on `intent`", () => {
+  it("exposes all six intent values as an enum on `intent`", () => {
     const intent = TUTOR_RESPONSE_SCHEMA.properties.intent;
     expect(intent.type).toBe("string");
     expect([...intent.enum].sort()).toEqual(
-      ["checkin", "concept", "debug", "howto", "walkthrough"].sort(),
+      ["checkin", "concept", "debug", "howto", "socratic", "walkthrough"].sort(),
     );
   });
 

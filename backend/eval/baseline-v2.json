@@ -1,0 +1,56 @@
+{
+  "datasetVersion": "2.2.0",
+  "datasetFingerprint": "1a6e61255b392c0f83eb99250e1c3fffc6453f323b1b0059863df7059de520d6",
+  "evaluatorVersion": "2.11.0",
+  "approvedModel": "platform-tutor-b3.v1",
+  "approvedJudgeModel": "gpt-4.1",
+  "approvedRoutingPolicyVersion": "platform-tutor-b3.v1",
+  "approvedModels": [
+    "gpt-4.1-mini",
+    "gpt-4.1-nano"
+  ],
+  "approvedModelByIntent": {
+    "socratic": "gpt-4.1-nano",
+    "debug": "gpt-4.1-nano",
+    "concept": "gpt-4.1-nano",
+    "howto": "gpt-4.1-nano",
+    "walkthrough": "gpt-4.1-nano",
+    "checkin": "gpt-4.1-mini"
+  },
+  "approvedAt": "2026-07-31T23:13:41.000Z",
+  "qualityContractFingerprint": "3fe0e6c05a414547d570773834eb2ecdd940efd4f2524da518c537ccd1320058",
+  "postureOverall": 1,
+  "postureByIntent": {
+    "socratic": 1,
+    "debug": 1,
+    "concept": 1,
+    "howto": 1,
+    "walkthrough": 1,
+    "checkin": 1
+  },
+  "helpfulCorrectByIntent": {
+    "socratic": 1,
+    "debug": 1,
+    "concept": 1,
+    "howto": 1,
+    "walkthrough": 1,
+    "checkin": 1
+  },
+  "observedPostureOverall": 1,
+  "observedPostureByIntent": {
+    "socratic": 1,
+    "debug": 1,
+    "concept": 1,
+    "howto": 1,
+    "walkthrough": 1,
+    "checkin": 1
+  },
+  "observedHelpfulCorrectByIntent": {
+    "socratic": 1,
+    "debug": 1,
+    "concept": 1,
+    "howto": 1,
+    "walkthrough": 1,
+    "checkin": 1
+  }
+}

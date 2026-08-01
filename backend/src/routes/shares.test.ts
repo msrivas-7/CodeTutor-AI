@@ -1,7 +1,7 @@
 // Phase 21C: cinematic share route tests. Mirrors feedback.test.ts —
-// fake auth via x-test-user, real DB so RLS + constraints + the
-// SECURITY DEFINER functions are exercised end-to-end. Skips when
-// DATABASE_URL is unreachable.
+// fake auth via x-test-user, real DB so canonical catalog snapshots,
+// ownership predicates, RLS, and constraints are exercised end-to-end.
+// Skips when DATABASE_URL is unreachable.
 
 import express from "express";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -13,6 +13,11 @@ const { db } = await import("../db/client.js");
 const { sharesAuthedRouter, sharesPublicRouter } = await import(
   "./shares.js"
 );
+const { createSharePreviewRouter } = await import("./sharePreview.js");
+const {
+  SHARE_PREVIEW_AUTH_HEADERS,
+  signSharePreviewRequest,
+} = await import("../services/share/previewAuth.js");
 const { errorHandler } = await import("../middleware/errorHandler.js");
 
 let srv: Server;
@@ -20,6 +25,12 @@ let base: string;
 let dbReachable = false;
 const userIds: string[] = [];
 const tokens: string[] = [];
+const previewKey = {
+  id: "integration-v1",
+  secret: Buffer.alloc(32, 11).toString("base64"),
+};
+let previewNonce = 0;
+let previewDisabled = false;
 
 async function mkUser(): Promise<string> {
   const id = randomUUID();
@@ -50,10 +61,6 @@ async function seedCompletedLesson(userId: string, courseId: string, lessonId: s
 const sampleBody = (overrides: Partial<Record<string, unknown>> = {}) => ({
   courseId: "python-fundamentals",
   lessonId: "hello-world",
-  lessonTitle: "Hello, world",
-  lessonOrder: 1,
-  courseTitle: "Python Fundamentals",
-  courseTotalLessons: 12,
   mastery: "strong" as const,
   timeSpentMs: 360_000,
   attemptCount: 1,
@@ -74,6 +81,30 @@ function postCreate(userId: string | null, body: unknown) {
 
 function getPublic(token: string) {
   return fetch(`${base}/api/shares/${token}`);
+}
+
+function getPreview(token: string) {
+  previewNonce += 1;
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const nonce = Buffer.alloc(18);
+  nonce.writeUInt32BE(previewNonce, 14);
+  const encodedNonce = nonce.toString("base64url");
+  const canonicalPath = `/api/internal/share-previews/${token}`;
+  return fetch(`${base}${canonicalPath}`, {
+    headers: {
+      [SHARE_PREVIEW_AUTH_HEADERS.keyId]: previewKey.id,
+      [SHARE_PREVIEW_AUTH_HEADERS.timestamp]: timestamp,
+      [SHARE_PREVIEW_AUTH_HEADERS.nonce]: encodedNonce,
+      [SHARE_PREVIEW_AUTH_HEADERS.signature]: signSharePreviewRequest({
+        method: "GET",
+        canonicalPath,
+        timestamp,
+        nonce: encodedNonce,
+        keyId: previewKey.id,
+        secret: previewKey.secret,
+      }),
+    },
+  });
 }
 
 function deleteShare(userId: string | null, token: string) {
@@ -99,6 +130,14 @@ beforeAll(async () => {
     next();
   });
   // Mount public first (matches index.ts split-mount order).
+  app.use(
+    "/api/internal/share-previews",
+    createSharePreviewRouter({
+      keys: [previewKey],
+      isDisabled: async () => previewDisabled,
+      recordMetric: () => {},
+    }),
+  );
   app.use("/api/shares", sharesPublicRouter);
   app.use("/api/shares", sharesAuthedRouter);
   app.use(errorHandler);
@@ -211,7 +250,7 @@ describe("POST /api/shares", () => {
       INSERT INTO public.shared_lesson_completions (
         share_token, user_id, course_id, lesson_id,
         lesson_title, lesson_order, course_title, course_total_lessons,
-        mastery, time_spent_ms, attempt_count, code_snippet, revoked_at
+        mastery, time_spent_ms, attempt_count, code_snippet, created_at, revoked_at
       )
       SELECT
         t,
@@ -226,6 +265,7 @@ describe("POST /api/shares", () => {
         360000,
         1,
         'print("hi")',
+        NOW() - INTERVAL '2 days',
         CASE WHEN t LIKE '%-revoked' THEN now() ELSE NULL END
       FROM unnest(${seedTokens}::text[]) AS t
     `;
@@ -251,7 +291,7 @@ describe("GET /api/shares/:token (public, anon-readable)", () => {
     expect(r.status).toBe(200);
     const body = await r.json();
     expect(body.shareToken).toBe(shareToken);
-    expect(body.lessonTitle).toBe("Hello, world");
+    expect(body.lessonTitle).toBe("Hello, World!");
     expect(body.codeSnippet).toBe('print("Hello, world!")');
     expect(body.displayName).toBe("Mehul");
     // user_id MUST NOT appear in the public payload.
@@ -265,10 +305,10 @@ describe("GET /api/shares/:token (public, anon-readable)", () => {
     expect(r.status).toBe(404);
   });
 
-  it("returns 400 for a malformed token", async () => {
+  it("returns 404 for a malformed token after reserved public routes pass through", async () => {
     if (!dbReachable) return;
     const r = await getPublic("not-a-real-token-format");
-    expect(r.status).toBe(400);
+    expect(r.status).toBe(404);
   });
 
   it("returns 404 after the share is revoked", async () => {
@@ -284,6 +324,88 @@ describe("GET /api/shares/:token (public, anon-readable)", () => {
     const r = await getPublic(shareToken);
     expect(r.status).toBe(404);
   });
+});
+
+describe("GET /api/internal/share-previews/:token (service-only)", () => {
+  it("keeps crawler reads non-counting and leaves a cold human read available", async () => {
+    if (!dbReachable) return;
+    const u = await mkUser();
+    await seedCompletedLesson(u, "python-fundamentals", "hello-world");
+    const create = await postCreate(u, sampleBody({ displayName: "Maya" }));
+    const { shareToken } = await create.json();
+    tokens.push(shareToken);
+
+    // A crawler burst uses only the internal service budget and never calls
+    // bumpShareView. Five concurrent reads are enough to exercise real DB
+    // concurrency without turning this integration test into a load test.
+    const previews = await Promise.all(
+      Array.from({ length: 5 }, () => getPreview(shareToken)),
+    );
+    expect(previews.every((response) => response.status === 200)).toBe(true);
+    const dto = await previews[0].json();
+    expect(dto).toMatchObject({
+      schemaVersion: 1,
+      lessonTitle: "Hello, World!",
+      displayName: "Maya",
+    });
+    expect(dto.codeSnippet).toBeUndefined();
+    expect(dto.viewCount).toBeUndefined();
+    expect(dto.userId).toBeUndefined();
+
+    const beforeHuman = await db()<Array<{ view_count: number }>>`
+      SELECT view_count
+        FROM public.shared_lesson_completions
+       WHERE share_token = ${shareToken}
+    `;
+    expect(Number(beforeHuman[0]?.view_count)).toBe(0);
+
+    // The same client can still make a cold human reader request after the
+    // crawler burst because the preview route never touches public buckets.
+    const publicRead = await getPublic(shareToken);
+    expect(publicRead.status).toBe(200);
+
+    let counted = 0;
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const rows = await db()<Array<{ view_count: number }>>`
+        SELECT view_count
+          FROM public.shared_lesson_completions
+         WHERE share_token = ${shareToken}
+      `;
+      counted = Number(rows[0]?.view_count ?? 0);
+      if (counted === 1) break;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    expect(counted).toBe(1);
+  }, 30_000);
+
+  it("returns the same 404 after revocation without falling through to public reads", async () => {
+    if (!dbReachable) return;
+    const u = await mkUser();
+    await seedCompletedLesson(u, "python-fundamentals", "hello-world");
+    const create = await postCreate(u, sampleBody());
+    const { shareToken } = await create.json();
+    tokens.push(shareToken);
+    expect((await getPreview(shareToken)).status).toBe(200);
+    expect((await deleteShare(u, shareToken)).status).toBe(200);
+    expect((await getPreview(shareToken)).status).toBe(404);
+  }, 30_000);
+
+  it("keeps human reads live while the backend preview kill switch is active", async () => {
+    if (!dbReachable) return;
+    const u = await mkUser();
+    await seedCompletedLesson(u, "python-fundamentals", "hello-world");
+    const create = await postCreate(u, sampleBody());
+    const { shareToken } = await create.json();
+    tokens.push(shareToken);
+
+    previewDisabled = true;
+    try {
+      expect((await getPreview(shareToken)).status).toBe(503);
+      expect((await getPublic(shareToken)).status).toBe(200);
+    } finally {
+      previewDisabled = false;
+    }
+  }, 30_000);
 });
 
 describe("DELETE /api/shares/:token", () => {
@@ -310,18 +432,15 @@ describe("DELETE /api/shares/:token", () => {
     const { shareToken } = await create.json();
     tokens.push(shareToken);
 
-    // The fake-auth header sets req.userId, which the SECURITY DEFINER
-    // revoke_share() reads via auth.uid(). In the test harness without
-    // a real Supabase JWT, auth.uid() returns NULL for the wrong user
-    // — the function's GUARD returns false → 404 from the route. This
-    // is the same behavior a real malicious caller would see.
+    // The server-side UPDATE includes user_id in its WHERE clause, so a
+    // different owner receives the same privacy-preserving 404 as a miss.
     const r = await deleteShare(other, shareToken);
     expect(r.status).toBe(404);
   });
 
   it("returns 401 for unauthenticated revoke", async () => {
     if (!dbReachable) return;
-    const r = await deleteShare(null, "aaaaaaaa");
+    const r = await deleteShare(null, "aaaaaaaaaaaa");
     expect(r.status).toBe(401);
   });
 });

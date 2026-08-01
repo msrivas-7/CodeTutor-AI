@@ -14,6 +14,7 @@ import { userDataRouter } from "./routes/userData.js";
 import { aiStatusRouter } from "./routes/aiStatus.js";
 import { adminRouter, adminStatusRouter } from "./routes/admin.js";
 import { sharesAuthedRouter, sharesPublicRouter } from "./routes/shares.js";
+import { sharePreviewRouter } from "./routes/sharePreview.js";
 import { emailRouter } from "./routes/email.js";
 import { adminGuard } from "./middleware/adminGuard.js";
 import { feedbackRouter } from "./routes/feedback.js";
@@ -66,6 +67,7 @@ import {
   getPlatformAuthStatus,
 } from "./services/ai/credential.js";
 import { corsOriginPolicy } from "./middleware/frontendOrigin.js";
+import { reconcileExpiredAIRequests } from "./db/aiReservations.js";
 
 async function main() {
   // Validate env-sourced config before any wiring. Prefer a loud, fast failure
@@ -503,6 +505,14 @@ async function main() {
   // POST + DELETE are owner-only and use the standard chain. Public GET
   // is mounted FIRST so Express's path-matching reaches it before the
   // authed router (which would 401 the anon caller).
+  // Release 0A: the SWA crawler adapter uses a narrowly authenticated,
+  // non-counting route. It is mounted outside user auth by design, but owns
+  // HMAC freshness/replay checks and a budget independent of public readers.
+  app.use(
+    "/api/internal/share-previews",
+    bodyLimit(1024),
+    sharePreviewRouter,
+  );
   app.use(
     "/api/shares",
     bodyLimit(4 * 1024),
@@ -635,6 +645,21 @@ async function main() {
   // wiring TBD (low priority — daily inspection is enough until volume
   // makes a paging rule worthwhile).
   startInvariantValidator();
+
+  // Release 0D: reservations normally reconcile during the next admission,
+  // but a quiet system still needs bounded crash recovery. Sweep once at
+  // boot and every minute; failures are visible and fail closed because the
+  // unreconciled reservation continues consuming capacity.
+  const reconcileAIReservations = () => {
+    void reconcileExpiredAIRequests()
+      .then((count) => {
+        if (count) console.warn(`[ai-reservations] reconciled ${count} expired request(s)`);
+      })
+      .catch((err) => console.error("[ai-reservations] reconciliation failed:", err));
+  };
+  reconcileAIReservations();
+  const aiReservationReaper = setInterval(reconcileAIReservations, 60_000);
+  aiReservationReaper.unref?.();
 
   // QA-M4: hourly reap of abandoned lesson_progress rows. A drive-by URL
   // visit calls startLesson, which writes an in_progress row even when the
