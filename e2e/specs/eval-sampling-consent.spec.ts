@@ -68,10 +68,9 @@ test.describe("B8 governed anonymous eval sampling", () => {
 
     await page.goto(PATH);
     const control = page.getByTestId("eval-sampling-consent");
-    const checkbox = control.getByRole("checkbox", { name: "Help improve the tutor" });
+    const checkbox = control.getByRole("checkbox", { name: /Improve tutor/i });
     await expect(checkbox).not.toBeChecked();
-    await expect(control).toContainText("Off by default");
-    await expect(control).toContainText("5% of redacted anonymous turns");
+    await expect(control).toContainText("optional, redacted");
 
     await submitTutorQuestion(page, "Why is the output empty?");
     await expect.poll(() => askBodies.length).toBe(1);
@@ -127,7 +126,7 @@ test.describe("B8 governed anonymous eval sampling", () => {
 
     await page.goto(PATH);
     const control = page.getByTestId("eval-sampling-consent");
-    const checkbox = control.getByRole("checkbox", { name: "Help improve the tutor" });
+    const checkbox = control.getByRole("checkbox", { name: /Improve tutor/i });
     await checkbox.check();
     await checkbox.uncheck();
     await expect(control).toContainText("New turns are off");
@@ -161,13 +160,13 @@ test.describe("B8 governed anonymous eval sampling", () => {
     const control = page.getByTestId("eval-sampling-consent");
     await control.scrollIntoViewIfNeeded();
     await expect(control).toBeInViewport();
-    const checkbox = control.getByRole("checkbox", { name: "Help improve the tutor" });
+    const checkbox = control.getByRole("checkbox", { name: /Improve tutor/i });
     await checkbox.focus();
     await expect(checkbox).toBeFocused();
 
-    const disclosure = control.getByText("What is shared?", { exact: true });
+    const disclosure = control.getByText("Privacy", { exact: true });
     await disclosure.click();
-    await expect(control).toContainText("Files, source code, selections, terminal output, paths, and raw history are never stored.");
+    await expect(control).toContainText("Files, code, paths, output, and raw history are never stored.");
     await expect(control).toContainText("BYOK chats are excluded.");
 
     const labelBox = await control.locator("label").boundingBox();
@@ -190,7 +189,7 @@ test.describe("B8 governed anonymous eval sampling", () => {
     });
 
     const privacyPagePromise = page.context().waitForEvent("page");
-    await control.getByRole("link", { name: "privacy details" }).click();
+    await control.getByRole("link", { name: "Open full privacy details" }).click();
     const privacyPage = await privacyPagePromise;
     await privacyPage.waitForLoadState();
     await expect(privacyPage).toHaveURL(/\/privacy#ai$/);
@@ -203,6 +202,6 @@ test.describe("B8 governed anonymous eval sampling", () => {
 
     // Trust details must not replace or erase the in-progress lesson.
     await expect(page).toHaveURL(PATH);
-    await expect(control).toContainText("What is shared?");
+    await expect(control).toContainText("Privacy");
   });
 });

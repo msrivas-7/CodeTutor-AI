@@ -12,7 +12,7 @@
 
 import { aiPlatformAbuseSignals } from "../metrics.js";
 
-export const SUSPECT_API_DETECTOR_VERSION = "b7.2";
+export const SUSPECT_API_DETECTOR_VERSION = "b7.3";
 
 // Python builtins plus the standard-library and common object surfaces that a
 // beginner tutor can legitimately name. This is intentionally explicit and
@@ -183,8 +183,8 @@ function explicitlyRejectsCall(sentence: string, symbol: string): boolean {
     ),
     new RegExp(
       formattedCall +
-        "[^.!?\\n]{0,24}(?:does\\s+not|doesn't|is\\s+not|isn't|cannot|can't)\\s+" +
-        "(?:exist|valid|available|supported|real)",
+        "[^.!?\\n]{0,48}(?:does\\s+not|doesn't|is\\s+not|isn't|cannot|can't)\\s+" +
+        "(?:(?:a|an)\\s+)?(?:built[- ]?in|native|standard|exist|valid|available|supported|real)",
       "i",
     ),
     new RegExp(

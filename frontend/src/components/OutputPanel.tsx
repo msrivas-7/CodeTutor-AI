@@ -94,15 +94,15 @@ export function OutputPanel({
   };
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col bg-panel">
-      <div className="flex items-center gap-3 border-b border-border px-3 py-1.5">
+    <div className="relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-panel">
+      <div className="flex min-w-0 flex-wrap items-center gap-2 border-b border-border px-3 py-1.5">
         <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">
           Output
         </span>
         <div
           role="tablist"
           aria-label="Output view"
-          className="flex gap-0.5 rounded-md bg-elevated p-0.5 text-[11px]"
+          className="flex max-w-full gap-0.5 overflow-x-auto rounded-md bg-elevated p-0.5 text-[11px]"
         >
           {(["combined", "stdout", "stderr", "stdin"] as Tab[]).map((t) => (
             <button
@@ -133,7 +133,7 @@ export function OutputPanel({
             </button>
           ))}
         </div>
-        <div className="ml-auto flex items-center gap-2 text-[11px]">
+        <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2 text-[11px]">
           {running && stdin.length > 0 && tab !== "stdin" && (
             <button
               onClick={() => setTab("stdin")}
@@ -166,7 +166,7 @@ export function OutputPanel({
               >
                 {TYPE_LABEL[result!.errorType]}
               </span>
-              <span className="font-mono text-faint">
+              <span className="max-w-full truncate whitespace-nowrap font-mono text-faint">
                 exit {result!.exitCode} · {result!.durationMs}ms · {result!.stage}
               </span>
               <button

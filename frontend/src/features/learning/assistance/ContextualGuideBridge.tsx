@@ -42,7 +42,7 @@ export function ContextualGuideBridge({
           onClick={onViewError}
           className="inline-flex min-h-11 items-center rounded-lg px-2 text-xs font-semibold text-accent transition hover:bg-accent/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
-          View error
+          Jump to line {evidence.line}
         </button>
         <button
           type="button"

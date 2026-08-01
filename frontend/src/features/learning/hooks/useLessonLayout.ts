@@ -64,7 +64,10 @@ export function useLessonLayout({ courseId, lessonId }: UseLessonLayoutArgs) {
   // collapse: keep the tutor OPEN, collapse INSTRUCTIONS instead (the
   // prose lives in the tutor's first scripted turns anyway). Runs once
   // per mount, same as the legacy heuristic.
-  const narrow = useNarrowViewport(1024);
+  // Three full panes are already cramped on ordinary 1024-1280px laptop
+  // windows. At this boundary, opening either help rail closes the other so
+  // the editor/output column always remains a real working surface.
+  const narrow = useNarrowViewport(1280);
   const autoCollapsedRef = useRef(false);
   const isLessonOneNarrow =
     narrow &&

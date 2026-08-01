@@ -16,6 +16,7 @@ const EditorPage = lazy(() => import("./pages/EditorPage"));
 const LearningDashboardPage = lazy(() => import("./features/learning/pages/LearningDashboardPage"));
 const CourseOverviewPage = lazy(() => import("./features/learning/pages/CourseOverviewPage"));
 const LessonPage = lazy(() => import("./features/learning/pages/LessonPage"));
+const SavedTutorNotesPage = lazy(() => import("./features/learning/pages/SavedTutorNotesPage"));
 const AnonLessonPage = lazy(() => import("./features/learning/pages/AnonLessonPage"));
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const SignupPage = lazy(() => import("./pages/SignupPage"));
@@ -182,6 +183,7 @@ export default function App() {
           <Route path="/welcome" element={<FirstRunPage />} />
           <Route path="/editor" element={<EditorPage />} />
           <Route path="/learn" element={<LearningDashboardPage />} />
+          <Route path="/learn/saved" element={<SavedTutorNotesPage />} />
           <Route path="/learn/course/:courseId" element={<CourseOverviewPage />} />
           <Route path="/learn/course/:courseId/lesson/:lessonId" element={<LessonPage />} />
           {ContentHealthPage && (

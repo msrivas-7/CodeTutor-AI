@@ -1,7 +1,7 @@
 import type { AIModel, TutorIntent } from "./provider.js";
 
-export const MODEL_REGISTRY_VERSION = "2026-07-31.v12";
-export const TUTOR_EVAL_SET_VERSION = "2.2.0+evaluator.2.11.0";
+export const MODEL_REGISTRY_VERSION = "2026-08-01.v13";
+export const TUTOR_EVAL_SET_VERSION = "2.3.0+evaluator.2.11.0";
 
 export type ModelQualityStatus = "evaluated" | "unevaluated";
 

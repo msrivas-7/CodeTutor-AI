@@ -18,13 +18,13 @@ describe("routeTutorModel", () => {
     })).toEqual({ intent: "checkin", model: PLATFORM_CHECKIN_TUTOR_MODEL });
   });
 
-  it("retains Nano for walkthroughs", () => {
+  it("retains Nano for explicit walkthroughs, including the first turn", () => {
     expect(routeTutorModel({
       requestedModel: PLATFORM_DEFAULT_TUTOR_MODEL,
       fundingSource: "platform",
       question: "Walk me through this code",
       files,
-      tutorStage: "approach",
+      tutorStage: "clarify",
     })).toEqual({ intent: "walkthrough", model: PLATFORM_DEFAULT_TUTOR_MODEL });
   });
 

@@ -1273,6 +1273,8 @@ export const api = {
       `/api/user/saved-tutor-messages?${qs.toString()}`,
     );
   },
+  listAllSavedTutorMessages: () =>
+    get<{ messages: SavedTutorMessage[] }>("/api/user/saved-tutor-messages/all"),
   saveTutorMessage: (body: SaveTutorMessageBody) =>
     post<{ saved: SavedTutorMessage }>("/api/user/saved-tutor-messages", body),
   deleteSavedTutorMessage: (id: string) =>

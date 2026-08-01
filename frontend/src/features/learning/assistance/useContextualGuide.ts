@@ -80,6 +80,14 @@ export function useContextualGuide({
     }
   }, [enabled, projectRevision, result]);
 
+  useEffect(() => {
+    if (!enabled || !learnerRequestedTutor) return;
+    // The learner chose the full tutor for this evidence episode. Hand off
+    // ownership instead of letting the inline guide disappear during the
+    // stream and then reappear beside the completed tutor response.
+    dispatch({ type: "dismissed" });
+  }, [enabled, learnerRequestedTutor]);
+
   const latestRunEvidence = useMemo(
     () => normalizeRunEvidence(result, projectPaths),
     [projectPaths, result],

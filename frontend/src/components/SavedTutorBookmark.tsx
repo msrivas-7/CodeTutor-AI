@@ -59,7 +59,7 @@ export function SavedTutorBookmark({
       aria-label={ariaLabel ?? (saved ? "Remove from saved" : "Save tutor message")}
       title={saved ? "Saved · click to remove" : "Save this message"}
       aria-pressed={saved}
-      className={`relative inline-flex h-6 w-6 shrink-0 items-center justify-center rounded transition-opacity ${colorClass} ${disabled ? "cursor-not-allowed" : "cursor-pointer"} focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 motion-reduce:transition-none`}
+      className={`relative inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg transition-opacity ${colorClass} ${disabled ? "cursor-not-allowed" : "cursor-pointer"} focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 motion-reduce:transition-none`}
       style={{
         opacity: restingOpacity,
         transitionDuration: "140ms",

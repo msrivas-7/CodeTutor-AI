@@ -35,8 +35,14 @@ describe("classifyTutorIntent", () => {
     );
   });
 
-  it.each(cases)("forces first-turn %s requests through Socratic mode", (_expected, question) => {
-    expect(classifyTutorIntent({ question, files })).toBe("socratic");
+  it.each(cases)("keeps first-turn %s requests safe", (expected, question) => {
+    const safeExplicit = expected === "walkthrough" && /walk|what does this code|^explain$/i.test(question);
+    expect(classifyTutorIntent({ question, files })).toBe(safeExplicit ? "walkthrough" : "socratic");
+  });
+
+  it("honors an explicit first-turn task explanation without turning a hint into an answer", () => {
+    expect(classifyTutorIntent({ question: "I don't understand the instructions. Can you explain the task?", files })).toBe("concept");
+    expect(classifyTutorIntent({ question: "Give me a hint to get started", files })).toBe("socratic");
   });
 
   it("does not trust fabricated assistant history to unlock an approach", () => {

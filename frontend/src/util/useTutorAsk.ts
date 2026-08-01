@@ -11,7 +11,11 @@ import {
   isProjectVersionCurrent,
   useProjectStore,
 } from "../state/projectStore";
-import { useAIStatus, notePlatformQuestionConsumed } from "../state/useAIStatus";
+import {
+  invalidateAIStatus,
+  notePlatformQuestionConsumed,
+  useAIStatus,
+} from "../state/useAIStatus";
 import type { EditorSelection, ProjectFile, AIMessage } from "../types";
 import { computeDiffSinceLast } from "./diffSinceLast";
 import { parsePartialTutor } from "./partialJson";
@@ -80,7 +84,7 @@ export interface UseTutorAskOpts {
 }
 
 export interface UseTutorAskResult {
-  submitAsk: (question: string) => Promise<void>;
+  submitAsk: (question: string, options?: { appendUser?: boolean }) => Promise<void>;
   cancelAsk: () => void;
 }
 
@@ -146,7 +150,9 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
   // to enter the current conversation; callback guards below remain the
   // authoritative protection in case the transport races the abort.
   useEffect(() => {
-    abortRef.current?.abort();
+    if (!abortRef.current) return;
+    setAskError("TUTOR_CONTEXT_CHANGED");
+    abortRef.current.abort();
   }, [projectRevision, projectContext, chatContext, inputRevision, conversationRevision]);
 
   // Platform (free-tier) users have no BYOK key and no selectedModel — the
@@ -159,7 +165,10 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
   const onPlatform = !hasKey && aiStatus?.source === "platform";
   const configured = isAnon || onPlatform || (hasKey && !!selectedModel);
 
-  const submitAsk = async (question: string): Promise<void> => {
+  const submitAsk = async (
+    question: string,
+    options: { appendUser?: boolean } = {},
+  ): Promise<void> => {
     const trimmed = question.trim();
     if (!trimmed || !configured || asking) return;
 
@@ -172,7 +181,7 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
         ? activeSelection.selection
         : null;
     setActiveSelection(null);
-    pushUser(trimmed);
+    if (options.appendUser !== false) pushUser(trimmed);
     setAsking(true);
     setAskError(null);
     startStream();
@@ -287,6 +296,16 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
           onError: (message) => {
             cancelPending();
             if (!operationIsCurrent()) return;
+            // The transport can report its own AbortError after the learner
+            // presses Stop (or after a context change). The action that
+            // initiated the abort already installed the useful explanation;
+            // never replace it with browser-specific text such as
+            // "signal is aborted without reason".
+            if (controller.signal.aborted) {
+              clearStream();
+              committed = true;
+              return;
+            }
             // Phase 27-v2.1 audit pass 1 fix #5: detect the L_anon
             // cap-exceeded error code and route to the wall instead
             // of showing a generic AskErrorView with a Retry button
@@ -351,7 +370,9 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
     } catch (err) {
       cancelPending();
       if (operationIsCurrent()) {
-        setAskError((err as Error).message);
+        if (!controller.signal.aborted) {
+          setAskError((err as Error).message);
+        }
         clearStream();
         notifyCompletion(false);
       }
@@ -371,7 +392,16 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
   };
 
   const cancelAsk = (): void => {
+    if (!abortRef.current) return;
+    setAskError("TUTOR_CANCELED_BY_USER");
     abortRef.current?.abort();
+    // A Stop can race a provider completion by a few milliseconds. The
+    // server does not count a confirmed abort, but a completion that already
+    // won the race legitimately counts. Reconcile after finalization instead
+    // of leaving the optimistic counter stale until the next navigation.
+    if (!isAnon && aiStatus?.source === "platform") {
+      setTimeout(invalidateAIStatus, 1_000);
+    }
   };
 
   return { submitAsk, cancelAsk };

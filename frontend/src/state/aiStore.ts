@@ -84,6 +84,10 @@ interface AIState {
   // selection is captured outside the panel.
   activeSelection: BoundEditorSelection | null;
   focusComposerNonce: number;
+  // Monotonic signal used by help entry points outside the tutor panel.
+  // Starting a hidden tutor request is never acceptable: pages observe this
+  // nonce and open the owning rail before the request is consumed.
+  tutorOpenNonce: number;
 
   // Phase 5 — rolling token usage for the current conversation. Per-turn usage
   // also lives on each AIMessage; this is the aggregate for the header chip.
@@ -111,6 +115,7 @@ interface AIState {
   setActiveSelection: (sel: BoundEditorSelection | null) => void;
   setTutorProgressToken: (token: string | null) => void;
   bumpFocusComposer: () => void;
+  requestTutorOpen: () => void;
 
   pushUser: (content: string) => void;
   pushAssistant: (
@@ -208,6 +213,7 @@ export const useAIStore = create<AIState>((set, get) => ({
 
   activeSelection: null,
   focusComposerNonce: 0,
+  tutorOpenNonce: 0,
   sessionUsage: { inputTokens: 0, outputTokens: 0 },
   tutorProgressToken: null,
   conversationRevision: 0,
@@ -249,6 +255,7 @@ export const useAIStore = create<AIState>((set, get) => ({
     saveChatToCache(get);
   },
   bumpFocusComposer: () => set((s) => ({ focusComposerNonce: s.focusComposerNonce + 1 })),
+  requestTutorOpen: () => set((s) => ({ tutorOpenNonce: s.tutorOpenNonce + 1 })),
 
   pushUser: (content) => {
     set((s) => ({
@@ -338,6 +345,7 @@ export const useAIStore = create<AIState>((set, get) => ({
       summarizing: false,
       activeSelection: null,
       focusComposerNonce: 0,
+      tutorOpenNonce: 0,
       sessionUsage: { inputTokens: 0, outputTokens: 0 },
       tutorProgressToken: null,
       chatContext: null,

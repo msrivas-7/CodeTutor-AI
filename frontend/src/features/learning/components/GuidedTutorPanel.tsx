@@ -11,7 +11,6 @@ import { useTutorAsk } from "../../../util/useTutorAsk";
 import {
   TutorResponseView,
   ActionChips,
-  UsageChip,
   ThinkingSkeleton,
   AskErrorView,
   hasTutorContent,
@@ -75,11 +74,13 @@ interface GuidedTutorPanelProps {
    * on (server 503 ANON_LESSON_DISABLED). Opens reason="trial-paused".
    */
   onAnonTrialPaused?: () => void;
+  /** Anonymous bookmark clicks open the honest account-to-save handoff. */
+  onAnonSaveRequested?: (trigger?: HTMLElement | null) => void;
   /** Explicit escape hatch for the scripted first-run tutor sequence. */
   onSkipWelcome?: () => void;
 }
 
-export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, priorConcepts, activePracticeExercise, onCollapse, onOpenSettings, resetNonce, inputLocked, clearHidden, mode = "authed", onAnonExhausted, onAnonTrialPaused, onSkipWelcome }: GuidedTutorPanelProps) {
+export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, priorConcepts, activePracticeExercise, onCollapse, onOpenSettings, resetNonce, inputLocked, clearHidden, mode = "authed", onAnonExhausted, onAnonTrialPaused, onAnonSaveRequested, onSkipWelcome }: GuidedTutorPanelProps) {
   const incrementHint = useProgressStore((s) => s.incrementHint);
   // Derive the hint cap from the DB-backed hint_count (not local component
   // state) so the limit survives navigation + reload. Local state rewinds on
@@ -105,7 +106,6 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
     activeSelection,
     setActiveSelection,
     focusComposerNonce,
-    sessionUsage,
   } = useAIStore();
   const hasKey = usePreferencesStore((s) => s.hasOpenaiKey);
   const persona = usePreferencesStore((s) => s.persona);
@@ -141,6 +141,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
   // signup wall cannot re-enable a dead composer and generate duplicate
   // questions, quota messages, or conversion dialogs.
   const [anonQuotaExhausted, setAnonQuotaExhausted] = useState(false);
+  const [clearConfirm, setClearConfirm] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // QA-C1: hint-counter rollback. The Hint button stages intent here at
@@ -151,8 +152,9 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
   const pendingHintRef = useRef<boolean>(false);
 
   // Phase 20-P4: BYOK wins; otherwise mirror what ai-status tells us.
+  const statusLoading = mode === "authed" && !hasKey && aiStatus === null;
   const effectiveSource: "byok" | "platform" | "none" =
-    hasKey ? "byok" : (aiStatus?.source ?? "byok");
+    hasKey ? "byok" : (aiStatus?.source ?? "none");
   const onPlatform = effectiveSource === "platform";
   const exhausted = effectiveSource === "none" && aiStatus?.reason === "free_exhausted";
   useEffect(() => {
@@ -171,6 +173,11 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
   // for the persona we're trying to land. Mirrors the gate inside
   // useTutorAsk where submitAsk treats anon as configured.
   const configured = mode === "anon" || onPlatform || (hasKey && !!selectedModel);
+
+  const prepareAnswer = (value: string) => {
+    setDraft(value);
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  };
 
   useEffect(() => {
     if (!resetNonce) return;
@@ -283,11 +290,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
               cap={aiStatus.capToday}
               resetAtUtc={aiStatus.resetAtUtc}
             />
-          ) : (
-            !onPlatform && (sessionUsage.inputTokens > 0 || sessionUsage.outputTokens > 0) && (
-              <UsageChip usage={sessionUsage} modelId={selectedModel} size="xs" />
-            )
-          )}
+          ) : null}
         </div>
         <div className="flex items-center gap-1">
           {onSkipWelcome && (
@@ -299,15 +302,21 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
               Skip welcome
             </button>
           )}
-          {!clearHidden && (
+          {!clearHidden && !clearConfirm && (
           <button
-            onClick={() => { clearConversation(); setDraft(""); }}
+            onClick={() => setClearConfirm(true)}
             className="min-h-11 rounded-lg px-3 py-2 text-sm text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-40"
             disabled={history.length === 0 || asking}
             title="Clear conversation"
           >
-            clear
+            Clear
           </button>
+          )}
+          {clearConfirm && (
+            <div className="flex items-center gap-1" role="group" aria-label="Confirm clearing conversation">
+              <button type="button" onClick={() => setClearConfirm(false)} className="min-h-11 rounded-lg px-2 text-sm text-muted">Keep</button>
+              <button type="button" onClick={() => { clearConversation(); setDraft(""); setClearConfirm(false); }} className="min-h-11 rounded-lg px-2 text-sm font-semibold text-danger">Clear chat</button>
+            </div>
           )}
           {onCollapse && (
             <button
@@ -343,7 +352,10 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
         aria-label="Tutor conversation"
         className="flex-1 space-y-3 overflow-auto p-3"
       >
-        {!configured && !exhausted && (
+        {statusLoading && (
+          <div role="status" className="rounded-lg border border-border bg-elevated/40 p-3 text-sm text-muted">Checking your tutor access…</div>
+        )}
+        {!statusLoading && !configured && !exhausted && (
           <TutorSetupWarning
             onOpenSettings={onOpenSettings}
             onDismiss={onCollapse}
@@ -387,7 +399,8 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
             !asking;
           const isAssistant = m.role === "assistant";
           const messageId = m.id;
-          const canSave = isAssistant && !!messageId && !m.meta?.scripted;
+          const canSave = mode === "authed" && isAssistant && !!messageId && !m.meta?.scripted;
+          const canRequestSave = mode === "anon" && isAssistant && !!messageId && !m.meta?.scripted;
           const isSaved = canSave ? savedIds.has(messageId) : false;
           const handleToggleSave = () => {
             if (!canSave || !messageId) return;
@@ -398,7 +411,13 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
               void saveTutorMessage({
                 messageId,
                 content: m.content,
-                sections: (m.sections ?? null) as Record<string, unknown> | null,
+                sections: {
+                  ...(m.sections ?? {}),
+                  __savedContext: {
+                    activeFile,
+                    files: useProjectStore.getState().snapshot(),
+                  },
+                } as Record<string, unknown>,
                 model: selectedModel,
               });
             }
@@ -408,7 +427,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
           // home that's always visible, not absolute-overlayed on the response
           // text. Hint button + ActionChips still gate on isLatestAssistant.
           const showChrome =
-            isAssistant && (canSave || isLatestAssistant || (m.role === "assistant" && m.usage));
+            isAssistant && (canSave || canRequestSave || isLatestAssistant || (m.role === "assistant" && m.usage));
           return (
             <div key={messageId ?? i} className="flex flex-col gap-2 motion-safe:animate-fadeInUp">
               {m.role === "user" ? (
@@ -419,6 +438,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
                 <TutorResponseView
                   sections={m.sections}
                   onAsk={isLatestAssistant ? setPendingAsk : undefined}
+                  onCompose={isLatestAssistant ? prepareAnswer : undefined}
                   disabled={asking}
                   scripted={m.meta?.scripted}
                 />
@@ -485,11 +505,15 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
                     </div>
                   )}
                   <div className="flex items-center justify-end gap-1.5">
-                    {m.role === "assistant" && m.usage && !onPlatform && (
-                      <UsageChip usage={m.usage} modelId={selectedModel} />
-                    )}
                     {canSave && (
                       <SavedTutorBookmark saved={isSaved} onToggle={handleToggleSave} />
+                    )}
+                    {canRequestSave && (
+                      <SavedTutorBookmark
+                        saved={false}
+                        ariaLabel="Create an account to save this tutor message"
+                        onToggle={() => onAnonSaveRequested?.(document.activeElement as HTMLElement | null)}
+                      />
                     )}
                   </div>
                 </div>
@@ -510,7 +534,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
               const lastUser = [...history].reverse().find((m) => m.role === "user");
               if (lastUser) {
                 setAskError(null);
-                setPendingAsk(lastUser.content);
+                void submitAsk(lastUser.content, { appendUser: false });
               }
             }}
             retryDisabled={asking || !configured}
@@ -542,6 +566,8 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
               placeholder={
                 inputLocked
                   ? "Watch for a sec — I'll hand the panel back."
+                  : statusLoading
+                    ? "Checking tutor access…"
                   : anonQuotaExhausted
                     ? "Free tutor questions used today — keep coding or create an account."
                   : activeSelection
@@ -552,7 +578,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
                         ? `Free tutor resets ${formatReset(aiStatus?.resetAtUtc ?? null)}`
                         : "Configure API key first"
               }
-              disabled={!configured || inputLocked || anonQuotaExhausted}
+              disabled={statusLoading || !configured || inputLocked || anonQuotaExhausted}
               rows={2}
               aria-label="Ask the tutor"
               className="w-full resize-none rounded-lg border border-border bg-elevated px-3 py-2 text-base text-ink transition placeholder:text-faint focus:border-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:bg-elevated/40 disabled:opacity-50 sm:text-body"

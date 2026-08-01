@@ -46,6 +46,30 @@ describe("applyTutorOutputPolicy", () => {
     });
   });
 
+  it("asks for a prediction instead of assuming a mismatch on a final-value request", () => {
+    const result = applyTutorOutputPolicy({
+      sections: {
+        checkQuestions: [
+          "What part of the code do you think controls the final score?",
+        ],
+      },
+      params: {
+        ...base,
+        question: "Can you solve this and tell me the final score?",
+        files: [{
+          path: "main.py",
+          content: "score = 3\nscore = score + 1\nprint(score)\n",
+        }],
+      },
+      intent: "socratic",
+      priorTutorTurns: 0,
+    });
+
+    expect(result.checkQuestions).toEqual([
+      "What value do you predict `score` will have after the visible code runs, and why?",
+    ]);
+  });
+
   it("replaces leading, answer-bearing, and malformed model questions with a safe fallback", () => {
     for (const checkQuestion of [
       "Should you use `str(age)` here?",
@@ -101,6 +125,81 @@ describe("applyTutorOutputPolicy", () => {
     expect(result.checkQuestions).toEqual([
       "What changed in the result after your most recent edit?",
     ]);
+  });
+
+  it("anchors a syntax-error first turn to the run evidence, not an unrelated variable", () => {
+    const result = applyTutorOutputPolicy({
+      sections: { checkQuestions: ["What do you think `x` represents?"] },
+      params: {
+        ...base,
+        question: "Give me a hint",
+        files: [{ path: "main.py", content: "x = 1\nprint(\"Hello\"\n" }],
+        lastRun: {
+          stdout: "",
+          stderr: "  File \"/workspace/main.py\", line 2\nSyntaxError: '(' was never closed",
+          exitCode: 1,
+          errorType: "runtime" as const,
+          durationMs: 4,
+          stage: "run" as const,
+        },
+      },
+      intent: "socratic",
+      priorTutorTurns: 0,
+    });
+    expect(result.checkQuestions).toEqual([
+      "The latest run reports an unmatched delimiter on line 2. Which opening symbol still needs its matching partner?",
+    ]);
+    expect(JSON.stringify(result)).not.toContain("`x`");
+  });
+
+  it("repairs empty concrete-example and why-it-matters actions with visible evidence", () => {
+    const concrete = applyTutorOutputPolicy({
+      sections: { summary: "Your current print statement" },
+      params: {
+        ...base,
+        question: "Can you show me a concrete example of that in my code?",
+        files: [{ path: "main.py", content: 'print("Hello")\n' }],
+      },
+      intent: "concept",
+      priorTutorTurns: 1,
+    });
+    expect(concrete.example).toContain("line 1 is the concrete example");
+    expect(concrete.example).toContain('print("Hello")');
+
+    const dataFlowConcrete = applyTutorOutputPolicy({
+      sections: { summary: "The program processes input." },
+      params: {
+        ...base,
+        question: "Can you show me a concrete example of that in my code?",
+        files: [{
+          path: "main.py",
+          content: [
+            "import sys",
+            "",
+            "tokens = sys.stdin.read().split()",
+            "values = [float(t) for t in tokens]",
+          ].join("\n"),
+        }],
+      },
+      intent: "concept",
+      priorTutorTurns: 1,
+    });
+    expect(dataFlowConcrete.example).toContain("On line 3");
+    expect(dataFlowConcrete.example).toContain("`tokens`");
+    expect(dataFlowConcrete.example).not.toContain("`import sys`");
+
+    const why = applyTutorOutputPolicy({
+      sections: { summary: "Look at the current file." },
+      params: {
+        ...base,
+        question: "Why does this matter for what I'm trying to do?",
+        files: [{ path: "main.py", content: 'print("Hello")\n' }],
+      },
+      intent: "concept",
+      priorTutorTurns: 1,
+    });
+    expect(why.explain).toMatch(/behavior.*next run/i);
+    expect(why.explain).not.toMatch(/cited forms/i);
   });
 
   it("keeps deterministic fallbacks useful for concept, how-to, and check-in questions", () => {
@@ -1005,6 +1104,40 @@ describe("applyTutorOutputPolicy", () => {
     expect(result.walkthrough?.map((step) => step.line)).toEqual([1, 2, 3, 4, 5]);
   });
 
+  it("distinguishes numeric initialization from a later accumulation assignment", () => {
+    const result = applyTutorOutputPolicy({
+      sections: {
+        summary: "This code sums the values and prints the total.",
+        walkthrough: [
+          { body: "The list `nums` contains three numbers.", path: "main.py", line: 1 },
+          {
+            body: "It sets the variable `total` to 0 for the accumulated sum.",
+            path: "main.py",
+            line: 4,
+          },
+          { body: "The loop goes through each number `n`.", path: "main.py", line: 3 },
+          { body: "Inside the loop, `n` is added to `total`.", path: "main.py", line: 4 },
+          { body: "After the loop, it prints the final `total`.", path: "main.py", line: 5 },
+        ],
+      },
+      params: {
+        ...base,
+        files: [{
+          path: "main.py",
+          content:
+            "nums = [10, 20, 30]\ntotal = 0\nfor n in nums:\n    total = total + n\nprint(total)\n",
+        }],
+      },
+      intent: "walkthrough",
+      priorTutorTurns: 1,
+    });
+
+    expect(result.walkthrough?.map((step) => step.line)).toEqual([1, 2, 3, 4, 5]);
+    expect(result.walkthrough?.filter((step) => step.line === 2)).toHaveLength(1);
+    expect(result.walkthrough?.[1]?.body).toMatch(/sets.*total.*0/i);
+    expect(result.walkthrough?.[3]?.body).toMatch(/added.*total/i);
+  });
+
   it("grounds an explicit final-output step to print instead of a stored assignment", () => {
     const result = applyTutorOutputPolicy({
       sections: {
@@ -1035,6 +1168,110 @@ describe("applyTutorOutputPolicy", () => {
 
     expect(result.walkthrough?.map((step) => step.line)).toEqual([1, 2, 3, 4, 5]);
     expect(result.walkthrough?.filter((step) => step.line === 5)).toHaveLength(1);
+  });
+
+  it("grounds a longer data-flow walkthrough to the named output and true terminal line", () => {
+    const result = applyTutorOutputPolicy({
+      sections: {
+        summary: "The script reads numbers and prints statistics.",
+        walkthrough: [
+          {
+            body: "The script starts by importing sys for input and output, and functions mean, median, variance from stats.py.",
+            path: "main.py",
+            line: 2,
+          },
+          { body: "It reads stdin and stores the split input in tokens.", path: "main.py", line: 4 },
+          { body: "It converts each token and stores the list in values.", path: "main.py", line: 9 },
+          { body: "It prints the values list.", path: "main.py", line: 6 },
+          { body: "It computes and prints mean(values).", path: "main.py", line: 11 },
+        ],
+      },
+      params: {
+        ...base,
+        question: "Walk me through main.py, one step at a time.",
+        files: [
+          {
+            path: "main.py",
+            content: [
+              "import sys",
+              "from stats import mean, median, variance",
+              "",
+              "tokens = sys.stdin.read().split()",
+              "if not tokens:",
+              '    print("no input")',
+              "    sys.exit(0)",
+              "",
+              "values = [float(t) for t in tokens]",
+              'print(f"values : {values}")',
+              'print(f"mean : {mean(values):.2f}")',
+              'print(f"median : {median(values):.2f}")',
+              'print(f"var : {variance(values):.2f}")',
+            ].join("\n"),
+          },
+          {
+            path: "stats.py",
+            content: "def total(values):\n    return sum(values)\n",
+          },
+        ],
+      },
+      intent: "walkthrough",
+      priorTutorTurns: 0,
+    });
+
+    expect(result.walkthrough?.map((step) => step.line)).toEqual([2, 4, 9, 10, 11, 13]);
+    expect(result.walkthrough?.at(-1)?.body).toMatch(/displays/i);
+    expect(result.walkthrough?.some((step) =>
+      step.line === 6 && /values list/i.test(step.body)
+    )).toBe(false);
+  });
+
+  it("fills an omitted early assignment before a sparse walkthrough reaches the result", () => {
+    const result = applyTutorOutputPolicy({
+      sections: {
+        summary: "Walkthrough of main.py, step by step.",
+        comprehensionCheck: "Can you explain what 'values' contains after line 6?",
+        walkthrough: [
+          {
+            body: "The script starts by importing the sys module and functions mean, median, and variance from stats.py.",
+            path: "main.py",
+            line: 2,
+          },
+          { body: "It converts all tokens into floating point numbers and stores them in values.", path: "main.py", line: 9 },
+          { body: "It prints the list of numeric values to the console.", path: "main.py", line: 10 },
+          { body: "It calculates and prints mean(values).", path: "main.py", line: 11 },
+        ],
+      },
+      params: {
+        ...base,
+        question: "Walk me through main.py, one step at a time.",
+        files: [{
+          path: "main.py",
+          content: [
+            "import sys",
+            "from stats import mean, median, variance",
+            "",
+            "tokens = sys.stdin.read().split()",
+            "if not tokens:",
+            '    print("no input")',
+            "    sys.exit(0)",
+            "",
+            "values = [float(t) for t in tokens]",
+            'print(f"values : {values}")',
+            'print(f"mean : {mean(values):.2f}")',
+            'print(f"median : {median(values):.2f}")',
+            'print(f"var : {variance(values):.2f}")',
+          ].join("\n"),
+        }],
+      },
+      intent: "walkthrough",
+      priorTutorTurns: 0,
+    });
+
+    expect(result.walkthrough?.map((step) => step.line)).toEqual([2, 4, 9, 10, 11, 13]);
+    expect(result.walkthrough?.[1]?.body).toMatch(/tokens.*(?:receives|stores)/i);
+    expect(result.comprehensionCheck).toBe(
+      "Can you explain what 'values' contains after line 9?",
+    );
   });
 
   it("corrects declaration and output citations after an injected comment", () => {

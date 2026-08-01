@@ -528,6 +528,12 @@ export default function LessonPage({
     courseId,
     lessonId,
   });
+  const instructionsRestoreRef = useRef<HTMLButtonElement>(null);
+  const tutorRestoreRef = useRef<HTMLButtonElement>(null);
+  const tutorOpenNonce = useAIStore((s) => s.tutorOpenNonce);
+  useEffect(() => {
+    if (tutorOpenNonce > 0) layout.setTutorCollapsed(false);
+  }, [tutorOpenNonce, layout.setTutorCollapsed]);
   useEffect(() => {
     // A stale device-level layout preference must not hide the surface that
     // currently owns the welcome. This also keeps the explicit Skip welcome
@@ -1483,6 +1489,7 @@ export default function LessonPage({
                 mode={mode}
                 onAnonExhausted={onAnonExhausted}
                 onAnonTrialPaused={onAnonTrialPaused}
+                onAnonSaveRequested={onAnonSave}
               />
             </section>
           </div>
@@ -1612,6 +1619,7 @@ export default function LessonPage({
               vertical strip-button shows only when collapsed. */}
           {layout.instrCollapsed && (
             <button
+              ref={instructionsRestoreRef}
               onClick={() => layout.setInstrCollapsed(false)}
               title="Show instructions"
               aria-label="Show instructions panel"
@@ -1653,13 +1661,19 @@ export default function LessonPage({
                 onNextExercise={validator.handleNextPracticeExercise}
                 onResetPractice={validator.handleResetPracticeProgress}
                 onHintReveal={validator.handlePracticeHintReveal}
-                onCollapse={() => layout.setInstrCollapsed(true)}
+                onCollapse={() => {
+                  layout.setInstrCollapsed(true);
+                  requestAnimationFrame(() => instructionsRestoreRef.current?.focus());
+                }}
               />
             ) : (
               <LessonInstructionsPanel
                 meta={lesson}
                 content={lesson.content}
-                onCollapse={() => layout.setInstrCollapsed(true)}
+                onCollapse={() => {
+                  layout.setInstrCollapsed(true);
+                  requestAnimationFrame(() => instructionsRestoreRef.current?.focus());
+                }}
                 coachState={coachState}
                 functionTests={validator.functionTests}
                 testReport={validator.testReport}
@@ -1692,7 +1706,7 @@ export default function LessonPage({
           {/* Editor + Output */}
           <section
             ref={layout.editorRef as React.RefObject<HTMLElement>}
-            className="flex min-w-0 flex-1 flex-col"
+            className="flex min-w-0 flex-1 flex-col overflow-hidden"
           >
             {loader.resumed && (
               <div className="flex items-center gap-2 border-b border-accent/20 bg-accent/5 px-3 py-1.5 text-[11px] text-accent">
@@ -2064,6 +2078,7 @@ export default function LessonPage({
               shows only when collapsed. */}
           {layout.tutorCollapsed && (
             <button
+              ref={tutorRestoreRef}
               onClick={() => layout.setTutorCollapsed(false)}
               title="Show tutor"
               aria-label="Show tutor panel"
@@ -2110,7 +2125,10 @@ export default function LessonPage({
                   ? `attempt ${lp.attemptCount}, ${lp.runCount} runs, ${lp.hintCount} hints used`
                   : "first attempt"
               }
-              onCollapse={() => layout.setTutorCollapsed(true)}
+              onCollapse={() => {
+                layout.setTutorCollapsed(true);
+                requestAnimationFrame(() => tutorRestoreRef.current?.focus());
+              }}
               onOpenSettings={() => layout.setShowSettings(true)}
               resetNonce={validator.resetNonce}
               inputLocked={tutorInputLocked}
@@ -2123,6 +2141,7 @@ export default function LessonPage({
               mode={mode}
               onAnonExhausted={onAnonExhausted}
               onAnonTrialPaused={onAnonTrialPaused}
+              onAnonSaveRequested={onAnonSave}
             />
           </motion.aside>
         </motion.main>

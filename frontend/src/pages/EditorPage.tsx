@@ -95,6 +95,7 @@ export default function EditorPage() {
   // a desktop session. See useLessonLayout.ts for the same fix on
   // the lesson page.
   const [tutorCollapsed, setTutorCollapsed] = useLocalStorageFlag(LS_TUTOR, false);
+  const tutorOpenNonce = useAIStore((s) => s.tutorOpenNonce);
   const [filesCollapsed, setFilesCollapsed] = useLocalStorageFlag(LS_FILES, false);
   const [showSettings, setShowSettings] = useState(false);
   const [showCoach, setShowCoach] = useState(false);
@@ -120,6 +121,12 @@ export default function EditorPage() {
   const runButtonRef = useRef<HTMLButtonElement>(null);
   const outputRef = useRef<HTMLDivElement>(null);
   const tutorRef = useRef<HTMLElement>(null);
+  const filesRestoreRef = useRef<HTMLButtonElement>(null);
+  const tutorRestoreRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (tutorOpenNonce > 0) setTutorCollapsed(false);
+  }, [tutorOpenNonce, setTutorCollapsed]);
 
   const editorCoachDone = usePreferencesStore((s) => s.editorCoachDone);
   useEffect(() => {
@@ -128,6 +135,17 @@ export default function EditorPage() {
       return () => clearTimeout(t);
     }
   }, [editorCoachDone]);
+
+  // Onboarding state is account-scoped while panel collapse state is local to
+  // the browser. A new account can therefore inherit collapsed rails from a
+  // previous user and receive a coach step pointing at an invisible sliver.
+  // Keep every surface the coach teaches open for the duration of the tour so
+  // the highlighted product controls are genuinely available to try.
+  useEffect(() => {
+    if (!showCoach) return;
+    setFilesCollapsed(false);
+    setTutorCollapsed(false);
+  }, [showCoach, setFilesCollapsed, setTutorCollapsed]);
 
   return (
     <div className="flex h-full flex-col bg-bg text-ink">
@@ -243,6 +261,7 @@ export default function EditorPage() {
             only when collapsed; splitter only when expanded. */}
         {filesCollapsed && (
           <button
+            ref={filesRestoreRef}
             onClick={() => setFilesCollapsed(false)}
             title="Show files"
             aria-label="Show files panel"
@@ -275,7 +294,10 @@ export default function EditorPage() {
             className="h-full p-3"
             style={{ width: leftW, minWidth: leftW }}
           >
-            <FileTree onCollapse={() => setFilesCollapsed(true)} />
+            <FileTree onCollapse={() => {
+              setFilesCollapsed(true);
+              requestAnimationFrame(() => filesRestoreRef.current?.focus());
+            }} />
           </div>
         </motion.aside>
         {!filesCollapsed && (
@@ -307,8 +329,10 @@ export default function EditorPage() {
             same width-animation pattern as the file panel above. */}
         {tutorCollapsed && (
           <button
+            ref={tutorRestoreRef}
             onClick={() => setTutorCollapsed(false)}
             title="Show tutor"
+            aria-label="Show tutor panel"
             className="flex w-6 shrink-0 flex-col items-center justify-start gap-2 border-l border-border bg-panel pt-3 text-muted transition hover:bg-elevated hover:text-ink"
           >
             <span className="text-[12px]">◂</span>
@@ -336,7 +360,10 @@ export default function EditorPage() {
           aria-hidden={tutorCollapsed ? "true" : undefined}
           {...((tutorCollapsed ? { inert: "" } : {}) as Record<string, unknown>)}
         >
-          <AssistantPanel onCollapse={() => setTutorCollapsed(true)} onOpenSettings={() => setShowSettings(true)} />
+          <AssistantPanel onCollapse={() => {
+            setTutorCollapsed(true);
+            requestAnimationFrame(() => tutorRestoreRef.current?.focus());
+          }} onOpenSettings={() => setShowSettings(true)} />
         </motion.aside>
       </main>
 

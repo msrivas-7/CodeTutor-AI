@@ -119,6 +119,16 @@ test.describe("anonymous lesson 1 (Phase 27 §3a)", () => {
     await expect(page.getByText("What did you expect to happen?")).toBeVisible();
     expect(requestBodies[0].tutorProgressToken).toBeUndefined();
 
+    // Bookmarking an anonymous tutor response must not pretend it persisted.
+    // It opens the same honest save continuation wall as the header action.
+    await page.getByRole("button", {
+      name: /create an account to save this tutor message/i,
+    }).click();
+    const saveDialog = page.getByRole("dialog");
+    await expect(saveDialog.getByText(/sign up to save\?/i)).toBeVisible();
+    await saveDialog.getByRole("button", { name: /not yet/i }).click();
+    await expect(saveDialog).toHaveCount(0);
+
     await textarea.fill("I expected a greeting, but the output was empty.");
     await textarea.press("Enter");
     await expect(page.getByText(/now compare that expectation/i)).toBeVisible();

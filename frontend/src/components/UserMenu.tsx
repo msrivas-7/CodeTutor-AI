@@ -191,6 +191,18 @@ export function UserMenu({
             Settings
           </button>
 
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              nav("/learn/saved");
+            }}
+            className="mt-0.5 flex min-h-11 w-full items-center justify-between rounded px-2 py-2 text-left text-[11px] font-semibold text-ink transition hover:bg-elevated focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            Saved tutor notes
+          </button>
+
           {isAdmin && (
             <button
               type="button"

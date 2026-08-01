@@ -287,11 +287,11 @@ export function CheckQuestionsView({
 
 export function ComprehensionCheckView({
   text,
-  onAsk,
+  onCompose,
   disabled,
 }: {
   text: string;
-  onAsk?: (q: string) => void;
+  onCompose?: (q: string) => void;
   disabled?: boolean;
 }) {
   const body = (
@@ -310,9 +310,9 @@ export function ComprehensionCheckView({
           Your turn
         </span>
       </div>
-      {onAsk ? (
+      {onCompose ? (
         <button
-          onClick={() => onAsk(`Answering your check: ${text}`)}
+          onClick={() => onCompose("My answer: ")}
           disabled={disabled}
           className="w-full cursor-pointer rounded text-left transition hover:bg-accent/10 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
           title="Answer this now — the tutor will guide you"
@@ -374,12 +374,14 @@ export function hasTutorContent(s: TutorSections): boolean {
 export function TutorResponseView({
   sections,
   onAsk,
+  onCompose,
   disabled,
   streaming,
   scripted,
 }: {
   sections: TutorSections;
   onAsk?: (q: string) => void;
+  onCompose?: (draft: string) => void;
   disabled?: boolean;
   // When true, a blinking caret renders at the end of whichever prose
   // section is currently last-populated in render order (i.e. the one
@@ -524,7 +526,7 @@ export function TutorResponseView({
       {sections.comprehensionCheck && (
         <ComprehensionCheckView
           text={sections.comprehensionCheck}
-          onAsk={onAsk}
+          onCompose={onCompose}
           disabled={disabled}
         />
       )}

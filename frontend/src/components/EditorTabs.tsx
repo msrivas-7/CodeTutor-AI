@@ -23,6 +23,7 @@ export function EditorTabs({ mode = "editor" }: EditorTabsProps = {}) {
   const selectedModel = useAIStore((s) => s.selectedModel);
   const asking = useAIStore((s) => s.asking);
   const setPendingAsk = useAIStore((s) => s.setPendingAsk);
+  const requestTutorOpen = useAIStore((s) => s.requestTutorOpen);
   const { status } = useAIStatus();
   const onPlatform = status?.source === "platform";
   const tutorReady = onPlatform || (hasKey && !!selectedModel);
@@ -89,7 +90,10 @@ export function EditorTabs({ mode = "editor" }: EditorTabsProps = {}) {
       </div>
       {walkPrompt && tutorReady && (
         <button
-          onClick={() => setPendingAsk(walkPrompt)}
+          onClick={() => {
+            requestTutorOpen();
+            setPendingAsk(walkPrompt);
+          }}
           disabled={asking}
           title={asking ? "Tutor is replying — try again in a moment." : `Walk through ${activeFile} step by step`}
           aria-label={asking ? `Walk me through ${activeFile} (tutor busy)` : `Walk me through ${activeFile}`}

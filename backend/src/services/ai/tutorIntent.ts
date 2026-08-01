@@ -76,11 +76,24 @@ export function classifyTutorIntent({
   history?: AIMessage[];
   tutorStage?: TutorStage;
 }): TutorIntent {
-  // Browser history is learner-controlled evidence, not progression proof.
-  // Every caller defaults to the restrictive first-turn mode unless a server
-  // route has verified the signed proof for this actor + task.
-  if (tutorStage === "clarify") return "socratic";
   const text = question.trim().toLocaleLowerCase();
+  // Browser history is learner-controlled evidence, not progression proof.
+  // Explicit read-only help promises are safe on the first turn because the
+  // output firewall can ground them entirely in visible code/instructions.
+  // All ambiguous, answer-seeking, hint, and check-in requests still require
+  // the signed progression proof and fall back to one Socratic question.
+  if (tutorStage === "clarify") {
+    if (
+      matchesAny(text, WALKTHROUGH) ||
+      (files.length > 0 && /^(?:please\s+)?explain[.!?]?$/.test(text))
+    ) return "walkthrough";
+    if (
+      /\b(?:explain|understand)\b[^.!?]{0,60}\b(?:task|instructions?|lesson)\b|\bwhat should i do in this lesson\b/i.test(text)
+    ) {
+      return "concept";
+    }
+    return "socratic";
+  }
 
   if (
     matchesAny(text, WALKTHROUGH) ||

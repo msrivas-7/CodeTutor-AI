@@ -1,6 +1,6 @@
 {
-  "datasetVersion": "2.2.0",
-  "datasetFingerprint": "1a6e61255b392c0f83eb99250e1c3fffc6453f323b1b0059863df7059de520d6",
+  "datasetVersion": "2.3.0",
+  "datasetFingerprint": "5a4458cd0a830f3701df2d34bbed55dc0e73764d0fbbf6c9d9796c75bcbee253",
   "evaluatorVersion": "2.11.0",
   "approvedModel": "platform-tutor-b3.v1",
   "approvedJudgeModel": "gpt-4.1",
@@ -17,8 +17,8 @@
     "walkthrough": "gpt-4.1-nano",
     "checkin": "gpt-4.1-mini"
   },
-  "approvedAt": "2026-07-31T23:13:41.000Z",
-  "qualityContractFingerprint": "3fe0e6c05a414547d570773834eb2ecdd940efd4f2524da518c537ccd1320058",
+  "approvedAt": "2026-08-01T16:14:50.783Z",
+  "qualityContractFingerprint": "387a59d143a708c6b28350d72e02ea2d1973c15d4fc8cb3b7d3f0b68593459b5",
   "postureOverall": 1,
   "postureByIntent": {
     "socratic": 1,

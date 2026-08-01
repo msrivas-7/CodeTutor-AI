@@ -112,6 +112,8 @@ const SOCRATIC_EVIDENCE_QUESTION =
   /\b(?:expect|observ|happen|result|output|errors?|tried|attempt|unclear|uncertain|confus|think|evidence|understand|noticed|changed)\w*\b/i;
 const LEADING_QUESTION =
   /\b(?:answer|fix|replace|correct line|solution|should|need(?:s)?|missing|try|use|using|add|remove|delete|call|convert)\b|[`()[\]{}=]/i;
+const FINAL_VALUE_REQUEST =
+  /\b(?:final (?:score|value|result|output)|tell me (?:the )?(?:score|value|result|output))\b/i;
 
 function firstVisibleIdentifier(params: Pick<AIAskParams, "files">): string | null {
   for (const file of params.files) {
@@ -158,6 +160,17 @@ function questionUsesVisibleAnchor(
 }
 
 function fallbackClarifyingQuestion(params: TutorPolicyParams): string {
+  const stderr = params.lastRun?.stderr?.trim() ?? "";
+  if (stderr) {
+    const line = stderr.match(/(?:line\s+|:)(\d+)(?::\d+)?/i)?.[1];
+    if (/syntaxerror/i.test(stderr) && /(?:never closed|unmatched|expected ['"]?\)?)/i.test(stderr)) {
+      return `The latest run reports an unmatched delimiter${line ? ` on line ${line}` : ""}. Which opening symbol still needs its matching partner?`;
+    }
+    const errorName = stderr.match(/\b([A-Za-z]+(?:Error|Exception))\b/)?.[1];
+    if (errorName) {
+      return `The latest run reports ${errorName}${line ? ` on line ${line}` : ""}. Which value or operation on that line does the message point to?`;
+    }
+  }
   const identifier = firstVisibleIdentifier(params);
   const calledSymbol = firstQuestionMentionedCall(params);
   const named = identifier ? `\`${identifier}\`` : "the visible code";
@@ -193,6 +206,12 @@ function fallbackClarifyingQuestion(params: TutorPolicyParams): string {
     }
     return "What have you tried so far, and where did it stop matching what you wanted?";
   }
+  if (
+    identifier &&
+    FINAL_VALUE_REQUEST.test(params.question)
+  ) {
+    return `What value do you predict \`${identifier}\` will have after the visible code runs, and why?`;
+  }
   if (identifier) {
     return `What did you expect \`${identifier}\` to do, and what have you observed instead?`;
   }
@@ -203,12 +222,27 @@ function clarifyingQuestion(
   sections: TutorSections,
   params: TutorPolicyParams,
 ): string {
+  if (firstVisibleIdentifier(params) && FINAL_VALUE_REQUEST.test(params.question)) {
+    return fallbackClarifyingQuestion(params);
+  }
+  const learnerReportedMismatch =
+    !!params.lastRun ||
+    /\b(?:wrong|errors?|exceptions?|unexpected|bugs?|broken|fail(?:s|ed|ing)?|doesn'?t work|does not work)\b/i.test(
+      params.question,
+    );
   const candidates = [
     ...(sections.checkQuestions ?? []),
     sections.comprehensionCheck,
   ];
   for (const candidate of candidates) {
     const safe = safeAction(candidate, params);
+    if (
+      safe &&
+      !learnerReportedMismatch &&
+      /\b(?:observed instead|differ(?:s|ed)? from what you observed)\b/i.test(safe)
+    ) {
+      continue;
+    }
     if (
       safe &&
       safe.length <= 220 &&
@@ -334,6 +368,36 @@ function visibleCodeCitation(
         column: null,
         reason: "Current code used for this guidance",
       };
+    }
+  }
+  return null;
+}
+
+function visibleConcreteExample(
+  params: Pick<AIAskParams, "files">,
+): string | null {
+  for (const file of params.files) {
+    const lines = file.content.split("\n");
+    for (const [index, raw] of lines.entries()) {
+      if (INSTRUCTION_INJECTION.test(raw)) continue;
+      const assignment = raw.trim().match(
+        /^(?:(?:const|let|var)\s+)?([A-Za-z_$][\w$]*)\s*=\s*(.+?);?$/,
+      );
+      if (!assignment) continue;
+      const [, name, expression] = assignment;
+      const excerpt = expression.length > 100
+        ? `${expression.slice(0, 97)}…`
+        : expression;
+      return `On line ${index + 1}, \`${name}\` receives the value from \`${excerpt}\`. Try a small input, predict what \`${name}\` contains at that point, then run and compare.`;
+    }
+  }
+  for (const file of params.files) {
+    const lines = file.content.split("\n");
+    for (const [index, raw] of lines.entries()) {
+      const line = raw.trim();
+      if (!line || INSTRUCTION_INJECTION.test(line)) continue;
+      const excerpt = line.length > 120 ? `${line.slice(0, 117)}…` : line;
+      return `In the current file, line ${index + 1} is the concrete example: \`${excerpt}\`. Trace what value that visible line receives and what effect it has when the program runs.`;
     }
   }
   return null;
@@ -558,6 +622,13 @@ function walkthroughLineScore(
   let score = [...mentionedSymbols].filter((symbol) =>
     lowerContent.includes(symbol.toLowerCase())
   ).length * 2;
+  const mentionedNumbers = body.match(/(?<![\w.])-?\d+(?:\.\d+)?\b/g) ?? [];
+  const sourceNumbers = new Set(
+    content.match(/(?<![\w.])-?\d+(?:\.\d+)?\b/g) ?? [],
+  );
+  score += mentionedNumbers.filter((value) =>
+    sourceNumbers.has(value)
+  ).length * 4;
 
   const assignmentLine =
     /\b(?:const|let|var)\b[^=]*=/.test(content) ||
@@ -566,8 +637,12 @@ function walkthroughLineScore(
   const loopLine = /^\s*(?:for|while)\b/.test(content);
   const indentedUpdateLine =
     /^\s{2,}[A-Za-z_$][\w$.[\]]*\s*(?:\+=|-=|\*=|\/=|=(?!=))/.test(content);
+  const describesNumericInitialization =
+    mentionedNumbers.length > 0 &&
+    /\b(?:initializ|starts?|sets?|assigns?)\w*/.test(lowerBody);
   const describesOutput =
-    /\b(?:after the loop|final (?:sum|result|value)|outputs?|logs?|prints?|displays?|console\.log)\b/.test(lowerBody);
+    /\b(?:after the loop|final (?:sum|result|value)|logs?|prints?|displays?|console\.log)\b/.test(lowerBody) ||
+    (/\boutputs?\b/.test(lowerBody) && !/\binput and output\b/.test(lowerBody));
 
   if (
     !describesOutput &&
@@ -579,7 +654,10 @@ function walkthroughLineScore(
   if (/\b(?:for|while) loop\b|\b(?:iterat|goes? through|loops? over)\w*/.test(lowerBody)) {
     score += loopLine ? 8 : 0;
   }
-  if (/\b(?:inside|within) the loop\b|\b(?:add|increment|accumulat|updat)\w*\b/.test(lowerBody)) {
+  if (
+    !describesNumericInitialization &&
+    /\b(?:inside|within) the loop\b|\b(?:add|increment|accumulat|updat)\w*\b/.test(lowerBody)
+  ) {
     score += indentedUpdateLine ? 8 : 0;
     score -= outputLine ? 4 : 0;
   }
@@ -761,6 +839,11 @@ function groundedWalkthrough(
       .map((content, index) => ({ path: file.path, line: index + 1, content }))
       .filter(({ content }) => content.trim() && !INSTRUCTION_INJECTION.test(content)),
   );
+  const visibleIdentifiers = new Set(
+    safeLines.flatMap(({ content }) =>
+      content.match(/\b[A-Za-z_$][\w$]*\b/g) ?? []
+    ),
+  );
   let fallbackIndex = 0;
   const usedLocations = new Set<string>();
   const grounded = steps
@@ -780,6 +863,15 @@ function groundedWalkthrough(
       }
       for (const match of step.body.matchAll(/\b(print|input|len|console\.log)\b/g)) {
         mentionedSymbols.add(match[1]);
+      }
+      // Models do not consistently wrap source identifiers in backticks or
+      // quotes. Recover plain identifiers only when they actually occur in
+      // the visible project so prose such as "prints the values list" can be
+      // grounded to print(values), not an unrelated earlier print call.
+      for (const token of step.body.match(/\b[A-Za-z_$][\w$]*\b/g) ?? []) {
+        if (token.length > 1 && visibleIdentifiers.has(token)) {
+          mentionedSymbols.add(token);
+        }
       }
       const currentLine = safeLines.find(
         (line) => line.path === step.path && line.line === step.line,
@@ -923,11 +1015,18 @@ function fallbackWalkthroughSteps(
     .map((body) => ({ body, path: null, line: null }));
 }
 
-function visibleCodeWalkthroughFallback(
-  params: Pick<AIAskParams, "files">,
+function visibleCodeWalkthroughSteps(
+  params: Pick<AIAskParams, "files" | "question">,
 ): NonNullable<TutorSections["walkthrough"]> {
   const steps: NonNullable<TutorSections["walkthrough"]> = [];
-  for (const file of params.files) {
+  const lowerQuestion = params.question.toLowerCase();
+  const namedFiles = params.files.filter((file) => {
+    const path = file.path.toLowerCase();
+    const basename = path.split("/").at(-1) ?? path;
+    return lowerQuestion.includes(path) || lowerQuestion.includes(basename);
+  });
+  const walkthroughFiles = namedFiles.length > 0 ? namedFiles : params.files;
+  for (const file of walkthroughFiles) {
     for (const [index, sourceLine] of file.content.split("\n").entries()) {
       const line = sourceLine.trim();
       if (
@@ -959,6 +1058,16 @@ function visibleCodeWalkthroughFallback(
       const pythonLengthOutputIdentifier = line.match(
         /^print\s*\(\s*len\s*\(\s*([A-Za-z_$][\w$]*)\s*\)\s*\)\s*$/,
       )?.[1];
+      const pythonFormattedCall = line.match(
+        /^print\s*\(\s*f["'][^"']*\{([A-Za-z_]\w*)\(([^}:]*)\)[^}]*\}[^"']*["']\s*\)\s*$/,
+      );
+      const pythonFormattedIdentifier = line.match(
+        /^print\s*\(\s*f["'][^"']*\{([A-Za-z_]\w*)[^}]*\}[^"']*["']\s*\)\s*$/,
+      )?.[1];
+      const pythonFromImport = line.match(
+        /^from\s+([A-Za-z_][\w.]*)\s+import\s+(.+)$/,
+      );
+      const pythonImport = line.match(/^import\s+(.+)$/);
       let body: string;
       if (jsFunction || pythonFunction) {
         const [, name, rawParameters] = jsFunction ?? pythonFunction!;
@@ -980,9 +1089,25 @@ function visibleCodeWalkthroughFallback(
       } else if (pythonOutput) {
         body = pythonLengthOutputIdentifier
           ? `This line calls \`len(${pythonLengthOutputIdentifier})\` and displays the list’s length.`
+          : pythonFormattedCall
+          ? `This line computes and displays \`${pythonFormattedCall[1]}(${pythonFormattedCall[2].trim()})\`.`
           : pythonOutputIdentifier
           ? `This line displays the current \`${pythonOutputIdentifier}\` value.`
+          : pythonFormattedIdentifier
+          ? `This line displays the current \`${pythonFormattedIdentifier}\` value.`
           : "This line displays the visible expression’s result.";
+      } else if (pythonFromImport) {
+        const names = pythonFromImport[2]
+          .split(",")
+          .map((name) => `\`${name.trim()}\``)
+          .join(", ");
+        body = `This line imports ${names} from \`${pythonFromImport[1]}\`.`;
+      } else if (pythonImport) {
+        const names = pythonImport[1]
+          .split(",")
+          .map((name) => `\`${name.trim()}\``)
+          .join(", ");
+        body = `This line imports ${names}.`;
       } else if (assignment) {
         const [, name, expression] = assignment;
         const called = expression.match(/^([A-Za-z_$][\w$]*)\s*\(/)?.[1];
@@ -995,10 +1120,61 @@ function visibleCodeWalkthroughFallback(
         body = "This statement performs the next visible operation in the file.";
       }
       steps.push({ body, path: file.path, line: index + 1 });
-      if (steps.length === 6) return steps;
     }
   }
   return steps;
+}
+
+function ensureRepresentativeLongWalkthrough(
+  grounded: NonNullable<TutorSections["walkthrough"]>,
+  visibleSteps: NonNullable<TutorSections["walkthrough"]>,
+  params: Pick<AIAskParams, "files">,
+): NonNullable<TutorSections["walkthrough"]> {
+  if (grounded.length < 3 || visibleSteps.length <= 6) return grounded;
+
+  const modelByLocation = new Map(
+    grounded.map((step) => [`${step.path ?? ""}:${step.line ?? ""}`, step]),
+  );
+  const sourceByLocation = new Map<string, string>(
+    params.files.flatMap((file) =>
+      file.content.split("\n").map((content, index) => [
+        `${file.path}:${index + 1}`,
+        content,
+      ] as const),
+    ),
+  );
+  const imports = visibleSteps.filter((step) => /\bimports?\b/i.test(step.body));
+  const terminal = visibleSteps.at(-1)!;
+  const forced = [imports.at(-1), terminal].filter(
+    (step): step is NonNullable<typeof step> => !!step,
+  );
+  const forcedLocations = new Set(
+    forced.map((step) => `${step.path ?? ""}:${step.line ?? ""}`),
+  );
+  const priority = (step: NonNullable<TutorSections["walkthrough"]>[number]) => {
+    const source = sourceByLocation.get(`${step.path ?? ""}:${step.line ?? ""}`) ?? "";
+    if (/\b(?:receives|stores) the value\b/i.test(step.body)) return 30;
+    if (/\b(?:defines|returns)\b/i.test(step.body)) return 24;
+    if (/\b(?:displays|logs)\b/i.test(step.body)) {
+      return /^\s+/.test(source) ? 12 : 22;
+    }
+    if (/\bcontrols\b/i.test(step.body)) return 14;
+    return 5;
+  };
+  const remaining = visibleSteps
+    .filter((step) => !forcedLocations.has(`${step.path ?? ""}:${step.line ?? ""}`))
+    .sort((left, right) => priority(right) - priority(left) ||
+      (left.line ?? Number.MAX_SAFE_INTEGER) - (right.line ?? Number.MAX_SAFE_INTEGER))
+    .slice(0, 6 - forced.length);
+  const selected = [...forced, ...remaining]
+    .map((step) => modelByLocation.get(`${step.path ?? ""}:${step.line ?? ""}`) ?? step)
+    .sort((left, right) => {
+      const pathOrder = params.files.findIndex((file) => file.path === left.path) -
+        params.files.findIndex((file) => file.path === right.path);
+      return pathOrder || (left.line ?? Number.MAX_SAFE_INTEGER) -
+        (right.line ?? Number.MAX_SAFE_INTEGER);
+    });
+  return selected;
 }
 
 function ensureTerminalWalkthroughCoverage(
@@ -1021,6 +1197,62 @@ function ensureTerminalWalkthroughCoverage(
   return grounded.length >= 6
     ? [...grounded.slice(0, 5), terminalStep]
     : [...grounded, terminalStep];
+}
+
+function ensureKeyDataFlowCoverage(
+  grounded: NonNullable<TutorSections["walkthrough"]>,
+  visibleFallback: NonNullable<TutorSections["walkthrough"]>,
+): NonNullable<TutorSections["walkthrough"]> {
+  // Do not expand a deliberately narrow one-step explanation or a requested
+  // continuation. This guard is only for a substantially formed full-file
+  // walkthrough that is missing one key early data-flow transition.
+  if (grounded.length < 3 || grounded.length >= 6) return grounded;
+  const covered = new Set(
+    grounded.map((step) => `${step.path ?? ""}:${step.line ?? ""}`),
+  );
+  const result = [...grounded];
+  const assignments = visibleFallback.filter((step) =>
+    /\b(?:receives|stores) the value\b/i.test(step.body) &&
+    !covered.has(`${step.path ?? ""}:${step.line ?? ""}`),
+  );
+  for (const assignment of assignments) {
+    if (result.length >= 6) break;
+    const insertAt = result.findIndex((step) =>
+      step.path === assignment.path &&
+      step.line != null &&
+      assignment.line != null &&
+      step.line > assignment.line,
+    );
+    result.splice(insertAt < 0 ? result.length : insertAt, 0, assignment);
+    covered.add(`${assignment.path ?? ""}:${assignment.line ?? ""}`);
+  }
+  return result;
+}
+
+function groundComprehensionLine(
+  question: string | null | undefined,
+  params: Pick<AIAskParams, "files">,
+): string | null {
+  if (!question) return null;
+  const citedLine = question.match(/\bline\s+(\d+)\b/i);
+  if (!citedLine) return question;
+  const citedNumber = Number(citedLine[1]);
+  const mentioned = new Set(
+    (question.match(/[A-Za-z_$][\w$]*/g) ?? []).map((token) => token.toLowerCase()),
+  );
+  for (const file of params.files) {
+    const lines = file.content.split("\n");
+    const citedSource = lines[citedNumber - 1] ?? "";
+    for (const [index, source] of lines.entries()) {
+      const name = source.trim().match(
+        /^(?:(?:const|let|var)\s+)?([A-Za-z_$][\w$]*)\s*=/,
+      )?.[1];
+      if (!name || !mentioned.has(name.toLowerCase())) continue;
+      if (new RegExp(`\\b${name}\\b`).test(citedSource)) return question;
+      return question.replace(/\bline\s+\d+\b/i, `line ${index + 1}`);
+    }
+  }
+  return question;
 }
 
 /**
@@ -1155,11 +1387,23 @@ export function applyTutorOutputPolicy({
       ),
       params,
     );
-    const visibleFallback = visibleCodeWalkthroughFallback(params);
-    const grounded = ensureTerminalWalkthroughCoverage(
-      modelGrounded,
-      visibleFallback,
-    );
+    const visibleSteps = visibleCodeWalkthroughSteps(params);
+    const visibleFallback = visibleSteps.length <= 6
+      ? visibleSteps
+      : [...visibleSteps.slice(0, 5), visibleSteps.at(-1)!];
+    // A deterministic conditional walkthrough already ends at the branch
+    // that actually runs. Appending the file's final visible line would teach
+    // an unreachable `else` body as if it executes next.
+    const grounded = conditionalWalkthrough
+      ? modelGrounded
+      : ensureRepresentativeLongWalkthrough(
+          ensureKeyDataFlowCoverage(
+            ensureTerminalWalkthroughCoverage(modelGrounded, visibleFallback),
+            visibleSteps,
+          ),
+          visibleSteps,
+          params,
+        );
     const continuation = requestedWalkthroughStart(params);
     const continued = continuation
       ? grounded.filter((step) =>
@@ -1190,6 +1434,10 @@ export function applyTutorOutputPolicy({
           reason: step.body.slice(0, 120),
         })),
       walkthrough,
+      comprehensionCheck: groundComprehensionLine(
+        common.comprehensionCheck,
+        params,
+      ),
       // Pitfalls are not a walkthrough field. Dropping them also prevents a
       // model aside from competing with the grounded ordered explanation.
       pitfalls: null,
@@ -1249,6 +1497,8 @@ export function applyTutorOutputPolicy({
   const constBinding = visibleJsConstBinding(params);
   const listSortCorrection = visiblePythonListSortCorrection(params);
   const anchor = visibleConceptAnchor(params);
+  const asksForConcreteExample = /\bconcrete example\b/i.test(params.question);
+  const asksWhyItMatters = /\bwhy (?:does )?(?:this|that|it) matter\b|\bwhy it matters\b/i.test(params.question);
   const citationExplanation = sections.citations
     ?.map((citation) => meaningfulProse(citation.reason, params))
     .filter((reason): reason is string => !!reason)
@@ -1277,11 +1527,14 @@ export function applyTutorOutputPolicy({
       constBinding?.explain ??
       meaningfulProse(sections.explain, params) ??
       citationExplanation ??
-      "Compare the cited forms in the current file and note how each one treats the visible values.",
+      (asksWhyItMatters
+        ? "This matters because the cited line controls behavior the learner can observe on the next run. Being able to predict that line is what makes later debugging changes deliberate instead of guesswork."
+        : "Use the cited line as the source of truth: predict what value it produces or changes, then compare that prediction with the next run."),
     example:
       listSortCorrection?.example ??
       conditional?.example ??
       constBinding?.example ??
+      (asksForConcreteExample ? visibleConcreteExample(params) : null) ??
       anchor?.example ??
       safeAction(sections.example, params) ??
       null,

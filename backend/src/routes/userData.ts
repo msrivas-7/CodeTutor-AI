@@ -28,6 +28,7 @@ import {
   deleteSavedTutorMessage,
   insertSavedTutorMessage,
   listSavedTutorMessages,
+  listAllSavedTutorMessages,
 } from "../db/savedTutorMessages.js";
 import {
   getStreakHistory,
@@ -853,6 +854,15 @@ userDataRouter.get("/saved-tutor-messages", async (req, res, next) => {
   }
   try {
     const messages = await listSavedTutorMessages(requireUser(req), scopeResult.scope);
+    res.json({ messages });
+  } catch (err) {
+    next(err);
+  }
+});
+
+userDataRouter.get("/saved-tutor-messages/all", async (req, res, next) => {
+  try {
+    const messages = await listAllSavedTutorMessages(requireUser(req));
     res.json({ messages });
   } catch (err) {
     next(err);
