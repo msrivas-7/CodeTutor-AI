@@ -137,11 +137,19 @@ export function captureDistributionAttribution(
 ): DistributionAttribution {
   const parsed = parseDistributionAttribution(location.search);
   let current = readDistributionAttribution(storage);
+  let hasStoredTouch = true;
+  try {
+    hasStoredTouch = storage.getItem(DISTRIBUTION_ATTRIBUTION_KEY) !== null;
+  } catch {
+    // Treat inaccessible storage as already claimed so a later tagged route
+    // cannot rewrite the in-memory direct fallback.
+  }
 
-  if (parsed && current.source === "direct") {
+  if (!hasStoredTouch) {
+    const firstTouch: DistributionAttribution = parsed ?? { source: "direct" };
     try {
-      storage.setItem(DISTRIBUTION_ATTRIBUTION_KEY, JSON.stringify(parsed));
-      current = parsed;
+      storage.setItem(DISTRIBUTION_ATTRIBUTION_KEY, JSON.stringify(firstTouch));
+      current = firstTouch;
     } catch {
       // Storage-restricted browsers still get a working product. The first
       // event will be classified direct rather than breaking the journey.

@@ -2,6 +2,7 @@ import { expect, test, type Browser } from "@playwright/test";
 import { criticalTest } from "../fixtures/testMetadata";
 
 const TRIAL_PATH = "/try/lesson/python-fundamentals/hello-world";
+const DISTRIBUTION_ATTRIBUTION_KEY = "codetutor.distribution.firstTouch.v1";
 
 async function verifyZeroStateJourney(
   browser: Browser,
@@ -17,7 +18,10 @@ async function verifyZeroStateJourney(
 
   await page.goto("/");
   expect(await page.evaluate(() => localStorage.length)).toBe(0);
-  expect(await page.evaluate(() => sessionStorage.length)).toBe(0);
+  expect(await page.evaluate(() => sessionStorage.length)).toBe(1);
+  expect(
+    await page.evaluate((key) => sessionStorage.getItem(key), DISTRIBUTION_ATTRIBUTION_KEY),
+  ).toBe(JSON.stringify({ source: "direct" }));
 
   const primary = page.getByRole("link", { name: /try your first lesson/i }).first();
   await expect(primary).toBeVisible();

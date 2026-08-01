@@ -130,4 +130,19 @@ describe("classifyConceptMemory", () => {
     expect(beforeBoundary.refreshDue).toBe(false);
     expect(atBoundary.refreshDue).toBe(true);
   });
+
+  it("anchors refresh to newer practice instead of an older retrieval", () => {
+    const memory = classifyConceptMemory(
+      aggregate({
+        lastRetrievalAt: day("2026-07-24"),
+        independentRetrievalDays: ["2026-07-24"],
+        lastEvidenceAt: day("2026-07-30"),
+        practiceCount: 2,
+      }),
+      NOW,
+    );
+
+    expect(memory.state).toBe("remembered");
+    expect(memory.refreshDue).toBe(false);
+  });
 });

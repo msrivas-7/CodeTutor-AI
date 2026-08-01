@@ -159,7 +159,7 @@ export function classifyConceptMemory(
   // Without this anchor, a brand-new learner would be quizzed on unseen
   // material and a just-completed lesson would trigger immediate recognition
   // rather than delayed recall.
-  const refreshAnchor = lastRetrieval ?? lastSeen;
+  const refreshAnchor = latestDate(lastRetrieval, lastSeen);
   const refreshDue =
     state !== "unseen" &&
     refreshAnchor !== null &&

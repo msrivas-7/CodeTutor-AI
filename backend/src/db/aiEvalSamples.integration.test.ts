@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { closeDb, db, withRlsContext } from "./client.js";
 import {
   deleteEvalSamplesForSubjectToken,
+  EvalSampleRevocationQuotaError,
   insertEvalSample,
   linkEvalSamplesToUser,
   listAdminEvalSamples,
@@ -96,6 +97,7 @@ afterAll(async () => {
     if (subjectTokens.size > 0) {
       const hashes = [...subjectTokens].map(hashEvalSubjectToken);
       await db()`DELETE FROM public.ai_eval_samples WHERE subject_token_hash = ANY(${hashes}::text[])`;
+      await db()`DELETE FROM private.ai_eval_sampling_revocations WHERE subject_token_hash = ANY(${hashes}::text[])`;
     }
     if (users.size > 0) {
       await db()`DELETE FROM auth.users WHERE id = ANY(${[...users]}::uuid[])`;
@@ -156,18 +158,24 @@ describe("B8 governed eval samples (real Postgres)", () => {
       authenticated_samples: boolean;
       anon_reviews: boolean;
       authenticated_queue: boolean;
+      anon_revocation_quota: boolean;
+      authenticated_revocation_quota: boolean;
     }>>`
       SELECT
         has_table_privilege('anon', 'public.ai_eval_samples', 'SELECT') AS anon_samples,
         has_table_privilege('authenticated', 'public.ai_eval_samples', 'SELECT') AS authenticated_samples,
         has_table_privilege('anon', 'public.ai_eval_sample_reviews', 'SELECT') AS anon_reviews,
-        has_table_privilege('authenticated', 'public.ai_eval_synthesis_queue', 'SELECT') AS authenticated_queue
+        has_table_privilege('authenticated', 'public.ai_eval_synthesis_queue', 'SELECT') AS authenticated_queue,
+        has_table_privilege('anon', 'private.ai_eval_sampling_revocation_quota', 'SELECT') AS anon_revocation_quota,
+        has_table_privilege('authenticated', 'private.ai_eval_sampling_revocation_quota', 'SELECT') AS authenticated_revocation_quota
     `;
     expect(grants).toEqual([{
       anon_samples: false,
       authenticated_samples: false,
       anon_reviews: false,
       authenticated_queue: false,
+      anon_revocation_quota: false,
+      authenticated_revocation_quota: false,
     }]);
   });
 
@@ -198,6 +206,81 @@ describe("B8 governed eval samples (real Postgres)", () => {
     await insertEvalSample(sample(token, randomUUID(), "another"));
     expect(await deleteEvalSamplesForSubjectToken(token)).toBe(2);
     expect(await deleteEvalSamplesForSubjectToken(token)).toBe(0);
+  });
+
+  it("atomically revokes future and concurrently completing inserts", async () => {
+    if (!reachable) return;
+    const token = createToken("m");
+    const projected = sample(token, randomUUID(), "during");
+
+    await Promise.all([
+      insertEvalSample(projected),
+      deleteEvalSamplesForSubjectToken(token),
+    ]);
+
+    const remaining = await db()<Array<{ count: number }>>`
+      SELECT count(*)::integer AS count
+        FROM public.ai_eval_samples
+       WHERE subject_token_hash = ${projected.subjectTokenHash}
+    `;
+    expect(remaining).toEqual([{ count: 0 }]);
+    expect(
+      await insertEvalSample(sample(token, randomUUID(), "without")),
+    ).toBe(false);
+  });
+
+  it("bounds attacker-selected tombstones without blocking deletion of retained samples", async () => {
+    if (!reachable) return;
+    const quotaDate = new Date().toISOString().slice(0, 10);
+    const previous = await db()<Array<{ consumed: number; updated_at: Date }>>`
+      SELECT consumed, updated_at
+        FROM private.ai_eval_sampling_revocation_quota
+       WHERE quota_date = ${quotaDate}::date
+    `;
+    const randomToken = createToken("n");
+    const retainedToken = createToken("o");
+
+    try {
+      await db()`
+        INSERT INTO private.ai_eval_sampling_revocation_quota (
+          quota_date,
+          consumed,
+          updated_at
+        ) VALUES (${quotaDate}::date, 5000, now())
+        ON CONFLICT (quota_date) DO UPDATE
+          SET consumed = 5000,
+              updated_at = now()
+      `;
+
+      await expect(deleteEvalSamplesForSubjectToken(randomToken)).rejects.toBeInstanceOf(
+        EvalSampleRevocationQuotaError,
+      );
+      const randomRevocations = await db()<Array<{ count: number }>>`
+        SELECT count(*)::integer AS count
+          FROM private.ai_eval_sampling_revocations
+         WHERE subject_token_hash = ${hashEvalSubjectToken(randomToken)}
+      `;
+      expect(randomRevocations).toEqual([{ count: 0 }]);
+
+      expect(
+        await insertEvalSample(sample(retainedToken, randomUUID(), "privacy")),
+      ).toBe(true);
+      expect(await deleteEvalSamplesForSubjectToken(retainedToken)).toBe(1);
+    } finally {
+      if (previous[0]) {
+        await db()`
+          UPDATE private.ai_eval_sampling_revocation_quota
+             SET consumed = ${previous[0].consumed},
+                 updated_at = ${previous[0].updated_at}
+           WHERE quota_date = ${quotaDate}::date
+        `;
+      } else {
+        await db()`
+          DELETE FROM private.ai_eval_sampling_revocation_quota
+           WHERE quota_date = ${quotaDate}::date
+        `;
+      }
+    }
   });
 
   it("queues only disagreement from two distinct reviewers", async () => {
