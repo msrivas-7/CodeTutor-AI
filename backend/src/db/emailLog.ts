@@ -14,6 +14,13 @@ export interface EmailLogEntry {
   htmlBody: string;
   acsOpId: string | null;
   sentAt: string; // ISO
+  capabilitiesRedacted: true;
+}
+
+const UNSUBSCRIBE_CAPABILITY = /(?:https?:\/\/|\/)[^\s"'<>]*unsubscribe[^\s"'<>]*/gi;
+
+export function redactEmailCapabilities(body: string): string {
+  return body.replace(UNSUBSCRIBE_CAPABILITY, "[unsubscribe link redacted]");
 }
 
 interface ListOpts {
@@ -71,10 +78,11 @@ export async function listEmailLog(
     kind: r.kind,
     toEmail: r.to_email,
     subject: r.subject,
-    textBody: r.text_body,
-    htmlBody: r.html_body,
+    textBody: redactEmailCapabilities(r.text_body),
+    htmlBody: redactEmailCapabilities(r.html_body),
     acsOpId: r.acs_op_id,
     sentAt: r.sent_at.toISOString(),
+    capabilitiesRedacted: true,
   }));
   const nextCursor =
     hasMore && sliced.length > 0

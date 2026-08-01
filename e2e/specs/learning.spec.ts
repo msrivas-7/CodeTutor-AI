@@ -157,6 +157,13 @@ test.describe("learning", () => {
     // the ⋯ menu). Reset Lesson stays in the menu.
     await S.resetCodeButton(page).click();
 
+    const modal = page.locator('[role="alertdialog"]').filter({
+      hasText: /reset this code/i,
+    });
+    await expect(modal).toBeVisible();
+    await modal.getByRole("button", { name: /^reset code$/i }).click();
+    await expect(modal).toHaveCount(0);
+
     // After reset, Monaco should match the starter again.
     await expect.poll(async () => await getMonacoValue(page), { timeout: 5_000 }).toBe(starter);
   });

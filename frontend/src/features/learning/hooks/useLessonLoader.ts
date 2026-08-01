@@ -17,10 +17,9 @@ import {
 } from "../stores/lessonHeartbeatBuffer";
 import { useAIStore } from "../../../state/aiStore";
 import { useProjectStore } from "../../../state/projectStore";
-import { useRunStore } from "../../../state/runStore";
 import { LANGUAGE_ENTRYPOINT } from "../../../types";
 import { RESUME_TOAST_MS } from "../../../util/timings";
-import { shouldBouncePrereq } from "./lessonGuards";
+import { shouldBouncePrereq, shouldPersistLessonDraft } from "./lessonGuards";
 
 export interface UseLessonLoaderArgs {
   courseId: string | undefined;
@@ -51,6 +50,15 @@ export interface UseLessonLoaderArgs {
   // hint comments) rather than whatever the learner left in the buffer
   // on a prior visit.
   forceStarter?: boolean;
+  /** Ephemeral anonymous workspace restored from this tab's sessionStorage. */
+  resumeCode?: Record<string, string> | null;
+  /**
+   * Project/run cache identity for the main lesson workspace. Anonymous and
+   * authenticated lessons must use different identities even when the course
+   * and lesson slugs match, otherwise an anonymous draft can leak into a
+   * signed-in account in the same tab.
+   */
+  workspaceContextKey: string | null;
 }
 
 export function useLessonLoader({
@@ -61,6 +69,8 @@ export function useLessonLoader({
   practiceIndex,
   onResetPerLessonState,
   forceStarter,
+  resumeCode,
+  workspaceContextKey,
 }: UseLessonLoaderArgs) {
   const navigate = useNavigate();
   const [lesson, setLesson] = useState<Lesson | null>(null);
@@ -99,19 +109,13 @@ export function useLessonLoader({
   // Phase 21A: chat context switch moved to LessonPage so it can include
   // practice mode in the key (otherwise lesson↔practice histories bleed).
   // Run context still keyed per-lesson here — runs/files don't bleed.
-  const switchRunContext = useRunStore((s) => s.switchRunContext);
   const switchProjectContext = useProjectStore((s) => s.switchProjectContext);
   const projectFiles = useProjectStore((s) => s.files);
+  const projectContext = useProjectStore((s) => s.projectContext);
 
   useEffect(() => {
     return () => clearTimeout(resumedTimerRef.current);
   }, []);
-
-  useEffect(() => {
-    if (!courseId || !lessonId) return;
-    const ctxKey = `lesson:${courseId}/${lessonId}`;
-    switchRunContext(ctxKey);
-  }, [courseId, lessonId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!courseId || !lessonId) return;
@@ -197,7 +201,7 @@ export function useLessonLoader({
   }, [courseId, lessonId, learnerId, startLesson]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!lesson || !courseId || !lessonId) return;
+    if (!lesson || !courseId || !lessonId || !workspaceContextKey) return;
     // Guard against stale `lesson` state. Effect 1 initiates the
     // lesson-B fetch when the URL flips, but this effect's `lesson`
     // closure may still point to lesson A until `setLesson(B)` lands.
@@ -208,7 +212,9 @@ export function useLessonLoader({
     if (initializedForRef.current === key) return;
     initializedForRef.current = key;
 
-    const savedCode = forceStarter ? null : loadSavedCode(courseId, lessonId);
+    const savedCode = forceStarter
+      ? null
+      : resumeCode ?? loadSavedCode(courseId, lessonId);
 
     const files: Record<string, string> = {};
     const order: string[] = [];
@@ -233,7 +239,6 @@ export function useLessonLoader({
       order.push(entry);
     }
 
-    const ctxKey = `lesson:${courseId}/${lessonId}`;
     // forceDefaults piggy-backs on forceStarter — both flags exist for
     // the same first-run cinematic case where the AUTHORED starter
     // must be visible. Without forceDefaults, projectCache would
@@ -251,7 +256,7 @@ export function useLessonLoader({
     // order[0] (the entry point) so the visual starting point is
     // unchanged for single-file lessons.
     switchProjectContext(
-      ctxKey,
+      workspaceContextKey,
       {
         language: lesson.language,
         files,
@@ -261,7 +266,7 @@ export function useLessonLoader({
       },
       forceStarter ? { forceDefaults: true } : undefined,
     );
-  }, [lesson, courseId, lessonId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [lesson, courseId, lessonId, resumeCode, workspaceContextKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Debounced auto-save. Lesson-mode writes to `lastCode`; practice-mode
   // writes to `practiceExerciseCode[exerciseId]` so switching exercises
@@ -274,9 +279,20 @@ export function useLessonLoader({
     if (
       !courseId ||
       !lessonId ||
+      !workspaceContextKey ||
       initializedForRef.current !== `${courseId}/${lessonId}`
     )
       return;
+    const exercise = practiceMode
+      ? lesson?.practiceExercises?.[practiceIndex]
+      : null;
+    const expectedContext = exercise
+      ? `practice:${courseId}/${lessonId}/${exercise.id}`
+      : workspaceContextKey;
+    // Anonymous work is persisted by LessonPage's sessionStorage workspace.
+    // Never let an authenticated browser session make /try autosaves write
+    // into that signed-in user's durable lesson record.
+    if (!shouldPersistLessonDraft(learnerId, projectContext, expectedContext)) return;
     const timer = setTimeout(() => {
       const snap = useProjectStore.getState().snapshot();
       if (snap.length === 0) return;
@@ -286,11 +302,11 @@ export function useLessonLoader({
         const exercise = lesson?.practiceExercises?.[practiceIndex];
         if (exercise) savePracticeCode(courseId, lessonId, exercise.id, codeMap);
       } else {
-        saveCode(courseId, lessonId, codeMap);
+        void saveCode(courseId, lessonId, codeMap);
       }
     }, 2000);
     return () => clearTimeout(timer);
-  }, [projectFiles, courseId, lessonId, saveCode, savePracticeCode, practiceMode, practiceIndex, lesson]);
+  }, [projectFiles, projectContext, courseId, lessonId, learnerId, workspaceContextKey, saveCode, savePracticeCode, practiceMode, practiceIndex, lesson]);
 
   // Time-spent tracking — tick only while the document is visible and the
   // lesson isn't yet complete. Caps deltas at 60s so a long hidden/suspended

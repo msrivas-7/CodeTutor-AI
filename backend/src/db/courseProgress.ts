@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { withRlsContext } from "./client.js";
+import { db, withRlsContext } from "./client.js";
 import { HttpError } from "../middleware/errorHandler.js";
 
 export interface CourseProgress {
@@ -71,10 +71,9 @@ export async function upsertCourseProgress(
   courseId: string,
   patch: CoursePatch,
 ): Promise<CourseProgress> {
-  // Phase 26: RLS-scoped UPSERT. WITH CHECK on the policy enforces the
-  // user_id binding.
-  const rows = await withRlsContext(userId, async (tx) => {
-    return await tx`
+  // Server-authoritative write; browser roles are read-only and the explicit
+  // composite key preserves ownership on the privileged connection.
+  const rows = await db()`
       INSERT INTO public.course_progress (
         user_id, course_id, status, started_at, completed_at,
         last_lesson_id, completed_lesson_ids
@@ -98,7 +97,6 @@ export async function upsertCourseProgress(
       RETURNING course_id, status, started_at, completed_at, updated_at,
                 last_lesson_id, completed_lesson_ids
     `;
-  });
   return rowToCourse(rows[0]);
 }
 
@@ -106,14 +104,10 @@ export async function deleteCourseProgress(
   userId: string,
   courseId: string,
 ): Promise<boolean> {
-  // Phase 26: RLS-scoped DELETE. RLS USING clause prevents deleting
-  // another user's row even if the WHERE clause is wrong.
-  const rows = await withRlsContext(userId, async (tx) => {
-    return await tx`
+  const rows = await db()`
       DELETE FROM public.course_progress
        WHERE user_id = ${userId} AND course_id = ${courseId}
        RETURNING course_id
     `;
-  });
   return rows.length > 0;
 }

@@ -1,6 +1,6 @@
 {
   "id": "hello-print",
-  "courseId": "_internal-js-smoke",
+  "courseId": "internal-js-smoke",
   "title": "Hello, JavaScript",
   "description": "Smoke-test lesson that prints a fixed line to stdout. Exists only to exercise the multi-language path end-to-end.",
   "order": 1,

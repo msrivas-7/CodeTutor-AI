@@ -26,6 +26,7 @@ interface CachedLesson {
   lessonOrder: number;
   courseTitle: string;
   courseTotalLessons: number;
+  language: Language;
 }
 
 const cache = new Map<string, CachedLesson>();
@@ -34,6 +35,7 @@ interface CourseJson {
   id: string;
   title: string;
   lessonOrder: string[];
+  prerequisiteCourseIds?: string[];
   baseVocabulary?: string[];
   internal?: boolean;
 }
@@ -57,6 +59,7 @@ const catalogLessonSchema = z.object({
   usesConceptTags: z.array(z.string().min(1).max(64)).default([]),
   completionRules: z.array(completionRuleSchema).min(1),
   practiceExercises: z.array(practiceExerciseSchema).default([]),
+  prerequisiteLessonIds: z.array(z.string().min(1).max(64)).default([]),
 });
 
 type LessonJson = z.infer<typeof catalogLessonSchema>;
@@ -215,6 +218,7 @@ export async function getLessonSnapshot(
       lessonOrder: number;
       courseTitle: string;
       courseTotalLessons: number;
+      language: Language;
     }
   | null
 > {
@@ -239,9 +243,24 @@ export async function getLessonSnapshot(
     lessonOrder: lesson.order,
     courseTitle: course.title,
     courseTotalLessons: course.lessonOrder.length,
+    language: lesson.language,
   };
   cache.set(cacheKey, snapshot);
   return snapshot;
+}
+
+export async function getCourseStructure(
+  courseId: string,
+): Promise<{ lessonOrder: string[]; prerequisiteCourseIds: string[] } | null> {
+  if (!SLUG_RE.test(courseId)) return null;
+  const course = await readJson<CourseJson>(
+    path.join(catalogRoot(), courseId, "course.json"),
+  );
+  if (!course || course.id !== courseId) return null;
+  return {
+    lessonOrder: [...course.lessonOrder],
+    prerequisiteCourseIds: [...(course.prerequisiteCourseIds ?? [])],
+  };
 }
 
 /**
@@ -314,6 +333,43 @@ const tutorCache = new Map<string, TutorLessonSnapshot>();
 const memoryCache = new Map<string, LessonMemorySnapshot>();
 const courseConceptCache = new Map<string, string[]>();
 const practiceEvidenceCache = new Map<string, PracticeEvidenceSnapshot>();
+const lessonAccessCache = new Map<
+  string,
+  { prerequisiteLessonIds: string[]; prerequisiteCourseIds: string[] }
+>();
+
+/** Canonical server-side prerequisite authority for progress mutations. */
+export async function getLessonAccessRequirements(
+  courseId: string,
+  lessonId: string,
+): Promise<{
+  prerequisiteLessonIds: string[];
+  prerequisiteCourseIds: string[];
+} | null> {
+  if (!SLUG_RE.test(courseId) || !SLUG_RE.test(lessonId)) return null;
+  const cacheKey = `${courseId}/${lessonId}`;
+  const cached = lessonAccessCache.get(cacheKey);
+  if (cached) return cached;
+  const root = catalogRoot();
+  const [course, lesson] = await Promise.all([
+    readJson<CourseJson>(path.join(root, courseId, "course.json")),
+    readCatalogLesson(root, courseId, lessonId),
+  ]);
+  if (
+    !course ||
+    course.id !== courseId ||
+    !course.lessonOrder.includes(lessonId) ||
+    !lesson
+  ) {
+    return null;
+  }
+  const requirements = {
+    prerequisiteLessonIds: [...lesson.prerequisiteLessonIds],
+    prerequisiteCourseIds: [...(course.prerequisiteCourseIds ?? [])],
+  };
+  lessonAccessCache.set(cacheKey, requirements);
+  return requirements;
+}
 
 /**
  * Phase B1 canonical retrieval authority. The correct answer never comes from

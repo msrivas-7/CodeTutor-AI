@@ -10,6 +10,9 @@ import {
 } from "../../../api/client";
 import { currentGen } from "../../../auth/generation";
 import { invalidateStreak } from "../../../state/useStreak";
+import { ApiError } from "../../../api/ApiError";
+import { tabWriterId } from "../../../util/tabWriterId";
+import { useProjectStore } from "../../../state/projectStore";
 
 // Phase 18b: per-user progress lives in Postgres (tables course_progress +
 // lesson_progress). Read model: a single `hydrate()` on sign-in populates the
@@ -32,6 +35,24 @@ function now(): string {
 function compositeKey(courseId: string, lessonId: string): string {
   return `${courseId}/${lessonId}`;
 }
+
+export const lessonDraftWriterId = tabWriterId;
+
+export interface LessonDraftConflict {
+  courseId: string;
+  lessonId: string;
+  localCode: Record<string, string>;
+  remoteCode: Record<string, string>;
+  remoteRevision: number;
+  remoteWriterId: string | null;
+  remoteUpdatedAt: string | null;
+}
+
+const draftSaveChains = new Map<string, Promise<void>>();
+const draftChannel: BroadcastChannel | null =
+  typeof BroadcastChannel === "function"
+    ? new BroadcastChannel("codetutor:lesson-drafts:v1")
+    : null;
 
 function serverCourseToState(row: ServerCourseProgress, learnerId: string): CourseProgress {
   return {
@@ -59,6 +80,9 @@ function serverLessonToState(row: ServerLessonProgress, learnerId: string): Less
     runCount: row.runCount,
     hintCount: row.hintCount,
     lastCode: row.lastCode,
+    draftRevision: row.draftRevision,
+    draftWriterId: row.draftWriterId,
+    draftUpdatedAt: row.draftUpdatedAt,
     lastOutput: row.lastOutput,
     practiceCompletedIds: row.practiceCompletedIds,
     practiceExerciseCode: row.practiceExerciseCode,
@@ -86,6 +110,8 @@ interface ProgressState {
   hydrateError: string | null;
   courseProgress: Record<string, CourseProgress>;
   lessonProgress: Record<string, LessonProgress>;
+  draftConflicts: Record<string, LessonDraftConflict>;
+  draftSaveErrors: Record<string, string>;
 
   hydrate: (gen?: number) => Promise<void>;
   reset: () => void;
@@ -103,7 +129,7 @@ interface ProgressState {
     courseId: string,
     lessonId: string,
     totalLessons: number,
-  ) => void;
+  ) => Promise<void>;
   incrementRun: (courseId: string, lessonId: string) => void;
   incrementAttempt: (courseId: string, lessonId: string) => void;
   incrementHint: (courseId: string, lessonId: string) => void;
@@ -111,7 +137,13 @@ interface ProgressState {
     courseId: string,
     lessonId: string,
     code: Record<string, string>,
-  ) => void;
+  ) => Promise<void>;
+  keepLocalDraft: (courseId: string, lessonId: string) => Promise<boolean>;
+  retryDraftSave: (courseId: string, lessonId: string) => Promise<void>;
+  acceptRemoteDraft: (
+    courseId: string,
+    lessonId: string,
+  ) => Record<string, string> | null;
   saveOutput: (courseId: string, lessonId: string, output: string) => void;
   incrementLessonTime: (courseId: string, lessonId: string, deltaMs: number) => void;
   completePracticeExercise: (
@@ -126,17 +158,17 @@ interface ProgressState {
     exerciseId: string,
     code: Record<string, string>,
   ) => void;
-  resetPracticeProgress: (courseId: string, lessonId: string) => void;
+  resetPracticeProgress: (courseId: string, lessonId: string) => Promise<void>;
   resetLessonProgress: (
     learnerId: string,
     courseId: string,
     lessonId: string,
-  ) => void;
+  ) => Promise<void>;
   resetCourseProgress: (
     learnerId: string,
     courseId: string,
     lessonIds: string[],
-  ) => void;
+  ) => Promise<void>;
 }
 
 function freshLesson(
@@ -156,7 +188,13 @@ function freshLesson(
     runCount: 0,
     hintCount: 0,
     lastCode: null,
+    draftRevision: 0,
+    draftWriterId: null,
+    draftUpdatedAt: null,
     lastOutput: null,
+    timeSpentMs: 0,
+    practiceCompletedIds: [],
+    practiceExerciseCode: {},
   };
 }
 
@@ -239,6 +277,8 @@ export const useProgressStore = create<ProgressState>()((set, get) => {
     hydrateError: null,
     courseProgress: {},
     lessonProgress: {},
+    draftConflicts: {},
+    draftSaveErrors: {},
 
     hydrate: async (gen) => {
       set({ hydrateError: null });
@@ -265,7 +305,13 @@ export const useProgressStore = create<ProgressState>()((set, get) => {
           );
         }
         reconcileCompletedLessons(courseMap, lessonMap, learnerId);
-        set({ courseProgress: courseMap, lessonProgress: lessonMap, hydrated: true });
+        set({
+          courseProgress: courseMap,
+          lessonProgress: lessonMap,
+          draftConflicts: {},
+          draftSaveErrors: {},
+          hydrated: true,
+        });
       } catch (err) {
         if (gen !== undefined && gen !== currentGen()) return;
         const msg = (err as Error).message;
@@ -282,6 +328,8 @@ export const useProgressStore = create<ProgressState>()((set, get) => {
         hydrateError: null,
         courseProgress: {},
         lessonProgress: {},
+        draftConflicts: {},
+        draftSaveErrors: {},
       });
     },
 
@@ -366,7 +414,7 @@ export const useProgressStore = create<ProgressState>()((set, get) => {
       );
     },
 
-    completeLesson(learnerId, courseId, lessonId, totalLessons) {
+    async completeLesson(learnerId, courseId, lessonId, totalLessons) {
       const key = compositeKey(courseId, lessonId);
       const s = get();
       const currentL = s.lessonProgress[key];
@@ -397,27 +445,22 @@ export const useProgressStore = create<ProgressState>()((set, get) => {
         completedAt: allDone ? now() : baseC.completedAt,
         completedLessonIds: completed,
       };
-      set({
-        lessonProgress: { ...s.lessonProgress, [key]: nextL },
-        courseProgress: { ...s.courseProgress, [courseId]: nextC },
+      // Persist the detailed lesson row before the UI celebrates. It is the
+      // durable proof used to recover the course aggregate after interruption.
+      const savedLesson = await api.patchLessonProgress(courseId, lessonId, {
+        status: "completed",
+        startedAt: nextL.startedAt,
+        completedAt: nextL.completedAt,
+        attemptCount: nextL.attemptCount,
       });
-
-      // Phase 21B: invalidate the streak after the lesson PATCH resolves
-      // so the LessonCompletePanel's useStreak observes the post-extension
-      // value. Backend updateUserStreak runs inline inside the PATCH
-      // handler; the .then() guarantees the cache busts AFTER it.
-      fireAndForget(
-        `completeLesson ${courseId}/${lessonId} lesson`,
-        api.patchLessonProgress(courseId, lessonId, {
-          status: "completed",
-          startedAt: nextL.startedAt,
-          completedAt: nextL.completedAt,
-          attemptCount: nextL.attemptCount,
-        }).then((row) => {
-          invalidateStreak();
-          return row;
-        }),
-      );
+      invalidateStreak();
+      set((state) => ({
+        lessonProgress: {
+          ...state.lessonProgress,
+          [key]: serverLessonToState(savedLesson, learnerId),
+        },
+        courseProgress: { ...state.courseProgress, [courseId]: nextC },
+      }));
       const coursePatch: ServerCoursePatch = {
         status: nextC.status,
         startedAt: nextC.startedAt,
@@ -425,10 +468,22 @@ export const useProgressStore = create<ProgressState>()((set, get) => {
         lastLessonId: nextC.lastLessonId,
         completedLessonIds: nextC.completedLessonIds,
       };
-      fireAndForget(
-        `completeLesson ${courseId} course`,
-        api.patchCourseProgress(courseId, coursePatch),
-      );
+      // Keep the derived course request ordered after the lesson. A failure
+      // here is repairable because hydrate reconstructs it from lesson rows.
+      try {
+        const savedCourse = await api.patchCourseProgress(courseId, coursePatch);
+        set((state) => ({
+          courseProgress: {
+            ...state.courseProgress,
+            [courseId]: serverCourseToState(savedCourse, learnerId),
+          },
+        }));
+      } catch (error) {
+        console.error(
+          `[progress] completeLesson ${courseId} course summary:`,
+          (error as Error).message,
+        );
+      }
     },
 
     incrementRun(courseId, lessonId) {
@@ -465,12 +520,200 @@ export const useProgressStore = create<ProgressState>()((set, get) => {
     },
 
     saveCode(courseId, lessonId, code) {
-      patchLesson(
-        courseId,
-        lessonId,
-        (lp) => ({ ...lp, lastCode: code, updatedAt: now() }),
-        (next) => ({ lastCode: next.lastCode }),
-      );
+      const key = compositeKey(courseId, lessonId);
+      const current = get().lessonProgress[key];
+      if (!current) return Promise.resolve();
+
+      set((state) => ({
+        lessonProgress: {
+          ...state.lessonProgress,
+          [key]: { ...current, lastCode: code, updatedAt: now() },
+        },
+      }));
+
+      const prior = draftSaveChains.get(key) ?? Promise.resolve();
+      const operation = prior
+        .catch(() => undefined)
+        .then(async () => {
+          const latest = get();
+          const lesson = latest.lessonProgress[key];
+          if (!lesson || latest.draftConflicts[key]) return;
+          try {
+            const saved = await api.saveLessonDraft(courseId, lessonId, {
+              code,
+              expectedRevision: lesson.draftRevision ?? 0,
+              writerId: lessonDraftWriterId,
+            });
+            set((state) => {
+              const local = state.lessonProgress[key];
+              if (!local) return state;
+              const { [key]: _resolvedError, ...remainingErrors } =
+                state.draftSaveErrors;
+              return {
+                lessonProgress: {
+                  ...state.lessonProgress,
+                  [key]: {
+                    ...local,
+                    lastCode: local.lastCode === code ? saved.lastCode : local.lastCode,
+                    draftRevision: saved.draftRevision,
+                    draftWriterId: saved.draftWriterId,
+                    draftUpdatedAt: saved.draftUpdatedAt,
+                    updatedAt: saved.updatedAt,
+                  },
+                },
+                draftSaveErrors: remainingErrors,
+              };
+            });
+            draftChannel?.postMessage({
+              key,
+              courseId,
+              lessonId,
+              code,
+              revision: saved.draftRevision,
+              writerId: lessonDraftWriterId,
+              updatedAt: saved.draftUpdatedAt,
+            });
+          } catch (error) {
+            if (error instanceof ApiError && error.status === 409) {
+              try {
+                const body = JSON.parse(error.body) as {
+                  current?: ServerLessonProgress;
+                };
+                if (body.current) {
+                  const remote = body.current;
+                  set((state) => ({
+                    draftConflicts: {
+                      ...state.draftConflicts,
+                      [key]: {
+                        courseId,
+                        lessonId,
+                        localCode:
+                          state.lessonProgress[key]?.lastCode ?? code,
+                        remoteCode: remote.lastCode ?? {},
+                        remoteRevision: remote.draftRevision,
+                        remoteWriterId: remote.draftWriterId,
+                        remoteUpdatedAt: remote.draftUpdatedAt,
+                      },
+                    },
+                    lessonProgress: {
+                      ...state.lessonProgress,
+                      [key]: {
+                        ...state.lessonProgress[key],
+                        draftRevision: remote.draftRevision,
+                        draftWriterId: remote.draftWriterId,
+                        draftUpdatedAt: remote.draftUpdatedAt,
+                      },
+                    },
+                    draftSaveErrors: Object.fromEntries(
+                      Object.entries(state.draftSaveErrors).filter(
+                        ([errorKey]) => errorKey !== key,
+                      ),
+                    ),
+                  }));
+                  return;
+                }
+              } catch {
+                // Fall through to the ordinary save failure log.
+              }
+            }
+            console.error(
+              `[progress] saveCode ${courseId}/${lessonId}:`,
+              (error as Error).message,
+            );
+            set((state) => ({
+              draftSaveErrors: {
+                ...state.draftSaveErrors,
+                [key]: "Your code is still open here, but it has not synced yet.",
+              },
+            }));
+          }
+        })
+        .finally(() => {
+          if (draftSaveChains.get(key) === operation) draftSaveChains.delete(key);
+        });
+      draftSaveChains.set(key, operation);
+      return operation;
+    },
+
+    async keepLocalDraft(courseId, lessonId) {
+      const key = compositeKey(courseId, lessonId);
+      const conflict = get().draftConflicts[key];
+      if (!conflict) return false;
+      try {
+        const saved = await api.saveLessonDraft(courseId, lessonId, {
+          code: conflict.localCode,
+          expectedRevision: conflict.remoteRevision,
+          writerId: lessonDraftWriterId,
+        });
+        set((state) => {
+          const { [key]: _resolved, ...remaining } = state.draftConflicts;
+          const { [key]: _resolvedError, ...remainingErrors } =
+            state.draftSaveErrors;
+          return {
+            draftConflicts: remaining,
+            draftSaveErrors: remainingErrors,
+            lessonProgress: {
+              ...state.lessonProgress,
+              [key]: serverLessonToState(saved, state.lessonProgress[key]?.learnerId ?? "server"),
+            },
+          };
+        });
+        draftChannel?.postMessage({
+          key,
+          courseId,
+          lessonId,
+          code: saved.lastCode ?? conflict.localCode,
+          revision: saved.draftRevision,
+          writerId: lessonDraftWriterId,
+          updatedAt: saved.draftUpdatedAt,
+        });
+        return true;
+      } catch (error) {
+        console.error(`[progress] keepLocalDraft ${key}:`, (error as Error).message);
+        set((state) => ({
+          draftSaveErrors: {
+            ...state.draftSaveErrors,
+            [key]: "That version could not be saved yet. Both copies are still available.",
+          },
+        }));
+        return false;
+      }
+    },
+
+    async retryDraftSave(courseId, lessonId) {
+      const key = compositeKey(courseId, lessonId);
+      const code = get().lessonProgress[key]?.lastCode;
+      if (!code) return;
+      await get().saveCode(courseId, lessonId, code);
+    },
+
+    acceptRemoteDraft(courseId, lessonId) {
+      const key = compositeKey(courseId, lessonId);
+      const conflict = get().draftConflicts[key];
+      if (!conflict) return null;
+      set((state) => {
+        const { [key]: _resolved, ...remaining } = state.draftConflicts;
+        const { [key]: _resolvedError, ...remainingErrors } =
+          state.draftSaveErrors;
+        const current = state.lessonProgress[key];
+        return {
+          draftConflicts: remaining,
+          draftSaveErrors: remainingErrors,
+          lessonProgress: current
+            ? {
+                ...state.lessonProgress,
+                [key]: {
+                  ...current,
+                  lastCode: conflict.remoteCode,
+                  draftRevision: conflict.remoteRevision,
+                  draftWriterId: conflict.remoteWriterId,
+                  draftUpdatedAt: conflict.remoteUpdatedAt,
+                },
+              }
+            : state.lessonProgress,
+        };
+      });
+      return conflict.remoteCode;
     },
 
     saveOutput(courseId, lessonId, output) {
@@ -510,48 +753,30 @@ export const useProgressStore = create<ProgressState>()((set, get) => {
       if (!current || (current.practiceCompletedIds ?? []).includes(exerciseId)) {
         return false;
       }
-      const next: LessonProgress = {
-        ...current,
-        practiceCompletedIds: [
-          ...(current.practiceCompletedIds ?? []),
-          exerciseId,
-        ],
-        updatedAt: now(),
-      };
-      set((state) => ({
-        lessonProgress: { ...state.lessonProgress, [key]: next },
-      }));
       try {
-        await api.patchLessonProgress(courseId, lessonId, {
-          practiceCompletedIds: next.practiceCompletedIds ?? [],
+        const saved = await api.patchLessonProgress(courseId, lessonId, {
+          practiceCompletedIds: [
+            ...(current.practiceCompletedIds ?? []),
+            exerciseId,
+          ],
           practiceEvidence: { exerciseId, ...evidence },
         });
+        set((state) => ({
+          lessonProgress: {
+            ...state.lessonProgress,
+            [key]: serverLessonToState(
+              saved,
+              state.lessonProgress[key]?.learnerId ?? "server",
+            ),
+          },
+        }));
         return true;
       } catch (error) {
-        // Practice is a mastery input, so a failed evidence write cannot be
-        // silently treated as durable completion. Preserve unrelated updates
-        // but remove this optimistic ID so Check can safely retry.
         console.error(
           `[progress] completePracticeExercise ${courseId}/${lessonId}:`,
           (error as Error).message,
         );
-        set((state) => {
-          const latest = state.lessonProgress[key];
-          if (!latest) return state;
-          return {
-            lessonProgress: {
-              ...state.lessonProgress,
-              [key]: {
-                ...latest,
-                practiceCompletedIds: (latest.practiceCompletedIds ?? []).filter(
-                  (id) => id !== exerciseId,
-                ),
-                updatedAt: now(),
-              },
-            },
-          };
-        });
-        return false;
+        throw error;
       }
     },
 
@@ -573,72 +798,46 @@ export const useProgressStore = create<ProgressState>()((set, get) => {
       );
     },
 
-    resetPracticeProgress(courseId, lessonId) {
-      patchLesson(
-        courseId,
-        lessonId,
-        (lp) => ({
-          ...lp,
-          practiceCompletedIds: [],
-          practiceExerciseCode: {},
-          updatedAt: now(),
-        }),
-        () => ({ practiceCompletedIds: [], practiceExerciseCode: {} }),
-      );
-    },
-
-    resetLessonProgress(learnerId, courseId, lessonId) {
+    async resetPracticeProgress(courseId, lessonId) {
       const key = compositeKey(courseId, lessonId);
-      startedThisSession.delete(key);
-
-      const s = get();
-      const cp = s.courseProgress[courseId];
-      let nextCourse = s.courseProgress;
-      if (cp) {
-        const updatedCp: CourseProgress = {
-          ...cp,
-          completedLessonIds: cp.completedLessonIds.filter((id) => id !== lessonId),
-          status: cp.completedLessonIds.filter((id) => id !== lessonId).length === 0
-            ? "not_started"
-            : "in_progress",
-          completedAt: null,
-          updatedAt: now(),
-        };
-        nextCourse = { ...s.courseProgress, [courseId]: updatedCp };
-        fireAndForget(
-          `resetLesson ${courseId} course`,
-          api.patchCourseProgress(courseId, {
-            status: updatedCp.status,
-            completedAt: null,
-            completedLessonIds: updatedCp.completedLessonIds,
-          }),
-        );
-      }
-
-      const { [key]: _dropped, ...restLessons } = s.lessonProgress;
-      set({ courseProgress: nextCourse, lessonProgress: restLessons });
-
-      // Zero out the server row rather than DELETE — keeps updated_at fresh
-      // and the upsert path simple. Equivalent end state for the learner.
-      fireAndForget(
-        `resetLesson ${courseId}/${lessonId}`,
-        api.patchLessonProgress(courseId, lessonId, {
-          status: "not_started",
-          startedAt: null,
-          completedAt: null,
-          attemptCount: 0,
-          runCount: 0,
-          hintCount: 0,
-          timeSpentMs: 0,
-          lastCode: null,
-          lastOutput: null,
-          practiceCompletedIds: [],
-          practiceExerciseCode: {},
-        }),
-      );
+      const saved = await api.resetPracticeProgress(courseId, lessonId);
+      set((state) => ({
+        lessonProgress: {
+          ...state.lessonProgress,
+          [key]: serverLessonToState(
+            saved,
+            state.lessonProgress[key]?.learnerId ?? "server",
+          ),
+        },
+      }));
     },
 
-    resetCourseProgress(learnerId, courseId, lessonIds) {
+    async resetLessonProgress(learnerId, courseId, lessonId) {
+      const key = compositeKey(courseId, lessonId);
+      const { reset, course } = await api.resetLessonProgress(courseId, lessonId);
+      startedThisSession.delete(key);
+      set((state) => {
+        const { [key]: _discardedConflict, ...remainingConflicts } =
+          state.draftConflicts;
+        const { [key]: _discardedError, ...remainingErrors } =
+          state.draftSaveErrors;
+        return {
+          lessonProgress: {
+            ...state.lessonProgress,
+            [key]: serverLessonToState(reset, learnerId),
+          },
+          courseProgress: {
+            ...state.courseProgress,
+            [courseId]: serverCourseToState(course, learnerId),
+          },
+          draftConflicts: remainingConflicts,
+          draftSaveErrors: remainingErrors,
+        };
+      });
+    },
+
+    async resetCourseProgress(learnerId, courseId, lessonIds) {
+      await api.deleteCourseProgress(courseId);
       for (const lid of lessonIds) {
         startedThisSession.delete(compositeKey(courseId, lid));
       }
@@ -647,19 +846,76 @@ export const useProgressStore = create<ProgressState>()((set, get) => {
       for (const lid of lessonIds) {
         delete updatedLessons[compositeKey(courseId, lid)];
       }
+      const remainingConflicts = { ...s.draftConflicts };
+      const remainingErrors = { ...s.draftSaveErrors };
+      for (const lid of lessonIds) {
+        delete remainingConflicts[compositeKey(courseId, lid)];
+        delete remainingErrors[compositeKey(courseId, lid)];
+      }
       const fresh = freshCourse(learnerId, courseId);
       set({
         lessonProgress: updatedLessons,
         courseProgress: { ...s.courseProgress, [courseId]: fresh },
+        draftConflicts: remainingConflicts,
+        draftSaveErrors: remainingErrors,
       });
-
-      fireAndForget(
-        `resetCourse ${courseId}`,
-        api.deleteCourseProgress(courseId),
-      );
     },
   };
 });
+
+if (draftChannel) {
+  draftChannel.onmessage = (event: MessageEvent<{
+    key: string;
+    courseId: string;
+    lessonId: string;
+    code: Record<string, string>;
+    revision: number;
+    writerId: string;
+    updatedAt: string | null;
+  }>) => {
+    const remote = event.data;
+    if (!remote || remote.writerId === lessonDraftWriterId) return;
+    const state = useProgressStore.getState();
+    const local = state.lessonProgress[remote.key];
+    if (!local || remote.revision <= (local.draftRevision ?? 0)) return;
+    const activeProject = useProjectStore.getState();
+    const visibleCode =
+      activeProject.projectContext === `lesson:${remote.key}`
+        ? Object.fromEntries(
+            activeProject.order.map((path) => [path, activeProject.files[path] ?? ""]),
+          )
+        : local.lastCode ?? {};
+    const sameCode = JSON.stringify(visibleCode) === JSON.stringify(remote.code);
+    if (sameCode) {
+      useProgressStore.setState({
+        lessonProgress: {
+          ...state.lessonProgress,
+          [remote.key]: {
+            ...local,
+            draftRevision: remote.revision,
+            draftWriterId: remote.writerId,
+            draftUpdatedAt: remote.updatedAt,
+          },
+        },
+      });
+      return;
+    }
+    useProgressStore.setState({
+      draftConflicts: {
+        ...state.draftConflicts,
+        [remote.key]: {
+          courseId: remote.courseId,
+          lessonId: remote.lessonId,
+          localCode: visibleCode,
+          remoteCode: remote.code,
+          remoteRevision: remote.revision,
+          remoteWriterId: remote.writerId,
+          remoteUpdatedAt: remote.updatedAt,
+        },
+      },
+    });
+  };
+}
 
 // ── Convenience accessors (synchronous reads against in-memory state) ─────
 

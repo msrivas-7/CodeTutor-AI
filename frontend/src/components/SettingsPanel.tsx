@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { HOUSE_EASE } from "./cinema/easing";
-import { api } from "../api/client";
+import { api, type OwnerShare } from "../api/client";
 import { useAIStore } from "../state/aiStore";
 import {
   setDisableStreaks,
@@ -55,7 +55,17 @@ const PERSONA_BLURB: Record<Persona, string> = {
     "Short and dense. I'll skip the foundations and go straight to the interesting part.",
 };
 
-export function SettingsPanel({ onClose }: { onClose?: () => void }) {
+export function SettingsPanel({
+  onClose,
+  onShareChanged,
+}: {
+  onClose?: () => void;
+  onShareChanged?: (change: {
+    courseId: string;
+    lessonId: string;
+    shared: boolean;
+  }) => void;
+}) {
   const [tab, setTab] = useState<Tab>("profile");
   const visibleTabs = Object.keys(TAB_LABEL) as Tab[];
 
@@ -117,7 +127,12 @@ export function SettingsPanel({ onClose }: { onClose?: () => void }) {
             >
               {tab === "profile" && <ProfileTab onClose={onClose} />}
               {tab === "tutor" && <TutorTab />}
-              {tab === "account" && <AccountTab onClose={onClose} />}
+              {tab === "account" && (
+                <AccountTab
+                  onClose={onClose}
+                  onShareChanged={onShareChanged}
+                />
+              )}
             </motion.div>
           </AnimatePresence>
         </div>
@@ -879,7 +894,17 @@ function PersonaSection() {
   );
 }
 
-function AccountTab({ onClose }: { onClose?: () => void }) {
+function AccountTab({
+  onClose,
+  onShareChanged,
+}: {
+  onClose?: () => void;
+  onShareChanged?: (change: {
+    courseId: string;
+    lessonId: string;
+    shared: boolean;
+  }) => void;
+}) {
   const patchPreferences = usePreferencesStore((s) => s.patch);
   const nav = useNavigate();
 
@@ -918,6 +943,10 @@ function AccountTab({ onClose }: { onClose?: () => void }) {
       <hr className="border-border" />
 
       <StreakDisplaySection />
+
+      <hr className="border-border" />
+
+      <PublicSharesSection onShareChanged={onShareChanged} />
 
       <hr className="border-border" />
 
@@ -968,6 +997,175 @@ function AccountTab({ onClose }: { onClose?: () => void }) {
 
       {showDelete && <DeleteAccountModal onClose={() => setShowDelete(false)} />}
     </>
+  );
+}
+
+function PublicSharesSection({
+  onShareChanged,
+}: {
+  onShareChanged?: (change: {
+    courseId: string;
+    lessonId: string;
+    shared: boolean;
+  }) => void;
+}) {
+  const [shares, setShares] = useState<OwnerShare[]>([]);
+  const [status, setStatus] = useState<"loading" | "loaded" | "error">(
+    "loading",
+  );
+  const [error, setError] = useState<string | null>(null);
+  const [revoking, setRevoking] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setStatus("loading");
+    setError(null);
+    try {
+      const response = await api.listMyShares();
+      setShares(response.shares);
+      setStatus("loaded");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not load your shares.");
+      setStatus("error");
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const revoke = async (share: OwnerShare) => {
+    setRevoking(share.shareToken);
+    setError(null);
+    try {
+      await api.revokeShare(share.shareToken);
+      setShares((current) =>
+        current.filter((item) => item.shareToken !== share.shareToken),
+      );
+      onShareChanged?.({
+        courseId: share.courseId,
+        lessonId: share.lessonId,
+        shared: false,
+      });
+      setConfirming(null);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not stop sharing.");
+    } finally {
+      setRevoking(null);
+    }
+  };
+
+  return (
+    <section className="flex flex-col gap-2" aria-labelledby="public-shares-heading">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 id="public-shares-heading" className="text-xs font-semibold text-ink">
+            My public shares
+          </h3>
+          <p className="mt-1 text-xs leading-relaxed text-faint">
+            See every lesson page that is currently public and stop sharing it at
+            any time.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void load()}
+          disabled={status === "loading"}
+          className="shrink-0 rounded-md border border-border bg-elevated px-2.5 py-1.5 text-xs font-semibold text-muted transition hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
+        >
+          {status === "loading" ? "Loading…" : "Refresh"}
+        </button>
+      </div>
+
+      {error && (
+        <div
+          role="alert"
+          className="rounded-md border border-danger/40 bg-danger/10 px-2.5 py-2 text-xs text-danger"
+        >
+          {error}{" "}
+          {status === "error" && (
+            <button
+              type="button"
+              onClick={() => void load()}
+              className="font-semibold underline underline-offset-2"
+            >
+              Try again
+            </button>
+          )}
+        </div>
+      )}
+
+      {status === "loaded" && shares.length === 0 && (
+        <div className="rounded-md border border-border bg-elevated/30 px-3 py-3 text-xs text-muted">
+          You have no public lesson pages.
+        </div>
+      )}
+
+      {shares.length > 0 && (
+        <ul className="flex flex-col gap-2" aria-label="Public lesson shares">
+          {shares.map((share) => {
+            const confirmingThis = confirming === share.shareToken;
+            return (
+              <li
+                key={share.shareToken}
+                className="rounded-md border border-border bg-elevated/30 p-2.5"
+              >
+                <div className="flex min-w-0 items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-xs font-semibold text-ink">
+                      {share.lessonTitle}
+                    </div>
+                    <div className="mt-0.5 truncate text-xs text-faint">
+                      {share.courseTitle} · updated {new Date(share.updatedAt).toLocaleString()}
+                    </div>
+                  </div>
+                  <a
+                    href={share.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="shrink-0 rounded-md border border-border bg-bg px-2.5 py-1.5 text-xs font-semibold text-muted transition hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  >
+                    View
+                  </a>
+                </div>
+
+                {confirmingThis ? (
+                  <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-danger/30 bg-danger/5 p-2">
+                    <span className="mr-auto text-xs leading-relaxed text-danger">
+                      The current public link will stop working.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => void revoke(share)}
+                      disabled={revoking === share.shareToken}
+                      className="rounded-md bg-danger px-2.5 py-1.5 text-xs font-semibold text-bg disabled:opacity-60"
+                    >
+                      {revoking === share.shareToken ? "Stopping…" : "Stop sharing"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirming(null)}
+                      disabled={revoking === share.shareToken}
+                      className="rounded-md border border-border bg-bg px-2.5 py-1.5 text-xs text-muted disabled:opacity-60"
+                    >
+                      Keep public
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirming(share.shareToken)}
+                    className="mt-2 text-xs font-semibold text-danger transition hover:text-danger/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-danger"
+                  >
+                    Stop sharing
+                  </button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
   );
 }
 

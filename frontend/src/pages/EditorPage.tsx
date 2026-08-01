@@ -17,7 +17,11 @@ import { StatusBar } from "../components/StatusBar";
 import { Splitter } from "../components/Splitter";
 import { useSessionLifecycle } from "../hooks/useSessionLifecycle";
 import { useGlobalShortcuts } from "../hooks/useGlobalShortcuts";
-import { useEditorProjectPersistence } from "../hooks/useEditorProjectPersistence";
+import {
+  resolveEditorProjectConflict,
+  retryEditorProjectSave,
+  useEditorProjectPersistence,
+} from "../hooks/useEditorProjectPersistence";
 import { useAIStore } from "../state/aiStore";
 import { useProjectStore, consumePendingEditorStdin, starterStdin } from "../state/projectStore";
 import { useRunStore } from "../state/runStore";
@@ -94,6 +98,9 @@ export default function EditorPage() {
   const [filesCollapsed, setFilesCollapsed] = useLocalStorageFlag(LS_FILES, false);
   const [showSettings, setShowSettings] = useState(false);
   const [showCoach, setShowCoach] = useState(false);
+  const [resolvingConflict, setResolvingConflict] = useState(false);
+  const editorSaveConflict = useProjectStore((s) => s.editorSaveConflict);
+  const editorSaveError = useProjectStore((s) => s.editorSaveError);
 
   // A20: below 1024 px three columns are too tight. Auto-collapse the files
   // rail once per mount so new arrivals on tablet see a usable two-column
@@ -172,6 +179,60 @@ export default function EditorPage() {
       <SessionErrorBanner />
       <SessionRestartBanner />
       <SessionReplacedModal />
+      {editorSaveConflict && (
+        <div
+          role="alert"
+          className="flex flex-col gap-2 border-b border-warn/40 bg-warn/10 px-4 py-3 text-sm text-ink sm:flex-row sm:items-center"
+        >
+          <div className="min-w-0 flex-1">
+            <div className="font-semibold">This project changed somewhere else.</div>
+            <div className="mt-0.5 text-xs text-muted">
+              Both versions are safe until you decide which one should be saved.
+              {editorSaveError ? ` ${editorSaveError}` : ""}
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={resolvingConflict}
+              onClick={() => void resolveEditorProjectConflict("remote")}
+              className="min-h-11 rounded-lg border border-border bg-panel px-3 py-2 text-xs font-semibold text-muted transition hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-60"
+            >
+              Use newer saved version
+            </button>
+            <button
+              type="button"
+              disabled={resolvingConflict}
+              onClick={() => {
+                setResolvingConflict(true);
+                void resolveEditorProjectConflict("local").finally(() =>
+                  setResolvingConflict(false),
+                );
+              }}
+              className="min-h-11 rounded-lg bg-warn/20 px-3 py-2 text-xs font-semibold text-warn ring-1 ring-warn/40 transition hover:bg-warn/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn disabled:opacity-60"
+            >
+              {resolvingConflict ? "Saving…" : "Keep this version"}
+            </button>
+          </div>
+        </div>
+      )}
+      {editorSaveError && !editorSaveConflict && (
+        <div
+          role="alert"
+          className="flex min-h-11 flex-wrap items-center gap-3 border-b border-warn/40 bg-warn/10 px-4 py-2 text-sm"
+        >
+          <span className="min-w-0 flex-1 text-ink">
+            {editorSaveError} We'll retry automatically when you're back online.
+          </span>
+          <button
+            type="button"
+            onClick={retryEditorProjectSave}
+            className="min-h-11 rounded-lg border border-warn/40 px-3 py-2 font-semibold text-warn transition hover:bg-warn/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn"
+          >
+            Retry sync
+          </button>
+        </div>
+      )}
 
       <main id="main-content" className="flex min-h-0 flex-1 overflow-hidden">
         {/* Files panel — collapsible. Cinema Kit Continuity Pass:

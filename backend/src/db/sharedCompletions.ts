@@ -33,6 +33,9 @@ export interface SharedCompletion {
   ogStoryImagePath: string | null;
   viewCount: number;
   createdAt: string;
+  updatedAt: string;
+  revision: number;
+  rotatedAt: string | null;
   revokedAt: string | null;
 }
 
@@ -56,6 +59,9 @@ const SharedRowSchema = z.object({
   og_story_image_path: z.string().nullable(),
   view_count: z.union([z.number(), z.string()]),
   created_at: z.date(),
+  updated_at: z.date(),
+  revision: z.union([z.number(), z.string()]),
+  rotated_at: z.date().nullable(),
   revoked_at: z.date().nullable(),
 });
 
@@ -88,6 +94,9 @@ function rowToShared(raw: unknown): SharedCompletion {
     ogStoryImagePath: r.og_story_image_path,
     viewCount: Number(r.view_count),
     createdAt: r.created_at.toISOString(),
+    updatedAt: r.updated_at.toISOString(),
+    revision: Number(r.revision),
+    rotatedAt: r.rotated_at?.toISOString() ?? null,
     revokedAt: r.revoked_at?.toISOString() ?? null,
   };
 }
@@ -176,7 +185,7 @@ export async function insertSharedCompletion(
                   mastery, time_spent_ms, attempt_count,
                   code_snippet, display_name, og_image_path,
                   og_story_image_path, view_count,
-                  created_at, revoked_at
+                  created_at, updated_at, revision, rotated_at, revoked_at
       `;
       return rowToShared(rows[0]);
     } catch (err) {
@@ -187,6 +196,14 @@ export async function insertSharedCompletion(
         "code" in err &&
         (err as { code: string }).code === "23505"
       ) {
+        if (userId) {
+          const existing = await findOwnerShareForLesson(
+            userId,
+            input.courseId,
+            input.lessonId,
+          );
+          if (existing) return existing;
+        }
         continue;
       }
       throw err;
@@ -235,7 +252,7 @@ export async function getSharedByToken(
            mastery, time_spent_ms, attempt_count,
            code_snippet, display_name, og_image_path,
            og_story_image_path, view_count,
-           created_at, revoked_at
+           created_at, updated_at, revision, rotated_at, revoked_at
       FROM public.shared_lesson_completions
      WHERE share_token = ${shareToken}
        AND revoked_at IS NULL
@@ -264,7 +281,7 @@ export async function findOwnerShareForLesson(
            mastery, time_spent_ms, attempt_count,
            code_snippet, display_name, og_image_path,
            og_story_image_path, view_count,
-           created_at, revoked_at
+           created_at, updated_at, revision, rotated_at, revoked_at
       FROM public.shared_lesson_completions
      WHERE user_id = ${userId}
        AND course_id = ${courseId}
@@ -275,6 +292,103 @@ export async function findOwnerShareForLesson(
   `;
   if (rows.length === 0) return null;
   return rowToShared(rows[0]);
+}
+
+export async function listOwnerShares(userId: string): Promise<SharedCompletion[]> {
+  const sql = db();
+  const rows = await sql`
+    SELECT id, share_token, user_id, ip_hash, course_id, lesson_id,
+           lesson_title, lesson_order, course_title, course_total_lessons,
+           mastery, time_spent_ms, attempt_count,
+           code_snippet, display_name, og_image_path,
+           og_story_image_path, view_count,
+           created_at, updated_at, revision, rotated_at, revoked_at
+      FROM public.shared_lesson_completions
+     WHERE user_id = ${userId}
+       AND revoked_at IS NULL
+     ORDER BY updated_at DESC, created_at DESC
+  `;
+  return rows.map(rowToShared);
+}
+
+export interface UpdateOwnerShareInput {
+  displayName: string | null;
+  codeSnippet: string;
+  mastery: SharedCompletion["mastery"];
+  timeSpentMs: number;
+  attemptCount: number;
+}
+
+export async function updateShareByOwner(
+  userId: string,
+  shareToken: string,
+  input: UpdateOwnerShareInput,
+): Promise<SharedCompletion | null> {
+  const sql = db();
+  const rows = await sql`
+    UPDATE public.shared_lesson_completions
+       SET display_name = ${input.displayName},
+           code_snippet = ${input.codeSnippet},
+           mastery = ${input.mastery},
+           time_spent_ms = ${input.timeSpentMs},
+           attempt_count = ${input.attemptCount},
+           og_image_path = NULL,
+           og_story_image_path = NULL,
+           updated_at = now(),
+           revision = revision + 1
+     WHERE share_token = ${shareToken}
+       AND user_id = ${userId}
+       AND revoked_at IS NULL
+     RETURNING id, share_token, user_id, ip_hash, course_id, lesson_id,
+               lesson_title, lesson_order, course_title, course_total_lessons,
+               mastery, time_spent_ms, attempt_count,
+               code_snippet, display_name, og_image_path,
+               og_story_image_path, view_count,
+               created_at, updated_at, revision, rotated_at, revoked_at
+  `;
+  return rows.length > 0 ? rowToShared(rows[0]) : null;
+}
+
+export async function rotateShareTokenByOwner(
+  userId: string,
+  shareToken: string,
+): Promise<SharedCompletion | null> {
+  const sql = db();
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const nextToken = generateShareToken();
+    try {
+      const rows = await sql`
+        UPDATE public.shared_lesson_completions
+           SET share_token = ${nextToken},
+               og_image_path = NULL,
+               og_story_image_path = NULL,
+               rotated_at = now(),
+               updated_at = now(),
+               revision = revision + 1
+         WHERE share_token = ${shareToken}
+           AND user_id = ${userId}
+           AND revoked_at IS NULL
+         RETURNING id, share_token, user_id, ip_hash, course_id, lesson_id,
+                   lesson_title, lesson_order, course_title, course_total_lessons,
+                   mastery, time_spent_ms, attempt_count,
+                   code_snippet, display_name, og_image_path,
+                   og_story_image_path, view_count,
+                   created_at, updated_at, revision, rotated_at, revoked_at
+      `;
+      return rows.length > 0 ? rowToShared(rows[0]) : null;
+    } catch (err) {
+      if (
+        err &&
+        typeof err === "object" &&
+        "code" in err &&
+        (err as { code: string }).code === "23505"
+      ) {
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new HttpError(500, "share token rotation collision retry limit exhausted");
 }
 
 /**
@@ -310,7 +424,9 @@ export async function revokeShareByOwner(
   const sql = db();
   const rows = await sql`
     UPDATE public.shared_lesson_completions
-       SET revoked_at = now()
+       SET revoked_at = now(),
+           updated_at = now(),
+           revision = revision + 1
      WHERE share_token = ${shareToken}
        AND user_id = ${userId}
        AND revoked_at IS NULL

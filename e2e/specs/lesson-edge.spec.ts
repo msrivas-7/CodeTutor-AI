@@ -24,9 +24,9 @@ test.describe("lesson edge cases", () => {
 
   test("input-output lesson: stdin tab text feeds input() at runtime", async ({ page }) => {
     await loadProfile(page, "empty");
-    // useLessonLoader now bounces direct URLs that skip prereqs; input-output
-    // depends on `variables`. Seed the direct prereq so the guard lets us in.
-    await seedCompletedLessons(page, COURSE_ID, ["variables"]);
+    // Seed the complete trusted prerequisite prefix; the server deliberately
+    // refuses sparse client-side unlock lists.
+    await seedCompletedLessons(page, COURSE_ID, ["hello-world", "variables"]);
     await page.goto(`/learn/course/${COURSE_ID}/lesson/input-output`);
     await waitForMonacoReady(page);
     await expect(S.lessonRunButton(page)).toBeEnabled({ timeout: 30_000 });
@@ -63,6 +63,18 @@ test.describe("lesson edge cases", () => {
     });
     await expect(lockedVariables).toBeVisible({ timeout: 10_000 });
     await expect(lockedVariables).toBeDisabled();
+  });
+
+  test("anonymous try lesson ignores completed progress from the signed-in account", async ({
+    page,
+  }) => {
+    await loadProfile(page, "all-complete");
+    await page.goto(`/try/lesson/${COURSE_ID}/hello-world`);
+    await waitForMonacoReady(page);
+
+    await expect(page.getByRole("button", { name: /sign up to save/i })).toBeVisible();
+    await expect(page.getByText("In progress", { exact: true })).toBeVisible();
+    await expect(page.getByText("✓ Completed", { exact: true })).toHaveCount(0);
   });
 
   test("locked lesson: direct URL to a prereq-blocked lesson bounces to course page", async ({

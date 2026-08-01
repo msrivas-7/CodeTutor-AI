@@ -28,7 +28,7 @@ test.describe("B4 public distribution surface", () => {
     expect(html).toContain("Write and run the code");
 
     const internal = await request.get(
-      "/lessons/_internal-python-smoke/multi-file-test/",
+      "/lessons/internal-python-smoke/multi-file-test/",
     );
     expect(internal.status()).toBe(404);
 

@@ -344,20 +344,27 @@ async function supabaseAdminUpsertUser(
     );
   }
 
-  // List users + find by email. Supabase caps per_page at 200 which is way
-  // more than the handful of dev-test users we'll ever have.
-  const listRes = await fetch(`${url}/auth/v1/admin/users?per_page=200`, {
-    headers,
-  });
-  if (!listRes.ok) {
-    throw new Error(`listUsers failed: HTTP ${listRes.status}`);
+  // Existing accounts may be beyond the first page once E2E has created
+  // enough ephemeral users. Walk the bounded Admin API result set instead
+  // of assuming the five named fixtures are among the first 200 records.
+  const perPage = 200;
+  let found: AdminUser | undefined;
+  for (let page = 1; page <= 100 && !found; page += 1) {
+    const listRes = await fetch(
+      `${url}/auth/v1/admin/users?page=${page}&per_page=${perPage}`,
+      { headers },
+    );
+    if (!listRes.ok) {
+      throw new Error(`listUsers(page=${page}) failed: HTTP ${listRes.status}`);
+    }
+    const { users } = (await listRes.json()) as { users: AdminUser[] };
+    found = users.find((u) => u.email === email);
+    if (users.length < perPage) break;
   }
-  const { users } = (await listRes.json()) as { users: AdminUser[] };
-  const found = users.find((u) => u.email === email);
   if (!found) {
     throw new Error(
       `Admin API said ${email} exists, but listUsers couldn't find it. ` +
-        `Check the project's emailed rate limits / 'auth.users' visibility.`,
+        `Check the project's emailed rate limits or Admin API visibility.`,
     );
   }
 

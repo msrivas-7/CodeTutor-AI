@@ -62,6 +62,9 @@ describe("DB row parsers", () => {
       hint_count: 1,
       time_spent_ms: "12345",
       last_code: { "main.py": "print('hi')" },
+      draft_revision: "4",
+      draft_writer_id: "00000000-0000-4000-8000-000000000001",
+      draft_updated_at: new Date(),
       last_output: "hi\n",
       practice_completed_ids: ["ex-1"],
       practice_exercise_code: { "ex-1": { "main.py": "print('hi')" } },
@@ -133,6 +136,8 @@ describe("DB row parsers", () => {
       open_tabs: ["main.py"],
       file_order: ["main.py"],
       stdin: "",
+      revision: "2",
+      writer_id: "00000000-0000-4000-8000-000000000001",
       updated_at: new Date(),
     };
 

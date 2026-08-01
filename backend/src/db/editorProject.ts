@@ -1,6 +1,6 @@
 import type { JSONValue } from "postgres";
 import { z } from "zod";
-import { withRlsContext } from "./client.js";
+import { db, withRlsContext } from "./client.js";
 import { HttpError } from "../middleware/errorHandler.js";
 
 export interface EditorProject {
@@ -10,6 +10,8 @@ export interface EditorProject {
   openTabs: string[];
   fileOrder: string[];
   stdin: string;
+  revision: number;
+  writerId: string | null;
   updatedAt: string;
 }
 
@@ -20,6 +22,8 @@ const DEFAULT_PROJECT: EditorProject = {
   openTabs: [],
   fileOrder: [],
   stdin: "",
+  revision: 0,
+  writerId: null,
   updatedAt: new Date(0).toISOString(),
 };
 
@@ -31,6 +35,8 @@ export const ProjectRowSchema = z.object({
   open_tabs: z.array(z.string()).nullable(),
   file_order: z.array(z.string()).nullable(),
   stdin: z.string().nullable(),
+  revision: z.union([z.number(), z.string()]),
+  writer_id: z.string().uuid().nullable(),
   updated_at: z.date(),
 });
 
@@ -50,6 +56,8 @@ function rowToProject(raw: unknown): EditorProject {
     openTabs: r.open_tabs ?? [],
     fileOrder: r.file_order ?? [],
     stdin: r.stdin ?? "",
+    revision: Number(r.revision),
+    writerId: r.writer_id,
     updatedAt: r.updated_at.toISOString(),
   };
 }
@@ -58,7 +66,8 @@ export async function getEditorProject(userId: string): Promise<EditorProject> {
   // Phase 26: RLS-scoped read.
   const rows = await withRlsContext(userId, async (tx) => {
     return await tx`
-      SELECT language, files, active_file, open_tabs, file_order, stdin, updated_at
+      SELECT language, files, active_file, open_tabs, file_order, stdin,
+             revision, writer_id, updated_at
         FROM public.editor_project
        WHERE user_id = ${userId}
     `;
@@ -74,19 +83,25 @@ export interface EditorProjectInput {
   openTabs: string[];
   fileOrder: string[];
   stdin: string;
+  expectedRevision: number;
+  writerId: string;
 }
+
+export type EditorProjectSaveResult =
+  | { ok: true; project: EditorProject }
+  | { ok: false; current: EditorProject };
 
 export async function saveEditorProject(
   userId: string,
   project: EditorProjectInput,
-): Promise<EditorProject> {
-  // Phase 26: RLS-scoped UPSERT. WITH CHECK on the policy enforces that
-  // the row's user_id must equal auth.uid() — defense against a route-
-  // handler bug threading the wrong userId.
-  const rows = await withRlsContext(userId, async (tx) => {
-    return await tx`
+): Promise<EditorProjectSaveResult> {
+  // Server-authoritative CAS transaction. Browser roles are read-only; every
+  // write and fallback read carries the explicit owning user id.
+  return await db().begin(async (tx) => {
+    const rows = await tx`
       INSERT INTO public.editor_project (
-        user_id, language, files, active_file, open_tabs, file_order, stdin
+        user_id, language, files, active_file, open_tabs, file_order, stdin,
+        revision, writer_id
       )
       VALUES (
         ${userId},
@@ -95,7 +110,9 @@ export async function saveEditorProject(
         ${project.activeFile},
         ${project.openTabs},
         ${project.fileOrder},
-        ${project.stdin}
+        ${project.stdin},
+        1,
+        ${project.writerId}
       )
       ON CONFLICT (user_id) DO UPDATE SET
         language    = EXCLUDED.language,
@@ -104,9 +121,27 @@ export async function saveEditorProject(
         open_tabs   = EXCLUDED.open_tabs,
         file_order  = EXCLUDED.file_order,
         stdin       = EXCLUDED.stdin,
+        revision    = public.editor_project.revision + 1,
+        writer_id   = EXCLUDED.writer_id,
         updated_at  = now()
-      RETURNING language, files, active_file, open_tabs, file_order, stdin, updated_at
+      WHERE public.editor_project.revision = ${project.expectedRevision}
+      RETURNING language, files, active_file, open_tabs, file_order, stdin,
+                revision, writer_id, updated_at
     `;
+    if (rows.length > 0) {
+      return { ok: true as const, project: rowToProject(rows[0]) };
+    }
+    const currentRows = await tx`
+      SELECT language, files, active_file, open_tabs, file_order, stdin,
+             revision, writer_id, updated_at
+        FROM public.editor_project
+       WHERE user_id = ${userId}
+    `;
+    return {
+      ok: false as const,
+      current: currentRows.length > 0
+        ? rowToProject(currentRows[0])
+        : { ...DEFAULT_PROJECT },
+    };
   });
-  return rowToProject(rows[0]);
 }

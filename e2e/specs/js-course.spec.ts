@@ -66,10 +66,13 @@ test.describe("javascript-fundamentals course", () => {
 
   test("lesson 5 (functions-basics) — function_tests harness end-to-end", async ({ page }) => {
     await loadProfile(page, "empty");
-    // useLessonLoader now gates direct URLs on prereq completion. The spec
-    // deep-links into lesson 5; seed its direct prereq (`loops`) so the
-    // guard lets us through without cascading through lessons 1–4.
-    await seedCompletedLessons(page, COURSE_ID, ["loops"]);
+    // Seed the full trusted prerequisite prefix for the deep-linked lesson.
+    await seedCompletedLessons(page, COURSE_ID, [
+      "hello-print",
+      "variables-and-strings",
+      "conditionals",
+      "loops",
+    ]);
     await page.goto(`/learn/course/${COURSE_ID}/lesson/functions-basics`);
     await waitForMonacoReady(page);
     await expect(S.lessonRunButton(page)).toBeEnabled({ timeout: 30_000 });
@@ -100,7 +103,15 @@ test.describe("javascript-fundamentals course", () => {
 
   test("lesson 8 (mini-project) — mixed rules all complete on golden code", async ({ page }) => {
     await loadProfile(page, "empty");
-    await seedCompletedLessons(page, COURSE_ID, ["objects-basics"]);
+    await seedCompletedLessons(page, COURSE_ID, [
+      "hello-print",
+      "variables-and-strings",
+      "conditionals",
+      "loops",
+      "functions-basics",
+      "arrays-basics",
+      "objects-basics",
+    ]);
     await page.goto(`/learn/course/${COURSE_ID}/lesson/mini-project`);
     await waitForMonacoReady(page);
     await expect(S.lessonRunButton(page)).toBeEnabled({ timeout: 30_000 });
@@ -129,10 +140,13 @@ test.describe("javascript-fundamentals course", () => {
     // Phase 22F2: Reset Code is a top-level toolbar button now (not in
     // the ⋯ menu). Reset Lesson stays in the menu.
     await S.resetCodeButton(page).click();
+    const confirm = page.getByRole("alertdialog", { name: /reset this code/i });
+    await expect(confirm).toBeVisible();
+    await confirm.getByRole("button", { name: /^reset code$/i }).click();
 
-    // Reset Code has no confirm dialog — Monaco reverts immediately to the
-    // starter. Compare after trimming trailing whitespace: the starter file
-    // has a trailing newline that the reset path drops.
+    // Monaco reverts after the explicit destructive-action confirmation.
+    // Compare after trimming trailing whitespace: the starter file has a
+    // trailing newline that the reset path drops.
     await expect
       .poll(async () => (await getMonacoValue(page)).trimEnd(), {
         timeout: 10_000,
@@ -142,7 +156,13 @@ test.describe("javascript-fundamentals course", () => {
 
   test("arrays-basics practice exercise runs against the JS harness", async ({ page }) => {
     await loadProfile(page, "empty");
-    await seedCompletedLessons(page, COURSE_ID, ["functions-basics"]);
+    await seedCompletedLessons(page, COURSE_ID, [
+      "hello-print",
+      "variables-and-strings",
+      "conditionals",
+      "loops",
+      "functions-basics",
+    ]);
     await page.goto(`/learn/course/${COURSE_ID}/lesson/arrays-basics`);
     await waitForMonacoReady(page);
     await expect(S.lessonRunButton(page)).toBeEnabled({ timeout: 30_000 });

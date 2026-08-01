@@ -38,6 +38,7 @@
 // shape mismatch.
 
 const STORAGE_KEY = "codetutor.anonRun";
+const WORKSPACE_KEY = "codetutor.anonWorkspace";
 const SCHEMA_VERSION = 1;
 
 // Phase 27-v2 Day 2: separate one-shot flag tracking whether the
@@ -89,6 +90,81 @@ export interface AnonStashV1 {
     welcomeDone: boolean;
     workspaceCoachDone: boolean;
   };
+}
+
+export interface AnonWorkspaceV1 {
+  v: 1;
+  courseId: "python-fundamentals";
+  lessonId: "hello-world";
+  files: Record<string, string>;
+  stdin: string;
+  result: import("../../types").RunResult | null;
+  runError: string | null;
+  completed: boolean;
+  updatedAt: string;
+}
+
+export function writeAnonWorkspace(
+  workspace: Omit<AnonWorkspaceV1, "v" | "updatedAt">,
+): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(
+      WORKSPACE_KEY,
+      JSON.stringify({
+        v: SCHEMA_VERSION,
+        ...workspace,
+        updatedAt: new Date().toISOString(),
+      } satisfies AnonWorkspaceV1),
+    );
+  } catch {
+    // The live workspace remains authoritative when storage is unavailable.
+  }
+}
+
+export function readAnonWorkspace(): AnonWorkspaceV1 | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(WORKSPACE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<AnonWorkspaceV1>;
+    if (
+      parsed.v !== SCHEMA_VERSION ||
+      parsed.courseId !== "python-fundamentals" ||
+      parsed.lessonId !== "hello-world" ||
+      !parsed.files ||
+      typeof parsed.files !== "object" ||
+      Object.values(parsed.files).some((value) => typeof value !== "string") ||
+      typeof parsed.stdin !== "string" ||
+      (parsed.runError !== null && typeof parsed.runError !== "string") ||
+      (parsed.result !== null &&
+        (typeof parsed.result !== "object" ||
+          typeof parsed.result.stdout !== "string" ||
+          typeof parsed.result.stderr !== "string" ||
+          typeof parsed.result.exitCode !== "number" ||
+          typeof parsed.result.durationMs !== "number" ||
+          !["none", "compile", "runtime", "timeout", "system"].includes(
+            String(parsed.result.errorType),
+          ) ||
+          !["compile", "run", "setup"].includes(String(parsed.result.stage)))) ||
+      typeof parsed.completed !== "boolean" ||
+      typeof parsed.updatedAt !== "string"
+    ) {
+      return null;
+    }
+    return parsed as AnonWorkspaceV1;
+  } catch {
+    return null;
+  }
+}
+
+export function clearAnonWorkspace(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.removeItem(WORKSPACE_KEY);
+  } catch {
+    // Fail-soft, matching the one-shot handoff stash.
+  }
 }
 
 /**

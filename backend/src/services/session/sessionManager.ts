@@ -291,6 +291,33 @@ export function getSession(id: string): SessionRecord | undefined {
 }
 
 /**
+ * Recover the caller's most recently active live runner without provisioning
+ * another container. Used when several tabs/devices have consumed the normal
+ * per-account slots. Dead candidates are removed while scanning so the next
+ * ordinary create can also succeed.
+ */
+export async function resumeMostRecentSession(
+  userId: string,
+): Promise<SessionRecord | null> {
+  const b = requireBackend();
+  const candidates = [...sessions.values()]
+    .filter((session) => session.userId === userId)
+    .sort((a, z) => z.lastSeen - a.lastSeen);
+  for (const session of candidates) {
+    const alive = session.handle
+      ? await b.isAlive(session.handle).catch(() => false)
+      : false;
+    if (alive) {
+      session.lastSeen = Date.now();
+      return session;
+    }
+    sessions.delete(session.id);
+    if (session.handle) await b.destroy(session.handle).catch(() => {});
+  }
+  return null;
+}
+
+/**
  * Canonical ownership check. Returns 404 for both unknown-session and
  * owner-mismatch to avoid an enumeration oracle (a 403 would let an
  * attacker bisect the ID space by distinguishing "exists, not mine" from

@@ -164,6 +164,9 @@ export interface LessonProgress {
   runCount: number;
   hintCount: number;
   lastCode: Record<string, string> | null;
+  draftRevision?: number;
+  draftWriterId?: string | null;
+  draftUpdatedAt?: string | null;
   lastOutput: string | null;
   practiceCompletedIds?: string[];
   // Keyed by exerciseId → file-path → content. Distinct from `lastCode`

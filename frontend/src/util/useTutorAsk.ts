@@ -99,7 +99,16 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
   // P-C1: shallow-compared reactive slice + stable action refs. A no-arg
   // `useAIStore()` re-runs this hook's body on every noteEdit/noteRun tick,
   // which fires during the stream loop (each delta triggers updateStream).
-  const { selectedModel, history, asking, lastTurnFiles, activeSelection, chatContext, tutorProgressToken } =
+  const {
+    selectedModel,
+    history,
+    asking,
+    lastTurnFiles,
+    activeSelection,
+    chatContext,
+    tutorProgressToken,
+    conversationRevision,
+  } =
     useAIStore(
       useShallow((s) => ({
         selectedModel: s.selectedModel,
@@ -109,6 +118,7 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
         activeSelection: s.activeSelection,
         chatContext: s.chatContext,
         tutorProgressToken: s.tutorProgressToken,
+        conversationRevision: s.conversationRevision,
       })),
     );
   const pushUser = useAIStore((s) => s.pushUser);
@@ -137,7 +147,7 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
   // authoritative protection in case the transport races the abort.
   useEffect(() => {
     abortRef.current?.abort();
-  }, [projectRevision, projectContext, chatContext, inputRevision]);
+  }, [projectRevision, projectContext, chatContext, inputRevision, conversationRevision]);
 
   // Platform (free-tier) users have no BYOK key and no selectedModel — the
   // backend picks `gpt-4.1-nano` for them. Mirror the panel-level gate here
@@ -156,6 +166,7 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
     const operation = beginProjectOperation();
     const inputRevisionForTurn = inputRevision;
     const conversationForTurn = chatContext;
+    const conversationRevisionForTurn = conversationRevision;
     const selectionForTurn =
       activeSelection && isProjectVersionCurrent(activeSelection.project)
         ? activeSelection.selection
@@ -172,6 +183,7 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
     const operationIsCurrent = (): boolean =>
       abortRef.current === controller &&
       useAIStore.getState().chatContext === conversationForTurn &&
+      useAIStore.getState().conversationRevision === conversationRevisionForTurn &&
       useRunStore.getState().inputRevision === inputRevisionForTurn &&
       isProjectOperationCurrent(operation);
     const notifyCompletion = (ok: boolean): void => {

@@ -9,24 +9,39 @@
 
 import type { Lesson, TestReport } from "../types";
 
+export function lessonWorkspaceContextKey(
+  mode: "anon" | "authed",
+  courseId: string | undefined,
+  lessonId: string | undefined,
+): string | null {
+  if (!courseId || !lessonId) return null;
+  return `${mode === "anon" ? "anon-lesson" : "lesson"}:${courseId}/${lessonId}`;
+}
+
+export function shouldPersistLessonDraft(
+  learnerId: string | null,
+  projectContext: string | null,
+  expectedContext: string,
+): boolean {
+  return learnerId !== null && projectContext === expectedContext;
+}
+
 export interface PrereqGateInput {
   lessonPrerequisiteIds: readonly string[];
   completedLessonIds: readonly string[];
   existingStatus: "not_started" | "in_progress" | "completed";
 }
 
-// Mirrors the loader's prereq guard. Direct URL to a locked lesson must not
-// unlock it: bounce only when prereqs unmet AND no prior progress. If the
-// learner has already started the lesson (some prior admin op, a lesson that
-// was unlocked and then re-locked by a course update, etc.), leave them
-// alone — reshuffling mid-stream would lose their work.
+// Mirrors the server's prerequisite guard. Existing progress is data, not an
+// authorization credential: a stale/ghost row must never unlock a lesson.
+// Progress remains stored server-side while the learner is bounced, so meeting
+// the prerequisites later restores the draft without losing their work.
 export function shouldBouncePrereq(input: PrereqGateInput): boolean {
   if (input.lessonPrerequisiteIds.length === 0) return false;
   const met = input.lessonPrerequisiteIds.every((id) =>
     input.completedLessonIds.includes(id),
   );
-  if (met) return false;
-  return input.existingStatus === "not_started";
+  return !met;
 }
 
 export interface AutoPracticeInput {

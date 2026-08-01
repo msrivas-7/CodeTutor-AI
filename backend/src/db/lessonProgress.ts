@@ -3,7 +3,11 @@ import { z } from "zod";
 import { db, withRlsContext } from "./client.js";
 import { HttpError } from "../middleware/errorHandler.js";
 import { writeConceptTags } from "./conceptLedger.js";
-import { getLessonConceptTags } from "../services/share/lessonCatalog.js";
+import {
+  getCourseStructure,
+  getLessonAccessRequirements,
+  getLessonConceptTags,
+} from "../services/share/lessonCatalog.js";
 
 export interface LessonProgress {
   courseId: string;
@@ -17,6 +21,9 @@ export interface LessonProgress {
   hintCount: number;
   timeSpentMs: number;
   lastCode: Record<string, unknown> | null;
+  draftRevision: number;
+  draftWriterId: string | null;
+  draftUpdatedAt: string | null;
   lastOutput: string | null;
   practiceCompletedIds: string[];
   // Per-exercise WIP code snapshots. Keyed by exerciseId → file-path map.
@@ -40,6 +47,9 @@ export const LessonRowSchema = z.object({
   hint_count: z.union([z.number(), z.string()]),
   time_spent_ms: z.union([z.number(), z.string()]),
   last_code: z.record(z.string(), z.unknown()).nullable(),
+  draft_revision: z.union([z.number(), z.string()]),
+  draft_writer_id: z.string().uuid().nullable(),
+  draft_updated_at: z.date().nullable(),
   last_output: z.string().nullable(),
   practice_completed_ids: z.array(z.string()).nullable(),
   practice_exercise_code: z.record(z.string(), z.record(z.string(), z.string())).nullable(),
@@ -66,10 +76,75 @@ function rowToLesson(raw: unknown): LessonProgress {
     hintCount: Number(r.hint_count),
     timeSpentMs: Number(r.time_spent_ms),
     lastCode: r.last_code,
+    draftRevision: Number(r.draft_revision),
+    draftWriterId: r.draft_writer_id,
+    draftUpdatedAt: r.draft_updated_at?.toISOString() ?? null,
     lastOutput: r.last_output,
     practiceCompletedIds: r.practice_completed_ids ?? [],
     practiceExerciseCode: r.practice_exercise_code ?? {},
   };
+}
+
+/**
+ * Enforce authored prerequisites at the server boundary before any browser-
+ * initiated heartbeat, draft, run counter, practice, or completion write.
+ * Existing in-progress rows are intentionally irrelevant: old ghost rows
+ * must never become an access credential.
+ */
+export async function assertLessonAccess(
+  userId: string,
+  courseId: string,
+  lessonId: string,
+): Promise<void> {
+  const requirements = await getLessonAccessRequirements(courseId, lessonId);
+  if (!requirements) throw new HttpError(404, "lesson not found");
+  const sql = db();
+  if (requirements.prerequisiteLessonIds.length > 0) {
+    const rows = await sql<Array<{ lesson_id: string }>>`
+      SELECT lesson_id
+        FROM public.lesson_progress
+       WHERE user_id = ${userId}
+         AND course_id = ${courseId}
+         AND lesson_id = ANY(${requirements.prerequisiteLessonIds}::text[])
+         AND status = 'completed'
+    `;
+    const completed = new Set(rows.map((row) => row.lesson_id));
+    if (requirements.prerequisiteLessonIds.some((id) => !completed.has(id))) {
+      throw new HttpError(403, "LESSON_LOCKED");
+    }
+  }
+  if (requirements.prerequisiteCourseIds.length > 0) {
+    const structures = await Promise.all(
+      requirements.prerequisiteCourseIds.map((id) => getCourseStructure(id)),
+    );
+    if (structures.some((structure) => !structure)) {
+      throw new HttpError(403, "COURSE_LOCKED");
+    }
+    const rows = await sql<Array<{ course_id: string; lesson_id: string }>>`
+      SELECT course_id, lesson_id
+        FROM public.lesson_progress
+       WHERE user_id = ${userId}
+         AND course_id = ANY(${requirements.prerequisiteCourseIds}::text[])
+         AND status = 'completed'
+    `;
+    const completedByCourse = new Map<string, Set<string>>();
+    for (const row of rows) {
+      const completed = completedByCourse.get(row.course_id) ?? new Set<string>();
+      completed.add(row.lesson_id);
+      completedByCourse.set(row.course_id, completed);
+    }
+    const allCoursesComplete = requirements.prerequisiteCourseIds.every(
+      (courseId, index) => {
+        const structure = structures[index];
+        if (!structure || structure.lessonOrder.length === 0) return false;
+        const completed = completedByCourse.get(courseId) ?? new Set<string>();
+        return structure.lessonOrder.every((lesson) => completed.has(lesson));
+      },
+    );
+    if (!allCoursesComplete) {
+      throw new HttpError(403, "COURSE_LOCKED");
+    }
+  }
 }
 
 export async function listLessonProgress(
@@ -82,7 +157,8 @@ export async function listLessonProgress(
       ? await tx`
           SELECT course_id, lesson_id, status, started_at, completed_at,
                  updated_at, attempt_count, run_count, hint_count,
-                 time_spent_ms, last_code, last_output, practice_completed_ids,
+                 time_spent_ms, last_code, draft_revision, draft_writer_id,
+                 draft_updated_at, last_output, practice_completed_ids,
                  practice_exercise_code
             FROM public.lesson_progress
            WHERE user_id = ${userId} AND course_id = ${courseId}
@@ -90,7 +166,8 @@ export async function listLessonProgress(
       : await tx`
           SELECT course_id, lesson_id, status, started_at, completed_at,
                  updated_at, attempt_count, run_count, hint_count,
-                 time_spent_ms, last_code, last_output, practice_completed_ids,
+                 time_spent_ms, last_code, draft_revision, draft_writer_id,
+                 draft_updated_at, last_output, practice_completed_ids,
                  practice_exercise_code
             FROM public.lesson_progress
            WHERE user_id = ${userId}
@@ -141,21 +218,23 @@ export async function upsertLessonProgress(
   lessonId: string,
   patch: LessonPatch,
 ): Promise<LessonProgress> {
-  // Phase 26: RLS-scoped UPSERT.
-  const rows = await withRlsContext(userId, async (tx) => {
+  // Server-authoritative write. The privileged connection is paired with
+  // explicit user/course/lesson keys; browser roles have no mutation grant.
+  const sql = db();
     const lastCodeJson =
       patch.lastCode === undefined
         ? null
-        : tx.json((patch.lastCode ?? null) as JSONValue);
+        : sql.json((patch.lastCode ?? null) as JSONValue);
     const practiceCodeJson =
       patch.practiceExerciseCode === undefined
         ? null
-        : tx.json(patch.practiceExerciseCode as JSONValue);
-    return await tx`
+        : sql.json(patch.practiceExerciseCode as JSONValue);
+    const rows = await sql`
       INSERT INTO public.lesson_progress (
         user_id, course_id, lesson_id, status, started_at, completed_at,
         attempt_count, run_count, hint_count, time_spent_ms,
-        last_code, last_output, practice_completed_ids, practice_exercise_code
+        last_code, draft_revision, draft_writer_id, draft_updated_at,
+        last_output, practice_completed_ids, practice_exercise_code
       )
       VALUES (
         ${userId},
@@ -168,30 +247,47 @@ export async function upsertLessonProgress(
         ${patch.runCount ?? 0},
         ${patch.hintCount ?? 0},
         ${patch.timeSpentMs ?? 0},
-        ${patch.lastCode === undefined ? null : tx.json((patch.lastCode ?? null) as JSONValue)},
+        ${patch.lastCode === undefined ? null : sql.json((patch.lastCode ?? null) as JSONValue)},
+        ${patch.lastCode === undefined ? 0 : 1},
+        ${null},
+        ${patch.lastCode === undefined ? null : new Date().toISOString()},
         ${patch.lastOutput ?? null},
         ${patch.practiceCompletedIds ?? []},
-        ${patch.practiceExerciseCode === undefined ? tx.json({} as JSONValue) : tx.json(patch.practiceExerciseCode as JSONValue)}
+        ${patch.practiceExerciseCode === undefined ? sql.json({} as JSONValue) : sql.json(patch.practiceExerciseCode as JSONValue)}
       )
       ON CONFLICT (user_id, course_id, lesson_id) DO UPDATE SET
-        status                 = COALESCE(${patch.status ?? null}, public.lesson_progress.status),
-        started_at             = CASE WHEN ${patch.startedAt !== undefined} THEN ${patch.startedAt ?? null}::timestamptz ELSE public.lesson_progress.started_at END,
-        completed_at           = CASE WHEN ${patch.completedAt !== undefined} THEN ${patch.completedAt ?? null}::timestamptz ELSE public.lesson_progress.completed_at END,
-        attempt_count          = COALESCE(${patch.attemptCount ?? null}, public.lesson_progress.attempt_count),
-        run_count              = COALESCE(${patch.runCount ?? null}, public.lesson_progress.run_count),
-        hint_count             = COALESCE(${patch.hintCount ?? null}, public.lesson_progress.hint_count),
-        time_spent_ms          = COALESCE(${patch.timeSpentMs ?? null}, public.lesson_progress.time_spent_ms),
+        status                 = CASE
+                                   WHEN public.lesson_progress.status = 'completed' OR ${patch.status ?? null} = 'completed' THEN 'completed'
+                                   WHEN public.lesson_progress.status = 'in_progress' OR ${patch.status ?? null} = 'in_progress' THEN 'in_progress'
+                                   ELSE 'not_started'
+                                 END,
+        started_at             = COALESCE(public.lesson_progress.started_at, ${patch.startedAt ?? null}::timestamptz),
+        completed_at           = COALESCE(public.lesson_progress.completed_at, ${patch.completedAt ?? null}::timestamptz),
+        attempt_count          = GREATEST(public.lesson_progress.attempt_count, COALESCE(${patch.attemptCount ?? null}, 0)),
+        run_count              = GREATEST(public.lesson_progress.run_count, COALESCE(${patch.runCount ?? null}, 0)),
+        hint_count             = GREATEST(public.lesson_progress.hint_count, COALESCE(${patch.hintCount ?? null}, 0)),
+        time_spent_ms          = GREATEST(public.lesson_progress.time_spent_ms, COALESCE(${patch.timeSpentMs ?? null}, 0)),
         last_code              = CASE WHEN ${patch.lastCode !== undefined} THEN ${lastCodeJson} ELSE public.lesson_progress.last_code END,
         last_output            = CASE WHEN ${patch.lastOutput !== undefined} THEN ${patch.lastOutput ?? null} ELSE public.lesson_progress.last_output END,
-        practice_completed_ids = COALESCE(${patch.practiceCompletedIds ?? null}, public.lesson_progress.practice_completed_ids),
-        practice_exercise_code = CASE WHEN ${patch.practiceExerciseCode !== undefined} THEN ${practiceCodeJson} ELSE public.lesson_progress.practice_exercise_code END,
+        practice_completed_ids = CASE WHEN ${patch.practiceCompletedIds !== undefined}
+          THEN ARRAY(
+            SELECT DISTINCT item
+              FROM unnest(public.lesson_progress.practice_completed_ids || ${patch.practiceCompletedIds ?? []}::text[]) AS item
+          )
+          ELSE public.lesson_progress.practice_completed_ids END,
+        practice_exercise_code = CASE WHEN ${patch.practiceExerciseCode !== undefined}
+          THEN public.lesson_progress.practice_exercise_code || ${practiceCodeJson}
+          ELSE public.lesson_progress.practice_exercise_code END,
+        draft_revision         = CASE WHEN ${patch.lastCode !== undefined} THEN public.lesson_progress.draft_revision + 1 ELSE public.lesson_progress.draft_revision END,
+        draft_writer_id        = CASE WHEN ${patch.lastCode !== undefined} THEN NULL ELSE public.lesson_progress.draft_writer_id END,
+        draft_updated_at       = CASE WHEN ${patch.lastCode !== undefined} THEN now() ELSE public.lesson_progress.draft_updated_at END,
         updated_at             = now()
       RETURNING course_id, lesson_id, status, started_at, completed_at,
                 updated_at, attempt_count, run_count, hint_count,
-                time_spent_ms, last_code, last_output, practice_completed_ids,
+                time_spent_ms, last_code, draft_revision, draft_writer_id,
+                draft_updated_at, last_output, practice_completed_ids,
                 practice_exercise_code
     `;
-  });
   const result = rowToLesson(rows[0]);
 
   // Phase A — A6: write concept-tag rows on the completion transition and on
@@ -243,6 +339,83 @@ export async function upsertLessonProgress(
   }
 
   return result;
+}
+
+export interface LessonDraftInput {
+  code: Record<string, string>;
+  expectedRevision: number;
+  writerId: string;
+}
+
+export type LessonDraftSaveResult =
+  | { ok: true; lesson: LessonProgress }
+  | { ok: false; current: LessonProgress };
+
+/**
+ * Compare-and-swap the learner's code draft. Progress and mastery fields are
+ * deliberately outside this write so a stale tab can never clobber newer
+ * completion or practice evidence while attempting to save source code.
+ */
+export async function saveLessonDraft(
+  userId: string,
+  courseId: string,
+  lessonId: string,
+  input: LessonDraftInput,
+): Promise<LessonDraftSaveResult> {
+  return await db().begin(async (tx) => {
+    if (input.expectedRevision > 0) {
+      const existing = await tx<Array<{ draft_revision: number | string }>>`
+        SELECT draft_revision
+          FROM public.lesson_progress
+         WHERE user_id = ${userId}
+           AND course_id = ${courseId}
+           AND lesson_id = ${lessonId}
+      `;
+      if (existing.length === 0) {
+        throw new HttpError(409, "lesson draft was reset while saving");
+      }
+    }
+    const rows = await tx`
+      INSERT INTO public.lesson_progress (
+        user_id, course_id, lesson_id, status, last_code,
+        draft_revision, draft_writer_id, draft_updated_at
+      )
+      VALUES (
+        ${userId}, ${courseId}, ${lessonId}, 'in_progress',
+        ${tx.json(input.code as JSONValue)}, 1, ${input.writerId}, now()
+      )
+      ON CONFLICT (user_id, course_id, lesson_id) DO UPDATE SET
+        last_code       = EXCLUDED.last_code,
+        draft_revision  = public.lesson_progress.draft_revision + 1,
+        draft_writer_id = EXCLUDED.draft_writer_id,
+        draft_updated_at = now(),
+        updated_at      = now()
+      WHERE public.lesson_progress.draft_revision = ${input.expectedRevision}
+      RETURNING course_id, lesson_id, status, started_at, completed_at,
+                updated_at, attempt_count, run_count, hint_count,
+                time_spent_ms, last_code, draft_revision, draft_writer_id,
+                draft_updated_at, last_output, practice_completed_ids,
+                practice_exercise_code
+    `;
+    if (rows.length > 0) {
+      return { ok: true as const, lesson: rowToLesson(rows[0]) };
+    }
+    const currentRows = await tx`
+      SELECT course_id, lesson_id, status, started_at, completed_at,
+             updated_at, attempt_count, run_count, hint_count,
+             time_spent_ms, last_code, draft_revision, draft_writer_id,
+             draft_updated_at, last_output, practice_completed_ids,
+             practice_exercise_code
+        FROM public.lesson_progress
+       WHERE user_id = ${userId}
+         AND course_id = ${courseId}
+         AND lesson_id = ${lessonId}
+    `;
+    if (currentRows.length === 0) {
+      throw new HttpError(409, "lesson draft changed while saving");
+    }
+    return { ok: false as const, current: rowToLesson(currentRows[0]) };
+  });
 }
 
 // Phase A — A6: a separate cache for the practice-exercise write so a
@@ -331,12 +504,10 @@ export async function addLessonTimes(
     });
   }
   if (merged.size === 0) return 0;
-  // Phase 26: RLS-scoped batch UPSERT. The withRlsContext transaction
-  // gives us atomic semantics across all bumps (partial failure rolls
-  // back everything) AND RLS WITH CHECK enforces user_id binding on
-  // every insert.
+  // Server-owned transaction: all bumps commit atomically and every query
+  // carries the explicit user key. Browser roles cannot write this table.
   let written = 0;
-  await withRlsContext(userId, async (tx) => {
+  await db().begin(async (tx) => {
     for (const it of merged.values()) {
       await tx`
         INSERT INTO public.lesson_progress (
@@ -388,21 +559,114 @@ export async function deleteLessonProgress(
   courseId: string,
   lessonId?: string,
 ): Promise<number> {
-  // Phase 26: RLS-scoped DELETE.
-  const rows = await withRlsContext(userId, async (tx) => {
-    return lessonId
-      ? await tx`
+  const sql = db();
+  const rows = lessonId
+      ? await sql`
           DELETE FROM public.lesson_progress
            WHERE user_id = ${userId}
              AND course_id = ${courseId}
              AND lesson_id = ${lessonId}
            RETURNING lesson_id
         `
-      : await tx`
+      : await sql`
           DELETE FROM public.lesson_progress
            WHERE user_id = ${userId} AND course_id = ${courseId}
            RETURNING lesson_id
         `;
-  });
   return rows.length;
+}
+
+/**
+ * Reset one lesson without deleting its concurrency lineage. Incrementing the
+ * draft revision is the tombstone: a stale tab holding the pre-reset revision
+ * receives a 409 instead of recreating the erased draft after the reset.
+ */
+export async function resetLessonProgress(
+  userId: string,
+  courseId: string,
+  lessonId: string,
+): Promise<LessonProgress> {
+  const sql = db();
+    const rows = await sql`
+      UPDATE public.lesson_progress
+         SET status = 'not_started',
+             started_at = NULL,
+             completed_at = NULL,
+             attempt_count = 0,
+             run_count = 0,
+             hint_count = 0,
+             time_spent_ms = 0,
+             last_code = NULL,
+             last_output = NULL,
+             practice_completed_ids = '{}'::text[],
+             practice_exercise_code = '{}'::jsonb,
+             draft_revision = draft_revision + 1,
+             draft_writer_id = NULL,
+             draft_updated_at = now(),
+             updated_at = now()
+       WHERE user_id = ${userId}
+         AND course_id = ${courseId}
+         AND lesson_id = ${lessonId}
+       RETURNING course_id, lesson_id, status, started_at, completed_at,
+                 updated_at, attempt_count, run_count, hint_count,
+                 time_spent_ms, last_code, draft_revision, draft_writer_id,
+                 draft_updated_at, last_output, practice_completed_ids,
+                 practice_exercise_code
+    `;
+    if (!rows[0]) throw new HttpError(404, "lesson progress not found");
+    return rowToLesson(rows[0]);
+}
+
+export async function resetCourseLessonProgress(
+  userId: string,
+  courseId: string,
+): Promise<number> {
+  const rows = await db()`
+    UPDATE public.lesson_progress
+       SET status = 'not_started',
+           started_at = NULL,
+           completed_at = NULL,
+           attempt_count = 0,
+           run_count = 0,
+           hint_count = 0,
+           time_spent_ms = 0,
+           last_code = NULL,
+           last_output = NULL,
+           practice_completed_ids = '{}'::text[],
+           practice_exercise_code = '{}'::jsonb,
+           draft_revision = draft_revision + 1,
+           draft_writer_id = NULL,
+           draft_updated_at = now(),
+           updated_at = now()
+     WHERE user_id = ${userId}
+       AND course_id = ${courseId}
+     RETURNING lesson_id
+  `;
+  return rows.length;
+}
+
+export async function resetPracticeProgress(
+  userId: string,
+  courseId: string,
+  lessonId: string,
+): Promise<LessonProgress> {
+  const sql = db();
+    const rows = await sql`
+      UPDATE public.lesson_progress
+         SET practice_completed_ids = '{}'::text[],
+             practice_exercise_code = '{}'::jsonb,
+             updated_at = now()
+       WHERE user_id = ${userId}
+         AND course_id = ${courseId}
+         AND lesson_id = ${lessonId}
+       RETURNING user_id, course_id, lesson_id, status, started_at, updated_at,
+                 completed_at, attempt_count, run_count, hint_count, last_code,
+                 draft_revision, draft_writer_id, draft_updated_at,
+                 time_spent_ms, last_output, practice_completed_ids,
+                 practice_exercise_code
+    `;
+    if (!rows[0]) {
+      throw new HttpError(404, "lesson progress not found");
+    }
+    return rowToLesson(rows[0]);
 }

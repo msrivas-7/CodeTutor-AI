@@ -92,6 +92,8 @@ interface AIState {
   // this exact chat/task. It is cached with the conversation and cannot be
   // manufactured from browser-owned history.
   tutorProgressToken: string | null;
+  /** Invalidates in-flight tutor work when the current conversation is cleared. */
+  conversationRevision: number;
 
   setModels: (models: AIModel[]) => void;
   setModelsStatus: (status: ModelsStatus, error?: string | null) => void;
@@ -208,6 +210,7 @@ export const useAIStore = create<AIState>((set, get) => ({
   focusComposerNonce: 0,
   sessionUsage: { inputTokens: 0, outputTokens: 0 },
   tutorProgressToken: null,
+  conversationRevision: 0,
 
   chatContext: null,
 
@@ -294,10 +297,13 @@ export const useAIStore = create<AIState>((set, get) => ({
 
   clearConversation: () => {
     const ctx = get().chatContext;
-    set({
+    set((state) => ({
       history: [],
+      asking: false,
       askError: null,
       pending: null,
+      pendingScripted: false,
+      pendingAsk: null,
       lastTurnFiles: null,
       runsSinceLastTurn: 0,
       editsSinceLastTurn: 0,
@@ -307,7 +313,8 @@ export const useAIStore = create<AIState>((set, get) => ({
       activeSelection: null,
       sessionUsage: { inputTokens: 0, outputTokens: 0 },
       tutorProgressToken: null,
-    });
+      conversationRevision: state.conversationRevision + 1,
+    }));
     if (ctx) chatCache.delete(ctx);
   },
 
@@ -334,6 +341,7 @@ export const useAIStore = create<AIState>((set, get) => ({
       sessionUsage: { inputTokens: 0, outputTokens: 0 },
       tutorProgressToken: null,
       chatContext: null,
+      conversationRevision: get().conversationRevision + 1,
     });
   },
 

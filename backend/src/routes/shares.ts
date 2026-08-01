@@ -6,8 +6,12 @@ import {
   findOwnerShareForLesson,
   getSharedByToken,
   insertSharedCompletion,
+  listOwnerShares,
   bumpShareView,
+  rotateShareTokenByOwner,
   revokeShareByOwner,
+  updateShareByOwner,
+  type SharedCompletion,
 } from "../db/sharedCompletions.js";
 import { kickOffRenders } from "../services/share/kickOffRenders.js";
 import { listLessonProgress } from "../db/lessonProgress.js";
@@ -203,11 +207,10 @@ sharesPublicRouter.get("/:token", async (req, res, next) => {
     // and the user sees the timer climb until the 30s give-up. Once
     // both images are non-null, the row is effectively immutable
     // (apart from view_count and revoked_at), so caching is safe.
-    if (share.ogImagePath && share.ogStoryImagePath) {
-      res.setHeader("Cache-Control", "public, max-age=60");
-    } else {
-      res.setHeader("Cache-Control", "no-store");
-    }
+    // Share ownership can change at any moment (revoke, attribution edit,
+    // snapshot refresh, token rotation). Never let a browser or intermediary
+    // serve a stale capability after the owner changed it.
+    res.setHeader("Cache-Control", "no-store");
     // Strip user_id from the response — the public artifact has no
     // need to expose it. ogImageUrl resolves the storage object path
     // to its public CDN URL for direct embed in the share page's
@@ -251,6 +254,17 @@ const SHARE_PER_DAY_CAP = 30;
 // share" path). Conservative ceiling — operator can raise via env or
 // config if a real user ever asks.
 const SHARE_LIFETIME_CAP = 50;
+const SHARE_ENTRYPOINT: Record<string, string> = {
+  python: "main.py",
+  javascript: "main.js",
+  typescript: "main.ts",
+  c: "main.c",
+  cpp: "main.cpp",
+  java: "Main.java",
+  go: "main.go",
+  rust: "main.rs",
+  ruby: "main.rb",
+};
 
 const slug = (name: string) =>
   z
@@ -318,6 +332,22 @@ sharesAuthedRouter.post("/", async (req, res, next) => {
     if (!lp || lp.status !== "completed") {
       return res.status(403).json({
         error: "lesson must be completed before sharing",
+      });
+    }
+
+    // One active managed artifact per authenticated learner and lesson.
+    // Duplicate clicks, retries, relogins, and a second device all converge
+    // on the same resource instead of minting undiscoverable public links.
+    const existing = await findOwnerShareForLesson(
+      userId,
+      parsed.data.courseId,
+      parsed.data.lessonId,
+    );
+    if (existing) {
+      return res.json({
+        shareToken: existing.shareToken,
+        url: `/s/${existing.shareToken}`,
+        reused: true,
       });
     }
 
@@ -437,14 +467,49 @@ sharesAuthedRouter.post("/", async (req, res, next) => {
       // Frontend builds the canonical share URL from the token. We
       // return both for convenience; clients can choose either.
       url: `/s/${share.shareToken}`,
+      reused: false,
     });
   } catch (err) {
     next(err);
   }
 });
 
+function ownerShareJson(share: SharedCompletion) {
+  return {
+    shareToken: share.shareToken,
+    courseId: share.courseId,
+    lessonId: share.lessonId,
+    lessonTitle: share.lessonTitle,
+    courseTitle: share.courseTitle,
+    displayName: share.displayName,
+    codeSnippet: share.codeSnippet,
+    mastery: share.mastery,
+    timeSpentMs: share.timeSpentMs,
+    attemptCount: share.attemptCount,
+    viewCount: share.viewCount,
+    url: `/s/${share.shareToken}`,
+    ogImageUrl: share.ogImagePath ? publicUrl(share.ogImagePath) : null,
+    ogStoryImageUrl: share.ogStoryImagePath
+      ? publicUrl(share.ogStoryImagePath)
+      : null,
+    createdAt: share.createdAt,
+    updatedAt: share.updatedAt,
+    rotatedAt: share.rotatedAt,
+    revision: share.revision,
+  };
+}
+
+sharesAuthedRouter.get("/mine/all", async (req, res, next) => {
+  try {
+    const shares = await listOwnerShares(requireUser(req));
+    return res.json({ shares: shares.map(ownerShareJson) });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Per-user rate limit on `/mine` so a single authed account can't
-// poll-DoS the DB (each call hits TWO tables). 60/min is generous —
+// poll-DoS the DB. 60/min is generous —
 // the dialog calls this exactly once per open in normal flow.
 const MINE_RATE_LIMIT_WINDOW_MS = 60_000;
 const MINE_RATE_LIMIT_MAX = 60;
@@ -477,12 +542,9 @@ function checkMineRateLimit(userId: string): boolean {
 // their existing share (copy URL, View page, Save for Stories) instead
 // of a duplicate creation cycle.
 //
-// Returns the existing share IF and ONLY IF the most recent
-// non-revoked share for `(userId, courseId, lessonId)` is at least
-// as new as the lesson's most recent completion. If the user has
-// since reset+re-completed the lesson, the saved share is now stale
-// (snapshot of a different attempt), so we return 404 and let the
-// client mint a new one.
+// A reset/re-completion does not make the managed artifact disappear. The
+// owner sees the existing snapshot and can explicitly refresh its code;
+// duplicate create requests remain idempotent across relogins and devices.
 sharesAuthedRouter.get("/mine", async (req, res, next) => {
   try {
     const userId = requireUser(req);
@@ -499,30 +561,126 @@ sharesAuthedRouter.get("/mine", async (req, res, next) => {
     if (!share) {
       return res.status(404).json({ error: "no share for this lesson" });
     }
-    // Cross-check the lesson's most recent completion. If completedAt
-    // is newer than share.createdAt, the lesson was reset+re-completed
-    // since the share — surface 404 so the dialog opens the compose
-    // path for a fresh share.
-    const lessons = await listLessonProgress(userId, courseId);
-    const lp = lessons.find((l) => l.lessonId === lessonId);
-    if (
-      lp?.completedAt &&
-      new Date(lp.completedAt).getTime() > new Date(share.createdAt).getTime()
-    ) {
-      return res
-        .status(404)
-        .json({ error: "share is older than current completion" });
+    return res.json(ownerShareJson(share));
+  } catch (err) {
+    next(err);
+  }
+});
+
+const manageShareBody = z
+  .object({
+    displayName: z.string().max(80).nullable().optional(),
+    refreshSnapshot: z.boolean().default(false),
+  })
+  .strict();
+
+sharesAuthedRouter.patch("/:token", async (req, res, next) => {
+  const parsed = manageShareBody.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "invalid share update" });
+  }
+  try {
+    const token = parseToken(req.params.token);
+    const userId = requireUser(req);
+    const current = await getSharedByToken(token);
+    if (!current || current.userId !== userId) {
+      return res.status(404).json({ error: "share not found" });
     }
-    return res.json({
-      shareToken: share.shareToken,
-      url: `/s/${share.shareToken}`,
-      ogImageUrl: share.ogImagePath ? publicUrl(share.ogImagePath) : null,
-      ogStoryImageUrl: share.ogStoryImagePath
-        ? publicUrl(share.ogStoryImagePath)
-        : null,
-      createdAt: share.createdAt,
-      displayName: share.displayName,
+    let codeSnippet = current.codeSnippet;
+    let mastery = current.mastery;
+    let timeSpentMs = current.timeSpentMs;
+    let attemptCount = current.attemptCount;
+    if (parsed.data.refreshSnapshot) {
+      const lessons = await listLessonProgress(userId, current.courseId);
+      const progress = lessons.find((lesson) => lesson.lessonId === current.lessonId);
+      const snapshot = await getLessonSnapshot(current.courseId, current.lessonId);
+      if (!progress || progress.status !== "completed" || !snapshot) {
+        return res.status(409).json({
+          error: "complete the lesson again before refreshing this share",
+        });
+      }
+      const files = progress.lastCode ?? {};
+      const entry = SHARE_ENTRYPOINT[snapshot.language];
+      const candidate =
+        (entry && typeof files[entry] === "string" ? files[entry] : null) ??
+        Object.values(files).find((value): value is string => typeof value === "string") ??
+        "";
+      const safety = sanitizeShareSnippet(candidate);
+      if (!candidate.trim() || !safety.ok) {
+        return res.status(400).json({ error: safety.ok ? "no saved code to share" : safety.reason });
+      }
+      codeSnippet = candidate;
+      timeSpentMs = progress.timeSpentMs;
+      attemptCount = Math.max(1, progress.attemptCount);
+      mastery =
+        progress.attemptCount <= 1 && progress.hintCount === 0
+          ? "strong"
+          : progress.attemptCount <= 3
+            ? "okay"
+            : "shaky";
+    }
+    const displayName =
+      parsed.data.displayName === undefined
+        ? current.displayName
+        : sanitizeDisplayName(parsed.data.displayName);
+    const updated = await updateShareByOwner(userId, token, {
+      displayName,
+      codeSnippet,
+      mastery,
+      timeSpentMs,
+      attemptCount,
     });
+    if (!updated) return res.status(404).json({ error: "share not found" });
+    // Do not remove the currently working images until the durable share
+    // update has succeeded. Otherwise a transient database failure would
+    // leave an unchanged public page with broken artwork.
+    await deleteShareImages(token);
+    if (!(await isShareRenderDisabled())) {
+      kickOffRenders({
+        lessonTitle: updated.lessonTitle,
+        lessonOrder: updated.lessonOrder,
+        courseTitle: updated.courseTitle,
+        courseTotalLessons: updated.courseTotalLessons,
+        mastery: updated.mastery,
+        timeSpentMs: updated.timeSpentMs,
+        attemptCount: updated.attemptCount,
+        codeSnippet: updated.codeSnippet,
+        displayName: updated.displayName,
+        shareToken: updated.shareToken,
+      });
+    }
+    return res.json(ownerShareJson(updated));
+  } catch (err) {
+    next(err);
+  }
+});
+
+sharesAuthedRouter.post("/:token/rotate", async (req, res, next) => {
+  try {
+    const token = parseToken(req.params.token);
+    const userId = requireUser(req);
+    const current = await getSharedByToken(token);
+    if (!current || current.userId !== userId) {
+      return res.status(404).json({ error: "share not found" });
+    }
+    const rotated = await rotateShareTokenByOwner(userId, token);
+    if (!rotated) return res.status(404).json({ error: "share not found" });
+    await deleteShareImages(token);
+    if (!(await isShareRenderDisabled())) {
+      kickOffRenders({
+        lessonTitle: rotated.lessonTitle,
+        lessonOrder: rotated.lessonOrder,
+        courseTitle: rotated.courseTitle,
+        courseTotalLessons: rotated.courseTotalLessons,
+        mastery: rotated.mastery,
+        timeSpentMs: rotated.timeSpentMs,
+        attemptCount: rotated.attemptCount,
+        codeSnippet: rotated.codeSnippet,
+        displayName: rotated.displayName,
+        shareToken: rotated.shareToken,
+      });
+    }
+    return res.json(ownerShareJson(rotated));
   } catch (err) {
     next(err);
   }

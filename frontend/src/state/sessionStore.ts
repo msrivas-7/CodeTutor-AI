@@ -26,11 +26,14 @@ interface SessionState {
   // now invalid, so we surface a modal (not the quieter restart banner)
   // so the learner explicitly acknowledges the switch before continuing.
   sessionReplaced: boolean;
+  retryAvailableAt: number | null;
+  canResumeExisting: boolean;
   setSession: (id: string) => void;
   setPhase: (phase: SessionPhase) => void;
   setError: (err: string | null) => void;
   setSessionRestarted: (v: boolean) => void;
   setSessionReplaced: (v: boolean) => void;
+  setRecoveryOptions: (retryAvailableAt: number | null, canResumeExisting: boolean) => void;
   clear: () => void;
 }
 
@@ -40,7 +43,15 @@ export const useSessionStore = create<SessionState>((set) => ({
   error: null,
   sessionRestarted: false,
   sessionReplaced: false,
-  setSession: (id) => set({ sessionId: id, phase: "active", error: null }),
+  retryAvailableAt: null,
+  canResumeExisting: false,
+  setSession: (id) => set({
+    sessionId: id,
+    phase: "active",
+    error: null,
+    retryAvailableAt: null,
+    canResumeExisting: false,
+  }),
   setPhase: (phase) => set({ phase }),
   // QA-C3 + QA-M7: setError no longer implies a phase transition. The old
   // contract — setError(null) downgraded phase to "active" — meant a stale
@@ -50,6 +61,8 @@ export const useSessionStore = create<SessionState>((set) => ({
   setError: (err) => set({ error: err }),
   setSessionRestarted: (v) => set({ sessionRestarted: v }),
   setSessionReplaced: (v) => set({ sessionReplaced: v }),
+  setRecoveryOptions: (retryAvailableAt, canResumeExisting) =>
+    set({ retryAvailableAt, canResumeExisting }),
   clear: () =>
     set({
       sessionId: null,
@@ -57,5 +70,7 @@ export const useSessionStore = create<SessionState>((set) => ({
       error: null,
       sessionRestarted: false,
       sessionReplaced: false,
+      retryAvailableAt: null,
+      canResumeExisting: false,
     }),
 }));

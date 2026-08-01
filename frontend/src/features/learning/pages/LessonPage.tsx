@@ -43,6 +43,7 @@ import {
   useLessonLayout,
 } from "../hooks/useLessonLayout";
 import { useLessonLoader } from "../hooks/useLessonLoader";
+import { lessonWorkspaceContextKey as buildLessonWorkspaceContextKey } from "../hooks/lessonGuards";
 import { useLessonRunner } from "../hooks/useLessonRunner";
 import { useLessonValidator } from "../hooks/useLessonValidator";
 import { useMemoryWarmup } from "../hooks/useMemoryWarmup";
@@ -54,6 +55,8 @@ import { FirstRunHandoffReveal } from "../../firstRun/FirstRunHandoffReveal";
 import {
   extractNameFromCode,
   hasChoreographyDoneAnon,
+  writeAnonWorkspace,
+  type AnonWorkspaceV1,
 } from "../../anon/anonStash";
 import { useProjectStore } from "../../../state/projectStore";
 import { StreakChip } from "../components/StreakChip";
@@ -63,6 +66,63 @@ import { MATERIAL_EASE, CINEMA_DURATIONS } from "../../../components/cinema/easi
 import { ShareDialog } from "../../share/components/ShareDialog";
 import { LANGUAGE_ENTRYPOINT } from "../../../types";
 import { api } from "../../../api/client";
+
+function PracticePersistenceBanner({
+  saving,
+  error,
+  retryAt,
+  onRetry,
+}: {
+  saving: boolean;
+  error: string | null;
+  retryAt: number | null;
+  onRetry: () => void;
+}) {
+  const [clock, setClock] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (retryAt === null || retryAt <= Date.now()) return;
+    setClock(Date.now());
+    const timer = window.setInterval(() => setClock(Date.now()), 250);
+    return () => window.clearInterval(timer);
+  }, [retryAt]);
+
+  if (!saving && !error) return null;
+  const retrySeconds = retryAt
+    ? Math.max(0, Math.ceil((retryAt - clock) / 1_000))
+    : 0;
+
+  return (
+    <div
+      role={error ? "alert" : "status"}
+      aria-live={error ? "assertive" : "polite"}
+      className={`flex min-h-11 flex-wrap items-center gap-3 border-b px-4 py-2 text-sm ${
+        error
+          ? "border-warn/40 bg-warn/10 text-warn"
+          : "border-accent/30 bg-accent/10 text-accent"
+      }`}
+    >
+      <div className="min-w-0 flex-1">
+        <div className="font-semibold">
+          {error ? "Practice result not saved" : "Solution passed — saving…"}
+        </div>
+        <div className="mt-0.5 text-xs leading-relaxed text-ink/80">
+          {error ?? "We'll mark it complete only after your progress is safely stored."}
+        </div>
+      </div>
+      {error && (
+        <button
+          type="button"
+          onClick={onRetry}
+          disabled={retrySeconds > 0 || saving}
+          className="min-h-11 shrink-0 rounded-lg border border-warn/40 px-3 py-2 text-sm font-semibold transition hover:bg-warn/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn disabled:cursor-wait disabled:opacity-60"
+        >
+          {retrySeconds > 0 ? `Retry in ${retrySeconds}s` : "Retry saving"}
+        </button>
+      )}
+    </div>
+  );
+}
 
 /**
  * Phase 27-v2.1 — LessonPage now accepts an optional `mode` prop so the
@@ -158,6 +218,8 @@ interface LessonPageProps {
    * pre-signup.
    */
   onAnonComplete?: () => void;
+  /** Anonymous workspace captured earlier in this tab, if any. */
+  anonResumeSnapshot?: AnonWorkspaceV1 | null;
 }
 
 export default function LessonPage({
@@ -171,6 +233,7 @@ export default function LessonPage({
   onAnonTrialPaused,
   onAnonFirstRun,
   onAnonComplete,
+  anonResumeSnapshot = null,
 }: LessonPageProps = {}) {
   const params = useParams<{
     courseId: string;
@@ -198,6 +261,13 @@ export default function LessonPage({
   useSessionLifecycle();
 
   const lessonProgressMap = useProgressStore((s) => s.lessonProgress);
+  const draftConflict = useProgressStore((s) =>
+    courseId && lessonId ? s.draftConflicts[`${courseId}/${lessonId}`] : undefined,
+  );
+  const draftSaveError = useProgressStore((s) =>
+    courseId && lessonId ? s.draftSaveErrors[`${courseId}/${lessonId}`] : undefined,
+  );
+  const retryDraftSave = useProgressStore((s) => s.retryDraftSave);
   const hasOpenaiKey = usePreferencesStore((s) => s.hasOpenaiKey);
   const selectedModel = useAIStore((s) => s.selectedModel);
   const tutorAsking = useAIStore((s) => s.asking);
@@ -206,6 +276,19 @@ export default function LessonPage({
   const projectRevision = useProjectStore((s) => s.revision);
   const projectContext = useProjectStore((s) => s.projectContext);
   const projectPaths = useProjectStore((s) => s.order);
+  const projectFiles = useProjectStore((s) => s.files);
+  const runResult = useRunStore((s) => s.result);
+  const runError = useRunStore((s) => s.error);
+  const runStdin = useRunStore((s) => s.stdin);
+
+  useEffect(() => {
+    if (mode !== "authed" || !draftSaveError || !courseId || !lessonId) return;
+    const retryWhenOnline = () => {
+      void retryDraftSave(courseId, lessonId);
+    };
+    window.addEventListener("online", retryWhenOnline);
+    return () => window.removeEventListener("online", retryWhenOnline);
+  }, [mode, draftSaveError, courseId, lessonId, retryDraftSave]);
 
   // Practice-mode state sits at the page level so both the loader (for the
   // auto-save key) and the validator (for the check/run/enter-practice
@@ -213,6 +296,7 @@ export default function LessonPage({
   // mutate it.
   const [practiceMode, setPracticeMode] = useState(false);
   const [practiceIndex, setPracticeIndex] = useState(0);
+  const [resolvingDraftConflict, setResolvingDraftConflict] = useState(false);
   const savedLessonCode = useRef<Record<string, string> | null>(null);
 
   const isFirstRun = searchParams.get("firstRun") === "1";
@@ -307,6 +391,12 @@ export default function LessonPage({
     useRunStore.getState().invalidateEvidence();
   }, [isFirstRun, courseId, lessonId, learnerId]);
 
+  const lessonWorkspaceContextKey = buildLessonWorkspaceContextKey(
+    mode,
+    courseId,
+    lessonId,
+  );
+
   const loader = useLessonLoader({
     courseId,
     lessonId,
@@ -320,7 +410,9 @@ export default function LessonPage({
     // hand-off, or when the visitor is an anon /try/ user (no
     // learnerId, nothing to resume from anyway; the force flag also
     // prevents in-memory project-store state from leaking across mounts).
-    forceStarter: isFirstRun || mode === "anon",
+    forceStarter: isFirstRun || (mode === "anon" && !anonResumeSnapshot),
+    resumeCode: mode === "anon" ? anonResumeSnapshot?.files ?? null : null,
+    workspaceContextKey: lessonWorkspaceContextKey,
   });
   const memoryWarmup = useMemoryWarmup({
     enabled: mode === "authed" && learnerId !== null,
@@ -341,16 +433,21 @@ export default function LessonPage({
       // Fall through to lesson-view key while lesson loads or if the
       // index is somehow out of range — better than a flicker to a key
       // we'll immediately overwrite.
-      if (!ex) return `lesson:${courseId}/${lessonId}`;
+      if (!ex) return lessonWorkspaceContextKey;
       return `practice:${courseId}/${lessonId}/${ex.id}`;
     }
-    return `lesson:${courseId}/${lessonId}`;
-  }, [courseId, lessonId, practiceMode, practiceIndex, loader.lesson?.practiceExercises]);
+    return lessonWorkspaceContextKey;
+  }, [courseId, lessonId, practiceMode, practiceIndex, loader.lesson?.practiceExercises, lessonWorkspaceContextKey]);
 
   const switchChatContext = useAIStore((s) => s.switchChatContext);
   useEffect(() => {
     if (chatCtxKey) switchChatContext(chatCtxKey);
   }, [chatCtxKey, switchChatContext]);
+
+  const switchRunContext = useRunStore((s) => s.switchRunContext);
+  useEffect(() => {
+    if (chatCtxKey) switchRunContext(chatCtxKey, { stdin: "" });
+  }, [chatCtxKey, switchRunContext]);
 
   // Phase A — A1: retrieval-check gate. Lesson-author defines the
   // question in lesson.json (`{type: "retrieval_check", question, choices,
@@ -437,9 +534,64 @@ export default function LessonPage({
       runner.setHasEdited(false);
       runner.setHasRun(false);
     },
+    onRestoreRunnerFlags: (hadRun) => {
+      runner.setHasEdited(true);
+      runner.setHasRun(hadRun);
+    },
     mode,
     retrievalAnswered,
   });
+
+  const anonWorkspaceHydratedRef = useRef(false);
+  useEffect(() => {
+    if (mode !== "anon" || !courseId || !lessonId) return;
+    const lessonKey = lessonWorkspaceContextKey;
+    if (!lessonKey) return;
+    if (
+      loader.initializedForRef.current !== `${courseId}/${lessonId}` ||
+      projectContext !== lessonKey
+    ) {
+      return;
+    }
+    if (!anonWorkspaceHydratedRef.current) {
+      anonWorkspaceHydratedRef.current = true;
+      if (anonResumeSnapshot) {
+        useRunStore.setState({
+          running: false,
+          activeRunId: null,
+          result: anonResumeSnapshot.result,
+          error: anonResumeSnapshot.runError,
+          stdin: anonResumeSnapshot.stdin,
+        });
+        if (anonResumeSnapshot.completed) validator.restoreCompleted();
+      }
+      return;
+    }
+    writeAnonWorkspace({
+      courseId: "python-fundamentals",
+      lessonId: "hello-world",
+      files: projectFiles,
+      stdin: runStdin,
+      result: runResult,
+      runError,
+      completed: Boolean(validator.validation?.passed),
+    });
+  }, [
+    mode,
+    courseId,
+    lessonId,
+    projectContext,
+    projectFiles,
+    projectRevision,
+    runStdin,
+    runResult,
+    runError,
+    anonResumeSnapshot,
+    lessonWorkspaceContextKey,
+    loader.initializedForRef,
+    validator.validation?.passed,
+    validator.restoreCompleted,
+  ]);
 
   // Phase A — A2 part 2 (device contract): phone lesson 1 is a
   // 390px-native single-column screen, NOT a responsive squeeze of the
@@ -559,7 +711,7 @@ export default function LessonPage({
     !practiceMode &&
     !!loader.lesson?.assistanceMoves;
   const historicalLessonComplete =
-    courseId && lessonId
+    mode === "authed" && courseId && lessonId
       ? lessonProgressMap[`${courseId}/${lessonId}`]?.status === "completed"
       : false;
   const contextualGuide = useContextualGuide({
@@ -634,13 +786,29 @@ export default function LessonPage({
   // close cleanly even after LessonCompletePanel dismisses, and so the
   // payload can be assembled from progress + course state in one place.
   const [shareOpen, setShareOpen] = useState(false);
+  const shareTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const openShareDialog = (trigger: HTMLButtonElement) => {
+    shareTriggerRef.current = trigger;
+    setShareOpen(true);
+  };
+  const closeShareDialog = () => {
+    setShareOpen(false);
+    // Pointer activation is not guaranteed to leave the trigger focused in
+    // every browser. Restore the actual opener after Modal's deferred cleanup
+    // so Escape, Close, revoke, and completion-panel entry all return to a
+    // meaningful lesson control instead of document.body.
+    window.setTimeout(() => {
+      if (shareTriggerRef.current?.isConnected) shareTriggerRef.current.focus();
+    }, 0);
+  };
   // Pre-fetch: when the lesson is completed AND has code to share,
   // ask the backend whether this user already published a share for
   // it. The chip flips from "Share" → "Shared ✓" so the user knows
   // their click reuses the existing share instead of minting a new
   // one. Lookup re-runs whenever the dialog closes after a fresh
   // create (so the chip reflects the new state without a reload).
-  const [hasExistingShare, setHasExistingShare] = useState(false);
+  const [shareStatus, setShareStatus] = useState<"shared" | "none">("none");
+  const hasExistingShare = shareStatus === "shared";
   const lpForShareCheck =
     courseId && lessonId
       ? lessonProgressMap[`${courseId}/${lessonId}`]
@@ -649,15 +817,14 @@ export default function LessonPage({
     // Pass 2 P2 #4: gate on mode === "authed" so a future change that
     // populates progressStore on anon (or a stale entry from a prior
     // authed session in the same tab — possible if SIGNED_OUT reset
-    // missed something) doesn't trip the api.getMyShareForLesson call,
-    // which would 401 → handle401() → signOut cascade.
+    // missed something) doesn't trip the authenticated owner lookup.
     mode === "authed" &&
     courseId && lessonId && lpForShareCheck?.status === "completed"
       ? `${courseId}/${lessonId}`
       : null;
   useEffect(() => {
     if (!shareCheckTrigger) {
-      setHasExistingShare(false);
+      setShareStatus("none");
       return;
     }
     // While the dialog is open we don't poll — let the dialog manage
@@ -668,9 +835,9 @@ export default function LessonPage({
     void (async () => {
       try {
         await api.getMyShareForLesson(c, l);
-        if (!cancelled) setHasExistingShare(true);
+        if (!cancelled) setShareStatus("shared");
       } catch {
-        if (!cancelled) setHasExistingShare(false);
+        if (!cancelled) setShareStatus("none");
       }
     })();
     return () => {
@@ -681,7 +848,16 @@ export default function LessonPage({
   if (!courseId || !lessonId) return null;
 
   const lesson = loader.lesson;
-  const lp = lessonProgressMap[`${courseId}/${lessonId}`];
+  // `/try/` is an intentionally anonymous product surface even when a signed-in
+  // learner opens it in another tab. Never let their authenticated progress
+  // bleed into the anonymous status, coach, telemetry, practice, completion, or
+  // tutor context. The anonymous workspace has its own validator + stash state.
+  const lp = mode === "authed"
+    ? lessonProgressMap[`${courseId}/${lessonId}`]
+    : undefined;
+  const lessonStatus = validator.validation?.passed
+    ? "completed"
+    : lp?.status ?? (mode === "anon" ? "in_progress" : undefined);
 
   const coachState = {
     hasEdited: runner.hasEdited,
@@ -826,11 +1002,11 @@ export default function LessonPage({
           {runner.sessionPhase === "reconnecting" && (
             <span className="hidden text-[10px] text-yellow-300 sm:inline">Reconnecting…</span>
           )}
-          {lp && (() => {
+          {lessonStatus && (() => {
             const practiceTotal = lesson?.practiceExercises?.length ?? 0;
             const practiceDone =
               practiceTotal > 0
-                ? (lp.practiceCompletedIds ?? []).filter((id) =>
+                ? (lp?.practiceCompletedIds ?? []).filter((id) =>
                     lesson!.practiceExercises!.some((e) => e.id === id),
                   ).length
                 : 0;
@@ -839,22 +1015,23 @@ export default function LessonPage({
               <div className="hidden items-center overflow-hidden rounded-full sm:flex">
                 <span
                   className={`px-2.5 py-0.5 text-[10px] font-medium ${
-                    lp.status === "completed"
+                    lessonStatus === "completed"
                       ? "bg-success/20 text-success"
-                      : lp.status === "in_progress"
+                      : lessonStatus === "in_progress"
                         ? "bg-accent/20 text-accent"
                         : "bg-elevated text-muted"
                   }`}
                 >
-                  {lp.status === "completed"
+                  {lessonStatus === "completed"
                     ? "✓ Completed"
-                    : lp.status === "in_progress"
+                    : lessonStatus === "in_progress"
                       ? "In progress"
                       : "Not started"}
                 </span>
                 {!practiceMode &&
+                  mode === "authed" &&
                   practiceTotal > 0 &&
-                  lp.status === "completed" && (
+                  lessonStatus === "completed" && (
                     <button
                       onClick={validator.handleEnterPractice}
                       className={`border-l border-bg/40 px-2.5 py-0.5 text-[10px] font-semibold transition ${
@@ -886,11 +1063,12 @@ export default function LessonPage({
                     row exists but lastCode is empty), and during practice
                     mode (the chip group is for lesson-scoped state). */}
                 {!practiceMode &&
+                  mode === "authed" &&
                   lesson &&
-                  lp.status === "completed" &&
-                  !!lp.lastCode?.[LANGUAGE_ENTRYPOINT[lesson.language]]?.trim() && (
+                  lessonStatus === "completed" &&
+                  !!lp?.lastCode?.[LANGUAGE_ENTRYPOINT[lesson.language]]?.trim() && (
                     <button
-                      onClick={() => setShareOpen(true)}
+                      onClick={(event) => openShareDialog(event.currentTarget)}
                       className={`border-l border-bg/40 px-2.5 py-0.5 text-[10px] font-semibold transition ${
                         hasExistingShare
                           ? "bg-success/15 text-success hover:bg-success/25"
@@ -963,7 +1141,16 @@ export default function LessonPage({
                   transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
                   style={{ display: "inline-flex" }}
                 >
-                  <UserMenu />
+                  <UserMenu
+                    onShareChanged={(change) => {
+                      if (
+                        change.courseId === courseId &&
+                        change.lessonId === lessonId
+                      ) {
+                        setShareStatus(change.shared ? "shared" : "none");
+                      }
+                    }}
+                  />
                 </motion.div>
               )}
             </>
@@ -974,6 +1161,137 @@ export default function LessonPage({
       <SessionErrorBanner />
       <SessionRestartBanner />
       <SessionReplacedModal />
+      {practiceMode && (
+        <PracticePersistenceBanner
+          saving={validator.practiceSaving}
+          error={validator.practiceSaveError}
+          retryAt={validator.practiceRetryAt}
+          onRetry={() => void validator.handleCheck()}
+        />
+      )}
+      {draftConflict && !practiceMode && (
+        <div
+          role="alert"
+          className="flex flex-col gap-2 border-b border-warn/40 bg-warn/10 px-4 py-3 text-sm text-ink sm:flex-row sm:items-center"
+        >
+          <div className="min-w-0 flex-1">
+            <div className="font-semibold">This lesson changed in another tab or device.</div>
+            <div className="mt-0.5 text-xs leading-relaxed text-muted">
+              Both versions are safe until you choose which one to keep.
+              {draftConflict.remoteUpdatedAt
+                ? ` The newer saved version is from ${new Date(draftConflict.remoteUpdatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.`
+                : ""}
+              {draftSaveError ? ` ${draftSaveError}` : ""}
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={resolvingDraftConflict}
+              onClick={() => {
+                const remote = useProgressStore
+                  .getState()
+                  .acceptRemoteDraft(courseId, lessonId);
+                if (!remote) return;
+                const order = Object.keys(remote);
+                useProjectStore.getState().replaceProject({
+                  files: remote,
+                  order,
+                  activeFile: order[0] ?? null,
+                  openTabs: order[0] ? [order[0]] : [],
+                });
+              }}
+              className="min-h-11 rounded-lg border border-border bg-panel px-3 py-2 text-xs font-semibold text-muted transition hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-60"
+            >
+              Use newer saved version
+            </button>
+            <button
+              type="button"
+              disabled={resolvingDraftConflict}
+              onClick={() => {
+                setResolvingDraftConflict(true);
+                void useProgressStore
+                  .getState()
+                  .keepLocalDraft(courseId, lessonId)
+                  .finally(() => setResolvingDraftConflict(false));
+              }}
+              className="min-h-11 rounded-lg bg-warn/20 px-3 py-2 text-xs font-semibold text-warn ring-1 ring-warn/40 transition hover:bg-warn/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn disabled:opacity-60"
+            >
+              {resolvingDraftConflict ? "Saving…" : "Keep this version"}
+            </button>
+          </div>
+        </div>
+      )}
+      {draftSaveError && !draftConflict && !practiceMode && (
+        <div
+          role="alert"
+          className="flex min-h-11 flex-wrap items-center gap-3 border-b border-warn/40 bg-warn/10 px-4 py-2 text-sm"
+        >
+          <span className="min-w-0 flex-1 text-ink">
+            {draftSaveError} We'll retry automatically when you're back online.
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              if (courseId && lessonId) void retryDraftSave(courseId, lessonId);
+            }}
+            className="min-h-11 rounded-lg border border-warn/40 px-3 py-2 font-semibold text-warn transition hover:bg-warn/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn"
+          >
+            Retry sync
+          </button>
+        </div>
+      )}
+      {validator.resetUndo && (
+        <div
+          role="status"
+          className="flex min-h-11 items-center gap-3 border-b border-accent/30 bg-accent/10 px-4 py-2 text-sm"
+        >
+          <span className="min-w-0 flex-1 text-ink">
+            Code reset. Output, checks, and tutor context were cleared too.
+          </span>
+          <button
+            type="button"
+            onClick={validator.undoCodeReset}
+            className="min-h-11 rounded-lg px-3 py-2 font-semibold text-accent transition hover:bg-accent/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            Undo reset
+          </button>
+          <button
+            type="button"
+            onClick={() => validator.setResetUndo(null)}
+            className="flex h-11 w-11 items-center justify-center rounded-lg text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            aria-label="Dismiss reset message"
+          >
+            ×
+          </button>
+        </div>
+      )}
+      {(validator.completionSaving || validator.completionSaveError) && (
+        <div
+          role={validator.completionSaveError ? "alert" : "status"}
+          aria-live="polite"
+          className={`flex min-h-11 items-center gap-3 border-b px-4 py-2 text-sm ${
+            validator.completionSaveError
+              ? "border-danger/30 bg-danger/10 text-danger"
+              : "border-accent/30 bg-accent/10 text-accent"
+          }`}
+        >
+          <span className="min-w-0 flex-1">
+            {validator.completionSaving
+              ? "Saving your completed lesson before celebrating…"
+              : "Your solution passed and is still here, but completion was not saved. Check again to retry."}
+          </span>
+          {validator.completionSaveError && (
+            <button
+              type="button"
+              onClick={() => void validator.handleCheck()}
+              className="min-h-11 rounded-lg border border-danger/40 px-3 py-2 font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger"
+            >
+              Retry save
+            </button>
+          )}
+        </div>
+      )}
 
       {loader.loading ? (
         // Phase B: lesson content is bundled client-side, so the
@@ -1201,15 +1519,19 @@ export default function LessonPage({
                 onClick={() => {
                   void validator.handleCheck();
                 }}
-                disabled={runner.running || validator.runningTests || checkButtonLocked}
+                disabled={runner.running || validator.runningTests || validator.completionSaving || checkButtonLocked}
                 className={`flex h-11 flex-1 items-center justify-center gap-1.5 rounded-xl text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-violet ${
-                  !runner.running && !validator.runningTests && !checkButtonLocked
+                  !runner.running && !validator.runningTests && !validator.completionSaving && !checkButtonLocked
                     ? "bg-violet/20 text-violet active:bg-violet/30"
                     : "bg-elevated text-muted"
                 }`}
                 aria-label="Check my work against lesson requirements"
               >
-                {validator.runningTests ? "Checking…" : "Check My Work"}
+                {validator.runningTests
+                  ? "Checking…"
+                  : validator.completionSaving
+                    ? "Saving…"
+                    : "Check My Work"}
               </button>
               <button
                 type="button"
@@ -1475,9 +1797,9 @@ export default function LessonPage({
                       // mis-type as the override object.
                       void validator.handleCheck();
                     }}
-                    disabled={runner.running || validator.runningTests || checkButtonLocked}
+                    disabled={runner.running || validator.runningTests || validator.completionSaving || checkButtonLocked}
                     className={`flex items-center gap-1.5 whitespace-nowrap rounded-lg px-4 py-1.5 text-xs font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-violet ${
-                      !runner.running && !validator.runningTests && !checkButtonLocked
+                      !runner.running && !validator.runningTests && !validator.completionSaving && !checkButtonLocked
                         ? "bg-violet/20 text-violet hover:bg-violet/30"
                         : "bg-elevated text-muted cursor-not-allowed"
                     }`}
@@ -1500,7 +1822,11 @@ export default function LessonPage({
                       <circle cx="11" cy="11" r="7" />
                       <line x1="21" y1="21" x2="16.65" y2="16.65" />
                     </svg>
-                    {validator.runningTests ? "Checking…" : "Check My Work"}
+                    {validator.runningTests
+                      ? "Checking…"
+                      : validator.completionSaving
+                        ? "Saving…"
+                        : "Check My Work"}
                   </button>
                 </span>
                 {/* Reserve a fixed slot for the error-help CTA to avoid layout
@@ -1926,7 +2252,7 @@ export default function LessonPage({
                     );
                   }
                 : !!lp?.lastCode?.[LANGUAGE_ENTRYPOINT[lesson.language]]?.trim()
-                  ? () => setShareOpen(true)
+                  ? (trigger) => openShareDialog(trigger)
                   : undefined
           }
         />
@@ -1938,7 +2264,10 @@ export default function LessonPage({
       {shareOpen && lesson && lp && (
         <ShareDialog
           open={shareOpen}
-          onClose={() => setShareOpen(false)}
+          onClose={closeShareDialog}
+          onShareChanged={(shared) =>
+            setShareStatus(shared ? "shared" : "none")
+          }
           payload={{
             // Wire fields — these are what the server actually sees.
             // Title / order / total live ONLY in `preview` because the
@@ -1966,7 +2295,17 @@ export default function LessonPage({
         />
       )}
       {layout.showSettings && (
-        <SettingsModal onClose={() => layout.setShowSettings(false)} />
+        <SettingsModal
+          onClose={() => layout.setShowSettings(false)}
+          onShareChanged={(change) => {
+            if (
+              change.courseId === courseId &&
+              change.lessonId === lessonId
+            ) {
+              setShareStatus(change.shared ? "shared" : "none");
+            }
+          }}
+        />
       )}
       <FirstRunSpotlight
         targetRef={layout.tutorRef}
@@ -1990,7 +2329,9 @@ export default function LessonPage({
       />
       {validator.confirmResetLesson && (
         <Modal
-          onClose={() => validator.setConfirmResetLesson(false)}
+          onClose={() => {
+            if (!validator.resettingLesson) validator.setConfirmResetLesson(false);
+          }}
           role="alertdialog"
           labelledBy="reset-lesson-title"
           position="center"
@@ -2007,18 +2348,73 @@ export default function LessonPage({
           <p className="mt-2 text-meta leading-relaxed text-faint">
             Your saved tutor messages stay.
           </p>
+          {validator.resetLessonError && (
+            <div
+              role="alert"
+              className="mt-3 rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger"
+            >
+              Nothing was cleared. {validator.resetLessonError}
+            </div>
+          )}
           <div className="mt-4 flex items-center gap-2">
             <button
               onClick={() => validator.setConfirmResetLesson(false)}
+              disabled={validator.resettingLesson}
               className="min-h-11 flex-1 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               Cancel
             </button>
             <button
-              onClick={validator.handleResetLessonProgress}
+              onClick={() => void validator.handleResetLessonProgress()}
+              disabled={validator.resettingLesson}
               className="min-h-11 flex-1 rounded-lg bg-danger/20 px-4 py-2 text-sm font-semibold text-danger ring-1 ring-danger/40 transition hover:bg-danger/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger"
             >
-              Reset Lesson
+              {validator.resettingLesson ? "Resetting…" : "Reset Lesson"}
+            </button>
+          </div>
+        </Modal>
+      )}
+      {validator.confirmResetCode && (
+        <Modal
+          onClose={() => validator.setConfirmResetCode(false)}
+          role="alertdialog"
+          labelledBy="reset-code-title"
+          position="center"
+          panelClassName="mx-4 w-full max-w-sm rounded-xl border border-warn/30 bg-panel p-5 shadow-xl"
+        >
+          <h2 id="reset-code-title" className="text-lg font-bold text-ink">
+            Reset this code?
+          </h2>
+          <p className="mt-2 text-base leading-relaxed text-muted sm:text-body">
+            We'll restore the starter and clear the current output, check result,
+            and tutor context so nothing describes old code.
+          </p>
+          <p className="mt-2 text-sm leading-relaxed text-faint">
+            You can undo immediately after resetting.
+          </p>
+          {validator.resetCodeError && (
+            <div
+              role="alert"
+              className="mt-3 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-sm text-warn"
+            >
+              {validator.resetCodeError}
+            </div>
+          )}
+          <div className="mt-4 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => validator.setConfirmResetCode(false)}
+              className="min-h-11 flex-1 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              Keep my code
+            </button>
+            <button
+              type="button"
+              onClick={validator.confirmCodeReset}
+              disabled={Boolean(validator.resetCodeError)}
+              className="min-h-11 flex-1 rounded-lg bg-warn/20 px-4 py-2 text-sm font-semibold text-warn ring-1 ring-warn/40 transition hover:bg-warn/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Reset code
             </button>
           </div>
         </Modal>

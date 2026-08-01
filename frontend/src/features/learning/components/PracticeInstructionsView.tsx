@@ -44,7 +44,7 @@ interface PracticeInstructionsViewProps {
   onSelectExercise: (index: number) => void;
   onExitPractice: () => void;
   onNextExercise: () => void;
-  onResetPractice: () => void;
+  onResetPractice: () => Promise<boolean>;
   onHintReveal?: () => void;
   onCollapse?: () => void;
 }
@@ -64,6 +64,8 @@ export function PracticeInstructionsView({
 }: PracticeInstructionsViewProps) {
   const [showHints, setShowHints] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [resettingPractice, setResettingPractice] = useState(false);
+  const [resetAttempted, setResetAttempted] = useState(false);
   const current = exercises[currentIndex];
   const isComplete = current ? completedIds.includes(current.id) : false;
   const completedCount = completedIds.filter((id) =>
@@ -93,7 +95,10 @@ export function PracticeInstructionsView({
         </span>
         {completedCount > 0 && (
           <button
-            onClick={() => setConfirmReset(true)}
+            onClick={() => {
+              setResetAttempted(false);
+              setConfirmReset(true);
+            }}
             title="Reset practice progress for this lesson"
             className="rounded p-1 text-muted transition hover:bg-danger/10 hover:text-danger"
           >
@@ -229,16 +234,6 @@ export function PracticeInstructionsView({
           </div>
         )}
 
-        {saveError && (
-          <div
-            role="alert"
-            className="mt-3 rounded-lg border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-warn"
-          >
-            <div className="font-semibold">Practice result not saved</div>
-            <div className="mt-0.5 opacity-85">{saveError}</div>
-          </div>
-        )}
-
         {isComplete && hasNext && (
           <button
             onClick={onNextExercise}
@@ -260,7 +255,9 @@ export function PracticeInstructionsView({
 
       {confirmReset && (
         <Modal
-          onClose={() => setConfirmReset(false)}
+          onClose={() => {
+            if (!resettingPractice) setConfirmReset(false);
+          }}
           role="alertdialog"
           labelledBy="practice-reset-title"
           position="center"
@@ -270,21 +267,36 @@ export function PracticeInstructionsView({
           <p className="mt-2 text-base leading-relaxed text-muted sm:text-body">
             This clears your practice completions for this lesson. Your lesson progress stays intact.
           </p>
+          {resetAttempted && saveError && (
+            <div
+              role="alert"
+              className="mt-3 rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger"
+            >
+              Nothing was cleared. {saveError}
+            </div>
+          )}
           <div className="mt-3 flex items-center gap-2">
             <button
               onClick={() => setConfirmReset(false)}
+              disabled={resettingPractice}
               className="min-h-11 flex-1 rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               Cancel
             </button>
             <button
               onClick={() => {
-                onResetPractice();
-                setConfirmReset(false);
+                setResettingPractice(true);
+                setResetAttempted(true);
+                void onResetPractice()
+                  .then((reset) => {
+                    if (reset) setConfirmReset(false);
+                  })
+                  .finally(() => setResettingPractice(false));
               }}
+              disabled={resettingPractice}
               className="min-h-11 flex-1 rounded-lg bg-danger/20 px-3 py-2 text-sm font-semibold text-danger ring-1 ring-danger/40 transition hover:bg-danger/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger"
             >
-              Reset
+              {resettingPractice ? "Resetting…" : "Reset"}
             </button>
           </div>
         </Modal>

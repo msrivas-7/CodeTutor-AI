@@ -12,6 +12,7 @@ import {
   extractNameFromCode,
   hasCinematicSeen,
   markCinematicSeen,
+  readAnonWorkspace,
   readAnonStash,
   writeAnonStash,
 } from "../../anon/anonStash";
@@ -62,6 +63,7 @@ export default function AnonLessonPage() {
   const { courseId, lessonId } = useParams<{ courseId: string; lessonId: string }>();
   const allowed =
     courseId === ANON_ALLOWED.courseId && lessonId === ANON_ALLOWED.lessonId;
+  const initialWorkspaceRef = useRef(readAnonWorkspace());
 
   // Cinematic — anon variant. Plays once per browser tab; reload mid-
   // lesson does NOT replay (sessionStorage flag).
@@ -317,6 +319,7 @@ export default function AnonLessonPage() {
         mode="anon"
         courseId={ANON_ALLOWED.courseId}
         lessonId={ANON_ALLOWED.lessonId}
+        anonResumeSnapshot={initialWorkspaceRef.current}
         onAnonSave={onAnonSave}
         onAnonNext={onAnonNext}
         onAnonExhausted={onAnonExhausted}

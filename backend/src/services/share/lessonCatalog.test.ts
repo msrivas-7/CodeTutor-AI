@@ -4,6 +4,8 @@ import path from "node:path";
 import {
   _resetLessonCatalogCache,
   getCourseConceptTags,
+  getCourseStructure,
+  getLessonAccessRequirements,
   getLessonMemorySnapshot,
   getPracticeEvidenceSnapshot,
   getTutorLessonSnapshot,
@@ -104,7 +106,7 @@ describe("Phase B1 memory catalog authority", () => {
     expect(concepts).toContain("variables");
     expect(concepts).toContain("return");
     expect(concepts).toEqual([...(concepts ?? [])].sort());
-    expect(await getCourseConceptTags("_internal-python-smoke")).toBeNull();
+    expect(await getCourseConceptTags("internal-python-smoke")).toBeNull();
   });
 
   it("derives practice evidence from canonical exercise identity, never client tags", async () => {
@@ -137,5 +139,23 @@ describe("Phase B1 memory catalog authority", () => {
       getLessonMemorySnapshot("python-fundamentals", "not-a-lesson"),
     ).resolves.toBeNull();
     await expect(getCourseConceptTags("../python-fundamentals")).resolves.toBeNull();
+  });
+});
+
+describe("progress catalog authority", () => {
+  beforeEach(() => _resetLessonCatalogCache());
+
+  it("keeps a hidden internal smoke course writable without exposing it to memory", async () => {
+    await expect(getCourseStructure("internal-python-smoke")).resolves.toEqual({
+      lessonOrder: ["multi-file-test"],
+      prerequisiteCourseIds: [],
+    });
+    await expect(
+      getLessonAccessRequirements("internal-python-smoke", "multi-file-test"),
+    ).resolves.toEqual({
+      prerequisiteLessonIds: [],
+      prerequisiteCourseIds: [],
+    });
+    await expect(getCourseConceptTags("internal-python-smoke")).resolves.toBeNull();
   });
 });

@@ -3,6 +3,7 @@ import { Modal } from "../../../components/Modal";
 import { api } from "../../../api/client";
 import type {
   CreateShareBody,
+  OwnerShare,
   ShareMastery,
 } from "../../../api/client";
 import { ApiError } from "../../../api/ApiError";
@@ -61,6 +62,7 @@ function formatRelativeDate(iso: string): string {
 export interface ShareDialogProps {
   open: boolean;
   onClose: () => void;
+  onShareChanged?: (shared: boolean) => void;
   payload: {
     /** Fields submitted to POST /api/shares. */
     wire: Omit<CreateShareBody, "displayName">;
@@ -77,13 +79,15 @@ export interface ShareDialogProps {
   };
 }
 
-export function ShareDialog({ open, onClose, payload }: ShareDialogProps) {
+export function ShareDialog({ open, onClose, payload, onShareChanged }: ShareDialogProps) {
   // Default OFF (privacy by default). The toggle lifts to ON only when
   // the user opts in.
   const [showName, setShowName] = useState(false);
   // Three-state machine: compose → creating → created.
-  const [phase, setPhase] = useState<"compose" | "creating" | "created">(
-    "compose",
+  const [phase, setPhase] = useState<
+    "lookup" | "lookup_error" | "compose" | "creating" | "created"
+  >(
+    "lookup",
   );
   const [error, setError] = useState<string | null>(null);
   const [shareToken, setShareToken] = useState<string | null>(null);
@@ -107,6 +111,11 @@ export function ShareDialog({ open, onClose, payload }: ShareDialogProps) {
   const [existingCreatedAt, setExistingCreatedAt] = useState<string | null>(
     null,
   );
+  const [ownerShare, setOwnerShare] = useState<OwnerShare | null>(null);
+  const [managing, setManaging] = useState<
+    "name" | "refresh" | "rotate" | "revoke" | null
+  >(null);
+  const [confirmAction, setConfirmAction] = useState<"rotate" | "revoke" | null>(null);
   // Phase guard latch — once `handleCreate` starts, the lookup
   // callback that may resolve later must NOT overwrite the freshly-
   // created token. Using a ref so the latch is observable inside the
@@ -119,7 +128,7 @@ export function ShareDialog({ open, onClose, payload }: ShareDialogProps) {
   useEffect(() => {
     if (!open) return;
     setShowName(false);
-    setPhase("compose");
+    setPhase("lookup");
     setError(null);
     setShareToken(null);
     setCopyState("idle");
@@ -127,13 +136,15 @@ export function ShareDialog({ open, onClose, payload }: ShareDialogProps) {
     setStoryWaitElapsedMs(0);
     setStoryWaitGaveUp(false);
     setExistingCreatedAt(null);
+    setOwnerShare(null);
+    setManaging(null);
+    setConfirmAction(null);
     lookupSupersededRef.current = false;
     dismissReportedRef.current = false;
   }, [open]);
 
   // On open, check whether the user already has a share for this
-  // lesson. If yes — and it's at least as new as the most recent
-  // completion — jump straight to the created state. Avoids the
+  // lesson. If yes, jump straight to its managed state. Avoids the
   // duplicate-share-on-every-click footgun where a learner who shares,
   // dismisses, then re-opens gets a brand-new token + fresh poll wait
   // for an artifact that already exists.
@@ -154,6 +165,7 @@ export function ShareDialog({ open, onClose, payload }: ShareDialogProps) {
         // story image url, or display-name toggle state.
         if (lookupSupersededRef.current) return;
         setShareToken(existing.shareToken);
+        setOwnerShare(existing);
         if (existing.ogStoryImageUrl) {
           setStoryImageUrl(existing.ogStoryImageUrl);
         }
@@ -162,8 +174,14 @@ export function ShareDialog({ open, onClose, payload }: ShareDialogProps) {
         setShowName(existing.displayName !== null);
         setExistingCreatedAt(existing.createdAt);
         setPhase("created");
-      } catch {
-        /* 404 / network error: stay in compose; user creates fresh */
+      } catch (lookupError) {
+        if (cancelled) return;
+        if (lookupError instanceof ApiError && lookupError.status === 404) {
+          setPhase("compose");
+          return;
+        }
+        setError("We couldn't check your existing public shares. Retry before publishing so an older link isn't forgotten.");
+        setPhase("lookup_error");
       }
     })();
     return () => {
@@ -223,7 +241,12 @@ export function ShareDialog({ open, onClose, payload }: ShareDialogProps) {
 
   if (!open) return null;
 
-  const previewName = showName ? payload.suggestedName : null;
+  const previewName =
+    phase === "created"
+      ? ownerShare?.displayName ?? null
+      : showName
+        ? payload.suggestedName
+        : null;
 
   const handleCreate = async () => {
     if (phase !== "compose") return;
@@ -243,6 +266,17 @@ export function ShareDialog({ open, onClose, payload }: ShareDialogProps) {
         displayName: showName ? payload.suggestedName : null,
       });
       setShareToken(res.shareToken);
+      onShareChanged?.(true);
+      try {
+        const managed = await api.getMyShareForLesson(
+          payload.wire.courseId,
+          payload.wire.lessonId,
+        );
+        setOwnerShare(managed);
+        setExistingCreatedAt(managed.createdAt);
+      } catch {
+        // The public link is already valid; management can retry on reopen.
+      }
       setPhase("created");
     } catch (err) {
       // Keep the user in compose so they can retry / change opt-in.
@@ -259,6 +293,89 @@ export function ShareDialog({ open, onClose, payload }: ShareDialogProps) {
       }
       setError(msg);
       setPhase("compose");
+    }
+  };
+
+  const retryLookup = () => {
+    setError(null);
+    setPhase("lookup");
+    // Reopening the effect through a short close/open state transition would
+    // disturb focus. A direct lookup keeps this dialog and its focus stable.
+    void api
+      .getMyShareForLesson(payload.wire.courseId, payload.wire.lessonId)
+      .then((existing) => {
+        setOwnerShare(existing);
+        setShareToken(existing.shareToken);
+        setStoryImageUrl(existing.ogStoryImageUrl);
+        setShowName(existing.displayName !== null);
+        setExistingCreatedAt(existing.createdAt);
+        setPhase("created");
+      })
+      .catch((lookupError) => {
+        if (lookupError instanceof ApiError && lookupError.status === 404) {
+          setPhase("compose");
+          return;
+        }
+        setError("We still couldn't check your public shares. Your existing links have not been changed.");
+        setPhase("lookup_error");
+      });
+  };
+
+  const updateManagedShare = async (
+    kind: "name" | "refresh",
+    body: { displayName?: string | null; refreshSnapshot?: boolean },
+  ) => {
+    if (!shareToken || managing) return;
+    setManaging(kind);
+    setError(null);
+    try {
+      const updated = await api.updateShare(shareToken, body);
+      setOwnerShare(updated);
+      setShowName(updated.displayName !== null);
+      setStoryImageUrl(updated.ogStoryImageUrl);
+      setStoryWaitGaveUp(false);
+      setStoryWaitElapsedMs(0);
+      onShareChanged?.(true);
+    } catch (manageError) {
+      setError((manageError as Error).message);
+    } finally {
+      setManaging(null);
+    }
+  };
+
+  const rotateManagedShare = async () => {
+    if (!shareToken || managing) return;
+    setManaging("rotate");
+    setError(null);
+    try {
+      const rotated = await api.rotateShare(shareToken);
+      setOwnerShare(rotated);
+      setShareToken(rotated.shareToken);
+      setStoryImageUrl(null);
+      setStoryWaitGaveUp(false);
+      setStoryWaitElapsedMs(0);
+      setCopyState("idle");
+      setConfirmAction(null);
+      onShareChanged?.(true);
+    } catch (manageError) {
+      setError((manageError as Error).message);
+    } finally {
+      setManaging(null);
+    }
+  };
+
+  const revokeManagedShare = async () => {
+    if (!shareToken || managing) return;
+    setManaging("revoke");
+    setError(null);
+    try {
+      await api.revokeShare(shareToken);
+      onShareChanged?.(false);
+      setConfirmAction(null);
+      onClose();
+    } catch (manageError) {
+      setError((manageError as Error).message);
+      setManaging(null);
     }
   };
 
@@ -356,20 +473,52 @@ export function ShareDialog({ open, onClose, payload }: ShareDialogProps) {
       <div className="mb-4 flex justify-center">
         <ShareCardPreviewScaled
           width={480}
-          lessonTitle={payload.preview.lessonTitle}
+          lessonTitle={ownerShare?.lessonTitle ?? payload.preview.lessonTitle}
           lessonOrder={payload.preview.lessonOrder}
-          courseTitle={payload.preview.courseTitle}
+          courseTitle={ownerShare?.courseTitle ?? payload.preview.courseTitle}
           courseTotalLessons={payload.preview.courseTotalLessons}
-          mastery={payload.wire.mastery}
-          timeSpentMs={payload.wire.timeSpentMs}
-          attemptCount={payload.wire.attemptCount}
-          codeSnippet={payload.wire.codeSnippet}
+          mastery={ownerShare?.mastery ?? payload.wire.mastery}
+          timeSpentMs={ownerShare?.timeSpentMs ?? payload.wire.timeSpentMs}
+          attemptCount={ownerShare?.attemptCount ?? payload.wire.attemptCount}
+          codeSnippet={ownerShare?.codeSnippet ?? payload.wire.codeSnippet}
           displayName={previewName}
           shareToken={shareToken ?? "preview"}
         />
       </div>
 
-      {phase !== "created" ? (
+      {phase === "lookup" ? (
+        <div
+          role="status"
+          className="rounded-lg border border-border bg-elevated/40 px-4 py-5 text-center text-sm text-muted"
+        >
+          Checking whether this lesson is already public…
+        </div>
+      ) : phase === "lookup_error" ? (
+        <div className="space-y-3">
+          <div
+            role="alert"
+            className="rounded-lg border border-warn/40 bg-warn/10 px-3 py-3 text-sm leading-relaxed text-warn"
+          >
+            {error}
+          </div>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={handleDismiss}
+              className="min-h-11 rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted transition hover:bg-elevated hover:text-ink"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={retryLookup}
+              className="min-h-11 rounded-lg bg-accent/20 px-4 py-2 text-sm font-semibold text-accent ring-1 ring-accent/40 transition hover:bg-accent/30"
+            >
+              Retry check
+            </button>
+          </div>
+        </div>
+      ) : phase !== "created" ? (
         <>
           {/* Display-name opt-in. Off by default (privacy by default).
               Disabled when no name is available. */}
@@ -456,6 +605,86 @@ export function ShareDialog({ open, onClose, payload }: ShareDialogProps) {
               {copyState === "copied" ? "Copied ✓" : "Copy"}
             </button>
           </div>
+
+          <section
+            aria-labelledby="manage-share-title"
+            className="mb-4 rounded-xl border border-border bg-elevated/30 p-3"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <h3 id="manage-share-title" className="text-sm font-semibold text-ink">
+                  Manage public share
+                </h3>
+                <p className="mt-0.5 text-xs leading-relaxed text-muted">
+                  Public to anyone with the link
+                  {ownerShare?.updatedAt
+                    ? ` · Updated ${formatRelativeDate(ownerShare.updatedAt)}`
+                    : ""}
+                </p>
+              </div>
+              <span className="rounded-full bg-success/15 px-2.5 py-1 text-xs font-semibold text-success">
+                Live
+              </span>
+            </div>
+
+            <label className="mt-3 flex min-h-11 items-center gap-3 rounded-lg border border-border bg-panel/60 px-3 py-2 text-sm">
+              <input
+                type="checkbox"
+                checked={ownerShare?.displayName !== null && ownerShare?.displayName !== undefined}
+                disabled={managing !== null || (!ownerShare?.displayName && !payload.suggestedName)}
+                onChange={(event) =>
+                  void updateManagedShare("name", {
+                    displayName: event.target.checked ? payload.suggestedName : null,
+                  })
+                }
+                className="h-5 w-5 accent-accent"
+              />
+              <span className="min-w-0 flex-1">
+                <span className="font-medium text-ink">Show my name</span>
+                <span className="mt-0.5 block text-xs text-muted">
+                  {ownerShare?.displayName
+                    ? `Currently shown as ${ownerShare.displayName}.`
+                    : "Currently anonymous."}
+                </span>
+              </span>
+              {managing === "name" && <span className="text-xs text-muted">Saving…</span>}
+            </label>
+
+            {error && (
+              <div role="alert" className="mt-3 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn">
+                {error}
+              </div>
+            )}
+
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                disabled={managing !== null}
+                onClick={() =>
+                  void updateManagedShare("refresh", { refreshSnapshot: true })
+                }
+                className="min-h-11 rounded-lg border border-border bg-panel px-3 py-2 text-xs font-semibold text-muted transition hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-60"
+              >
+                {managing === "refresh" ? "Updating code…" : "Update shared code"}
+              </button>
+              <button
+                type="button"
+                disabled={managing !== null}
+                onClick={() => setConfirmAction("rotate")}
+                className="min-h-11 rounded-lg border border-border bg-panel px-3 py-2 text-xs font-semibold text-muted transition hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-60"
+              >
+                Replace public link
+              </button>
+              <button
+                type="button"
+                disabled={managing !== null}
+                onClick={() => setConfirmAction("revoke")}
+                className="min-h-11 rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-xs font-semibold text-danger transition hover:bg-danger/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger disabled:opacity-60 sm:col-span-2"
+              >
+                Stop sharing publicly
+              </button>
+            </div>
+          </section>
 
           {/* Save for Stories — pulls down the 9:16 PNG with a stable
               filename so the user can drop it directly into IG Stories,
@@ -575,6 +804,55 @@ export function ShareDialog({ open, onClose, payload }: ShareDialogProps) {
             </div>
           )}
         </>
+      )}
+      {confirmAction && (
+        <Modal
+          onClose={() => {
+            if (!managing) setConfirmAction(null);
+          }}
+          role="alertdialog"
+          labelledBy="share-change-confirm-title"
+          position="center"
+          zIndex={70}
+          panelClassName="mx-4 w-full max-w-sm rounded-xl border border-danger/30 bg-panel p-5 shadow-2xl"
+        >
+          <h3 id="share-change-confirm-title" className="text-lg font-bold text-ink">
+            {confirmAction === "revoke"
+              ? "Stop sharing this lesson?"
+              : "Replace the public link?"}
+          </h3>
+          <p className="mt-2 text-sm leading-relaxed text-muted">
+            {confirmAction === "revoke"
+              ? "The public page will stop working immediately. Previously cached image copies may remain temporarily. You can publish a fresh share later."
+              : "The current link will stop working immediately. Copy the replacement before sending it to anyone."}
+          </p>
+          <div className="mt-4 flex gap-2">
+            <button
+              type="button"
+              disabled={managing !== null}
+              onClick={() => setConfirmAction(null)}
+              className="min-h-11 flex-1 rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted transition hover:bg-elevated hover:text-ink"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={managing !== null}
+              onClick={() =>
+                void (confirmAction === "revoke"
+                  ? revokeManagedShare()
+                  : rotateManagedShare())
+              }
+              className="min-h-11 flex-1 rounded-lg bg-danger/20 px-3 py-2 text-sm font-semibold text-danger ring-1 ring-danger/40 transition hover:bg-danger/30 disabled:opacity-60"
+            >
+              {managing
+                ? "Working…"
+                : confirmAction === "revoke"
+                  ? "Stop sharing"
+                  : "Replace link"}
+            </button>
+          </div>
+        </Modal>
       )}
     </Modal>
   );

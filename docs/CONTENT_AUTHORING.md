@@ -25,7 +25,7 @@ A course declares its `language` in `course.json`; every lesson inherits it via 
 
 `frontend/scripts/language.ts` is the scripts-side source of truth: `SCAFFOLD_LANGUAGES` (which languages `new-lesson`/`new-practice` accept), `entryFileFor(language)` (e.g., `main.py` / `main.js`), `fileExtForLanguage`, per-language `functionStub`, and `hasFunctionTestsHarnessLanguage(language)`. The per-language authoring floor lives in `FUNCTION_TESTS_ORDER_FLOOR_BY_LANGUAGE` inside `scripts/content-lint.ts` — it tracks when each course introduces the concept of user-defined functions. Templates live under `scripts/templates/<language>/`. When adding a new language, add SCAFFOLD entry + templates here, pick a floor, and register a backend `HarnessBackend` in `backend/src/services/execution/harness/` before attempting to author `function_tests` lessons.
 
-An `"internal": true` flag on `course.json` hides a course from learner-facing listings (`courseLoader.listPublicCourses()` filters these out) while keeping it visible to the dev content-health dashboard and all CI tooling. Use this for smoke-test courses like `_internal-js-smoke` that only exist to keep non-Python code paths exercised end-to-end.
+An `"internal": true` flag on `course.json` hides a course from learner-facing listings (`courseLoader.listPublicCourses()` filters these out) while keeping it visible to the dev content-health dashboard and all CI tooling. Use this for smoke-test courses like `internal-js-smoke` that only exist to keep non-Python code paths exercised end-to-end. Internal course IDs still follow the same lowercase slug contract as learner-facing IDs so authenticated progress can be saved safely.
 
 ### Public discovery output
 

@@ -61,7 +61,17 @@ function initialsFrom(user: User): string {
   return user.id.slice(0, 2).toUpperCase() || "??";
 }
 
-export function UserMenu({ className }: { className?: string } = {}) {
+export function UserMenu({
+  className,
+  onShareChanged,
+}: {
+  className?: string;
+  onShareChanged?: (change: {
+    courseId: string;
+    lessonId: string;
+    shared: boolean;
+  }) => void;
+} = {}) {
   const user = useAuthStore((s) => s.user);
   const signOut = useAuthStore((s) => s.signOut);
   const isAdmin = useAuthStore((s) => s.isAdmin());
@@ -212,13 +222,16 @@ export function UserMenu({ className }: { className?: string } = {}) {
       )}
       {showSettings && (
         <SettingsModal
+          onShareChanged={onShareChanged}
           onClose={() => {
             setShowSettings(false);
             // A10: the menu item that opened Settings is no longer in the
             // DOM (dropdown closed on open), so Modal's generic focus-
-            // restore has nothing to return to. Park focus back on the
-            // trigger explicitly so keyboard users aren't stranded.
-            triggerRef.current?.focus();
+            // restore has nothing to return to. Modal defers its own restore
+            // to a microtask during unmount, so defer this explicit target one
+            // task further; otherwise that cleanup wins and leaves focus on
+            // document.body.
+            window.setTimeout(() => triggerRef.current?.focus(), 0);
           }}
         />
       )}

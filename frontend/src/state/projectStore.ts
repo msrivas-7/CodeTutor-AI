@@ -2,7 +2,7 @@ import { create } from "zustand";
 import type { Language, ProjectFile } from "../types";
 import { useAIStore } from "./aiStore";
 import { useRunStore } from "./runStore";
-import { api } from "../api/client";
+import { api, type EditorProjectPayload, type EditorProjectResponse } from "../api/client";
 import { currentGen } from "../auth/generation";
 import { STARTERS } from "../util/starters";
 
@@ -71,6 +71,13 @@ interface ProjectState {
   // persisted content already in `files` rather than flashing the starter.
   editorHydrated: boolean;
   editorHydrateError: string | null;
+  editorServerRevision: number;
+  editorServerWriterId: string | null;
+  editorSaveError: string | null;
+  editorSaveConflict: {
+    local: EditorProjectPayload;
+    remote: EditorProjectResponse;
+  } | null;
   hydrateEditor: (gen?: number) => Promise<void>;
   resetEditorHydration: () => void;
   setLanguage: (lang: Language) => void;
@@ -149,12 +156,22 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   projectContext: null,
   editorHydrated: false,
   editorHydrateError: null,
+  editorServerRevision: 0,
+  editorServerWriterId: null,
+  editorSaveError: null,
+  editorSaveConflict: null,
   hydrateEditor: async (gen) => {
     set({ editorHydrateError: null });
     try {
       const remote = await api.getEditorProject();
       if (gen !== undefined && gen !== currentGen()) return;
       const hasFiles = Object.keys(remote.files ?? {}).length > 0;
+      set({
+        editorServerRevision: remote.revision,
+        editorServerWriterId: remote.writerId,
+        editorSaveError: null,
+        editorSaveConflict: null,
+      });
       if (hasFiles) {
         // Server has a persisted project — overwrite the in-memory starter
         // so MonacoPane's first render sees the user's code. We also push
@@ -205,6 +222,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set((state) => ({
       editorHydrated: false,
       editorHydrateError: null,
+      editorServerRevision: 0,
+      editorServerWriterId: null,
+      editorSaveError: null,
+      editorSaveConflict: null,
       revision: state.revision + 1,
     }));
     invalidateDerivedEvidence();
@@ -395,7 +416,12 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         revision: current.revision + 1,
       }));
     }
-    invalidateDerivedEvidence();
+    // Run evidence is context-scoped by runStore and must survive the handoff
+    // long enough for switchRunContext() to cache it. Clearing it here erased
+    // lesson output/stdin before practice or Editor could save that context.
+    // Project revision still invalidates in-flight operations; selection is
+    // not portable across project contexts.
+    useAIStore.getState().setActiveSelection(null);
   },
 }));
 

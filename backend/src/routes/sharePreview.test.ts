@@ -41,6 +41,9 @@ const share: SharedCompletion = {
   ogStoryImagePath: "s/should-not-leak-story.png",
   viewCount: 42,
   createdAt: "2026-07-31T00:00:00.000Z",
+  updatedAt: "2026-07-31T00:00:00.000Z",
+  revision: 0,
+  rotatedAt: null,
   revokedAt: null,
 };
 

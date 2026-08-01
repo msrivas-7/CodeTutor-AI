@@ -20,7 +20,16 @@ import { readDistributionAttribution } from "../features/distribution/attributio
 async function throwApiError(res: Response, path: string): Promise<never> {
   const body = await res.text().catch(() => "");
   console.error(`[api] ${path} failed: ${res.status} ${body}`);
-  throw new ApiError(res.status, body, path);
+  const retryAfterRaw = res.headers.get("Retry-After");
+  const retryAfterSeconds = retryAfterRaw
+    ? Math.max(0, Number.parseInt(retryAfterRaw, 10))
+    : null;
+  throw new ApiError(
+    res.status,
+    body,
+    path,
+    Number.isFinite(retryAfterSeconds) ? retryAfterSeconds : null,
+  );
 }
 
 // Phase 18a: attach the Supabase access token to every backend request so
@@ -28,12 +37,8 @@ async function throwApiError(res: Response, path: string): Promise<never> {
 // the session lazily per-request — the SDK caches and auto-refreshes, so
 // `getSession()` returns synchronously from cache in the common path.
 //
-// `signOutOn401` centralises the "token is invalid" response: we clear the
-// Supabase session (which triggers onAuthStateChange → RequireAuth → /login)
-// and propagate the error up. This keeps stale-session handling out of every
-// call site. /api/health is callable pre-auth; every other backend route
-// (including /api/ai/validate-key — both UI call sites live behind
-// RequireAuth) requires an Authorization header.
+// /api/health is callable pre-auth; every other backend route (including
+// /api/ai/validate-key) requires an Authorization header.
 async function authHeaders(): Promise<Record<string, string>> {
   try {
     const { data } = await supabase.auth.getSession();
@@ -44,13 +49,44 @@ async function authHeaders(): Promise<Record<string, string>> {
   }
 }
 
-async function handle401(res: Response): Promise<void> {
-  if (res.status !== 401) return;
-  try {
-    await supabase.auth.signOut();
-  } catch {
-    /* best-effort — the state listener will flush anyway */
-  }
+let refreshInFlight: Promise<string | null> | null = null;
+
+async function refreshAccessToken(): Promise<string | null> {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = supabase.auth
+    .refreshSession()
+    .then(({ data, error }) => {
+      if (error) return null;
+      return data.session?.access_token ?? null;
+    })
+    .catch(() => null)
+    .finally(() => {
+      refreshInFlight = null;
+    });
+  return refreshInFlight;
+}
+
+/**
+ * Authenticated requests get one explicit token-refresh retry on 401. A
+ * second 401 is returned to the caller as a recoverable action error; it does
+ * not silently sign the learner out or destroy the route they were using.
+ */
+async function authenticatedFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const send = async (tokenOverride?: string | null) => {
+    const auth = tokenOverride
+      ? { Authorization: `Bearer ${tokenOverride}` }
+      : await authHeaders();
+    return fetch(`${API_BASE}${path}`, {
+      ...init,
+      headers: { ...auth, ...(init.headers ?? {}) },
+    });
+  };
+  let res = await send();
+  if (res.status !== 401) return res;
+  const refreshed = await refreshAccessToken();
+  if (!refreshed) return res;
+  res = await send(refreshed);
+  return res;
 }
 
 // QA-H3: registry of in-flight fetches keyed by sessionId so a rebind that
@@ -89,55 +125,47 @@ export function abortSessionRequests(sessionId: string): number {
 }
 
 async function post<T>(path: string, body?: unknown, extraHeaders?: Record<string, string>): Promise<T> {
-  const auth = await authHeaders();
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await authenticatedFetch(path, {
     method: "POST",
-    headers: { ...JSON_HEADERS, ...CSRF_HEADER, ...auth, ...(extraHeaders ?? {}) },
+    headers: { ...JSON_HEADERS, ...CSRF_HEADER, ...(extraHeaders ?? {}) },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!res.ok) {
-    await handle401(res);
     await throwApiError(res, path);
   }
   return res.json() as Promise<T>;
 }
 
 async function patch<T>(path: string, body: unknown): Promise<T> {
-  const auth = await authHeaders();
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await authenticatedFetch(path, {
     method: "PATCH",
-    headers: { ...JSON_HEADERS, ...CSRF_HEADER, ...auth },
+    headers: { ...JSON_HEADERS, ...CSRF_HEADER },
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    await handle401(res);
     await throwApiError(res, path);
   }
   return res.json() as Promise<T>;
 }
 
 async function put<T>(path: string, body: unknown): Promise<T> {
-  const auth = await authHeaders();
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await authenticatedFetch(path, {
     method: "PUT",
-    headers: { ...JSON_HEADERS, ...CSRF_HEADER, ...auth },
+    headers: { ...JSON_HEADERS, ...CSRF_HEADER },
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    await handle401(res);
     await throwApiError(res, path);
   }
   return res.json() as Promise<T>;
 }
 
 async function del<T>(path: string): Promise<T> {
-  const auth = await authHeaders();
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await authenticatedFetch(path, {
     method: "DELETE",
-    headers: { ...CSRF_HEADER, ...auth },
+    headers: { ...CSRF_HEADER },
   });
   if (!res.ok) {
-    await handle401(res);
     await throwApiError(res, path);
   }
   return res.json() as Promise<T>;
@@ -147,24 +175,20 @@ async function del<T>(path: string): Promise<T> {
 // (kill session, kill all-for-user) carry a phrase-confirm body even
 // though the HTTP semantics are deletion.
 async function delJson<T>(path: string, body: unknown): Promise<T> {
-  const auth = await authHeaders();
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await authenticatedFetch(path, {
     method: "DELETE",
-    headers: { "Content-Type": "application/json", ...CSRF_HEADER, ...auth },
+    headers: { "Content-Type": "application/json", ...CSRF_HEADER },
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    await handle401(res);
     await throwApiError(res, path);
   }
   return res.json() as Promise<T>;
 }
 
 async function get<T>(path: string, extraHeaders?: Record<string, string>): Promise<T> {
-  const auth = await authHeaders();
-  const res = await fetch(`${API_BASE}${path}`, { headers: { ...auth, ...(extraHeaders ?? {}) } });
+  const res = await authenticatedFetch(path, { headers: { ...(extraHeaders ?? {}) } });
   if (!res.ok) {
-    await handle401(res);
     await throwApiError(res, path);
   }
   return res.json() as Promise<T>;
@@ -300,6 +324,9 @@ export interface ServerLessonProgress {
   hintCount: number;
   timeSpentMs: number;
   lastCode: Record<string, string> | null;
+  draftRevision: number;
+  draftWriterId: string | null;
+  draftUpdatedAt: string | null;
   lastOutput: string | null;
   practiceCompletedIds: string[];
   practiceExerciseCode: Record<string, Record<string, string>>;
@@ -313,7 +340,6 @@ export interface ServerLessonPatch {
   runCount?: number;
   hintCount?: number;
   timeSpentMs?: number;
-  lastCode?: Record<string, string> | null;
   lastOutput?: string | null;
   practiceCompletedIds?: string[];
   practiceExerciseCode?: Record<string, Record<string, string>>;
@@ -382,9 +408,13 @@ export interface EditorProjectPayload {
   openTabs: string[];
   fileOrder: string[];
   stdin: string;
+  expectedRevision: number;
+  writerId: string;
 }
 
-export interface EditorProjectResponse extends EditorProjectPayload {
+export interface EditorProjectResponse extends Omit<EditorProjectPayload, "expectedRevision" | "writerId"> {
+  revision: number;
+  writerId: string | null;
   updatedAt: string;
 }
 
@@ -714,6 +744,7 @@ export interface AdminEmailLogEntry {
   htmlBody: string;
   acsOpId: string | null;
   sentAt: string;
+  capabilitiesRedacted: true;
 }
 
 export interface AdminEmailLogResponse {
@@ -833,6 +864,27 @@ export interface CreateShareBody {
   displayName: string | null;
 }
 
+export interface OwnerShare {
+  shareToken: string;
+  courseId: string;
+  lessonId: string;
+  lessonTitle: string;
+  courseTitle: string;
+  displayName: string | null;
+  codeSnippet: string;
+  mastery: ShareMastery;
+  timeSpentMs: number;
+  attemptCount: number;
+  viewCount: number;
+  url: string;
+  ogImageUrl: string | null;
+  ogStoryImageUrl: string | null;
+  createdAt: string;
+  updatedAt: string;
+  rotatedAt: string | null;
+  revision: number;
+}
+
 // Phase 21A: saved tutor messages.
 export interface SavedTutorMessage {
   id: string;
@@ -864,6 +916,8 @@ export interface SaveTutorMessageBody extends SavedTutorScope {
 export const api = {
   startSession: () =>
     post<{ sessionId: string; backendBootId?: string }>("/api/session"),
+  resumeSession: () =>
+    post<{ sessionId: string; backendBootId?: string }>("/api/session/resume"),
   rebindSession: (sessionId: string) =>
     post<{ sessionId: string; reused: boolean; backendBootId?: string }>(
       "/api/session/rebind",
@@ -885,10 +939,9 @@ export const api = {
   > => {
     const ctrl = registerSessionRequest(sessionId);
     try {
-      const auth = await authHeaders();
-      const res = await fetch(`${API_BASE}/api/session/ping`, {
+      const res = await authenticatedFetch("/api/session/ping", {
         method: "POST",
-        headers: { ...JSON_HEADERS, ...CSRF_HEADER, ...auth },
+        headers: { ...JSON_HEADERS, ...CSRF_HEADER },
         body: JSON.stringify({ sessionId }),
         signal: ctrl.signal,
       });
@@ -898,7 +951,6 @@ export const api = {
         } | null;
         return { ok: true, backendBootId: body?.backendBootId };
       }
-      await handle401(res);
       const text = await res.text().catch(() => "");
       // QA-L5: a 404 that comes from a cold backend includes a bootId that
       // differs from the one the frontend cached on its last successful
@@ -927,14 +979,12 @@ export const api = {
   sessionStatus: async (sessionId: string) => {
     const ctrl = registerSessionRequest(sessionId);
     try {
-      const auth = await authHeaders();
-      const res = await fetch(`${API_BASE}/api/session/${sessionId}/status`, {
-        headers: { ...auth },
+      const path = `/api/session/${sessionId}/status`;
+      const res = await authenticatedFetch(path, {
         signal: ctrl.signal,
       });
       if (!res.ok) {
-        await handle401(res);
-        await throwApiError(res, `/api/session/${sessionId}/status`);
+        await throwApiError(res, path);
       }
       return (await res.json()) as {
         alive: boolean;
@@ -949,15 +999,13 @@ export const api = {
   snapshotProject: async (sessionId: string, files: ProjectFile[]) => {
     const ctrl = registerSessionRequest(sessionId);
     try {
-      const auth = await authHeaders();
-      const res = await fetch(`${API_BASE}/api/project/snapshot`, {
+      const res = await authenticatedFetch("/api/project/snapshot", {
         method: "POST",
-        headers: { ...JSON_HEADERS, ...CSRF_HEADER, ...auth },
+        headers: { ...JSON_HEADERS, ...CSRF_HEADER },
         body: JSON.stringify({ sessionId, files }),
         signal: ctrl.signal,
       });
       if (!res.ok) {
-        await handle401(res);
         await throwApiError(res, "/api/project/snapshot");
       }
       return (await res.json()) as { ok: boolean; fileCount: number };
@@ -968,15 +1016,13 @@ export const api = {
   execute: async (sessionId: string, language: Language, stdin?: string) => {
     const ctrl = registerSessionRequest(sessionId);
     try {
-      const auth = await authHeaders();
-      const res = await fetch(`${API_BASE}/api/execute`, {
+      const res = await authenticatedFetch("/api/execute", {
         method: "POST",
-        headers: { ...JSON_HEADERS, ...CSRF_HEADER, ...auth },
+        headers: { ...JSON_HEADERS, ...CSRF_HEADER },
         body: JSON.stringify({ sessionId, language, stdin }),
         signal: ctrl.signal,
       });
       if (!res.ok) {
-        await handle401(res);
         await throwApiError(res, "/api/execute");
       }
       return (await res.json()) as RunResult;
@@ -1115,15 +1161,13 @@ export const api = {
   ) => {
     const ctrl = registerSessionRequest(sessionId);
     try {
-      const auth = await authHeaders();
-      const res = await fetch(`${API_BASE}/api/execute/tests`, {
+      const res = await authenticatedFetch("/api/execute/tests", {
         method: "POST",
-        headers: { ...JSON_HEADERS, ...CSRF_HEADER, ...auth },
+        headers: { ...JSON_HEADERS, ...CSRF_HEADER },
         body: JSON.stringify({ sessionId, language, tests }),
         signal: ctrl.signal,
       });
       if (!res.ok) {
-        await handle401(res);
         await throwApiError(res, "/api/execute/tests");
       }
       return (await res.json()) as ExecuteTestsResponse;
@@ -1159,6 +1203,27 @@ export const api = {
     patch<ServerLessonProgress>(
       `/api/user/lessons/${encodeURIComponent(courseId)}/${encodeURIComponent(lessonId)}`,
       body,
+    ),
+  saveLessonDraft: (
+    courseId: string,
+    lessonId: string,
+    body: {
+      code: Record<string, string>;
+      expectedRevision: number;
+      writerId: string;
+    },
+  ) =>
+    put<ServerLessonProgress>(
+      `/api/user/lessons/${encodeURIComponent(courseId)}/${encodeURIComponent(lessonId)}/draft`,
+      body,
+    ),
+  resetLessonProgress: (courseId: string, lessonId: string) =>
+    del<{ reset: ServerLessonProgress; course: ServerCourseProgress }>(
+      `/api/user/lessons/${encodeURIComponent(courseId)}/${encodeURIComponent(lessonId)}`,
+    ),
+  resetPracticeProgress: (courseId: string, lessonId: string) =>
+    del<ServerLessonProgress>(
+      `/api/user/lessons/${encodeURIComponent(courseId)}/${encodeURIComponent(lessonId)}/practice`,
     ),
   getConceptMemory: (courseId: string) =>
     get<ConceptMemoryResponse>(
@@ -1226,36 +1291,33 @@ export const api = {
   revokeShare: (token: string) =>
     del<{ ok: boolean }>(`/api/shares/${encodeURIComponent(token)}`),
   // "Have I already shared this lesson?" — owner-scoped lookup. Returns
-  // 404 when no share exists for this (course, lesson), or when the
-  // most recent share predates the lesson's current completion (i.e.,
-  // the lesson was reset+re-completed since). The dialog calls this on
+  // 404 when no active share exists for this (course, lesson). The dialog calls this on
   // open: 200 → jump straight to created state with the existing token,
   // 404 → compose state for a fresh share.
   getMyShareForLesson: (courseId: string, lessonId: string) =>
-    get<{
-      shareToken: string;
-      url: string;
-      ogImageUrl: string | null;
-      ogStoryImageUrl: string | null;
-      createdAt: string;
-      displayName: string | null;
-    }>(
+    get<OwnerShare>(
       `/api/shares/mine?courseId=${encodeURIComponent(courseId)}&lessonId=${encodeURIComponent(lessonId)}`,
     ),
+  listMyShares: () => get<{ shares: OwnerShare[] }>("/api/shares/mine/all"),
+  updateShare: (
+    token: string,
+    body: { displayName?: string | null; refreshSnapshot?: boolean },
+  ) =>
+    patch<OwnerShare>(`/api/shares/${encodeURIComponent(token)}`, body),
+  rotateShare: (token: string) =>
+    post<OwnerShare>(`/api/shares/${encodeURIComponent(token)}/rotate`, {}),
 
   // Phase 20-P0 #9: DELETE with a body for the confirm-email guard. The
   // generic `del<T>` helper doesn't send a body; inline the fetch so we
   // don't complicate the helper surface for a single callsite.
   deleteAccount: async (confirmEmail: string): Promise<{ ok: boolean }> => {
     const path = "/api/user/account";
-    const auth = await authHeaders();
-    const res = await fetch(`${API_BASE}${path}`, {
+    const res = await authenticatedFetch(path, {
       method: "DELETE",
-      headers: { ...JSON_HEADERS, ...CSRF_HEADER, ...auth },
+      headers: { ...JSON_HEADERS, ...CSRF_HEADER },
       body: JSON.stringify({ confirmEmail }),
     });
     if (!res.ok) {
-      await handle401(res);
       await throwApiError(res, path);
     }
     return res.json();
@@ -1290,27 +1352,23 @@ export const api = {
   reportExhaustionClick: async (
     outcome: "dismissed" | "clicked_byok" | "clicked_paid_interest",
   ): Promise<void> => {
-    const auth = await authHeaders();
-    const res = await fetch(`${API_BASE}/api/user/ai-exhaustion-click`, {
+    const res = await authenticatedFetch("/api/user/ai-exhaustion-click", {
       method: "POST",
-      headers: { ...JSON_HEADERS, ...CSRF_HEADER, ...auth },
+      headers: { ...JSON_HEADERS, ...CSRF_HEADER },
       body: JSON.stringify({ outcome }),
     });
     if (!res.ok) {
-      await handle401(res);
       await throwApiError(res, "/api/user/ai-exhaustion-click");
     }
   },
   // Willingness-to-pay signal. Server reads email/display_name from the
   // auth session; the client sends no body.
   submitPaidAccessInterest: async (): Promise<void> => {
-    const auth = await authHeaders();
-    const res = await fetch(`${API_BASE}/api/user/paid-access-interest`, {
+    const res = await authenticatedFetch("/api/user/paid-access-interest", {
       method: "POST",
-      headers: { ...JSON_HEADERS, ...CSRF_HEADER, ...auth },
+      headers: { ...JSON_HEADERS, ...CSRF_HEADER },
     });
     if (!res.ok) {
-      await handle401(res);
       await throwApiError(res, "/api/user/paid-access-interest");
     }
   },
@@ -1318,13 +1376,11 @@ export const api = {
   // row; the next /ai-status refetch reports hasShownPaidInterest=false and
   // every mounted surface restores the CTA in lockstep.
   withdrawPaidAccessInterest: async (): Promise<void> => {
-    const auth = await authHeaders();
-    const res = await fetch(`${API_BASE}/api/user/paid-access-interest`, {
+    const res = await authenticatedFetch("/api/user/paid-access-interest", {
       method: "DELETE",
-      headers: { ...CSRF_HEADER, ...auth },
+      headers: { ...CSRF_HEADER },
     });
     if (!res.ok) {
-      await handle401(res);
       await throwApiError(res, "/api/user/paid-access-interest");
     }
   },
@@ -1334,13 +1390,10 @@ export const api = {
   // Content-Disposition; we turn the Blob into an <a download> click so the
   // browser's Downloads UX kicks in (no new tab, no inline render).
   downloadUserExport: async (): Promise<void> => {
-    const auth = await authHeaders();
-    const res = await fetch(`${API_BASE}/api/user/export`, {
+    const res = await authenticatedFetch("/api/user/export", {
       method: "GET",
-      headers: { ...auth },
     });
     if (!res.ok) {
-      await handle401(res);
       await throwApiError(res, "/api/user/export");
     }
     const blob = await res.blob();
@@ -1409,11 +1462,10 @@ export const api = {
 
     let res: Response;
     try {
-      const auth = await authHeaders();
       const endpoint = options?.endpoint ?? "/api/ai/ask/stream";
-      res = await fetch(`${API_BASE}${endpoint}`, {
+      res = await authenticatedFetch(endpoint, {
         method: "POST",
-        headers: { ...JSON_HEADERS, ...CSRF_HEADER, ...auth },
+        headers: { ...JSON_HEADERS, ...CSRF_HEADER },
         body: JSON.stringify(body),
         signal: streamCtrl.signal,
       });
@@ -1425,7 +1477,6 @@ export const api = {
 
     if (!res.ok || !res.body) {
       clearWatchdog();
-      await handle401(res);
       const text = await res.text().catch(() => "");
       handlers.onError(text || `HTTP ${res.status}`);
       return;
@@ -1826,14 +1877,12 @@ export interface AnonHandoffResponse {
 // PUT JSON helper (the existing post / patch helpers don't cover PUT,
 // and admin routes use PUT for set-override / set-system-config).
 async function putJson<T>(path: string, body: unknown): Promise<T> {
-  const auth = await authHeaders();
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await authenticatedFetch(path, {
     method: "PUT",
-    headers: { "Content-Type": "application/json", ...CSRF_HEADER, ...auth },
+    headers: { "Content-Type": "application/json", ...CSRF_HEADER },
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    await handle401(res);
     await throwApiError(res, path);
   }
   return res.json() as Promise<T>;

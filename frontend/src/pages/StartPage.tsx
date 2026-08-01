@@ -12,7 +12,12 @@ import { listPublicCourses, loadAllLessonMetas } from "../features/learning/cont
 import { ResumeLearningCard } from "../features/learning/components/ResumeLearningCard";
 import { StreakChip } from "../features/learning/components/StreakChip";
 import type { Course, CourseProgress, LessonMeta } from "../features/learning/types";
-import { clearAnonStash, readAnonStash, writeAnonStash } from "../features/anon/anonStash";
+import {
+  clearAnonStash,
+  clearAnonWorkspace,
+  readAnonStash,
+  writeAnonStash,
+} from "../features/anon/anonStash";
 import { PENDING_INVITE_KEY } from "../features/anon/InviteCapture";
 import { evalSamplingSubjectTokenForHandoff } from "../features/anon/evalSamplingConsent";
 import { api } from "../api/client";
@@ -228,6 +233,7 @@ export default function StartPage() {
           ]);
           if (cancelled) return;
           clearAnonStash();
+          clearAnonWorkspace();
           usePreferencesStore.setState({
             welcomeDone: flags.welcomeDone,
             workspaceCoachDone: flags.workspaceCoachDone,
@@ -305,6 +311,7 @@ export default function StartPage() {
       .then(() => {
         if (cancelled) return;
         clearAnonStash();
+        clearAnonWorkspace();
         // Patch the local preferences store BEFORE the nav so a
         // subsequent /start visit in the same session (e.g., via
         // LearningDashboardPage's ← Home) doesn't see stale

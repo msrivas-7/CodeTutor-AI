@@ -9,7 +9,7 @@ const kebabOrSnake = z
   .regex(/^[a-z0-9][a-z0-9_-]*$/i, "must be a simple identifier (letters, digits, -, _)");
 // Course ids additionally permit a single leading underscore, which is the
 // folder-naming convention for internal (non-shipping) courses like
-// `_internal-js-smoke`.
+// `internal-js-smoke`.
 const courseId = z
   .string()
   .min(1)

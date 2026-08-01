@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   api,
   type AdminEmailLogEntry,
@@ -20,6 +20,17 @@ export function EmailLogSection() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [opened, setOpened] = useState<AdminEmailLogEntry | null>(null);
+  const openedTriggerRef = useRef<HTMLTableRowElement | null>(null);
+
+  const closePreview = useCallback(() => {
+    setOpened(null);
+    // The modal restores the element that had focus when it mounted, but a
+    // pointer-opened table row is not necessarily that element. Restore the
+    // actual row that launched this preview after Modal's deferred cleanup.
+    window.setTimeout(() => {
+      if (openedTriggerRef.current?.isConnected) openedTriggerRef.current.focus();
+    }, 0);
+  }, []);
 
   const load = useCallback(
     async (cursor: string | null) => {
@@ -67,7 +78,8 @@ export function EmailLogSection() {
           <h2 className="text-sm font-semibold text-ink">Email log</h2>
           <p className="mt-0.5 text-[11px] leading-relaxed text-muted">
             Outbound mail (streak nudge, budget alert, …). Click a row to view
-            the rendered body. Read-only.
+            the rendered body. Read-only. Action links are removed from this
+            viewer so opening a log cannot unsubscribe or authenticate anyone.
           </p>
         </div>
         <button
@@ -135,8 +147,19 @@ export function EmailLogSection() {
               {entries.map((e) => (
                 <tr
                   key={e.id}
-                  className="cursor-pointer border-t border-border hover:bg-accent/5"
-                  onClick={() => setOpened(e)}
+                  tabIndex={0}
+                  aria-label={`Open email preview: ${e.subject}`}
+                  className="cursor-pointer border-t border-border hover:bg-accent/5 focus:outline-none focus-visible:bg-accent/5 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+                  onClick={(event) => {
+                    openedTriggerRef.current = event.currentTarget;
+                    setOpened(e);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter" && event.key !== " ") return;
+                    event.preventDefault();
+                    openedTriggerRef.current = event.currentTarget;
+                    setOpened(e);
+                  }}
                 >
                   <td className="whitespace-nowrap px-3 py-2 text-muted">
                     {new Date(e.sentAt).toLocaleString()}
@@ -163,13 +186,13 @@ export function EmailLogSection() {
       </div>
 
       {opened && (
-        <Modal onClose={() => setOpened(null)} role="dialog">
+        <Modal onClose={closePreview} role="dialog">
           <div className="max-w-2xl space-y-3 p-4">
             <div className="flex items-baseline justify-between gap-3">
               <h3 className="text-sm font-semibold text-ink">{opened.subject}</h3>
               <button
                 type="button"
-                onClick={() => setOpened(null)}
+                onClick={closePreview}
                 className="text-[11px] text-muted hover:text-ink"
               >
                 Close
@@ -185,6 +208,15 @@ export function EmailLogSection() {
                 </>
               )}
             </div>
+            {opened.capabilitiesRedacted && (
+              <div
+                role="status"
+                className="rounded-md border border-warn/30 bg-warn/10 px-3 py-2 text-xs leading-relaxed text-warnInk"
+              >
+                Private action links were redacted. This preview is safe to inspect,
+                but it is intentionally not an exact clickable copy of the email.
+              </div>
+            )}
             <div>
               <h4 className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted">
                 Text body

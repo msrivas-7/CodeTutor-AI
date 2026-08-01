@@ -5,16 +5,83 @@ beforeEach(() => {
   vi.stubGlobal("crypto", webcrypto);
 });
 
+const { getSession, refreshSession, signOut } = vi.hoisted(() => ({
+  getSession: vi.fn<
+    () => Promise<{ data: { session: { access_token: string } | null } }>
+  >(async () => ({ data: { session: null } })),
+  refreshSession: vi.fn<
+    () => Promise<{
+      data: { session: { access_token: string } | null };
+      error: Error | null;
+    }>
+  >(async () => ({ data: { session: null }, error: null })),
+  signOut: vi.fn(async () => undefined),
+}));
+
 vi.mock("../auth/supabaseClient", () => ({
   supabase: {
     auth: {
-      getSession: vi.fn(async () => ({ data: { session: null } })),
-      signOut: vi.fn(async () => undefined),
+      getSession,
+      refreshSession,
+      signOut,
     },
   },
 }));
 
 const { api } = await import("./client");
+
+describe("expired session recovery", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    getSession.mockReset();
+    refreshSession.mockReset();
+    signOut.mockReset();
+    getSession.mockResolvedValue({
+      data: { session: { access_token: "expired-token" } },
+    });
+  });
+
+  it("refreshes once and replays the original request without signing out", async () => {
+    refreshSession.mockResolvedValue({
+      data: { session: { access_token: "fresh-token" } },
+      error: null,
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("expired", { status: 401 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ welcomeDone: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(api.getPreferences()).resolves.toEqual({ welcomeDone: true });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
+      Authorization: "Bearer expired-token",
+    });
+    expect(fetchMock.mock.calls[1]?.[1]?.headers).toMatchObject({
+      Authorization: "Bearer fresh-token",
+    });
+    expect(refreshSession).toHaveBeenCalledTimes(1);
+    expect(signOut).not.toHaveBeenCalled();
+  });
+
+  it("keeps the learner signed in when refresh cannot recover the request", async () => {
+    refreshSession.mockResolvedValue({
+      data: { session: null },
+      error: new Error("offline"),
+    });
+    const fetchMock = vi.fn(async () => new Response("expired", { status: 401 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(api.getPreferences()).rejects.toMatchObject({ status: 401 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(signOut).not.toHaveBeenCalled();
+  });
+});
 
 describe("AI action identity", () => {
   beforeEach(() => {

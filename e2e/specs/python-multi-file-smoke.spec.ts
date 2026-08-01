@@ -1,6 +1,6 @@
 // Phase 22F2A — B4: multi-file Python lesson smoke.
 //
-// The `_internal-python-smoke` course was added in 22F2A to prove that the
+// The `internal-python-smoke` course was added in 22F2A to prove that the
 // multi-file lesson chain (scaffolder → starterFilePaths metadata → frontend
 // loader → backend writeFiles → runner Python imports) works end-to-end.
 // Without this coverage, 22F2's `modules-and-imports` lesson would be
@@ -22,7 +22,7 @@ import { loadProfile, markOnboardingDone } from "../fixtures/profiles";
 import * as S from "../utils/selectors";
 import { expectLessonComplete } from "../utils/assertions";
 
-const COURSE_ID = "_internal-python-smoke";
+const COURSE_ID = "internal-python-smoke";
 const LESSON_ID = "multi-file-test";
 
 test.describe("python multi-file smoke course (Phase 22F2A — B4)", () => {
@@ -111,6 +111,9 @@ test.describe("python multi-file smoke course (Phase 22F2A — B4)", () => {
     expect(await getMonacoValue(page)).not.toBe(starter);
 
     await S.resetCodeButton(page).click();
+    const confirm = page.getByRole("alertdialog", { name: /reset this code/i });
+    await expect(confirm).toBeVisible();
+    await confirm.getByRole("button", { name: /^reset code$/i }).click();
 
     await expect
       .poll(async () => await getMonacoValue(page), { timeout: 5_000 })
