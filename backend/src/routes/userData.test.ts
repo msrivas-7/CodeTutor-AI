@@ -31,6 +31,8 @@ vi.mock("../db/deletedAccounts.js", () => ({
 
 const { db, closeDb } = await import("../db/client.js");
 const { userDataRouter } = await import("./userData.js");
+const { upsertCourseProgress } = await import("../db/courseProgress.js");
+const { upsertLessonProgress } = await import("../db/lessonProgress.js");
 const { getLessonConceptTags } = await import(
   "../services/share/lessonCatalog.js"
 );
@@ -134,7 +136,7 @@ describe("GET /api/user/preferences", () => {
     const res = await req(userId, "/api/user/preferences");
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.persona).toBe("intermediate");
+    expect(body.persona).toBe("beginner");
     expect(body.theme).toBe("dark");
   });
 });
@@ -175,15 +177,15 @@ describe("PATCH /api/user/preferences", () => {
 });
 
 describe("course + lesson progress routes", () => {
-  it("PATCH course then GET /courses reflects the row", async () => {
+  it("PATCH course derives canonical progress instead of trusting completion claims", async () => {
     if (!dbReachable) return;
     const userId = await mkUser();
-    const patchRes = await req(userId, "/api/user/courses/python", {
+    const patchRes = await req(userId, "/api/user/courses/python-fundamentals", {
       method: "PATCH",
       body: JSON.stringify({
         status: "in_progress",
-        lastLessonId: "l3",
-        completedLessonIds: ["l1", "l2"],
+        lastLessonId: "hello-world",
+        completedLessonIds: ["variables", "loops"],
       }),
     });
     expect(patchRes.status).toBe(200);
@@ -193,40 +195,37 @@ describe("course + lesson progress routes", () => {
     const { courses } = await listRes.json();
     expect(courses).toHaveLength(1);
     expect(courses[0].status).toBe("in_progress");
-    expect(courses[0].completedLessonIds).toEqual(["l1", "l2"]);
+    expect(courses[0].completedLessonIds).toEqual([]);
   });
 
   it("GET /lessons?courseId= filters", async () => {
     if (!dbReachable) return;
     const userId = await mkUser();
     for (const [course, lesson] of [
-      ["python", "l1"],
-      ["python", "l2"],
-      ["js", "l1"],
+      ["python-fundamentals", "hello-world"],
+      ["python-fundamentals", "variables"],
+      ["javascript-fundamentals", "hello-print"],
     ]) {
-      await req(userId, `/api/user/lessons/${course}/${lesson}`, {
-        method: "PATCH",
-        body: JSON.stringify({ status: "in_progress" }),
+      await upsertLessonProgress(userId, course, lesson, {
+        status: "in_progress",
       });
     }
-    const pyRes = await req(userId, "/api/user/lessons?courseId=python");
+    const pyRes = await req(userId, "/api/user/lessons?courseId=python-fundamentals");
     const { lessons } = await pyRes.json();
     expect(lessons).toHaveLength(2);
-    for (const r of lessons) expect(r.courseId).toBe("python");
+    for (const r of lessons) expect(r.courseId).toBe("python-fundamentals");
   });
 
   it("DELETE /courses/:id cascades lessons + course rows", async () => {
     if (!dbReachable) return;
     const userId = await mkUser();
-    await req(userId, "/api/user/courses/python", {
-      method: "PATCH",
-      body: JSON.stringify({ status: "in_progress" }),
+    await upsertCourseProgress(userId, "python-fundamentals", {
+      status: "in_progress",
     });
-    await req(userId, "/api/user/lessons/python/l1", {
-      method: "PATCH",
-      body: JSON.stringify({ status: "in_progress" }),
+    await upsertLessonProgress(userId, "python-fundamentals", "hello-world", {
+      status: "in_progress",
     });
-    const del = await req(userId, "/api/user/courses/python", {
+    const del = await req(userId, "/api/user/courses/python-fundamentals", {
       method: "DELETE",
     });
     expect(del.status).toBe(200);
@@ -304,14 +303,14 @@ describe("Phase B1 concept memory routes", () => {
     const requestId = randomUUID();
     const patchRes = await req(
       userId,
-      "/api/user/lessons/python-fundamentals/functions",
+      "/api/user/lessons/python-fundamentals/hello-world",
       {
         method: "PATCH",
         body: JSON.stringify({
           status: "in_progress",
-          practiceCompletedIds: ["square-function"],
+          practiceCompletedIds: ["two-lines"],
           practiceEvidence: {
-            exerciseId: "square-function",
+            exerciseId: "two-lines",
             requestId,
             attemptCount: 2,
             hintCount: 1,
@@ -333,8 +332,16 @@ describe("Phase B1 concept memory routes", () => {
         FROM public.learner_concept_evidence
        WHERE user_id = ${userId} AND request_id = ${requestId}::uuid
     `;
-    expect(rows).toHaveLength(5);
-    expect(rows.every((row) => row.activity_id === "square-function")).toBe(true);
+    const canonicalTags = await getLessonConceptTags(
+      "python-fundamentals",
+      "hello-world",
+    );
+    const canonicalTagCount = new Set([
+      ...(canonicalTags?.taught ?? []),
+      ...(canonicalTags?.used ?? []),
+    ]).size;
+    expect(rows).toHaveLength(canonicalTagCount);
+    expect(rows.every((row) => row.activity_id === "two-lines")).toBe(true);
     expect(rows.every((row) => row.evidence_source === "client_observed")).toBe(true);
     expect(rows.every((row) => row.attempt_count === 2 && row.hint_count === 1)).toBe(true);
 
@@ -343,13 +350,9 @@ describe("Phase B1 concept memory routes", () => {
         FROM public.learner_concept_ledger
        WHERE user_id = ${userId}
          AND course_id = 'python-fundamentals'
-         AND lesson_id = 'functions'
+         AND lesson_id = 'hello-world'
          AND event_type = 'practiced'
     `;
-    const canonicalTags = await getLessonConceptTags(
-      "python-fundamentals",
-      "functions",
-    );
     expect(canonicalTags).not.toBeNull();
     expect(legacyLedger[0]?.count).toBe(
       new Set([...(canonicalTags?.taught ?? []), ...(canonicalTags?.used ?? [])])
@@ -362,11 +365,11 @@ describe("Phase B1 concept memory routes", () => {
     const userId = await mkUser();
     const patchRes = await req(
       userId,
-      "/api/user/lessons/python-fundamentals/functions",
+      "/api/user/lessons/python-fundamentals/hello-world",
       {
         method: "PATCH",
         body: JSON.stringify({
-          practiceCompletedIds: ["square-function"],
+          practiceCompletedIds: ["two-lines"],
           practiceEvidence: {
             exerciseId: "not-a-real-exercise",
             requestId: randomUUID(),
@@ -385,7 +388,7 @@ describe("Phase B1 concept memory routes", () => {
         FROM public.lesson_progress
        WHERE user_id = ${userId}
          AND course_id = 'python-fundamentals'
-         AND lesson_id = 'functions'
+         AND lesson_id = 'hello-world'
     `;
     expect(rows[0]?.count).toBe(0);
   }, 30_000);
@@ -410,6 +413,8 @@ describe("editor project routes", () => {
         openTabs: ["index.js"],
         fileOrder: ["index.js"],
         stdin: "",
+        expectedRevision: 0,
+        writerId: randomUUID(),
       }),
     });
     expect(put.status).toBe(200);

@@ -20,6 +20,7 @@ import { LANGUAGE_ENTRYPOINT } from "../../../types";
 import {
   buildAskTutorPrompt,
   countFailsByVisibility,
+  lessonWorkspaceContextKey,
   selectCompletionRulesForCheck,
   shouldAutoEnterPractice,
   shouldBouncePrereq,
@@ -652,20 +653,15 @@ export function useLessonValidator({
 
   const handleEnterPractice = useCallback(() => {
     if (!lesson?.practiceExercises?.length) return;
-    // Phase 27-v2.1 medium-lock: practice exercises are gated behind
-    // signup on /try/. The LessonCompletePanel mount routes anon-mode
-    // onStartPractice clicks to onAnonNext (opens the wall), so this
-    // direct handler shouldn't fire on anon — but defense-in-depth in
-    // case a future entry point (e.g., a Practice tab in
-    // LessonInstructionsPanel) calls it without the gate. The auto-
-    // enter-practice URL path is already gated transitively via
-    // lessonProgress[key] being undefined on anon.
-    if (mode === "anon") return;
+    // Lesson 1 practice is part of the signed-out promise. The validator and
+    // runner already keep anonymous work on their anonymous endpoints, so
+    // both the completion CTA and the persistent Practice chip may enter the
+    // same local practice state without creating an account.
     setPracticeMode(true);
     setPracticeIndex(0);
     setShowComplete(false);
     applyPracticeStarter(0);
-  }, [lesson, applyPracticeStarter, mode]);
+  }, [lesson, applyPracticeStarter]);
 
   // Auto-enter practice mode when navigated with ?mode=practice. Fires once
   // per lesson load, only if the lesson is actually completed + has
@@ -694,12 +690,13 @@ export function useLessonValidator({
   const handleExitPractice = useCallback(() => {
     setPracticeMode(false);
     setPracticeValidation(null);
-    if (courseId && lessonId) {
-      useProjectStore.getState().switchProjectContext(`lesson:${courseId}/${lessonId}`);
-      useRunStore.getState().switchRunContext(`lesson:${courseId}/${lessonId}`);
+    const lessonContext = lessonWorkspaceContextKey(mode, courseId, lessonId);
+    if (lessonContext) {
+      useProjectStore.getState().switchProjectContext(lessonContext);
+      useRunStore.getState().switchRunContext(lessonContext);
     }
     savedLessonCode.current = null;
-  }, [courseId, lessonId, savedLessonCode]);
+  }, [courseId, lessonId, mode, savedLessonCode]);
 
   const handleSelectPracticeExercise = useCallback(
     (index: number) => {

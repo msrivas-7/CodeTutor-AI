@@ -69,10 +69,10 @@ export function FirstRunGreeting() {
 
   const handleSkip = async () => {
     await persistOrTimeout();
-    // Phase 22C: in-product home moved from `/` to `/start` (the public
-    // marketing page now lives at `/`). Skipping the cinematic must land
-    // on /start, not the marketing surface.
-    nav("/start", { replace: true });
+    // Skip changes the duration, not the promised destination. The support
+    // line says the first lesson is starting, so both terminal paths land on
+    // that lesson and hand the learner immediate control.
+    nav(target, { replace: true });
   };
 
   // Subtitle + support line are the SAME regardless of whether this

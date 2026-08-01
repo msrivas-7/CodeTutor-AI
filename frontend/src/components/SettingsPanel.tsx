@@ -618,8 +618,9 @@ function BYOKStatusCard() {
       {!hasKey && (
         <div className="flex flex-col gap-1.5">
           <p className="text-[11px] leading-relaxed text-ink/80">
-            CodeTutor uses your own OpenAI account to power the tutor.
-            Paste your key below to start.
+            CodeTutor includes a limited number of tutor questions. Adding
+            your own OpenAI key is optional and lets you keep asking after
+            the included allowance is used.
           </p>
           <a
             href="https://platform.openai.com/api-keys"
@@ -810,8 +811,8 @@ function BYOKStatusCard() {
           the card so a beginner reads them in the same glance as the input. */}
       <div className="flex flex-col gap-1 text-[10px] leading-relaxed text-faint">
         <p>
-          This is your personal OpenAI key. We forward your tutor messages to
-          OpenAI using it — nothing else.
+          When this key is connected, tutor requests use your OpenAI account
+          instead of CodeTutor's included allowance.
         </p>
         <p>Stored encrypted; only decrypted in-flight.</p>
         <p>Typical cost: a few cents per hour of tutoring.</p>

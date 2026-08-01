@@ -125,6 +125,7 @@ export function Modal({
   }, [exiting, finishClose]);
 
   useEffect(() => {
+    let escapeTimer: number | null = null;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       const layers = Array.from(
@@ -136,10 +137,28 @@ export function Modal({
         const candidateZ = Number(candidate.dataset.modalLayer) || 0;
         return candidateZ >= topZ ? candidate : top;
       }, null);
-      if (topLayer === backdropRef.current) closeWithExit();
+      if (topLayer !== backdropRef.current) return;
+
+      // Safari uses Escape to leave browser fullscreen before it reports the
+      // resulting viewport resize. Give that native transition one beat: if
+      // the viewport changed, preserve the product layer and let the learner
+      // orient in the new layout. A normal Escape still closes only the top
+      // modal after the short, imperceptible guard window.
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      escapeTimer = window.setTimeout(() => {
+        escapeTimer = null;
+        const browserReflowed =
+          Math.abs(window.innerWidth - width) > 40 ||
+          Math.abs(window.innerHeight - height) > 40;
+        if (!browserReflowed) closeWithExit();
+      }, 100);
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      if (escapeTimer !== null) window.clearTimeout(escapeTimer);
+    };
   }, [closeWithExit]);
 
   useEffect(() => {

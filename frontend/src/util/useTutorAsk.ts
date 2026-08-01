@@ -305,6 +305,12 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
               // so case-insensitive match on that is sufficient + safe.
               /ANON_EXHAUSTED/i.test(message)
             ) {
+              pushAssistant(
+                "I couldn't send that because today's free tutor questions are used. Your question is still here, and you can keep working without the tutor or create an account for the full daily allowance.",
+                undefined,
+                undefined,
+                { scripted: true },
+              );
               opts.onAnonExhausted();
               clearStream();
               committed = true;

@@ -114,7 +114,7 @@ test.describe("Phase 22E: SharePage at iPhone 13 portrait", () => {
 
     // CTA — single tap target, single line at this width.
     const cta = page.getByRole("link", {
-      name: /Try this lesson — takes 4 minutes/i,
+      name: /Try this lesson — about 10 minutes/i,
     });
     await expect(cta).toBeVisible();
 
@@ -181,7 +181,7 @@ test.describe("Phase 22E: SharePage reduced-motion at iPhone 13", () => {
     // target.
     await expect(
       page.getByRole("link", {
-        name: /Try this lesson — takes 4 minutes/i,
+        name: /Try this lesson — about 10 minutes/i,
       }),
     ).toBeVisible();
   });

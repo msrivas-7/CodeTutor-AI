@@ -75,9 +75,11 @@ interface GuidedTutorPanelProps {
    * on (server 503 ANON_LESSON_DISABLED). Opens reason="trial-paused".
    */
   onAnonTrialPaused?: () => void;
+  /** Explicit escape hatch for the scripted first-run tutor sequence. */
+  onSkipWelcome?: () => void;
 }
 
-export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, priorConcepts, activePracticeExercise, onCollapse, onOpenSettings, resetNonce, inputLocked, clearHidden, mode = "authed", onAnonExhausted, onAnonTrialPaused }: GuidedTutorPanelProps) {
+export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, priorConcepts, activePracticeExercise, onCollapse, onOpenSettings, resetNonce, inputLocked, clearHidden, mode = "authed", onAnonExhausted, onAnonTrialPaused, onSkipWelcome }: GuidedTutorPanelProps) {
   const incrementHint = useProgressStore((s) => s.incrementHint);
   // Derive the hint cap from the DB-backed hint_count (not local component
   // state) so the limit survives navigation + reload. Local state rewinds on
@@ -134,6 +136,11 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
 
   const [draft, setDraft] = useState("");
   const [exhaustionDismissed, setExhaustionDismissed] = useState(false);
+  // Anonymous quota is only learned after the server rejects an ask. Keep
+  // that result for the lifetime of this mounted lesson so dismissing the
+  // signup wall cannot re-enable a dead composer and generate duplicate
+  // questions, quota messages, or conversion dialogs.
+  const [anonQuotaExhausted, setAnonQuotaExhausted] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // QA-C1: hint-counter rollback. The Hint button stages intent here at
@@ -188,7 +195,13 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
     // useTutorAsk falls through to authed endpoint with status fetch.
     endpoint: mode === "anon" ? "/api/anon/ai/ask/stream" : undefined,
     mode,
-    onAnonExhausted,
+    onAnonExhausted:
+      mode === "anon"
+        ? () => {
+            setAnonQuotaExhausted(true);
+            onAnonExhausted?.();
+          }
+        : undefined,
     onAnonTrialPaused,
     onAskComplete: ({ ok }) => {
       if (pendingHintRef.current) {
@@ -227,7 +240,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
   });
 
   const handleSubmit = () => {
-    if (!draft.trim()) return;
+    if (!draft.trim() || anonQuotaExhausted) return;
     const q = draft.trim();
     setDraft("");
     submitAsk(q);
@@ -241,13 +254,13 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
   };
 
   useEffect(() => {
-    if (pendingAsk && configured && !asking) {
+    if (pendingAsk && configured && !asking && !anonQuotaExhausted) {
       const q = pendingAsk;
       setPendingAsk(null);
       submitAsk(q);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingAsk, configured, asking]);
+  }, [pendingAsk, configured, asking, anonQuotaExhausted]);
 
   return (
     <div className="flex h-full flex-col">
@@ -277,6 +290,15 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
           )}
         </div>
         <div className="flex items-center gap-1">
+          {onSkipWelcome && (
+            <button
+              type="button"
+              onClick={onSkipWelcome}
+              className="min-h-11 rounded-lg px-3 py-2 text-sm font-semibold text-accent transition hover:bg-accent/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              Skip welcome
+            </button>
+          )}
           {!clearHidden && (
           <button
             onClick={() => { clearConversation(); setDraft(""); }}
@@ -421,7 +443,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
                             pendingHintRef.current = true;
                             setPendingAsk(prompts[idx]);
                           }}
-                          disabled={asking || inputLocked}
+                          disabled={asking || inputLocked || anonQuotaExhausted}
                           aria-label={
                             hintLevel === 0
                               ? "Nudge me — a gentle hint without the answer"
@@ -456,7 +478,10 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
                           <span>Out of nudges</span>
                         </span>
                       )}
-                      <ActionChips onAsk={setPendingAsk} disabled={asking || inputLocked} />
+                      <ActionChips
+                        onAsk={setPendingAsk}
+                        disabled={asking || inputLocked || anonQuotaExhausted}
+                      />
                     </div>
                   )}
                   <div className="flex items-center justify-end gap-1.5">
@@ -502,7 +527,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
           />
         ) : (
           <>
-            {mode === "anon" && <EvalSamplingConsentControl />}
+            {mode === "anon" && !anonQuotaExhausted && <EvalSamplingConsentControl />}
             {activeSelection && (
               <SelectionPreview
                 selection={activeSelection.selection}
@@ -517,6 +542,8 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
               placeholder={
                 inputLocked
                   ? "Watch for a sec — I'll hand the panel back."
+                  : anonQuotaExhausted
+                    ? "Free tutor questions used today — keep coding or create an account."
                   : activeSelection
                     ? "Ask about the selection…"
                     : configured
@@ -525,7 +552,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
                         ? `Free tutor resets ${formatReset(aiStatus?.resetAtUtc ?? null)}`
                         : "Configure API key first"
               }
-              disabled={!configured || inputLocked}
+              disabled={!configured || inputLocked || anonQuotaExhausted}
               rows={2}
               aria-label="Ask the tutor"
               className="w-full resize-none rounded-lg border border-border bg-elevated px-3 py-2 text-base text-ink transition placeholder:text-faint focus:border-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:bg-elevated/40 disabled:opacity-50 sm:text-body"
@@ -561,7 +588,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
               ) : (
                 <button
                   onClick={handleSubmit}
-                  disabled={!draft.trim() || !configured || inputLocked}
+                  disabled={!draft.trim() || !configured || inputLocked || anonQuotaExhausted}
                   className="min-h-11 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-bg transition hover:bg-accentMuted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:bg-elevated disabled:text-faint"
                 >
                   Ask

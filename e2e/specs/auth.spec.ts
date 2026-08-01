@@ -37,6 +37,44 @@ function uniqueEmail(tag: string): string {
 }
 
 test.describe("auth flow", () => {
+  test("protected deep links preserve path, query, and fragment through sign-in", async ({ page }) => {
+    const target =
+      "/learn/course/python-fundamentals/lesson/variables?from=audit#practice";
+    await page.goto(target);
+    await expect(page).toHaveURL(/\/login\?/);
+    const loginUrl = new URL(page.url());
+    expect(loginUrl.searchParams.get("returnTo")).toBe(target);
+
+    const signupHref = await page
+      .getByRole("link", { name: /create one/i })
+      .getAttribute("href");
+    expect(signupHref).not.toBeNull();
+    expect(
+      new URL(signupHref!, ORIGIN).searchParams.get("returnTo"),
+    ).toBe(target);
+  });
+
+  test("canceled OAuth gets a calm, accurate recovery path", async ({ page }) => {
+    const target = "/editor?file=main.py#output";
+    await page.goto(
+      `/auth/callback?error=access_denied&error_description=User%20canceled&returnTo=${encodeURIComponent(target)}`,
+    );
+    await expect(page.getByText(/sign-in was canceled/i)).toBeVisible();
+    await expect(page.getByRole("alert")).toContainText(
+      /account and lesson are unchanged/i,
+    );
+    await expect(page.getByText(/expired or already been used/i)).toHaveCount(0);
+    const recovery = page.getByRole("link", {
+      name: /choose another sign-in method/i,
+    });
+    await expect(recovery).toBeVisible();
+    expect(
+      new URL((await recovery.getAttribute("href"))!, ORIGIN).searchParams.get(
+        "returnTo",
+      ),
+    ).toBe(target);
+  });
+
   test("Phase 20-P1: OAuth buttons render above the email form on /login", async ({ page }) => {
     // Phase 20-P1: OAuth is the happy path now — the provider row must sit
     // above the "or sign in with email" divider and the email input, so
@@ -190,7 +228,8 @@ test.describe("auth flow", () => {
     // location stashed in router state — assertion is the same gate,
     // just on the new path.
     await page.goto("/start");
-    await expect(page).toHaveURL(/\/login$/);
+    await expect(page).toHaveURL(/\/login\?returnTo=%2Fstart$/);
+    expect(new URL(page.url()).searchParams.get("returnTo")).toBe("/start");
     await expect(page.getByRole("heading", { name: /sign in|welcome/i })).toBeVisible();
   });
 
@@ -318,22 +357,32 @@ test.describe("auth flow", () => {
 
     // Brand-new admin-created user: welcomeDone=false, so StartPage
     // redirects into the first-run cinematic at /welcome. The
-    // cinematic's "Skip intro" link flips welcomeDone=true and
-    // returns to /start. That's the "landed at home" state this test
-    // is really asserting.
-    // Phase 22C: in-product home moved from `/` to `/start` (the public
-    // marketing page now lives at `/`).
+    // cinematic's Skip action flips welcomeDone=true and takes the learner
+    // directly into the first authored lesson. This keeps the first-run
+    // promise concrete instead of adding an intermediate dashboard stop.
     await expect(page).toHaveURL(/\/welcome$/, { timeout: 15_000 });
     const skipIntro = page.getByRole("button", { name: /skip intro/i });
     await skipIntro.waitFor({ state: "visible", timeout: 5_000 });
     await skipIntro.click();
-    await expect(page).toHaveURL(/\/start$/, { timeout: 10_000 });
+    await expect(page).toHaveURL(
+      /\/learn\/course\/python-fundamentals\/lesson\/hello-world\?firstRun=1$/,
+      { timeout: 10_000 },
+    );
 
     // Reload → still signed in (session hydrated from localStorage)
     // and no re-route through /welcome (welcomeDone was persisted).
     await page.reload();
-    await expect(page).toHaveURL(/\/start$/);
+    await expect(page).toHaveURL(
+      /\/learn\/course\/python-fundamentals\/lesson\/hello-world\?firstRun=1$/,
+    );
     await expect(page.getByRole("link", { name: /log in|sign in/i })).toHaveCount(0);
+
+    // The lesson's own first-run welcome intentionally hides account chrome
+    // while it has control. Exit that guided state before exercising the
+    // independent sign-out contract.
+    const skipLessonWelcome = page.getByRole("button", { name: /skip welcome/i });
+    await skipLessonWelcome.waitFor({ state: "visible", timeout: 10_000 }).catch(() => {});
+    if (await skipLessonWelcome.isVisible()) await skipLessonWelcome.click();
 
     // Sign out from the UserMenu (avatar in the top-right corner).
     await page.getByRole("button", { name: /user menu/i }).click();

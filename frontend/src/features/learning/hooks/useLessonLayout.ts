@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   useLocalStorageFlag,
   usePersistedNumber,
@@ -50,8 +50,8 @@ export function useLessonLayout({ courseId, lessonId }: UseLessonLayoutArgs) {
   const [outputH, setOutputH] = usePersistedNumber(LS_OUT_H, LESSON_LAYOUT_DEFAULTS.out);
   const [instrW, setInstrW] = usePersistedNumber(LS_INSTR_W, LESSON_LAYOUT_DEFAULTS.instr);
   const [tutorW, setTutorW] = usePersistedNumber(LS_TUTOR_W, LESSON_LAYOUT_DEFAULTS.tutor);
-  const [instrCollapsed, setInstrCollapsed] = useLocalStorageFlag(LS_INSTR_COLLAPSED, false);
-  const [tutorCollapsed, setTutorCollapsed] = useLocalStorageFlag(LS_TUTOR_COLLAPSED, false);
+  const [instrCollapsed, setInstrCollapsedRaw] = useLocalStorageFlag(LS_INSTR_COLLAPSED, false);
+  const [tutorCollapsed, setTutorCollapsedRaw] = useLocalStorageFlag(LS_TUTOR_COLLAPSED, false);
 
   // A20: below 1024 px three columns starve the editor. Auto-collapse the
   // tutor rail once on mount — instructions + editor stay visible. Users
@@ -70,6 +70,26 @@ export function useLessonLayout({ courseId, lessonId }: UseLessonLayoutArgs) {
     narrow &&
     courseId === "python-fundamentals" &&
     lessonId === "hello-world";
+
+  // At narrow laptop/tablet widths, opening one help rail closes the other.
+  // Secondary surfaces may trade places, but they can never squeeze the code
+  // editor down to an unusable sliver by remaining open together.
+  const setInstrCollapsed = useCallback<React.Dispatch<React.SetStateAction<boolean>>>(
+    (next) => {
+      const resolved = typeof next === "function" ? next(instrCollapsed) : next;
+      if (narrow && !resolved) setTutorCollapsedRaw(true);
+      setInstrCollapsedRaw(resolved);
+    },
+    [instrCollapsed, narrow, setInstrCollapsedRaw, setTutorCollapsedRaw],
+  );
+  const setTutorCollapsed = useCallback<React.Dispatch<React.SetStateAction<boolean>>>(
+    (next) => {
+      const resolved = typeof next === "function" ? next(tutorCollapsed) : next;
+      if (narrow && !resolved) setInstrCollapsedRaw(true);
+      setTutorCollapsedRaw(resolved);
+    },
+    [narrow, tutorCollapsed, setInstrCollapsedRaw, setTutorCollapsedRaw],
+  );
   useEffect(() => {
     if (!narrow || autoCollapsedRef.current) return;
     autoCollapsedRef.current = true;

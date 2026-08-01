@@ -73,7 +73,7 @@ const DEFAULTS: Omit<
   | "hydrated"
   | "hydrateError"
 > = {
-  persona: "intermediate",
+  persona: "beginner",
   openaiModel: null,
   theme: "dark",
   welcomeDone: false,

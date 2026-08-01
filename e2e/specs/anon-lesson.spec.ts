@@ -171,15 +171,30 @@ test.describe("anonymous lesson 1 (Phase 27 §3a)", () => {
   // trip + scripted choreography wait that this navigation-only
   // spec was never designed to host.
 
-  test("non-allowlisted lesson path redirects to /", async ({ page }) => {
+  test("non-allowlisted lesson path explains the lesson-1 boundary", async ({ page }) => {
     // The allowlist locks anon to python-fundamentals/hello-world.
-    // Any other (courseId, lessonId) pair short-circuits via Navigate
-    // before LessonPage even mounts. The wrapper's allowlist guard
-    // is the gate; backend would 403 too, but this saves a round trip
-    // and keeps the anon URL space honest.
+    // Any other pair stays outside LessonPage and gets a clear recovery
+    // surface. The backend allowlist remains the second enforcement layer.
     await page.goto("/try/lesson/python-fundamentals/variables");
-    // Marketing page renders at /. The hero claim is the canary.
-    await expect(page).toHaveURL(/\/$/, { timeout: 5_000 });
+    await expect(page.getByRole("heading", { name: /variables comes after lesson 1/i })).toBeVisible();
+    await expect(page.getByRole("link", { name: /start lesson 1/i })).toHaveAttribute(
+      "href",
+      "/try/lesson/python-fundamentals/hello-world",
+    );
+    const signIn = page.getByRole("link", { name: /sign in to continue/i });
+    expect(new URL((await signIn.getAttribute("href"))!, page.url()).searchParams.get("returnTo"))
+      .toBe("/learn/course/python-fundamentals/lesson/variables");
+  });
+
+  test("Back opens the public course instead of an authentication wall", async ({
+    page,
+  }) => {
+    await page.goto(ALLOWED_PATH);
+    await page.getByRole("button", { name: "Back to course" }).click();
+    await expect(page).toHaveURL(/\/learn-to-code\/python-fundamentals\/$/);
+    await expect(
+      page.getByRole("heading", { name: "Python Fundamentals" }),
+    ).toBeVisible();
   });
 
   // Phase 27-v2.1 Part 3: removed the mobile "instructions collapse"
@@ -206,9 +221,14 @@ test.describe("first-run cinematic on /try/ (Phase 27-v2 Day 2)", () => {
   // seconds later). Blanks read as fillable without telegraphing
   // the exact lesson output.
 
-  test("cinematic plays on first visit and is dismissable via Esc", async ({
+  test("cinematic plays on first visit and uses an explicit Skip action", async ({
     page,
   }) => {
+    let runRequestCount = 0;
+    page.on("request", (request) => {
+      if (request.url().includes("/api/anon/run")) runRequestCount += 1;
+    });
+
     // Cold context — sessionStorage starts empty so the cinematic
     // should mount. Don't apply the describe-level seed.
     await page.goto(ALLOWED_PATH);
@@ -235,10 +255,23 @@ test.describe("first-run cinematic on /try/ (Phase 27-v2 Day 2)", () => {
       timeout: 12_000,
     });
 
-    // Esc dismisses the cinematic immediately (handleSkipOnce path).
-    await page.keyboard.press("Escape");
+    // Global shortcuts must not mutate the mounted workspace underneath the
+    // cinematic. This is the browser-level guard for the pointer/keyboard
+    // contract shared by the visible Run button and Cmd/Ctrl+Enter.
+    await page.keyboard.press("?");
+    await expect(page.getByRole("dialog", { name: /keyboard shortcuts/i })).toHaveCount(0);
+    await page.keyboard.press("Control+Enter");
+    await page.waitForTimeout(250);
+    expect(runRequestCount).toBe(0);
+    await expect(skipButton).toBeVisible();
 
-    // After Esc, the lesson workspace is visible. The "Lesson 1"
+    // Escape belongs to Safari/browser fullscreen. The product changes state
+    // only from its explicit Skip control.
+    await page.keyboard.press("Escape");
+    await expect(skipButton).toBeVisible();
+    await skipButton.click();
+
+    // After Skip, the lesson workspace is visible. The "Lesson 1"
     // chip in the LessonPage(mode="anon") header is the canary.
     await expect(page.locator("header").getByText("Lesson 1", { exact: true })).toBeVisible({
       timeout: 5_000,
@@ -252,7 +285,9 @@ test.describe("first-run cinematic on /try/ (Phase 27-v2 Day 2)", () => {
     });
     // Skip button should NOT be present after reload (cinematic short-
     // circuited by sessionStorage flag).
-    await expect(page.getByRole("button", { name: /skip/i })).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: /skip introduction/i }),
+    ).toHaveCount(0);
   });
 
   test("lesson is immediately usable after the cinematic without a stacked workspace tour", async ({
@@ -260,13 +295,19 @@ test.describe("first-run cinematic on /try/ (Phase 27-v2 Day 2)", () => {
   }) => {
     await page.addInitScript(() => {
       window.sessionStorage.setItem("codetutor.anonCinematicSeen", "1");
+      // A previous signed-in lesson may have left the device-local tutor rail
+      // collapsed. The anonymous welcome owns that rail and must reopen it so
+      // its explicit escape hatch cannot be hidden off-screen.
+      window.localStorage.setItem("ui:lesson:tutorCollapsed", "true");
     });
     await page.goto(ALLOWED_PATH);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible({
       timeout: 10_000,
     });
-    await page.waitForTimeout(1500);
     await expect(page.getByRole("button", { name: /^skip tour$/i })).toHaveCount(0);
+    const skipWelcome = page.getByRole("button", { name: /skip welcome/i });
+    await expect(skipWelcome).toBeVisible();
+    await skipWelcome.click();
     await expect(page.getByRole("button", { name: /run/i }).first()).toBeEnabled();
     await expect(page.getByRole("button", { name: /check/i }).first()).toBeEnabled();
   });
@@ -442,7 +483,9 @@ test.describe("first-run cinematic on /try/ (Phase 27-v2 Day 2)", () => {
     // global expect.timeout (10s in playwright.config.ts) — too short
     // for the 14.5s cinematic to actually dissolve.
     await page.goto(ALLOWED_PATH);
-    await expect(page.getByRole("button", { name: /skip/i })).toHaveCount(0, {
+    await expect(
+      page.getByRole("button", { name: /skip introduction/i }),
+    ).toHaveCount(0, {
       timeout: 18_000,
     });
     await expect(page.locator("header").getByText("Lesson 1", { exact: true })).toBeVisible();

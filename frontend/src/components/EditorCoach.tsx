@@ -58,7 +58,7 @@ function buildSteps(runPhrase: string, askPhrase: string): CoachStep[] {
     {
       targetKey: "tutorPanel",
       title: "AI Tutor",
-      body: `Ask questions about your code and get structured hints. Highlight code and press ${askPhrase} to ask about a selection. Requires an OpenAI API key in Settings.`,
+      body: `Ask questions about your code and get structured hints. Highlight code and press ${askPhrase} to ask about a selection. Included questions are used first; your own OpenAI key is optional.`,
       position: "left",
     },
   ];

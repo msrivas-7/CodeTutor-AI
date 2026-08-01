@@ -33,7 +33,7 @@ interface LessonCompletePanelProps {
   completedPracticeIds?: string[];
   mastery?: MasteryLevel | null;
   timeSpentMs?: number;
-  onNext?: () => void;
+  onNext?: (trigger: HTMLButtonElement) => void;
   onDismiss: () => void;
   onStartPractice?: () => void;
   // Phase 21C: opens the cinematic Share dialog. When omitted (e.g., we
@@ -392,7 +392,7 @@ export function LessonCompletePanel({
               </button>
               {onNext && (
                 <button
-                  onClick={onNext}
+                  onClick={(event) => onNext(event.currentTarget)}
                   className="min-h-11 rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                   aria-label="Skip to next lesson"
                 >
@@ -418,7 +418,7 @@ export function LessonCompletePanel({
               </button>
               {onNext && (
                 <button
-                  onClick={onNext}
+                  onClick={(event) => onNext(event.currentTarget)}
                   className="min-h-11 flex-1 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-bg transition hover:bg-accent/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                   aria-label="Go to next lesson"
                 >

@@ -395,7 +395,7 @@ async function seedProgress(
   s: Scenario,
 ): Promise<void> {
   const theme = s.preferences.theme ?? "dark";
-  const persona = s.preferences.persona ?? "intermediate";
+  const persona = s.preferences.persona ?? "beginner";
 
   await sql`
     INSERT INTO user_preferences (

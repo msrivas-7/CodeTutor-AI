@@ -13,6 +13,7 @@ interface PasswordSignupFormProps {
   emailDividerLabel?: string;
   layout?: "stacked" | "continuation";
   onSubmitted: (email: string) => void;
+  returnTo?: string;
   secondaryAction?: {
     label: string;
     onClick: () => void;
@@ -33,6 +34,7 @@ export function PasswordSignupForm({
   layout = "stacked",
   onSubmitted,
   secondaryAction,
+  returnTo = "/start",
 }: PasswordSignupFormProps) {
   const signUpWithPassword = useAuthStore((state) => state.signUpWithPassword);
   const clearError = useAuthStore((state) => state.clearError);
@@ -65,7 +67,7 @@ export function PasswordSignupForm({
       const normalizedEmail = email.trim();
       await signUpWithPassword(normalizedEmail, password, {
         firstName: firstName.trim(),
-      });
+      }, returnTo);
       onSubmitted(normalizedEmail);
     } catch (cause) {
       setError((cause as Error).message);
@@ -84,7 +86,7 @@ export function PasswordSignupForm({
 
   return (
     <div>
-      <OAuthButtons disabled={submitting} />
+      <OAuthButtons disabled={submitting} returnTo={returnTo} />
 
       <div className="my-4 flex items-center gap-2 text-sm text-faint">
         <div className="h-px flex-1 bg-border" />
@@ -237,6 +239,8 @@ export function PasswordSignupForm({
         <p className="flex flex-wrap items-center justify-center gap-x-1.5">
           <Link
             to="/terms"
+            target="_blank"
+            rel="noopener noreferrer"
             className="inline-flex min-h-11 items-center px-1 text-muted underline decoration-border underline-offset-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             Terms
@@ -247,6 +251,8 @@ export function PasswordSignupForm({
           <span className="inline-flex min-h-11 items-center">
             <Link
               to="/privacy"
+              target="_blank"
+              rel="noopener noreferrer"
               className="inline-flex min-h-11 items-center px-1 text-muted underline decoration-border underline-offset-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               Privacy notice

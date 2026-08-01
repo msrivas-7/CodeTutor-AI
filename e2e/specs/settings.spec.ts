@@ -248,7 +248,9 @@ test.describe("settings panel", () => {
     // Trust + cost copy is anchored under the input — a beginner reads it
     // in the same glance as the field they're filling.
     await expect(
-      page.getByText(/this is your personal openai key/i),
+      page.getByText(
+        /tutor requests use your openai account instead of codetutor's included allowance/i,
+      ),
     ).toBeVisible();
     await expect(
       page.getByText(/typical cost: a few cents per hour/i),

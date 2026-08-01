@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useAIStore } from "../state/aiStore";
 import { Modal } from "./Modal";
+import { useFirstRunStore } from "../features/firstRun/useFirstRunStore";
 
 // QA-L4 + M-12: single window-level keydown handler for app-wide shortcuts.
 //
@@ -32,6 +33,14 @@ export function GlobalShortcuts() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // The opening cinematic owns the complete interaction layer. Do not
+      // mount a hidden dialog or move focus into the obscured workspace.
+      if (
+        useFirstRunStore.getState().cinematicShowing ||
+        document.querySelector("[data-first-run-cinematic]")
+      ) {
+        return;
+      }
       // ⌘/Ctrl+K — focus the composer. Monaco has its own addCommand for the
       // same combo that fires when Monaco is focused (it captures first and
       // stops propagation to this handler in that case). This handler is the

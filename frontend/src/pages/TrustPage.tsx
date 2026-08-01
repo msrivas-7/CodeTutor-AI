@@ -256,6 +256,19 @@ export default function TrustPage() {
     };
   }, [page.title]);
 
+  useEffect(() => {
+    if (!location.hash) return;
+    const id = decodeURIComponent(location.hash.slice(1));
+    const target = document.getElementById(id);
+    if (!target) return;
+    const frame = window.requestAnimationFrame(() => {
+      target.scrollIntoView({ block: "start" });
+      if (!target.hasAttribute("tabindex")) target.setAttribute("tabindex", "-1");
+      target.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [location.hash, page]);
+
   return (
     <div className="relative min-h-screen overflow-hidden bg-bg text-ink">
       <CinematicLighting variant="key-only" intensity="soft" />

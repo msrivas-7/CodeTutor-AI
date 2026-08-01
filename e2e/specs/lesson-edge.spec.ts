@@ -65,16 +65,18 @@ test.describe("lesson edge cases", () => {
     await expect(lockedVariables).toBeDisabled();
   });
 
-  test("anonymous try lesson ignores completed progress from the signed-in account", async ({
+  test("signed-in try URL redirects to the authenticated lesson with saved progress", async ({
     page,
   }) => {
     await loadProfile(page, "all-complete");
     await page.goto(`/try/lesson/${COURSE_ID}/hello-world`);
     await waitForMonacoReady(page);
 
-    await expect(page.getByRole("button", { name: /sign up to save/i })).toBeVisible();
-    await expect(page.getByText("In progress", { exact: true })).toBeVisible();
-    await expect(page.getByText("✓ Completed", { exact: true })).toHaveCount(0);
+    await expect(page).toHaveURL(
+      new RegExp(`/learn/course/${COURSE_ID}/lesson/hello-world$`),
+    );
+    await expect(page.getByRole("button", { name: /sign up to save/i })).toHaveCount(0);
+    await expect(page.getByText("✓ Completed", { exact: true })).toBeVisible();
   });
 
   test("locked lesson: direct URL to a prereq-blocked lesson bounces to course page", async ({

@@ -197,8 +197,8 @@ interface LessonPageProps {
    *   — same medium-lock pattern as exhausted, different framing copy.
    *   Phase 27-v2.2 audit fix E1.
    */
-  onAnonSave?: () => void;
-  onAnonNext?: () => void;
+  onAnonSave?: (trigger?: HTMLElement | null) => void;
+  onAnonNext?: (trigger: HTMLButtonElement) => void;
   onAnonExhausted?: () => void;
   onAnonShare?: (
     payload: AnonSharePayload,
@@ -220,6 +220,9 @@ interface LessonPageProps {
   onAnonComplete?: () => void;
   /** Anonymous workspace captured earlier in this tab, if any. */
   anonResumeSnapshot?: AnonWorkspaceV1 | null;
+  /** While the opening cinematic owns the screen, keep this mounted
+   * workspace inert and pause every behavioral welcome effect. */
+  openingBlocked?: boolean;
 }
 
 export default function LessonPage({
@@ -234,6 +237,7 @@ export default function LessonPage({
   onAnonFirstRun,
   onAnonComplete,
   anonResumeSnapshot = null,
+  openingBlocked = false,
 }: LessonPageProps = {}) {
   const params = useParams<{
     courseId: string;
@@ -300,6 +304,26 @@ export default function LessonPage({
   const savedLessonCode = useRef<Record<string, string> | null>(null);
 
   const isFirstRun = searchParams.get("firstRun") === "1";
+
+  // The welcome is one coordinated interaction state machine. Derive the
+  // locks before creating the runner so its global Cmd/Ctrl+Enter path obeys
+  // the exact same gate as the visible Run button.
+  const firstRunStep = useFirstRunStore((s) => s.step);
+  const anonChoreographyAlreadyDone =
+    mode === "anon" && hasChoreographyDoneAnon();
+  const isChoreographed =
+    !openingBlocked &&
+    (isFirstRun || mode === "anon") &&
+    !anonChoreographyAlreadyDone;
+  const tutorInputLocked = isChoreographed && firstRunStep !== "done";
+  const runButtonLocked =
+    openingBlocked ||
+    (isChoreographed && !["awaitRun", "awaitEdit"].includes(firstRunStep));
+  const checkButtonLocked =
+    openingBlocked || (isChoreographed && firstRunStep !== "awaitCheck");
+  const editorLocked =
+    openingBlocked || (isChoreographed && firstRunStep !== "awaitEdit");
+  const tutorClearHidden = isChoreographed && firstRunStep !== "done";
 
   // Cinema Kit Continuity Pass — match-cut handoff detection.
   // Phase 27-v2.1 made this REACTIVE (was: one-shot useState init).
@@ -504,6 +528,25 @@ export default function LessonPage({
     courseId,
     lessonId,
   });
+  useEffect(() => {
+    // A stale device-level layout preference must not hide the surface that
+    // currently owns the welcome. This also keeps the explicit Skip welcome
+    // escape hatch visible after a signed-in learner logs out and revisits
+    // the anonymous first lesson in the same browser.
+    if (
+      !isChoreographed ||
+      firstRunStep === "done" ||
+      !layout.tutorCollapsed
+    ) {
+      return;
+    }
+    layout.setTutorCollapsed(false);
+  }, [
+    firstRunStep,
+    isChoreographed,
+    layout.setTutorCollapsed,
+    layout.tutorCollapsed,
+  ]);
   const runner = useLessonRunner({
     lesson: loader.lesson,
     courseId,
@@ -513,6 +556,7 @@ export default function LessonPage({
     tutorCollapsed: layout.tutorCollapsed,
     setTutorCollapsed: layout.setTutorCollapsed,
     mode,
+    interactionBlocked: runButtonLocked,
   });
   const validator = useLessonValidator({
     lesson: loader.lesson,
@@ -652,7 +696,6 @@ export default function LessonPage({
   // session, while CoachRail supplies contextual help after real learner
   // behavior. Stacking a museum tour between those layers delayed the first
   // useful action and could advance invisibly under the cinematic.
-  const firstRunStep = useFirstRunStore((s) => s.step);
   // Phase 27-v2.1 — anon mounts the same scripted walkthrough as
   // authed-with-?firstRun=1. `isChoreographed` is the merged gate the
   // spotlight + lock + clear-hidden derivations use; the actual
@@ -668,10 +711,6 @@ export default function LessonPage({
   // store. Result: Run/Check/tutor were locked forever. Caught by the
   // medium-lock spec where Maya finishes the walkthrough, reloads,
   // and tries to Check.
-  const anonChoreographyAlreadyDone =
-    mode === "anon" && hasChoreographyDoneAnon();
-  const isChoreographed =
-    (isFirstRun || mode === "anon") && !anonChoreographyAlreadyDone;
   // Map the scripted-tutor step to the surface we want to spotlight.
   // The tutor panel gets the glow whenever the scripted turn is
   // streaming (user should follow the typing); the Run button gets
@@ -691,16 +730,6 @@ export default function LessonPage({
   // scanning the whole UI.
   const spotlightEditor = isChoreographed && firstRunStep === "awaitEdit";
 
-  // Phase A-Q: scripted narration guides but never gates the product.
-  // A learner may type, run, check, or ask at any moment. The choreography
-  // observes that takeover and yields instead of disabling valid controls.
-  const tutorInputLocked = false;
-  const runButtonLocked = false;
-  const checkButtonLocked = false;
-  // Hide "clear" entirely during the welcome sequence — a learner
-  // who clears mid-narration wipes the scripted turns and breaks
-  // the flow. After "done" the product is fully back to normal.
-  const tutorClearHidden = isChoreographed && firstRunStep !== "done";
 
   // Phase 1B ships behind an explicit internal-preview URL flag. This keeps
   // the proof deployable and browser-testable without exposing an unvalidated
@@ -761,10 +790,11 @@ export default function LessonPage({
   // mirror the contract via sessionStorage. (Defined inline above near
   // the lock derivations — same constant, just lifted earlier.)
 
-  useFirstRunChoreography({
+  const { skipChoreography } = useFirstRunChoreography({
     // Authed is gated by the first-run URL; anon by its sessionStorage
     // completion flag. No workspace-tour prerequisite remains.
     enabled:
+      !openingBlocked &&
       (isFirstRun || mode === "anon") &&
       !anonChoreographyAlreadyDone,
     firstName: mode === "anon" ? "there" : resolveFirstName(user),
@@ -889,6 +919,8 @@ export default function LessonPage({
   return (
     <motion.div
       className="flex h-full flex-col bg-bg text-ink"
+      aria-hidden={openingBlocked ? "true" : undefined}
+      {...((openingBlocked ? { inert: "" } : {}) as Record<string, unknown>)}
       // Cinema Kit Continuity Pass — every lesson mount gets a soft
       // fade-up so navigating between lessons feels like arriving,
       // not snapping. 250 ms with HOUSE_EASE; suppressed during the
@@ -930,7 +962,16 @@ export default function LessonPage({
       <SkipToContent />
       <header className="relative z-30 flex min-w-0 items-center gap-1 border-b border-border bg-panel/80 px-2 py-2 backdrop-blur sm:gap-3 sm:px-4">
         <button
-          onClick={() => nav(`/learn/course/${courseId}`)}
+          onClick={() => {
+            if (mode === "anon") {
+              // Public discovery pages are generated standalone documents,
+              // not React Router routes. A client-side navigate falls through
+              // the protected app wildcard and turns Back into a sign-in wall.
+              window.location.assign(`/learn-to-code/${courseId}/`);
+              return;
+            }
+            nav(`/learn/course/${courseId}`);
+          }}
           className="inline-flex min-h-11 min-w-11 items-center justify-center rounded px-2 text-xs text-muted transition hover:bg-elevated hover:text-ink"
           aria-label="Back to course"
         >
@@ -1029,7 +1070,6 @@ export default function LessonPage({
                       : "Not started"}
                 </span>
                 {!practiceMode &&
-                  mode === "authed" &&
                   practiceTotal > 0 &&
                   lessonStatus === "completed" && (
                     <button
@@ -1113,7 +1153,7 @@ export default function LessonPage({
             // onAnonSave callback when the user clicks.
             <button
               type="button"
-              onClick={() => onAnonSave?.()}
+              onClick={(event) => onAnonSave?.(event.currentTarget)}
               data-anon-signup-trigger
               className="inline-flex min-h-11 items-center justify-center rounded-lg border border-border px-3 text-xs font-medium text-muted transition hover:bg-elevated hover:text-ink"
             >
@@ -1403,7 +1443,7 @@ export default function LessonPage({
                     <div className="p-4 text-sm text-muted">Loading editor…</div>
                   }
                 >
-                  <MonacoPane attentionTarget={contextualGuide.target} />
+                  <MonacoPane attentionTarget={contextualGuide.target} readOnly={editorLocked} />
                 </Suspense>
               </div>
             </section>
@@ -1434,6 +1474,11 @@ export default function LessonPage({
                 onOpenSettings={() => layout.setShowSettings(true)}
                 resetNonce={validator.resetNonce}
                 inputLocked={tutorInputLocked}
+                onSkipWelcome={
+                  isChoreographed && firstRunStep !== "done"
+                    ? skipChoreography
+                    : undefined
+                }
                 clearHidden={tutorClearHidden}
                 mode={mode}
                 onAnonExhausted={onAnonExhausted}
@@ -1674,7 +1719,7 @@ export default function LessonPage({
             <EditorTabs mode="lesson" />
             <div className="min-h-0 flex-1">
               <Suspense fallback={<div className="p-4 text-sm text-muted">Loading editor…</div>}>
-                <MonacoPane attentionTarget={contextualGuide.target} />
+                <MonacoPane attentionTarget={contextualGuide.target} readOnly={editorLocked} />
               </Suspense>
             </div>
             <Splitter
@@ -1886,14 +1931,14 @@ export default function LessonPage({
                 )}
                 {!practiceMode && showNext && (
                   <button
-                    onClick={() => {
+                    onClick={(event) => {
                       // Phase 27-v2.1 medium-lock: anon can't actually
                       // nav to /learn/.../lesson-2 (auth-gated, would
                       // bounce to login). Fire the same wall the
                       // celebration's "Next Lesson →" fires. Authed
                       // path keeps the direct nav.
                       if (mode === "anon") {
-                        onAnonNext?.();
+                        onAnonNext?.(event.currentTarget);
                       } else {
                         nav(`/learn/course/${courseId}/lesson/${nextLessonId}`);
                       }
@@ -2069,6 +2114,11 @@ export default function LessonPage({
               onOpenSettings={() => layout.setShowSettings(true)}
               resetNonce={validator.resetNonce}
               inputLocked={tutorInputLocked}
+              onSkipWelcome={
+                isChoreographed && firstRunStep !== "done"
+                  ? skipChoreography
+                  : undefined
+              }
               clearHidden={tutorClearHidden}
               mode={mode}
               onAnonExhausted={onAnonExhausted}
@@ -2168,37 +2218,21 @@ export default function LessonPage({
             // SignupWallDialog reason="next-lesson". The handoff
             // endpoint redeems the stash on signup; the user lands
             // directly on lesson 2 with their code + completion
-            // state carried. Also dismisses the celebration first so
-            // the wall sits on lesson chrome (not on a stacked
-            // celebration that re-fires the wall on second-Esc) —
-            // closes the medium-lock re-trap loop.
+            // state carried. The celebration remains beneath the account
+            // handoff so dismissing that upper layer returns to the choices
+            // the learner was considering instead of erasing them.
             mode === "anon"
-              ? () => {
-                  validator.setShowComplete(false);
-                  onAnonNext?.();
-                }
+              ? (trigger) => onAnonNext?.(trigger)
               : nextLessonId
                 ? () => nav(`/learn/course/${courseId}/lesson/${nextLessonId}`)
                 : undefined
           }
           onStartPractice={
             lesson.practiceExercises?.length
-              ? mode === "anon"
-                ? // Phase 27-v2.1 medium-lock: practice exercises on
-                  // /try/ are "more content" beyond the trial promise
-                  // (lesson-1 baseline = "make it say your name"). Same
-                  // logic as Next-Lesson — fire the wall so Maya
-                  // converts before getting more content. Wall dismiss
-                  // returns her to lesson chrome (still interactive on
-                  // lesson 1 within the L_anon cap).
-                  () => {
-                    validator.setShowComplete(false);
-                    onAnonNext?.();
-                  }
-                : () => {
-                    validator.setShowComplete(false);
-                    validator.handleEnterPractice();
-                  }
+              ? () => {
+                  validator.setShowComplete(false);
+                  validator.handleEnterPractice();
+                }
               : undefined
           }
           onShare={

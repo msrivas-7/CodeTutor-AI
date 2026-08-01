@@ -250,5 +250,27 @@ test.describe(
     await page.keyboard.press("Escape");
     await expect(continuation).toHaveCount(0);
   });
+
+  test("a native viewport reflow consumes Escape before the product modal", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await seedFirstRun(page, true);
+    await openLesson(page);
+    await page.getByRole("button", { name: /sign up to save/i }).click();
+    const continuation = page.getByRole("dialog", { name: /sign up to save/i });
+    await expect(continuation).toBeVisible();
+
+    await page.evaluate(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", {
+        key: "Escape",
+        bubbles: true,
+      }));
+    });
+    await page.setViewportSize({ width: 900, height: 720 });
+    await page.waitForTimeout(180);
+    await expect(continuation).toBeVisible();
+
+    await page.keyboard.press("Escape");
+    await expect(continuation).toHaveCount(0);
+  });
   },
 );

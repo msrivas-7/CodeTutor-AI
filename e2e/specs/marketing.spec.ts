@@ -69,6 +69,19 @@ test.describe("marketing page (Phase 22C) — anonymous", () => {
     );
   });
 
+  test("primary action is visible without scrolling on a common laptop screen", async ({ browser }) => {
+    const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+    const page = await context.newPage();
+    await page.goto("/");
+    const cta = page.getByRole("link", { name: /try your first lesson/i }).first();
+    await expect(cta).toBeVisible();
+    const box = await cta.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.y + box!.height).toBeLessThanOrEqual(720);
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    await context.close();
+  });
+
   test("the three How-it-works beats render below the hero", async ({
     page,
   }) => {

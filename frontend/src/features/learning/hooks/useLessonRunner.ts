@@ -36,6 +36,12 @@ export interface UseLessonRunnerArgs {
    * Default "authed" preserves all existing behavior.
    */
   mode?: "authed" | "anon";
+  /**
+   * The lesson shell can remain mounted while another first-run layer owns
+   * interaction. Keep pointer and keyboard Run paths on the same contract so
+   * Cmd/Ctrl+Enter cannot execute behind a cinematic or scripted tutor step.
+   */
+  interactionBlocked?: boolean;
 }
 
 export function useLessonRunner({
@@ -47,6 +53,7 @@ export function useLessonRunner({
   tutorCollapsed,
   setTutorCollapsed,
   mode = "authed",
+  interactionBlocked = false,
 }: UseLessonRunnerArgs) {
   const sessionId = useSessionStore((s) => s.sessionId);
   const sessionPhase = useSessionStore((s) => s.phase);
@@ -70,7 +77,7 @@ export function useLessonRunner({
   const [editCount, setEditCount] = useState(0);
 
   const handleRun = useCallback(async () => {
-    if (running || !courseId || !lessonId || !lesson) return;
+    if (interactionBlocked || running || !courseId || !lessonId || !lesson) return;
     // Phase 27-v2.1: mode="authed" still requires an active session;
     // mode="anon" skips the session check (no sessionId on /try/).
     if (mode === "authed" && (!sessionId || sessionPhase !== "active")) return;
@@ -143,7 +150,7 @@ export function useLessonRunner({
     } finally {
       useRunStore.getState().finishRun(operation.id);
     }
-  }, [mode, sessionId, sessionPhase, running, courseId, lessonId, lesson, incrementRun, saveOutput, saveCode, practiceMode]);
+  }, [interactionBlocked, mode, sessionId, sessionPhase, running, courseId, lessonId, lesson, incrementRun, saveOutput, saveCode, practiceMode]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -161,6 +168,10 @@ export function useLessonRunner({
     if (initializedRef.current) {
       setHasEdited(true);
       setEditCount((n) => n + 1);
+      // Any code revision invalidates the previous execution evidence. The
+      // output store already clears its visible result; keep the coaching
+      // state in the same revision so it cannot still say "Your code ran".
+      setHasRun(false);
     }
   }, [projectFiles, initializedRef]);
 

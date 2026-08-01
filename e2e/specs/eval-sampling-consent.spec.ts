@@ -189,11 +189,20 @@ test.describe("B8 governed anonymous eval sampling", () => {
       contentType: "image/png",
     });
 
+    const privacyPagePromise = page.context().waitForEvent("page");
     await control.getByRole("link", { name: "privacy details" }).click();
-    await page.waitForURL("**/privacy#ai");
-    await expect(page.getByRole("heading", { name: "How code and AI requests are used" })).toBeVisible();
-    await expect(page.getByText(/choice is off by default/i)).toBeVisible();
-    await expect(page.getByText(/expire within 30 days/i)).toBeVisible();
-    await expect(page.getByText(/own API key are never part/i)).toBeVisible();
+    const privacyPage = await privacyPagePromise;
+    await privacyPage.waitForLoadState();
+    await expect(privacyPage).toHaveURL(/\/privacy#ai$/);
+    await expect(
+      privacyPage.getByRole("heading", { name: "How code and AI requests are used" }),
+    ).toBeVisible();
+    await expect(privacyPage.getByText(/choice is off by default/i)).toBeVisible();
+    await expect(privacyPage.getByText(/expire within 30 days/i)).toBeVisible();
+    await expect(privacyPage.getByText(/own API key are never part/i)).toBeVisible();
+
+    // Trust details must not replace or erase the in-progress lesson.
+    await expect(page).toHaveURL(PATH);
+    await expect(control).toContainText("What is shared?");
   });
 });

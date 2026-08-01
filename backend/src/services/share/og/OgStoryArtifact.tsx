@@ -44,7 +44,7 @@ function masteryLabel(mastery: "strong" | "okay" | "shaky"): string {
 }
 
 function fmtTimeSpent(ms: number): string {
-  if (!Number.isFinite(ms) || ms <= 0) return "—";
+  if (!Number.isFinite(ms) || ms <= 0) return "";
   if (ms < 60_000) return "<1m";
   const mins = Math.round(ms / 60_000);
   if (mins < 60) return `${mins}m`;
@@ -388,7 +388,7 @@ export function OgStoryArtifact(
               color: BRAND.faint,
             }}
           >
-            {`${fmtTimeSpent(props.timeSpentMs)} · ${props.attemptCount} ${
+            {`${fmtTimeSpent(props.timeSpentMs) ? `${fmtTimeSpent(props.timeSpentMs)} · ` : ""}${props.attemptCount} ${
               props.attemptCount === 1 ? "attempt" : "attempts"
             }`}
           </div>
@@ -420,7 +420,7 @@ export function OgStoryArtifact(
               letterSpacing: "-0.01em",
             }}
           >
-            Try this lesson — takes 4 minutes
+            Try the first lesson — about 10 minutes
           </div>
           <div
             style={{

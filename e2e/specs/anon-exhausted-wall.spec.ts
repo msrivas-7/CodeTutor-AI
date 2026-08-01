@@ -20,6 +20,7 @@ test.describe("Phase 27-v2.1 — ANON_EXHAUSTED → wall pivot", () => {
   test("hint button hits 429 ANON_EXHAUSTED → SignupWallDialog reason='exhausted' opens", async ({
     page,
   }) => {
+    let requestCount = 0;
     await page.addInitScript(() => {
       window.sessionStorage.setItem("codetutor.anonCinematicSeen", "1");
       window.sessionStorage.setItem("codetutor.anonCoachSeen", "1");
@@ -31,8 +32,9 @@ test.describe("Phase 27-v2.1 — ANON_EXHAUSTED → wall pivot", () => {
     // the response body for the error message; since it's not a
     // valid SSE stream, the client will raise via the throw path
     // which surfaces the body text into onError.
-    await page.route("**/api/anon/ai/ask/stream", (route) =>
-      route.fulfill({
+    await page.route("**/api/anon/ai/ask/stream", (route) => {
+      requestCount += 1;
+      return route.fulfill({
         status: 429,
         contentType: "application/json",
         body: JSON.stringify({
@@ -40,8 +42,8 @@ test.describe("Phase 27-v2.1 — ANON_EXHAUSTED → wall pivot", () => {
           remainingToday: 0,
           capToday: 8,
         }),
-      }),
-    );
+      });
+    });
 
     await page.goto(PATH);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible({
@@ -68,6 +70,19 @@ test.describe("Phase 27-v2.1 — ANON_EXHAUSTED → wall pivot", () => {
     await expect(
       page.getByText(/free tutor questions/i).first(),
     ).toBeVisible();
+    await page.getByRole("button", { name: /not yet/i }).click();
+    await expect(
+      page.getByText(/I couldn't send that because today's free tutor questions are used/i),
+    ).toBeVisible();
+    await expect(textarea).toBeDisabled();
+    await expect(textarea).toHaveAttribute(
+      "placeholder",
+      /Free tutor questions used today/i,
+    );
+    await expect(
+      page.getByRole("button", { name: /Nudge me/i }),
+    ).toBeDisabled();
+    expect(requestCount).toBe(1);
   });
 
   test("regex tightening: a generic 429 from a non-ANON_EXHAUSTED upstream does NOT fire the wall", async ({

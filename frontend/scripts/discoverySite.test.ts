@@ -53,7 +53,12 @@ describe("B4 discovery build", () => {
         expect(html).toContain(`<link rel="canonical" href="${SITE_ORIGIN}${lesson.publicPath}">`);
         expect(html).toContain(`<meta property="og:image" content="${SITE_ORIGIN}${lesson.ogPath}">`);
         expect(html).toContain('"@type":"LearningResource"');
-        expect(html).toContain("Write and run the code");
+        expect(html).toContain(
+          course.id === "python-fundamentals" && lesson.id === "hello-world"
+            ? "Try lesson 1 — about 10 minutes"
+            : "Start with lesson 1 — required first",
+        );
+        expect(html).toContain('<main id="main" tabindex="-1">');
         expect(html).not.toContain(
           `<article class="prose" aria-label="Lesson walkthrough"><h2>${lesson.title}</h2>`,
         );
@@ -75,6 +80,9 @@ describe("B4 discovery build", () => {
     expect(readFileSync(path.join(output, "robots.txt"), "utf8")).toContain(
       "Disallow: /courses/",
     );
+    expect(category).toContain("Try the first lesson — about 10 minutes");
+    expect(category).not.toContain("four-minute");
+    expect(category).toContain(">CodeTutor AI</a>");
   });
 
   it("escapes authored HTML while preserving code-oriented markdown", () => {

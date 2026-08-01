@@ -25,7 +25,7 @@ test.describe("B4 public distribution surface", () => {
       '<meta property="og:image" content="https://codetutor.msrivas.com/lesson-og/python-fundamentals/variables.png">',
     );
     expect(html).toContain('"@type":"LearningResource"');
-    expect(html).toContain("Write and run the code");
+    expect(html).toContain("Start with lesson 1 — required first");
 
     const internal = await request.get(
       "/lessons/internal-python-smoke/multi-file-test/",
@@ -54,7 +54,9 @@ test.describe("B4 public distribution surface", () => {
     await expect(
       page.getByRole("heading", { name: /built to teach, not to autocomplete/i }),
     ).toBeVisible();
-    await expect(page.getByRole("link", { name: /try a four-minute lesson/i })).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: /try the first lesson — about 10 minutes/i }),
+    ).toBeVisible();
 
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -109,7 +111,9 @@ test.describe("B4 public distribution surface", () => {
     });
 
     await page.goto("/learn-to-code/");
-    await page.getByRole("link", { name: /try a four-minute lesson/i }).click();
+    await page
+      .getByRole("link", { name: /try the first lesson — about 10 minutes/i })
+      .click();
     await expect(page).toHaveURL(
       /\/try\/lesson\/python-fundamentals\/hello-world$/,
     );
@@ -145,7 +149,9 @@ test.describe("B4 public distribution surface", () => {
 
     await page.goto("/");
     await page.goto("/learn-to-code/");
-    await page.getByRole("link", { name: /try a four-minute lesson/i }).click();
+    await page
+      .getByRole("link", { name: /try the first lesson — about 10 minutes/i })
+      .click();
     await expect(page).toHaveURL(
       /\/try\/lesson\/python-fundamentals\/hello-world$/,
     );

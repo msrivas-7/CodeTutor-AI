@@ -45,7 +45,7 @@ function masteryLabel(mastery: "strong" | "okay" | "shaky"): string {
 }
 
 function fmtTimeSpent(ms: number): string {
-  if (!Number.isFinite(ms) || ms <= 0) return "—";
+  if (!Number.isFinite(ms) || ms <= 0) return "";
   if (ms < 60_000) return "<1m";
   const mins = Math.round(ms / 60_000);
   if (mins < 60) return `${mins}m`;
@@ -402,7 +402,7 @@ export function OgArtifact(props: OgArtifactProps): React.ReactElement {
             color: BRAND.faint,
           }}
         >
-          {`${fmtTimeSpent(props.timeSpentMs)} · ${props.attemptCount} ${
+          {`${fmtTimeSpent(props.timeSpentMs) ? `${fmtTimeSpent(props.timeSpentMs)} · ` : ""}${props.attemptCount} ${
             props.attemptCount === 1 ? "attempt" : "attempts"
           }`}
         </div>

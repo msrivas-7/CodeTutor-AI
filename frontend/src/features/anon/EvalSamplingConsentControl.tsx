@@ -96,7 +96,12 @@ export function EvalSamplingConsentControl() {
           Files, source code, selections, terminal output, paths, and raw history are never
           stored. Personal details and identifiers are removed before saving. Turn this off
           to delete retained samples. BYOK chats are excluded. Read the{" "}
-          <Link className="text-accentMuted underline underline-offset-2" to="/privacy#ai">
+          <Link
+            className="text-accentMuted underline underline-offset-2"
+            to="/privacy#ai"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
             privacy details
           </Link>
           .

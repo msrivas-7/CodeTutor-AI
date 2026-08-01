@@ -145,6 +145,9 @@ test.describe("Phase 21C: cinematic share", () => {
       const href = await cta.getAttribute("href");
       expect(href).not.toBeNull();
       const ctaUrl = new URL(href!);
+      expect(ctaUrl.pathname).toBe(
+        "/try/lesson/python-fundamentals/hello-world",
+      );
       expect(ctaUrl.searchParams.get("utm_source")).toBe("share");
       expect(ctaUrl.searchParams.get("utm_medium")).toBe("lesson_share");
       expect(ctaUrl.searchParams.get("utm_campaign")).toBe(COURSE_ID);

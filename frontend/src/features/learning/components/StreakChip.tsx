@@ -279,14 +279,19 @@ export function StreakChip({ override, compact, interactive = true, prominent = 
         setAnchorRect(buttonRef.current.getBoundingClientRect());
       }
     };
+    const closeForViewportChange = () => setOpen(false);
     const ro = new ResizeObserver(update);
     ro.observe(buttonRef.current);
-    window.addEventListener("resize", update);
+    window.addEventListener("resize", closeForViewportChange);
     window.addEventListener("scroll", update, true);
+    document.addEventListener("fullscreenchange", closeForViewportChange);
+    document.addEventListener("webkitfullscreenchange", closeForViewportChange);
     return () => {
       ro.disconnect();
-      window.removeEventListener("resize", update);
+      window.removeEventListener("resize", closeForViewportChange);
       window.removeEventListener("scroll", update, true);
+      document.removeEventListener("fullscreenchange", closeForViewportChange);
+      document.removeEventListener("webkitfullscreenchange", closeForViewportChange);
     };
   }, [open]);
 

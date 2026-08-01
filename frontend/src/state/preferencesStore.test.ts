@@ -85,6 +85,11 @@ afterEach(() => {
 });
 
 describe("preferencesStore.hydrate", () => {
+  it("resets a fresh learner to beginner guidance", () => {
+    usePreferencesStore.getState().reset();
+    expect(usePreferencesStore.getState().persona).toBe("beginner");
+  });
+
   it("pulls the server row and flips hydrated=true", async () => {
     getPreferences.mockResolvedValueOnce({
       ...defaultServer(),

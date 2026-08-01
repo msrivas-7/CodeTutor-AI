@@ -106,6 +106,48 @@ test.describe("Phase A-Q — visual viewport matrix", () => {
     });
   }
 
+  for (const width of [781, 900]) {
+    test(`${width}px keeps instructions and tutor mutually exclusive`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 720 });
+      await openStableLesson(page);
+
+      const collapseInstructions = page.getByRole("button", {
+        name: "Collapse instructions",
+        exact: true,
+      });
+      if (await collapseInstructions.isVisible()) await collapseInstructions.click();
+
+      const showTutor = page.getByRole("button", {
+        name: "Show tutor panel",
+        exact: true,
+      });
+      if (await showTutor.isVisible()) await showTutor.click();
+
+      await page.getByRole("button", {
+        name: "Show instructions panel",
+        exact: true,
+      }).click();
+      await expect(collapseInstructions).toBeVisible();
+      await expect(showTutor).toBeVisible();
+      await expect(page.getByRole("button", {
+        name: "Collapse tutor",
+        exact: true,
+      })).toHaveCount(0);
+
+      await showTutor.click();
+      await expect(page.getByRole("button", {
+        name: "Show instructions panel",
+        exact: true,
+      })).toBeVisible();
+      await expect(page.getByRole("button", {
+        name: "Collapse tutor",
+        exact: true,
+      })).toBeVisible();
+      await expect(collapseInstructions).toHaveCount(0);
+      await expectNoHorizontalOverflow(page);
+    });
+  }
+
   test("light theme preserves hierarchy and contrast", async ({ page }) => {
     await page.emulateMedia({ colorScheme: "light", reducedMotion: "reduce" });
     await page.setViewportSize({ width: 390, height: 844 });

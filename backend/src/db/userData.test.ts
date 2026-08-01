@@ -78,7 +78,7 @@ describe("db/preferences", () => {
     if (!dbReachable) return;
     const userId = await mkUser();
     const p = await prefs.getPreferences(userId);
-    expect(p.persona).toBe("intermediate");
+    expect(p.persona).toBe("beginner");
     expect(p.theme).toBe("dark");
     expect(p.welcomeDone).toBe(false);
     expect(p.uiLayout).toEqual({});

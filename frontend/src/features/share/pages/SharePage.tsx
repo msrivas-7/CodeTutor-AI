@@ -8,6 +8,7 @@ import { CinematicLighting } from "../../../components/cinema/CinematicLighting"
 import { FilmGrain } from "../../../components/cinema/FilmGrain";
 import { CodeTypewriter } from "../components/CodeTypewriter";
 import { masteryLabel } from "../components/MasteryRing";
+import { FIRST_LESSON_CONTRACT } from "../../../productContract";
 
 // Phase 21C: cinematic share page at /s/:token. Public route — no auth
 // required. Renders a slow, choreographed reveal of the learner's
@@ -28,7 +29,7 @@ const TIER_COLOR: Record<SharedLessonCompletion["mastery"], string> = {
 };
 
 function fmtTimeSpent(ms: number): string {
-  if (!Number.isFinite(ms) || ms <= 0) return "—";
+  if (!Number.isFinite(ms) || ms <= 0) return "";
   if (ms < 60_000) return "<1m";
   const mins = Math.round(ms / 60_000);
   if (mins < 60) return `${mins}m`;
@@ -89,9 +90,10 @@ export default function SharePage() {
     document.title = docTitle;
 
     const url = `${window.location.origin}/s/${share.shareToken}`;
-    const description = `${masteryLabel(share.mastery)} in ${fmtTimeSpent(
-      share.timeSpentMs,
-    )} · ${Math.max(1, share.attemptCount)} ${
+    const timeLabel = fmtTimeSpent(share.timeSpentMs);
+    const description = `${masteryLabel(share.mastery)}${
+      timeLabel ? ` in ${timeLabel}` : ""
+    } · ${Math.max(1, share.attemptCount)} ${
       Math.max(1, share.attemptCount) === 1 ? "attempt" : "attempts"
     }. See the code on CodeTutor.`;
 
@@ -304,6 +306,10 @@ function SharePageReady({ share }: SharePageReadyProps) {
   const inMoneyShot = phase === "moneyShot";
 
   const ringColor = TIER_COLOR[share.mastery];
+  const timeSpentLabel = fmtTimeSpent(share.timeSpentMs);
+  const isFirstLesson =
+    share.courseId === FIRST_LESSON_CONTRACT.courseId &&
+    share.lessonId === FIRST_LESSON_CONTRACT.lessonId;
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-bg text-ink">
@@ -499,7 +505,7 @@ function SharePageReady({ share }: SharePageReadyProps) {
           </div>
           <div className="flex flex-col items-start gap-1 text-xs text-faint sm:items-end">
             <div>
-              {fmtTimeSpent(share.timeSpentMs)} · {Math.max(1, share.attemptCount)}{" "}
+              {timeSpentLabel ? `${timeSpentLabel} · ` : ""}{Math.max(1, share.attemptCount)}{" "}
               {Math.max(1, share.attemptCount) === 1 ? "attempt" : "attempts"}
             </div>
             {/* View counter — hidden when 0 readers. "0 readers" under
@@ -536,8 +542,8 @@ function SharePageReady({ share }: SharePageReadyProps) {
             // within the embedder's own host. window.location.origin
             // resolves to codetutor.msrivas.com on the live site,
             // localhost:5173 in dev, etc.
-            href={`${window.location.origin}/?utm_source=share&utm_medium=lesson_share&utm_campaign=${encodeURIComponent(share.courseId)}&utm_content=${encodeURIComponent(share.lessonId)}&share_ref=${encodeURIComponent(share.shareToken)}`}
-            label="Try this lesson — takes 4 minutes →"
+            href={`${window.location.origin}${FIRST_LESSON_CONTRACT.route}?utm_source=share&utm_medium=lesson_share&utm_campaign=${encodeURIComponent(share.courseId)}&utm_content=${encodeURIComponent(share.lessonId)}&share_ref=${encodeURIComponent(share.shareToken)}`}
+            label={`${isFirstLesson ? "Try this lesson" : "Start with lesson 1"} — about ${FIRST_LESSON_CONTRACT.estimatedMinutes} minutes →`}
             breathe={phase === "idle" && !reduce}
           />
           <div className="text-sm text-faint">

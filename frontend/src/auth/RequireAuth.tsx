@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuthStore } from "./authStore";
 import { AuthLoader } from "./AuthLoader";
+import { authPath, locationReturnTarget } from "./returnTarget";
 
 // Route guard. Reads auth state from the store:
 //  - `loading` (initial hydration): render AuthLoader so we don't flash
@@ -35,7 +36,13 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   }
 
   if (!user) {
-    return <Navigate to="/login" replace state={{ from: location }} />;
+    return (
+      <Navigate
+        to={authPath("/login", locationReturnTarget(location))}
+        replace
+        state={{ from: location }}
+      />
+    );
   }
 
   return <>{children}</>;
