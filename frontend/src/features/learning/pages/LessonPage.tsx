@@ -25,6 +25,7 @@ import { Modal } from "../../../components/Modal";
 import { LessonCompletePanel } from "../components/LessonCompletePanel";
 import { RetrievalCheckPanel } from "../components/RetrievalCheckPanel";
 import { MemoryWarmupCard } from "../components/MemoryWarmupCard";
+import { MissingContentState } from "../components/MissingContentState";
 import { ContextualGuideBridge } from "../assistance/ContextualGuideBridge";
 import { useContextualGuide } from "../assistance/useContextualGuide";
 import { useSessionLifecycle } from "../../../hooks/useSessionLifecycle";
@@ -66,6 +67,10 @@ import { MATERIAL_EASE, CINEMA_DURATIONS } from "../../../components/cinema/easi
 import { ShareDialog } from "../../share/components/ShareDialog";
 import { LANGUAGE_ENTRYPOINT } from "../../../types";
 import { api } from "../../../api/client";
+
+function formatCount(count: number, singular: string, plural = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
 
 function PracticePersistenceBanner({
   saving,
@@ -643,19 +648,36 @@ export default function LessonPage({
     validator.restoreCompleted,
   ]);
 
-  // Phase A — A2 part 2 (device contract): phone lesson 1 is a
-  // 390px-native single-column screen, NOT a responsive squeeze of the
-  // desktop three-panel splitter layout. Applies to the ANON path only
-  // — the audit's "phone is discovery, laptop is learning" stance means
-  // authed learners on a phone still get the desktop workspace (they
-  // were told to graduate to a laptop; we don't polish a path we
-  // deliberately don't want them living in). All state machinery
+  // Phone lessons are a 390px-native single-column screen, NOT a responsive
+  // squeeze of the desktop three-panel splitter layout. This applies to both
+  // anonymous and authenticated learners: an account/session change must not
+  // push the editor, output, and tutor off the physical viewport. All state machinery
   // (loader / runner / validator / choreography / overlays) is shared
   // with the desktop branch — only the workspace JSX arrangement
   // differs, so the audited funnel behavior can't drift between form
   // factors.
   const phoneFormFactor = usePhoneFormFactor();
-  const isPhoneNative = mode === "anon" && phoneFormFactor;
+  const isPhoneNative = phoneFormFactor;
+  const handledPhoneTutorOpenNonceRef = useRef(tutorOpenNonce);
+
+  useEffect(() => {
+    if (tutorOpenNonce <= handledPhoneTutorOpenNonceRef.current) return;
+    handledPhoneTutorOpenNonceRef.current = tutorOpenNonce;
+    if (!isPhoneNative) return;
+
+    requestAnimationFrame(() => {
+      const tutor = layout.tutorRef.current;
+      if (!tutor) return;
+      const reduceMotion = window.matchMedia?.(
+        "(prefers-reduced-motion: reduce)",
+      ).matches;
+      tutor.scrollIntoView({
+        behavior: reduceMotion ? "auto" : "smooth",
+        block: "start",
+      });
+      tutor.focus({ preventScroll: true });
+    });
+  }, [isPhoneNative, layout.tutorRef, tutorOpenNonce]);
 
   // Phase A — A6: fire onAnonComplete once when the celebration
   // mounts on the anon path. AnonLessonPage hooks this to fire a
@@ -894,6 +916,13 @@ export default function LessonPage({
   const lessonStatus = validator.validation?.passed
     ? "completed"
     : lp?.status ?? (mode === "anon" ? "in_progress" : undefined);
+  const practiceTotal = lesson?.practiceExercises?.length ?? 0;
+  const practiceDone =
+    practiceTotal > 0
+      ? (lp?.practiceCompletedIds ?? []).filter((id) =>
+          lesson!.practiceExercises!.some((exercise) => exercise.id === id),
+        ).length
+      : 0;
 
   const coachState = {
     hasEdited: runner.hasEdited,
@@ -986,7 +1015,9 @@ export default function LessonPage({
         >
           ← Back
         </button>
-        <Wordmark size="sm" className="shrink-0 whitespace-nowrap" />
+        <span className="hidden shrink-0 sm:inline-flex">
+          <Wordmark size="sm" className="whitespace-nowrap" />
+        </span>
         <span className="hidden h-4 w-px bg-border sm:block" aria-hidden="true" />
         {/* Phase B: lesson title hoisted to the instructions panel
             at Fraunces 28px. The header now carries only a thin
@@ -998,11 +1029,15 @@ export default function LessonPage({
           <span className="hidden truncate text-[11px] text-muted sm:inline">
             Lesson {lesson.order}
           </span>
-        ) : (
+        ) : loader.loading ? (
           <span
-            className="skeleton h-3 w-16 rounded"
+            className="skeleton hidden h-3 w-16 rounded sm:block"
             aria-label="Loading"
           />
+        ) : (
+          <span className="hidden truncate text-[11px] text-muted sm:inline">
+            Lesson unavailable
+          </span>
         )}
         {/* Phase B: mode switcher (Editor | Learning) removed from
             chrome. Sitting persistently next to the lesson title, it
@@ -1036,7 +1071,7 @@ export default function LessonPage({
             for screen readers. The breadcrumb keeps the orienting job.
             Authed keeps its StreakChip in the centre slot. */}
         {mode !== "anon" && (
-          <div className="pointer-events-none absolute left-1/2 -translate-x-1/2">
+          <div className="pointer-events-none absolute left-1/2 hidden -translate-x-1/2 sm:block">
             <div className="pointer-events-auto">
               <StreakChip />
             </div>
@@ -1053,13 +1088,6 @@ export default function LessonPage({
             <span className="hidden text-[10px] text-yellow-300 sm:inline">Reconnecting…</span>
           )}
           {lessonStatus && (() => {
-            const practiceTotal = lesson?.practiceExercises?.length ?? 0;
-            const practiceDone =
-              practiceTotal > 0
-                ? (lp?.practiceCompletedIds ?? []).filter((id) =>
-                    lesson!.practiceExercises!.some((e) => e.id === id),
-                  ).length
-                : 0;
             const practiceAllDone = practiceTotal > 0 && practiceDone === practiceTotal;
             return (
               <div className="hidden items-center overflow-hidden rounded-full sm:flex">
@@ -1170,6 +1198,27 @@ export default function LessonPage({
             </button>
           ) : (
             <>
+              {!practiceMode &&
+                lesson &&
+                lessonStatus === "completed" &&
+                !!lp?.lastCode?.[LANGUAGE_ENTRYPOINT[lesson.language]]?.trim() && (
+                  <button
+                    type="button"
+                    onClick={(event) => openShareDialog(event.currentTarget)}
+                    className={`inline-flex min-h-11 min-w-11 items-center justify-center rounded px-2 text-[11px] font-semibold transition sm:hidden ${
+                      hasExistingShare
+                        ? "text-success hover:bg-success/10"
+                        : "text-accentInk hover:bg-accent/10"
+                    }`}
+                    aria-label={
+                      hasExistingShare
+                        ? "View existing share for this lesson"
+                        : "Open share dialog for this lesson"
+                    }
+                  >
+                    {hasExistingShare ? "Shared" : "Share"}
+                  </button>
+                )}
               <motion.div
                 animate={{
                   opacity: isFirstRun && firstRunStep !== "done" ? 0.3 : 1,
@@ -1466,7 +1515,12 @@ export default function LessonPage({
             </section>
             {/* 4 — Tutor. Always open on phone (A2 part 1's default-open
                 promise) — a full-width section, not a side drawer. */}
-            <section aria-label="AI tutor" className="h-[52vh] min-h-[280px]">
+            <section
+              ref={layout.tutorRef as React.RefObject<HTMLElement>}
+              aria-label="AI tutor"
+              tabIndex={-1}
+              className="h-[52vh] min-h-[280px] focus:outline-none"
+            >
               <GuidedTutorPanel
                 lessonMeta={lesson}
                 totalLessons={loader.totalLessons}
@@ -1478,7 +1532,7 @@ export default function LessonPage({
                 }
                 progressSummary={
                   lp
-                    ? `attempt ${lp.attemptCount}, ${lp.runCount} runs, ${lp.hintCount} hints used`
+                    ? `${formatCount(lp.attemptCount, "attempt")}, ${formatCount(lp.runCount, "run")}, ${formatCount(lp.hintCount, "hint")} used`
                     : "first attempt"
                 }
                 onOpenSettings={() => layout.setShowSettings(true)}
@@ -1541,25 +1595,28 @@ export default function LessonPage({
               <motion.button
                 ref={layout.runBtnRef}
                 onClick={() => {
-                  runner.handleRun();
+                  if (runner.running) void runner.handleStop();
+                  else runner.handleRun();
                 }}
                 whileTap={{ scale: 0.96 }}
                 transition={{
                   duration: CINEMA_DURATIONS.tactileTap / 1000,
                   ease: MATERIAL_EASE,
                 }}
-                disabled={!runner.canRun || runButtonLocked}
+                disabled={runner.stopping || (!runner.running && (!runner.canRun || runButtonLocked))}
                 className={`flex h-11 flex-1 items-center justify-center gap-1.5 rounded-xl text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
-                  runner.canRun && !runButtonLocked
-                    ? "bg-accent text-bg active:bg-accent/90"
+                  runner.running && !runner.stopping
+                    ? "bg-danger/15 text-danger ring-1 ring-danger/40 active:bg-danger/25"
+                    : runner.canRun && !runButtonLocked
+                      ? "bg-accent text-bg active:bg-accent/90"
                     : "bg-elevated text-muted"
                 }`}
-                aria-label={runner.canRun ? "Run code" : "Run code — not ready"}
+                aria-label={runner.running ? "Stop running code" : runner.canRun ? "Run code" : "Run code — not ready"}
               >
                 {runner.running ? (
                   <>
-                    <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                    Running...
+                    <span className={`h-3.5 w-3.5 ${runner.stopping ? "animate-spin rounded-full border-2 border-current border-t-transparent" : "rounded-sm bg-current"}`} />
+                    {runner.stopping ? "Stopping…" : "Stop"}
                   </>
                 ) : (
                   <>
@@ -1587,8 +1644,32 @@ export default function LessonPage({
                   ? "Checking…"
                   : validator.completionSaving
                     ? "Saving…"
-                    : "Check My Work"}
+                    : practiceTotal > 0 && lessonStatus === "completed"
+                      ? "Check"
+                      : "Check My Work"}
               </button>
+              {practiceTotal > 0 && lessonStatus === "completed" && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (practiceMode) validator.handleExitPractice();
+                    else validator.handleEnterPractice();
+                  }}
+                  disabled={runner.running || validator.runningTests || validator.completionSaving}
+                  className={`flex h-11 flex-1 items-center justify-center rounded-xl text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-violet disabled:opacity-40 ${
+                    practiceMode
+                      ? "bg-violet/20 text-violet active:bg-violet/30"
+                      : "bg-elevated text-ink active:bg-violet/20"
+                  }`}
+                  aria-label={
+                    practiceMode
+                      ? "Exit practice mode and return to lesson"
+                      : `Practice ${practiceDone} of ${practiceTotal}`
+                  }
+                >
+                  {practiceMode ? "Exit" : "Practice"}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={validator.handleReset}
@@ -1624,10 +1705,19 @@ export default function LessonPage({
           {layout.instrCollapsed && (
             <button
               ref={instructionsRestoreRef}
-              onClick={() => layout.setInstrCollapsed(false)}
+              onClick={() => {
+                layout.setInstrCollapsed(false);
+                requestAnimationFrame(() => {
+                  layout.instrRef.current
+                    ?.querySelector<HTMLButtonElement>(
+                      '[title="Collapse instructions"], [aria-label="Collapse practice instructions"]',
+                    )
+                    ?.focus();
+                });
+              }}
               title="Show instructions"
               aria-label="Show instructions panel"
-              className="flex w-6 shrink-0 flex-col items-center justify-start gap-2 border-r border-border bg-panel pt-3 text-muted transition hover:bg-elevated hover:text-ink"
+              className="flex w-11 shrink-0 flex-col items-center justify-start gap-2 border-r border-border bg-panel pt-3 text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
             >
               <span className="text-[12px]" aria-hidden="true">▸</span>
               <span
@@ -1701,6 +1791,10 @@ export default function LessonPage({
           {!layout.instrCollapsed && (
             <Splitter
               orientation="vertical"
+              valueNow={layout.instrW}
+              valueMin={LESSON_LAYOUT_BOUNDS.instr[0]}
+              valueMax={LESSON_LAYOUT_BOUNDS.instr[1]}
+              valueText={`Instructions panel ${Math.round(layout.instrW)} pixels wide`}
               onDrag={(dx) =>
                 layout.setInstrW((w) => clampSide(w + dx, LESSON_LAYOUT_BOUNDS.instr))
               }
@@ -1743,6 +1837,10 @@ export default function LessonPage({
             </div>
             <Splitter
               orientation="horizontal"
+              valueNow={layout.outputH}
+              valueMin={LESSON_LAYOUT_BOUNDS.out[0]}
+              valueMax={LESSON_LAYOUT_BOUNDS.out[1]}
+              valueText={`Output panel ${Math.round(layout.outputH)} pixels high`}
               onDrag={(dy) =>
                 layout.setOutputH((h) => clamp(h - dy, LESSON_LAYOUT_BOUNDS.out))
               }
@@ -1770,7 +1868,7 @@ export default function LessonPage({
                 onDismiss={contextualGuide.dismiss}
               />
               {/* Row 1 — Primary actions */}
-              <div className="flex items-center gap-2 px-4 py-1.5">
+              <div className="flex flex-wrap items-center gap-2 px-3 py-2">
                 <span className="relative inline-flex">
                   {/* Phase B: dropped the press ring. The accent-color
                       ring on every click + the green ring on every
@@ -1785,23 +1883,28 @@ export default function LessonPage({
                   <motion.button
                     ref={layout.runBtnRef}
                     onClick={() => {
-                      runner.handleRun();
+                      if (runner.running) void runner.handleStop();
+                      else runner.handleRun();
                     }}
                     whileTap={{ scale: 0.96 }}
                     transition={{
                       duration: CINEMA_DURATIONS.tactileTap / 1000,
                       ease: MATERIAL_EASE,
                     }}
-                    disabled={!runner.canRun || runButtonLocked}
-                    className={`flex items-center gap-1.5 whitespace-nowrap rounded-lg px-4 py-1.5 text-xs font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
-                      runner.canRun && !runButtonLocked
-                        ? "bg-accent text-bg hover:bg-accent/90"
+                    disabled={runner.stopping || (!runner.running && (!runner.canRun || runButtonLocked))}
+                    className={`flex min-h-11 items-center gap-1.5 whitespace-nowrap rounded-lg px-4 py-2 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+                      runner.running && !runner.stopping
+                        ? "bg-danger/15 text-danger ring-1 ring-danger/40 hover:bg-danger/25"
+                        : runner.canRun && !runButtonLocked
+                          ? "bg-accent text-bg hover:bg-accent/90"
                         : "bg-elevated text-muted cursor-not-allowed"
                     }`}
                     title={
                       runButtonLocked
                         ? "The tutor will tell you when to run"
-                        : runner.canRun
+                        : runner.running
+                          ? "Stop the running program"
+                          : runner.canRun
                           ? `Run your code (${keys.run})`
                           : runner.sessionPhase !== "active"
                             ? "Waiting for session to start…"
@@ -1810,7 +1913,9 @@ export default function LessonPage({
                               : "Run code"
                     }
                     aria-label={
-                      runner.canRun
+                      runner.running
+                        ? "Stop running code"
+                        : runner.canRun
                         ? `Run code (${keys.runPhrase})`
                         : runner.sessionPhase !== "active"
                           ? "Run code — waiting for session"
@@ -1819,8 +1924,8 @@ export default function LessonPage({
                   >
                     {runner.running ? (
                       <>
-                        <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                        Running...
+                        <span className={`h-3 w-3 ${runner.stopping ? "animate-spin rounded-full border-2 border-current border-t-transparent" : "rounded-sm bg-current"}`} />
+                        {runner.stopping ? "Stopping…" : "Stop"}
                       </>
                     ) : (
                       <>
@@ -1843,7 +1948,7 @@ export default function LessonPage({
                   disabled={runner.running}
                   title="Reset code to starter"
                   aria-label="Reset code to starter"
-                  className="flex items-center gap-1 whitespace-nowrap px-2 py-1.5 text-[11px] text-muted transition hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-40"
+                  className="flex min-h-11 items-center gap-1 whitespace-nowrap rounded-lg px-3 py-2 text-sm text-muted transition hover:bg-elevated hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <span aria-hidden="true">↺</span>
                   Reset
@@ -1862,7 +1967,7 @@ export default function LessonPage({
                       void validator.handleCheck();
                     }}
                     disabled={runner.running || validator.runningTests || validator.completionSaving || checkButtonLocked}
-                    className={`flex items-center gap-1.5 whitespace-nowrap rounded-lg px-4 py-1.5 text-xs font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-violet ${
+                    className={`flex min-h-11 items-center gap-1.5 whitespace-nowrap rounded-lg px-4 py-2 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-violet ${
                       !runner.running && !validator.runningTests && !validator.completionSaving && !checkButtonLocked
                         ? "bg-violet/20 text-violet hover:bg-violet/30"
                         : "bg-elevated text-muted cursor-not-allowed"
@@ -1897,7 +2002,7 @@ export default function LessonPage({
                     shift when stderr toggles. Copy shifted from "Explain Error"
                     (diagnostic) to "What went wrong?" (a question a real tutor
                     would ask) — same handler, warmer framing. */}
-                <div className="min-w-0 xl:min-w-[160px]">
+                <div className="min-w-0">
                   {runner.hasStderr && !runner.running && !contextualGuideVisible && (
                     <button
                       onClick={runner.handleExplainError}
@@ -1906,7 +2011,7 @@ export default function LessonPage({
                       // read "What went wrong?" with red highlight
                       // and felt accused. Accent tint matches the
                       // calm-hand-on-shoulder intent of the copy.
-                      className="flex items-center gap-1 rounded-lg bg-accent/15 px-3 py-1.5 text-[11px] font-medium text-accent ring-1 ring-accent/40 transition hover:bg-accent/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                      className="flex min-h-11 items-center gap-1 rounded-lg bg-accent/15 px-3 py-2 text-sm font-medium text-accentInk ring-1 ring-accent/40 transition hover:bg-accent/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                       title="Ask the tutor to explain this error"
                       aria-label="Ask the tutor what went wrong"
                     >
@@ -1934,13 +2039,13 @@ export default function LessonPage({
                 )}
                 <div className="flex-1" />
                 {practiceMode && (
-                  <div className="flex items-center overflow-hidden rounded-full ring-1 ring-violet/30">
-                    <span className="bg-violet/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-violet">
+                  <div className="flex min-h-11 items-center overflow-hidden rounded-full ring-1 ring-violet/30">
+                    <span className="bg-violet/15 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-violet">
                       Practice Mode
                     </span>
                     <button
                       onClick={validator.handleExitPractice}
-                      className="border-l-2 border-violet/40 bg-violet/25 px-2.5 py-1 text-[10px] font-semibold text-violet transition hover:bg-violet/40 hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-violet"
+                      className="min-h-11 border-l-2 border-violet/40 bg-violet/25 px-3 py-2 text-sm font-semibold text-violet transition hover:bg-violet/40 hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-violet"
                       title="Exit practice and return to the lesson"
                       aria-label="Exit practice mode and return to lesson"
                     >
@@ -1962,7 +2067,7 @@ export default function LessonPage({
                         nav(`/learn/course/${courseId}/lesson/${nextLessonId}`);
                       }
                     }}
-                    className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-violet to-accent px-4 py-1.5 text-xs font-semibold text-bg shadow-glow transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet"
+                    className="flex min-h-11 items-center gap-1.5 rounded-lg bg-gradient-to-r from-violet to-accent px-4 py-2 text-sm font-semibold text-bg shadow-glow transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet"
                     aria-label="Go to next lesson"
                   >
                     Next Lesson →
@@ -1974,7 +2079,7 @@ export default function LessonPage({
                     aria-label="More lesson actions"
                     aria-haspopup="menu"
                     aria-expanded={layout.resetMenuOpen}
-                    className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition hover:bg-elevated hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    className="flex h-11 w-11 items-center justify-center rounded-lg text-muted transition hover:bg-elevated hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                     title="More actions"
                   >
                     <svg
@@ -2063,8 +2168,8 @@ export default function LessonPage({
                     className="text-[10px] text-faint"
                     title="Time is estimated from active tabs. Long idle periods and hidden tabs are excluded."
                   >
-                    {formatTimeSpent(lp.timeSpentMs)} · {lp.attemptCount} attempts ·{" "}
-                    {lp.runCount} runs · {lp.hintCount} hints
+                    {formatTimeSpent(lp.timeSpentMs)} · {formatCount(lp.attemptCount, "attempt")} ·{" "}
+                    {formatCount(lp.runCount, "run")} · {formatCount(lp.hintCount, "hint")}
                   </span>
                 </div>
               )}
@@ -2085,10 +2190,17 @@ export default function LessonPage({
           {layout.tutorCollapsed && (
             <button
               ref={tutorRestoreRef}
-              onClick={() => layout.setTutorCollapsed(false)}
+              onClick={() => {
+                layout.setTutorCollapsed(false);
+                requestAnimationFrame(() => {
+                  layout.tutorRef.current
+                    ?.querySelector<HTMLButtonElement>('[aria-label="Collapse tutor"]')
+                    ?.focus();
+                });
+              }}
               title="Show tutor"
               aria-label="Show tutor panel"
-              className="flex w-6 shrink-0 flex-col items-center justify-start gap-2 border-l border-border bg-panel pt-3 text-muted transition hover:bg-elevated hover:text-ink"
+              className="flex w-11 shrink-0 flex-col items-center justify-start gap-2 border-l border-border bg-panel pt-3 text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
             >
               <span className="text-[12px]" aria-hidden="true">◂</span>
               <span
@@ -2102,6 +2214,10 @@ export default function LessonPage({
           {!layout.tutorCollapsed && (
             <Splitter
               orientation="vertical"
+              valueNow={layout.tutorW}
+              valueMin={LESSON_LAYOUT_BOUNDS.tutor[0]}
+              valueMax={LESSON_LAYOUT_BOUNDS.tutor[1]}
+              valueText={`Tutor panel ${Math.round(layout.tutorW)} pixels wide`}
               onDrag={(dx) =>
                 layout.setTutorW((w) => clampSide(w - dx, LESSON_LAYOUT_BOUNDS.tutor))
               }
@@ -2128,7 +2244,7 @@ export default function LessonPage({
               }
               progressSummary={
                 lp
-                  ? `attempt ${lp.attemptCount}, ${lp.runCount} runs, ${lp.hintCount} hints used`
+                  ? `${formatCount(lp.attemptCount, "attempt")}, ${formatCount(lp.runCount, "run")}, ${formatCount(lp.hintCount, "hint")} used`
                   : "first attempt"
               }
               onCollapse={() => {
@@ -2173,8 +2289,8 @@ export default function LessonPage({
           </div>
         </div>
       ) : (
-        <div className="flex flex-1 items-center justify-center text-sm text-muted">
-          Lesson not found
+        <div className="flex flex-1 items-center justify-center">
+          <MissingContentState kind="lesson" />
         </div>
       )}
 
@@ -2229,6 +2345,7 @@ export default function LessonPage({
           mastery={computeMastery(lp, lesson)?.level ?? null}
           timeSpentMs={lp?.timeSpentMs}
           nextLessonTitle={loader.nextLessonTitle}
+          returnFocusRef={layout.checkBtnRef}
           onDismiss={() => {
             validator.setShowComplete(false);
             // Dismiss means dismiss. Conversion happens only through an

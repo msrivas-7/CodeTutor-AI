@@ -22,7 +22,23 @@ const TYPE_STYLE: Record<ErrorType, string> = {
   system: "bg-muted/15 text-muted ring-muted/30",
 };
 
-type Tab = "combined" | "stdout" | "stderr" | "stdin";
+export type OutputTab = "combined" | "stdout" | "stderr" | "stdin";
+type Tab = OutputTab;
+
+export const OUTPUT_TABS: OutputTab[] = ["combined", "stdout", "stderr", "stdin"];
+
+export function nextOutputTab(current: OutputTab, key: string): OutputTab | null {
+  const index = OUTPUT_TABS.indexOf(current);
+  if (key === "ArrowRight" || key === "ArrowDown") {
+    return OUTPUT_TABS[(index + 1) % OUTPUT_TABS.length]!;
+  }
+  if (key === "ArrowLeft" || key === "ArrowUp") {
+    return OUTPUT_TABS[(index - 1 + OUTPUT_TABS.length) % OUTPUT_TABS.length]!;
+  }
+  if (key === "Home") return OUTPUT_TABS[0]!;
+  if (key === "End") return OUTPUT_TABS[OUTPUT_TABS.length - 1]!;
+  return null;
+}
 
 interface OutputPanelProps {
   /** A more specific current-result guide already owns this moment. */
@@ -32,11 +48,30 @@ interface OutputPanelProps {
 export function OutputPanel({
   suppressErrorEncouragement = false,
 }: OutputPanelProps = {}) {
-  const { running, result, error, stdin, setStdin } = useRunStore();
+  const { running, stopping, runNotice, result, error, stdin, setStdin } = useRunStore();
   const { order, revealAt } = useProjectStore();
   const [tab, setTab] = useState<Tab>("combined");
   const [copied, setCopied] = useState(false);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const tabRefs = useRef<Record<Tab, HTMLButtonElement | null>>({
+    combined: null,
+    stdout: null,
+    stderr: null,
+    stdin: null,
+  });
   const reduce = useReducedMotion();
+
+  useEffect(() => {
+    if (!running) {
+      setElapsedSeconds(0);
+      return;
+    }
+    const startedAt = Date.now();
+    const tick = () => setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000));
+    tick();
+    const timer = window.setInterval(tick, 250);
+    return () => window.clearInterval(timer);
+  }, [running]);
 
   // First-success ring + confetti removed per user direction. The
   // workspace-vignette darkening (FirstSuccessReveal) still covers
@@ -93,6 +128,14 @@ export function OutputPanel({
     }
   };
 
+  const moveTab = (current: Tab, key: string) => {
+    const target = nextOutputTab(current, key);
+    if (!target) return false;
+    setTab(target);
+    requestAnimationFrame(() => tabRefs.current[target]?.focus());
+    return true;
+  };
+
   return (
     <div className="relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-panel">
       <div className="flex min-w-0 flex-wrap items-center gap-2 border-b border-border px-3 py-1.5">
@@ -104,15 +147,19 @@ export function OutputPanel({
           aria-label="Output view"
           className="flex max-w-full gap-0.5 overflow-x-auto rounded-md bg-elevated p-0.5 text-[11px]"
         >
-          {(["combined", "stdout", "stderr", "stdin"] as Tab[]).map((t) => (
+          {OUTPUT_TABS.map((t) => (
             <button
               key={t}
+              ref={(node) => { tabRefs.current[t] = node; }}
               role="tab"
               id={`output-tab-${t}`}
               aria-selected={tab === t}
               aria-controls="output-panel-body"
               tabIndex={tab === t ? 0 : -1}
               onClick={() => setTab(t)}
+              onKeyDown={(event) => {
+                if (moveTab(t, event.key)) event.preventDefault();
+              }}
               className={`inline-flex min-h-11 min-w-11 items-center justify-center rounded px-2 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
                 tab === t
                   ? "bg-bg text-ink shadow-soft ring-1 ring-accent/40"
@@ -146,7 +193,11 @@ export function OutputPanel({
           {running && (
             <span className="flex items-center gap-1.5 text-accent">
               <span className="inline-block h-1.5 w-1.5 animate-pulseDot rounded-full bg-accent" />
-              Running…
+              {stopping
+                ? "Stopping…"
+                : elapsedSeconds >= 7
+                  ? `Running · ${elapsedSeconds}s · nearing safety limit`
+                  : `Running · ${elapsedSeconds}s`}
             </span>
           )}
           {error && !hasResult && (
@@ -215,7 +266,9 @@ export function OutputPanel({
           role="tabpanel"
           aria-labelledby={`output-tab-${tab}`}
           className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap bg-bg p-3 font-mono text-[13px] leading-relaxed text-ink sm:text-xs">
-          {error ? (
+          {runNotice && !result && !error ? (
+            <span role="status" className="text-accentInk">{runNotice}</span>
+          ) : error ? (
             <span className="text-danger">{error}</span>
           ) : hasResult ? (
             // Cinema Kit Continuity Pass — output text arrives with a
@@ -252,7 +305,13 @@ export function OutputPanel({
               )}
             </motion.span>
           ) : running ? (
-            <span className="text-muted">Running…</span>
+            <span className="text-muted">
+              {stopping
+                ? "Stopping…"
+                : elapsedSeconds >= 7
+                  ? `Running for ${elapsedSeconds}s — nearing the safety limit. You can stop now.`
+                  : `Running for ${elapsedSeconds}s…`}
+            </span>
           ) : (
             <span className="text-faint">
               Run your code to see what happens here.

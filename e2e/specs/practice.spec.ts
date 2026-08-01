@@ -9,7 +9,7 @@
 import { expect, test } from "../fixtures/auth";
 
 import { mockAllAI } from "../fixtures/aiMocks";
-import { setMonacoValue, waitForMonacoReady } from "../fixtures/monaco";
+import { getMonacoValue, setMonacoValue, waitForMonacoReady } from "../fixtures/monaco";
 import { loadProfile, markOnboardingDone, seedApiKey } from "../fixtures/profiles";
 import { readLessonSolution, readPracticeSolution } from "../fixtures/solutions";
 import * as S from "../utils/selectors";
@@ -64,10 +64,12 @@ test.describe("practice mode", () => {
     await expect(page.getByRole("heading", { name: /greeting with default/i })).toBeVisible({
       timeout: 5_000,
     });
+    expect(await getMonacoValue(page)).toContain("def greet");
     await page.getByRole("button", { name: /^exercise 3:/i }).click();
     await expect(page.getByRole("heading", { name: /max of three/i })).toBeVisible({
       timeout: 5_000,
     });
+    expect(await getMonacoValue(page)).toContain("def max_of_three");
   });
 
   test("solve first exercise → Check passes → Next challenge moves to exercise 2", async ({ page }) => {
@@ -95,6 +97,52 @@ test.describe("practice mode", () => {
     });
     // Header now reads "2 of 3".
     await expect(page.getByText(/2 of 3/).first()).toBeVisible();
+
+    // Leaving and re-entering resumes at the first incomplete exercise,
+    // rather than sending the learner back through a challenge they finished.
+    await page.getByRole("button", { name: /exit practice mode/i }).click();
+    await page.getByRole("button", { name: /practice 1 of 3/i }).click();
+    await expect(page.getByRole("heading", { name: /greeting with default/i })).toBeVisible();
+    expect(await getMonacoValue(page)).toContain("def greet");
+  });
+
+  test("authenticated phone practice keeps every workspace surface inside the viewport", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await loadProfile(page, "capstones-pending");
+    await page.goto(`/learn/course/${COURSE_ID}/lesson/${LESSON_ID}?mode=practice`);
+    await waitForMonacoReady(page);
+
+    await page.getByRole("button", { name: /exit practice mode/i }).click();
+    const practiceEntry = page.getByRole("button", { name: /practice 0 of 3/i });
+    await expect(practiceEntry).toBeVisible();
+    await practiceEntry.click();
+    await expect(page.getByRole("heading", { name: /square function/i })).toBeVisible();
+
+    const editor = page.getByRole("textbox", { name: /code editor for/i }).first();
+    const run = S.lessonRunButton(page);
+    const check = S.checkMyWorkButton(page);
+    for (const control of [editor, run, check]) {
+      await control.scrollIntoViewIfNeeded();
+      const box = await control.boundingBox();
+      expect(box, "workspace control should have a rendered box").not.toBeNull();
+      expect(box!.x).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(390);
+    }
+
+    const layout = await page.evaluate(() => ({
+      viewportWidth: window.innerWidth,
+      documentWidth: document.documentElement.scrollWidth,
+      codeBlocks: Array.from(
+        document.querySelectorAll<HTMLElement>('section[aria-labelledby^="practice-tests-"] code'),
+      ).map((node) => ({ clientWidth: node.clientWidth, scrollWidth: node.scrollWidth })),
+      practiceButtons: Array.from(
+        document.querySelectorAll<HTMLElement>('section[aria-label="Lesson instructions"] button'),
+      ).map((node) => ({ width: node.getBoundingClientRect().width, height: node.getBoundingClientRect().height })),
+    }));
+    expect(layout.documentWidth).toBe(layout.viewportWidth);
+    expect(layout.codeBlocks.length).toBeGreaterThan(0);
+    expect(layout.codeBlocks.every(({ clientWidth, scrollWidth }) => scrollWidth <= clientWidth)).toBe(true);
+    expect(layout.practiceButtons.every(({ width, height }) => width >= 44 && height >= 44)).toBe(true);
   });
 
   test("completing all 3 exercises swaps Next for 'All practice done'", async ({ page }) => {

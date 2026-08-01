@@ -23,7 +23,7 @@ export function SessionRestartBanner() {
   return (
     <div
       role="status"
-      className="flex items-center gap-3 border-b border-warn/30 bg-warn/10 px-4 py-2 text-xs text-warn"
+      className="flex min-h-11 items-center gap-3 border-b border-warn/30 bg-warn/10 px-4 py-2 text-sm text-warnInk"
     >
       <svg
         className="h-4 w-4 shrink-0"
@@ -44,7 +44,7 @@ export function SessionRestartBanner() {
       </div>
       <button
         onClick={() => setSessionRestarted(false)}
-        className="shrink-0 rounded-md bg-warn/20 px-2 py-0.5 text-[11px] font-semibold text-warn ring-1 ring-warn/40 transition hover:bg-warn/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-warn"
+        className="min-h-11 shrink-0 rounded-lg bg-warn/20 px-3 py-2 text-sm font-semibold text-warnInk ring-1 ring-warn/40 transition hover:bg-warn/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-warn"
       >
         Dismiss
       </button>

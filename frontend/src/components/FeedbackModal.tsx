@@ -1,4 +1,11 @@
-import { useEffect, useId, useMemo, useState } from "react";
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import { useLocation } from "react-router-dom";
 import { Modal } from "./Modal";
 import { api } from "../api/client";
@@ -57,6 +64,7 @@ export function buildDiagnostics(pathname: string): Diagnostics {
 
 interface FeedbackModalProps {
   onClose: () => void;
+  returnFocusRef?: RefObject<HTMLElement | null>;
   // Optional pre-seeding for contextual entry points (e.g. the lesson-end
   // chip). Only the initial mount honours these — once the learner edits
   // the field, controlled state takes over.
@@ -75,16 +83,46 @@ interface FeedbackModalProps {
   onSubmitted?: () => void;
 }
 
-export function FeedbackModal({ onClose, initialCategory, initialBody, mood, lessonId, onSubmitted }: FeedbackModalProps) {
+interface FeedbackDraft {
+  body: string;
+  category: Category;
+  attach: boolean;
+}
+
+function draftKey(pathname: string): string {
+  return `codetutor:feedback-draft:${pathname}`;
+}
+
+function readDraft(pathname: string): FeedbackDraft | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(draftKey(pathname));
+    if (!raw) return null;
+    const value = JSON.parse(raw) as Partial<FeedbackDraft>;
+    if (typeof value.body !== "string" || value.body.length > 4000) return null;
+    if (!(["bug", "idea", "other"] as const).includes(value.category as Category)) return null;
+    return {
+      body: value.body,
+      category: value.category as Category,
+      attach: value.attach === true,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function FeedbackModal({ onClose, returnFocusRef, initialCategory, initialBody, mood, lessonId, onSubmitted }: FeedbackModalProps) {
   const headingId = useId();
   const location = useLocation();
-  const [body, setBody] = useState(initialBody ?? "");
-  const [category, setCategory] = useState<Category>(initialCategory ?? "other");
-  const [attach, setAttach] = useState(false);
+  const initialDraft = useMemo(() => readDraft(location.pathname), [location.pathname]);
+  const [body, setBody] = useState(initialBody ?? initialDraft?.body ?? "");
+  const [category, setCategory] = useState<Category>(initialCategory ?? initialDraft?.category ?? "other");
+  const [attach, setAttach] = useState(initialDraft?.attach ?? false);
   const [showDiag, setShowDiag] = useState(false);
   const [status, setStatus] = useState<Status>("idle");
   const [err, setErr] = useState<string | null>(null);
   const [submittedId, setSubmittedId] = useState<string | null>(null);
+  const successHeadingRef = useRef<HTMLHeadingElement>(null);
 
   const diagnostics = useMemo(() => buildDiagnostics(location.pathname), [location.pathname]);
 
@@ -93,6 +131,20 @@ export function FeedbackModal({ onClose, initialCategory, initialBody, mood, les
     if (err) setErr(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [body, category]);
+
+  useEffect(() => {
+    if (status === "sent") {
+      window.sessionStorage.removeItem(draftKey(location.pathname));
+      requestAnimationFrame(() => successHeadingRef.current?.focus());
+      return;
+    }
+    const draft: FeedbackDraft = { body, category, attach };
+    if (body.trim().length === 0 && !attach && category === "other") {
+      window.sessionStorage.removeItem(draftKey(location.pathname));
+    } else {
+      window.sessionStorage.setItem(draftKey(location.pathname), JSON.stringify(draft));
+    }
+  }, [attach, body, category, location.pathname, status]);
 
   const canSubmit = body.trim().length > 0 && status !== "sending";
 
@@ -126,9 +178,14 @@ export function FeedbackModal({ onClose, initialCategory, initialBody, mood, les
 
   if (status === "sent") {
     return (
-      <Modal onClose={onClose} labelledBy={headingId} position="center" panelClassName="mx-4 w-full max-w-md rounded-xl border border-border bg-panel p-5 shadow-xl">
+      <Modal onClose={onClose} returnFocusRef={returnFocusRef} labelledBy={headingId} position="center" panelClassName="mx-4 w-full max-w-md rounded-xl border border-border bg-panel p-5 shadow-xl">
         <div className="flex flex-col gap-3">
-          <h2 id={headingId} className="text-lg font-semibold text-ink">
+          <h2
+            ref={successHeadingRef}
+            id={headingId}
+            tabIndex={-1}
+            className="text-lg font-semibold text-ink focus:outline-none"
+          >
             Thanks — we got it
           </h2>
           <p className="text-base leading-relaxed text-muted sm:text-body">
@@ -157,6 +214,7 @@ export function FeedbackModal({ onClose, initialCategory, initialBody, mood, les
   return (
     <Modal
       onClose={onClose}
+      returnFocusRef={returnFocusRef}
       labelledBy={headingId}
       position="center"
       panelClassName="mx-4 max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-panel p-5 shadow-xl"
@@ -224,7 +282,7 @@ export function FeedbackModal({ onClose, initialCategory, initialBody, mood, les
           </span>
           <textarea
             value={body}
-            onChange={(e) => setBody(e.target.value)}
+            onChange={(e) => setBody(e.target.value.slice(0, 4000))}
             maxLength={4000}
             rows={5}
             required
@@ -232,8 +290,8 @@ export function FeedbackModal({ onClose, initialCategory, initialBody, mood, les
             placeholder="What happened, and what did you expect?"
             className="resize-y rounded-lg border border-border bg-elevated px-3 py-2 text-base text-ink placeholder:text-faint focus:border-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent sm:text-sm"
           />
-          <span className="self-end text-[10px] text-faint">
-            {body.length}/4000
+          <span className="self-end text-xs text-muted" role="status" aria-live="polite">
+            {4000 - body.length} characters remaining
           </span>
         </label>
 
@@ -277,13 +335,28 @@ export function FeedbackModal({ onClose, initialCategory, initialBody, mood, les
           </div>
         )}
 
-        <div className="mt-1 flex items-center justify-end gap-2">
+        <div className="mt-1 flex flex-wrap items-center justify-end gap-2">
+          {body.trim().length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                window.sessionStorage.removeItem(draftKey(location.pathname));
+                setBody("");
+                setAttach(false);
+                setCategory("other");
+                onClose();
+              }}
+              className="min-h-11 rounded-lg px-3 py-2 text-sm text-danger transition hover:bg-danger/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-danger"
+            >
+              Discard draft
+            </button>
+          )}
           <button
             type="button"
             onClick={onClose}
             className="min-h-11 rounded-lg border border-border bg-elevated px-3 py-2 text-sm text-muted transition hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
-            Cancel
+            Close
           </button>
           <button
             type="submit"

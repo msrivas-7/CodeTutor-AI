@@ -51,6 +51,7 @@ function makeFakeBackend(): ExecutionBackend {
     async exec() {
       return { stdout: "", stderr: "", exitCode: 0, timedOut: false, durationMs: 0 };
     },
+    async cancel() {},
     async writeFiles() {},
     async removeFiles() {},
     async fileExists() {

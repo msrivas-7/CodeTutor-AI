@@ -428,6 +428,14 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
       sessionId: `anon-${randomUUID()}`,
     };
     let handle: Awaited<ReturnType<typeof backend.createSession>> | null = null;
+    let responseFinished = false;
+    const cancelOnDisconnect = () => {
+      if (responseFinished || !handle) return;
+      void backend.cancel(handle).catch((error) => {
+        console.warn(`[anon] cancel on disconnect failed: ${(error as Error).message}`);
+      });
+    };
+    res.once("close", cancelOnDisconnect);
     try {
       handle = await backend.createSession(spec);
       if (handle.__kind === "aci") anonAciActive += 1;
@@ -439,10 +447,12 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
         { language, ok: result.exitCode === 0 ? "true" : "false" },
         (Date.now() - started) / 1000,
       );
+      responseFinished = true;
       res.json(result);
     } catch (err) {
       next(err);
     } finally {
+      res.off("close", cancelOnDisconnect);
       if (handle) {
         try {
           await backend.destroy(handle);

@@ -501,7 +501,9 @@ export default function StartPage() {
 
   return (
     <div className="relative flex h-full flex-col bg-bg text-ink">
-      <AmbientGlyphField />
+      <div className="hidden sm:block">
+        <AmbientGlyphField />
+      </div>
       {/* Phase 21B (iter-3): top toolbar — streak chip absolute-anchored
           to viewport centre; Feedback + UserMenu cluster anchors right.
           Identical positioning to LessonPage / CourseOverview / EditorPage

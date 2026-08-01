@@ -628,6 +628,24 @@ test.describe("AI tutor", () => {
     await expect(page.getByText(/a function groups reusable steps/i).first()).toBeVisible();
   });
 
+  test("phone lesson walkthrough brings the tutor response into view", async ({ page }) => {
+    await loadProfile(page, "empty");
+    await seedApiKey(page, { key: "sk-test-e2e-padding-12345", model: "gpt-4o-mini" });
+    await mockTutorResponse(page, "first-turn-concept");
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`/learn/course/${COURSE_ID}/lesson/hello-world`);
+    await waitForMonacoReady(page);
+    await configureTutorKey(page, "sk-test-e2e-padding-12345");
+
+    const tutor = page.getByRole("region", { name: "AI tutor" });
+    await page.getByRole("button", { name: /walk me through main\.py/i }).click();
+
+    await expect(tutor).toBeInViewport({ ratio: 0.5 });
+    await expect(tutor).toBeFocused();
+    await expect(page.getByText("Walk me through main.py, one step at a time.")).toHaveCount(1);
+    await expect(page.getByText(/a function groups reusable steps/i).first()).toBeVisible();
+  });
+
   test("real-openai: LessonPage tutor ask produces a non-empty response", async ({ page }) => {
     test.skip(!REAL_OPENAI, "E2E_REAL_OPENAI=1 to run real-OpenAI round-trip");
     // This test is only reached when E2E_REAL_OPENAI=1. The API key is read

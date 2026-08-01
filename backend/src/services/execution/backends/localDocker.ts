@@ -22,6 +22,10 @@ interface LocalDockerHandle extends SessionHandle {
   readonly workspacePath: string;
   /** Host-side path used for Docker binds; OS-dependent format. */
   readonly hostWorkspacePath: string;
+  /** Directory mode that keeps this host mount accessible to UID 1100. */
+  readonly directoryMode: number;
+  /** File mode that keeps this host mount accessible to UID 1100. */
+  readonly fileMode: number;
 }
 
 export interface LocalDockerBackendOptions {
@@ -107,11 +111,20 @@ export class LocalDockerBackend implements ExecutionBackend {
     const hostWorkspacePath = joinHostPath(root, spec.sessionId);
 
     await fs.mkdir(workspacePath, { recursive: true });
-    // Phase 20-P3 Bucket 3 (#4): backend `app` and runner `runner` are both
-    // UID 1100, so 0700 grants the owner read/write/execute and locks
-    // everyone else out — including anything on the host that would
-    // otherwise see a world-writable directory on the bind mount.
-    await fs.chmod(workspacePath, 0o700).catch(() => {});
+    // On native Linux, backend `app` and runner `runner` are both UID 1100,
+    // so owner-only permissions preserve the strongest isolation. Docker
+    // Desktop's VirtioFS layer can report every bind-mounted path as UID 0
+    // even when UID 1100 created it. Detect that ownership translation and
+    // use a session-local compatibility mode; otherwise valid code cannot
+    // even read /workspace/main.* on macOS/Windows. Each directory is mounted
+    // into exactly one network-disabled runner, so the fallback does not
+    // cross a learner/session boundary.
+    const workspaceStat = await fs.lstat(workspacePath);
+    const permissions = resolveRunnerWorkspacePermissions(
+      workspaceStat.uid,
+      typeof process.getuid === "function" ? process.getuid() : undefined,
+    );
+    await fs.chmod(workspacePath, permissions.directoryMode).catch(() => {});
 
     const container = await this.docker.createContainer({
       Image: this.opts.runnerImage,
@@ -188,6 +201,8 @@ export class LocalDockerBackend implements ExecutionBackend {
       containerId: container.id,
       workspacePath,
       hostWorkspacePath,
+      directoryMode: permissions.directoryMode,
+      fileMode: permissions.fileMode,
     };
     return handle;
   }
@@ -338,6 +353,28 @@ export class LocalDockerBackend implements ExecutionBackend {
     });
   }
 
+  async cancel(handle: SessionHandle): Promise<void> {
+    const h = this.cast(handle);
+    const container = this.docker.getContainer(h.containerId);
+    const cancelExec = await container.exec({
+      Cmd: [
+        "sh",
+        "-c",
+        "for status in /proc/[0-9]*/status; do uid=''; while IFS=' ' read -r key real rest; do if [ \"$key\" = 'Uid:' ]; then uid=$real; break; fi; done < \"$status\" 2>/dev/null || true; if [ \"$uid\" = '1100' ]; then pid=${status#/proc/}; pid=${pid%/status}; kill -KILL \"$pid\" 2>/dev/null || true; fi; done",
+      ],
+      AttachStdout: true,
+      AttachStderr: true,
+      User: "root",
+      Tty: false,
+    });
+    const stream = await cancelExec.start({ hijack: true });
+    await new Promise<void>((resolve, reject) => {
+      stream.once("end", resolve);
+      stream.once("close", resolve);
+      stream.once("error", reject);
+    });
+  }
+
   async writeFiles(
     handle: SessionHandle,
     files: WorkspaceFile[],
@@ -363,7 +400,11 @@ export class LocalDockerBackend implements ExecutionBackend {
       //       a symlink we're removing it before the open races). Combined
       //       with O_NOFOLLOW this is TOCTOU-safe: even if a learner replants
       //       a symlink between unlink and open, O_NOFOLLOW refuses.
-      await ensureNoSymlinkInPath(h.workspacePath, path.dirname(abs));
+      await ensureNoSymlinkInPath(
+        h.workspacePath,
+        path.dirname(abs),
+        h.directoryMode,
+      );
       await fs.unlink(abs).catch((e) => {
         if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
       });
@@ -372,13 +413,10 @@ export class LocalDockerBackend implements ExecutionBackend {
         fsConstants.O_CREAT |
         fsConstants.O_EXCL |
         fsConstants.O_NOFOLLOW;
-      const fh = await fs.open(abs, flags, 0o600);
+      const fh = await fs.open(abs, flags, h.fileMode);
       try {
         await fh.writeFile(f.content, "utf8");
-        // 0600 is enough because backend (app, UID 1100) and runner
-        // (runner, UID 1100) share ownership; nobody else should read
-        // workspace contents.
-        await fh.chmod(0o600).catch(() => {});
+        await fh.chmod(h.fileMode).catch(() => {});
       } finally {
         await fh.close();
       }
@@ -454,7 +492,7 @@ export class LocalDockerBackend implements ExecutionBackend {
     // container has a bind mount on this path and recreating the directory
     // would invalidate the mount's inode.
     await fs.mkdir(h.workspacePath, { recursive: true });
-    await fs.chmod(h.workspacePath, 0o700).catch(() => {});
+    await fs.chmod(h.workspacePath, h.directoryMode).catch(() => {});
     // Use withFileTypes so readdir gives us entry-kind info without a
     // follow-up lstat. fs.rm({recursive, force}) on a symlink would just
     // unlink the symlink (not follow it) — but we want to be explicit.
@@ -534,6 +572,16 @@ export function joinHostPath(root: string, segment: string): string {
   const sep = root.includes("\\") ? "\\" : "/";
   const trimmedRoot = root.replace(/[\\/]+$/, "");
   return `${trimmedRoot}${sep}${segment}`;
+}
+
+export function resolveRunnerWorkspacePermissions(
+  workspaceOwnerUid: number,
+  backendUid: number | undefined,
+): { directoryMode: number; fileMode: number; translatedOwnership: boolean } {
+  const translatedOwnership = backendUid === undefined || workspaceOwnerUid !== backendUid;
+  return translatedOwnership
+    ? { directoryMode: 0o707, fileMode: 0o606, translatedOwnership }
+    : { directoryMode: 0o700, fileMode: 0o600, translatedOwnership };
 }
 
 // Per-line cap on top of the whole-stream 1 MB cap in `exec`. The stream
@@ -677,6 +725,7 @@ async function purgeOrphanRunnerContainers(docker: Docker): Promise<void> {
 export async function ensureNoSymlinkInPath(
   workspace: string,
   dir: string,
+  directoryMode = 0o755,
 ): Promise<void> {
   const workspaceAbs = path.resolve(workspace);
   const target = path.resolve(dir);
@@ -687,7 +736,8 @@ export async function ensureNoSymlinkInPath(
   // Ensure the workspace root itself exists and is a directory (not a symlink).
   const rootStat = await fs.lstat(workspaceAbs).catch(() => null);
   if (!rootStat) {
-    await fs.mkdir(workspaceAbs, { recursive: true });
+    await fs.mkdir(workspaceAbs, { recursive: true, mode: directoryMode });
+    await fs.chmod(workspaceAbs, directoryMode);
   } else if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) {
     throw new Error(`workspace root is not a real directory: "${workspaceAbs}"`);
   }
@@ -704,7 +754,8 @@ export async function ensureNoSymlinkInPath(
       throw e;
     });
     if (!st) {
-      await fs.mkdir(current, { mode: 0o755 });
+      await fs.mkdir(current, { mode: directoryMode });
+      await fs.chmod(current, directoryMode);
       continue;
     }
     if (st.isSymbolicLink()) {

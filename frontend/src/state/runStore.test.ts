@@ -50,6 +50,18 @@ describe("runStore", () => {
   });
 
   describe("Run operation identity", () => {
+    it("publishes a monotonic Run revision even when execution finishes immediately", () => {
+      const initial = useRunStore.getState().runRevision;
+      const store = useRunStore.getState();
+
+      expect(store.beginRun("fast-run")).toBe(true);
+      store.commitRunResult("fast-run", okResult);
+      store.finishRun("fast-run");
+
+      expect(useRunStore.getState().runRevision).toBe(initial + 1);
+      expect(useRunStore.getState().running).toBe(false);
+    });
+
     it("publishes only through the active operation id", () => {
       const store = useRunStore.getState();
       expect(store.beginRun("run-a")).toBe(true);
@@ -82,6 +94,39 @@ describe("runStore", () => {
       store.finishRun("old");
       expect(useRunStore.getState().running).toBe(true);
       expect(useRunStore.getState().activeRunId).toBe("new");
+    });
+
+    it("keeps the real run busy while stopping and rejects its late result", () => {
+      const store = useRunStore.getState();
+      expect(store.beginRun("run-to-stop")).toBe(true);
+      expect(store.requestStop()).toBe(true);
+      expect(useRunStore.getState()).toMatchObject({
+        running: true,
+        stopping: true,
+        activeRunId: "run-to-stop",
+      });
+      expect(store.commitRunResult("run-to-stop", okResult)).toBe(false);
+
+      store.finishStop();
+      expect(useRunStore.getState()).toMatchObject({
+        running: false,
+        stopping: false,
+        activeRunId: null,
+        runNotice: "Run stopped. Your code is unchanged.",
+      });
+    });
+
+    it("returns to a retryable stopping state when cancellation fails", () => {
+      const store = useRunStore.getState();
+      store.beginRun("run-a");
+      store.requestStop();
+      store.failStop("Could not stop yet");
+      expect(useRunStore.getState()).toMatchObject({
+        running: true,
+        stopping: false,
+        activeRunId: "run-a",
+        runNotice: "Could not stop yet",
+      });
     });
   });
 

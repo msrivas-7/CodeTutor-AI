@@ -49,6 +49,9 @@ function makeFakeBackend(kind: string): ExecutionBackend & {
       calls.push({ method: "exec", args: [handle, command, timeoutMs, opts] });
       return { stdout: "", stderr: "", exitCode: 0, timedOut: false, durationMs: 0 };
     },
+    async cancel(handle) {
+      calls.push({ method: "cancel", args: [handle] });
+    },
     async writeFiles(handle, files) {
       calls.push({ method: "writeFiles", args: [handle, files] });
     },
@@ -78,6 +81,20 @@ function asAciFake(b: ExecutionBackend): never {
 }
 
 describe("HybridBackend — routing", () => {
+  it("routes cancellation to the backend that owns the handle", async () => {
+    const local = makeFakeBackend("local-docker");
+    const aci = makeFakeBackend("aci");
+    const hybrid = new HybridBackend(local, asAciFake(aci), { localCap: 1, aciCap: 3 });
+    const localHandle = await hybrid.createSession({ sessionId: "local" });
+    const aciHandle = await hybrid.createSession({ sessionId: "cloud" });
+
+    await hybrid.cancel(localHandle);
+    await hybrid.cancel(aciHandle);
+
+    expect(local.calls.filter((call) => call.method === "cancel")).toHaveLength(1);
+    expect(aci.calls.filter((call) => call.method === "cancel")).toHaveLength(1);
+  });
+
   it("routes the first N sessions to local until local hits its cap", async () => {
     const local = makeFakeBackend("local-docker");
     const aci = makeFakeBackend("aci");

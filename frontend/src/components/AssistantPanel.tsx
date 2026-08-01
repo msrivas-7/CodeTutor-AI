@@ -519,7 +519,7 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
             <button
               onClick={cancelAsk}
               title="Stop the current response"
-              className="inline-flex items-center gap-1.5 rounded-md bg-danger/15 px-3 py-1 text-[11px] font-semibold text-danger ring-1 ring-danger/30 transition hover:bg-danger/25"
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-md bg-danger/15 px-3 py-2 text-[11px] font-semibold text-danger ring-1 ring-danger/30 transition hover:bg-danger/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger"
             >
               <span className="inline-block h-2 w-2 rounded-sm bg-danger" />
               Stop
@@ -528,7 +528,7 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
             <button
               onClick={handleAsk}
               disabled={!draft.trim() || !configured}
-              className="rounded-md bg-accent px-3 py-1 text-[11px] font-semibold text-bg transition hover:bg-accentMuted disabled:cursor-not-allowed disabled:bg-elevated disabled:text-faint"
+              className="min-h-11 rounded-md bg-accent px-3 py-2 text-[11px] font-semibold text-bg transition hover:bg-accentMuted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:bg-elevated disabled:text-faint"
             >
               Ask
             </button>

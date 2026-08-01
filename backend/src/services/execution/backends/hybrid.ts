@@ -291,6 +291,10 @@ export class HybridBackend implements ExecutionBackend {
     return this.dispatch(handle).exec(handle, command, timeoutMs, opts);
   }
 
+  async cancel(handle: SessionHandle): Promise<void> {
+    return this.dispatch(handle).cancel(handle);
+  }
+
   async writeFiles(handle: SessionHandle, files: WorkspaceFile[]): Promise<void> {
     return this.dispatch(handle).writeFiles(handle, files);
   }

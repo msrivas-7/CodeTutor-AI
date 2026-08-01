@@ -18,6 +18,7 @@ import {
   clearCourseCelebratedFlag,
 } from "../components/CourseCompleteFlourish";
 import { CourseCompleteHero } from "../components/CourseCompleteHero";
+import { MissingContentState } from "../components/MissingContentState";
 import { motion } from "framer-motion";
 import type { ProgressStatus } from "../types";
 
@@ -332,9 +333,7 @@ export default function CourseOverviewPage() {
             </StaggerItem>
           </StaggerReveal>
         ) : (
-          <div className="flex items-center justify-center py-20 text-sm text-muted">
-            Course not found
-          </div>
+          <MissingContentState kind="course" />
         )}
       </div>
       {confirmReset && course && (

@@ -189,7 +189,7 @@ export default function LoginPage() {
             autoComplete="email"
             aria-invalid={!emailValid}
             disabled={submitting}
-            className="rounded-md border border-border bg-elevated px-2.5 py-1.5 text-xs text-ink transition placeholder:text-faint focus:border-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60 aria-[invalid=true]:border-danger/60"
+            className="min-h-11 rounded-lg border border-border bg-elevated px-3 py-2 text-sm text-ink transition placeholder:text-faint focus:border-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60 aria-[invalid=true]:border-danger/60"
           />
           {!emailValid && (
             <span className="text-[10px] text-danger">
@@ -222,7 +222,7 @@ export default function LoginPage() {
           type="submit"
           disabled={mode === "password" ? !canSubmitPassword : !canSubmitMagic}
           aria-busy={submitting}
-          className="rounded-md bg-accent px-3 py-1.5 text-[11px] font-semibold text-bg transition hover:bg-accentMuted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:bg-elevated disabled:text-faint"
+          className="min-h-11 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-bg transition hover:bg-accentMuted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:bg-elevated disabled:text-faint"
         >
           {submitting
             ? mode === "password"
@@ -233,21 +233,21 @@ export default function LoginPage() {
               : "Send magic link"}
         </button>
 
-        <div className="flex items-center justify-between text-[10px]">
+        <div className="flex flex-col gap-1 text-sm sm:flex-row sm:items-center sm:justify-between">
           <button
             type="button"
             onClick={() => {
               setMode(mode === "password" ? "magic-link" : "password");
               setErr(null);
             }}
-            className="text-accent hover:underline"
+            className="inline-flex min-h-11 items-center rounded-lg px-2 text-accent hover:bg-accent/5 hover:underline"
           >
             {mode === "password"
               ? "Prefer not to use a password?"
               : "Use a password instead"}
           </button>
           {mode === "password" && (
-            <Link to="/reset-password" className="text-muted hover:text-ink">
+            <Link to="/reset-password" className="inline-flex min-h-11 items-center rounded-lg px-2 text-muted hover:bg-elevated hover:text-ink">
               Forgot password?
             </Link>
           )}

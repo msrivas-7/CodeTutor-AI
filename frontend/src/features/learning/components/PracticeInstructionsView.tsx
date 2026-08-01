@@ -31,12 +31,13 @@ function PracticeTestsMiniList({ exercise }: { exercise: PracticeExercise }) {
       </h3>
       <ul className="space-y-1">
         {visible.map((t, i) => (
-          <li key={i} className="flex items-baseline gap-2 text-[11px] leading-relaxed">
-            <code className="shrink-0 rounded bg-bg px-1.5 py-0.5 font-mono text-[11px] text-accent">
+          <li key={i} className="grid min-w-0 grid-cols-1 gap-1 text-xs leading-relaxed sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:items-baseline sm:gap-2">
+            <code className="min-w-0 overflow-x-auto rounded bg-bg px-2 py-1 font-mono text-xs text-accent">
               {t.call}
             </code>
-            <span className="text-muted">→</span>
-            <code className="rounded bg-bg px-1.5 py-0.5 font-mono text-[11px] text-ink/80">
+            <span className="hidden text-muted sm:inline" aria-hidden="true">→</span>
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted sm:hidden">Expected</span>
+            <code className="min-w-0 overflow-x-auto rounded bg-bg px-2 py-1 font-mono text-xs text-ink/80">
               {expectedTestOutcome(t)}
             </code>
           </li>
@@ -118,7 +119,8 @@ export function PracticeInstructionsView({
               setConfirmReset(true);
             }}
             title="Reset practice progress for this lesson"
-            className="rounded p-1 text-muted transition hover:bg-danger/10 hover:text-danger"
+            aria-label="Reset practice progress"
+            className="flex h-11 w-11 items-center justify-center rounded-lg text-muted transition hover:bg-danger/10 hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger"
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="1 4 1 10 7 10" />
@@ -130,7 +132,8 @@ export function PracticeInstructionsView({
           <button
             onClick={onCollapse}
             title="Collapse"
-            className="rounded p-1 text-muted transition hover:bg-elevated hover:text-ink"
+            aria-label="Collapse practice instructions"
+            className="flex h-11 w-11 items-center justify-center rounded-lg text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
               <path d="M5.5 3.5L10 8l-4.5 4.5L4 11l3-3-3-3z" />
@@ -144,7 +147,7 @@ export function PracticeInstructionsView({
       <div className="flex-1 overflow-y-auto px-4 py-3" tabIndex={0}>
         <button
           onClick={onExitPractice}
-          className="mb-3 flex items-center gap-1 text-[11px] text-muted transition hover:text-ink"
+          className="mb-3 flex min-h-11 items-center gap-1 rounded-lg px-2 text-sm text-muted transition hover:bg-elevated hover:text-ink"
         >
           ← Back to lesson
         </button>
@@ -158,7 +161,7 @@ export function PracticeInstructionsView({
                 <button
                   key={ex.id}
                   onClick={() => onSelectExercise(i)}
-                  className={`flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold transition focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${
+                  className={`flex h-11 w-11 items-center justify-center rounded-full text-sm font-bold transition focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${
                     active
                       ? "bg-violet text-bg ring-2 ring-violet/40"
                       : done
@@ -203,7 +206,7 @@ export function PracticeInstructionsView({
                 if (!showHints) onHintReveal?.();
                 setShowHints((v) => !v);
               }}
-              className="flex items-center gap-1 text-xs font-medium text-accent transition hover:text-accent/80"
+              className="flex min-h-11 items-center gap-1 rounded-lg px-2 text-sm font-medium text-accentInk transition hover:bg-accent/5"
             >
               <svg
                 className={`h-3 w-3 transition-transform duration-200 ${showHints ? "rotate-90" : ""}`}
@@ -265,7 +268,7 @@ export function PracticeInstructionsView({
         {showCurrentCompletion && hasNext && (
           <button
             onClick={onNextExercise}
-            className="mt-3 w-full rounded-lg bg-violet/20 px-3 py-2 text-xs font-semibold text-violet transition hover:bg-violet/30"
+            className="mt-3 min-h-11 w-full rounded-lg bg-violet/20 px-3 py-2 text-sm font-semibold text-violet transition hover:bg-violet/30"
           >
             Next challenge →
           </button>
@@ -274,7 +277,7 @@ export function PracticeInstructionsView({
         {showCurrentCompletion && !hasNext && (
           <button
             onClick={onExitPractice}
-            className="mt-3 w-full rounded-lg bg-success/20 px-3 py-2 text-xs font-semibold text-success transition hover:bg-success/30"
+            className="mt-3 min-h-11 w-full rounded-lg bg-success/20 px-3 py-2 text-sm font-semibold text-success transition hover:bg-success/30"
           >
             All practice done — back to lesson
           </button>

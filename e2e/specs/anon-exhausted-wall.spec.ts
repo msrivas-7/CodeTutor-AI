@@ -13,6 +13,7 @@
 // reason="exhausted" copy.
 
 import { expect, test } from "@playwright/test";
+import { setMonacoValue, waitForMonacoReady } from "../fixtures/monaco";
 
 const PATH = "/try/lesson/python-fundamentals/hello-world";
 
@@ -83,6 +84,61 @@ test.describe("Phase 27-v2.1 — ANON_EXHAUSTED → wall pivot", () => {
       page.getByRole("button", { name: /Nudge me/i }),
     ).toBeDisabled();
     expect(requestCount).toBe(1);
+  });
+
+  test("phone error help keeps the exhausted tutor response visible after dismissing signup", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.addInitScript(() => {
+      window.sessionStorage.setItem("codetutor.anonCinematicSeen", "1");
+      window.sessionStorage.setItem("codetutor.anonCoachSeen", "1");
+      window.sessionStorage.setItem("codetutor.anonChoreographyDone", "1");
+    });
+    await page.route("**/api/anon/run", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          stdout: "",
+          stderr:
+            '  File "/workspace/main.py", line 1\n    print(\n         ^\nSyntaxError: \'(\' was never closed\n',
+          exitCode: 1,
+          errorType: "runtime",
+          durationMs: 8,
+          stage: "run",
+        }),
+      }),
+    );
+    await page.route("**/api/anon/ai/ask/stream", (route) =>
+      route.fulfill({
+        status: 429,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "ANON_EXHAUSTED" }),
+      }),
+    );
+
+    await page.goto(PATH);
+    await waitForMonacoReady(page);
+    await setMonacoValue(page, "print(\n");
+    await page.getByRole("button", { name: /^run code/i }).first().click();
+
+    const errorHelp = page.getByRole("button", {
+      name: /ask the tutor what went wrong/i,
+    });
+    await expect(errorHelp).toBeVisible();
+    await errorHelp.click();
+    await expect(page.getByRole("dialog", { name: /you're getting it/i })).toBeVisible();
+    await page.getByRole("button", { name: /not yet/i }).click();
+
+    const quotaMessage = page.getByText(
+      /I couldn't send that because today's free tutor questions are used/i,
+    );
+    await expect(quotaMessage).toBeVisible();
+    await expect(quotaMessage).toBeInViewport();
+    const tutor = page.getByRole("region", { name: "AI tutor" });
+    await expect(tutor).toBeInViewport();
+    await expect(tutor).toBeFocused();
   });
 
   test("regex tightening: a generic 429 from a non-ANON_EXHAUSTED upstream does NOT fire the wall", async ({

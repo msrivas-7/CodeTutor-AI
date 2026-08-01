@@ -281,6 +281,9 @@ test.describe("learning", () => {
     });
     // Each row has a "Done" or "In progress" pill.
     await expect(page.getByText(/^Done$|^In progress$/i).first()).toBeVisible();
+    await expect(page.getByText(/\b3 runs · 1 attempt\b/i).first()).toBeVisible();
+    await expect(page.getByText(/\b1 runs\b|\b1 attempts\b/i)).toHaveCount(0);
+    await expect(page.locator('[data-testid="ambient-glyph-field"]')).toHaveCount(0);
   });
 
   test("Reset all course progress modal wipes completions after confirm", async ({ page }) => {

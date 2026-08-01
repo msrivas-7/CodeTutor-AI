@@ -313,8 +313,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
   renameFile: (from, to) => {
     const s = get();
-    if (!s.files[from]) return { ok: false, error: "source not found" };
-    if (s.files[to]) return { ok: false, error: "destination exists" };
+    // Empty files are still real files. Truthiness made the ordinary
+    // create-then-rename flow fail until the learner typed content first.
+    if (!Object.prototype.hasOwnProperty.call(s.files, from)) {
+      return { ok: false, error: "source not found" };
+    }
+    if (Object.prototype.hasOwnProperty.call(s.files, to)) {
+      return { ok: false, error: "destination exists" };
+    }
     if (!/^[A-Za-z0-9_./-]+$/.test(to) || to.includes("..")) {
       return { ok: false, error: "invalid path" };
     }

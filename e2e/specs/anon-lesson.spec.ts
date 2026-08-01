@@ -617,10 +617,16 @@ test.describe("marketing CTA → anonymous lesson (Phase 27 §3a sub-commit 3)",
     page,
   }) => {
     await page.goto("/");
-    await page
+    const tryLink = page
       .getByRole("link", { name: /try your first lesson/i })
-      .first()
-      .click();
+      .first();
+    await expect(tryLink).toBeVisible({ timeout: 10_000 });
+    // Route discovery and the lesson's lazy bundle can be slower than the
+    // click action budget on a cold, shared CI runner. Do not let Playwright's
+    // implicit post-click navigation wait duplicate the explicit URL and
+    // mounted-heading contracts below: the real pointer click still happens,
+    // while those assertions own destination readiness and failure reporting.
+    await tryLink.click({ noWaitAfter: true });
     await expect(page).toHaveURL(new RegExp(ALLOWED_PATH.replace(/\//g, "\\/")), {
       timeout: 15_000,
     });

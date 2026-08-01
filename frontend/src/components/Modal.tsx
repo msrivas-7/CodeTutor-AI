@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 
@@ -66,6 +73,10 @@ interface ModalProps {
   // already-fullscreen takeovers — e.g. the ShareDialog opening
   // FROM the LessonCompletePanel (which sits at z-[55]).
   zIndex?: number;
+  // Async actions can replace their trigger before the dialog mounts (for
+  // example Check -> saving -> completion). Supply the stable current trigger
+  // when the captured active element may be disconnected by that rerender.
+  returnFocusRef?: RefObject<HTMLElement | null>;
 }
 
 // Shared modal wrapper. Owns Esc-to-close, backdrop-click-to-close, portal,
@@ -81,6 +92,7 @@ export function Modal({
   panelClassName = "w-full max-w-md rounded-xl border border-border bg-panel p-5 shadow-xl",
   position = "top",
   zIndex = 50,
+  returnFocusRef,
 }: ModalProps) {
   const backdropRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -139,19 +151,19 @@ export function Modal({
       }, null);
       if (topLayer !== backdropRef.current) return;
 
-      // Safari uses Escape to leave browser fullscreen before it reports the
-      // resulting viewport resize. Give that native transition one beat: if
-      // the viewport changed, preserve the product layer and let the learner
-      // orient in the new layout. A normal Escape still closes only the top
-      // modal after the short, imperceptible guard window.
-      const width = window.innerWidth;
-      const height = window.innerHeight;
+      // The product owns Escape while a dialog is the top interactive layer.
+      // This prevents cancellable browser defaults from competing with the
+      // dialog close; non-cancellable Safari fullscreen exits may still
+      // reflow the viewport, which the delayed close below tolerates.
+      e.preventDefault();
+      e.stopPropagation();
+
+      // Safari may also use this Escape to leave browser fullscreen. The
+      // product layer must still close; preserving it after the native reflow
+      // leaves the learner in a smaller layout with stale modal focus.
       escapeTimer = window.setTimeout(() => {
         escapeTimer = null;
-        const browserReflowed =
-          Math.abs(window.innerWidth - width) > 40 ||
-          Math.abs(window.innerHeight - height) > 40;
-        if (!browserReflowed) closeWithExit();
+        closeWithExit();
       }, 100);
     };
     window.addEventListener("keydown", onKey);
@@ -165,7 +177,7 @@ export function Modal({
     const previouslyFocused = document.activeElement as HTMLElement | null;
     const panel = panelRef.current;
     const first = panel?.querySelector<HTMLElement>(
-      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
     );
     (first ?? panel)?.focus();
     return () => {
@@ -173,10 +185,25 @@ export function Modal({
       // Defer restoration until all effect cleanups have run so focus does
       // not target an element that is still inert for this cleanup tick.
       queueMicrotask(() => {
-        if (previouslyFocused?.isConnected) previouslyFocused.focus();
+        const returnTarget = returnFocusRef?.current ?? previouslyFocused;
+        const restore = () => {
+          if (returnTarget?.isConnected) returnTarget.focus({ preventScroll: true });
+        };
+        restore();
+
+        // Safari can finish its native fullscreen/viewport Escape after the
+        // React cleanup and put focus back on <body>. Retry only when focus is
+        // still nowhere meaningful; never steal it from a control the learner
+        // intentionally reached during the transition.
+        window.setTimeout(() => {
+          const active = document.activeElement;
+          if (!active || active === document.body || active === document.documentElement) {
+            restore();
+          }
+        }, 350);
       });
     };
-  }, []);
+  }, [returnFocusRef]);
 
   // Make the rest of the document genuinely non-interactive while a modal is
   // open. The focus trap protects keyboard navigation, but without `inert`

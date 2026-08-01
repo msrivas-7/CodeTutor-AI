@@ -69,9 +69,12 @@ export function AuthShell({
           className="pointer-events-none fixed inset-0 -z-30 bg-gradient-to-br from-[#0a0e22] via-[#1d1758] to-[#1d5b9e] opacity-60"
         />
       )}
-      {/* Glyph field stays as the existing brand-detail layer; it
-          reads on top of the mesh. */}
-      <AmbientGlyphField />
+      {/* On narrow auth screens isolated edge glyphs read like clipped form
+          content. Keep the atmospheric detail where there is enough negative
+          space for it to register as a deliberate background layer. */}
+      <div className="hidden sm:block">
+        <AmbientGlyphField />
+      </div>
       {/* Soft key light + vignette — `key-only` + `soft` intensity
           gives the auth surface a subtle warm accent glow with the
           vignette pulling the eye toward the form, without going to
@@ -99,7 +102,7 @@ export function AuthShell({
             {children}
           </div>
           {footer && (
-            <div className="mt-4 text-center text-[11px] text-muted">
+            <div className="mt-4 text-center text-sm text-muted [&_a]:inline-flex [&_a]:min-h-11 [&_a]:items-center [&_a]:rounded-lg [&_a]:px-2 [&_a]:focus-visible:outline-none [&_a]:focus-visible:ring-2 [&_a]:focus-visible:ring-accent [&_button]:inline-flex [&_button]:min-h-11 [&_button]:items-center [&_button]:rounded-lg [&_button]:px-2 [&_button]:focus-visible:outline-none [&_button]:focus-visible:ring-2 [&_button]:focus-visible:ring-accent">
               {footer}
             </div>
           )}

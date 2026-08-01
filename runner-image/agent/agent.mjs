@@ -195,12 +195,15 @@ async function readJsonBody(req, options = {}) {
 // carrying learner snapshots).
 const PER_ROUTE_MAX_BODY = {
   "/exec": 64 * 1024,
+  "/cancel": 1024,
   "/health": 1024,
   "/writeFiles": MAX_BODY, // learner-snapshot payloads, up to 8 MB
   "/snapshot": MAX_BODY,
   "/removeFiles": 64 * 1024,
   "/fileExists": 4 * 1024,
 };
+
+const activeExecChildren = new Set();
 
 function send(res, status, body) {
   res.statusCode = status;
@@ -514,7 +517,12 @@ async function handleExec(req, res) {
   // a learner-controlled var into env would otherwise re-open the C12
   // bypass. /usr/bin/timeout is the path coreutils provides on the
   // runner image (debian:slim base).
-  const child = spawn("/usr/bin/timeout", args, { env, cwd: WORKSPACE });
+  const child = spawn("/usr/bin/timeout", args, {
+    env,
+    cwd: WORKSPACE,
+    detached: true,
+  });
+  activeExecChildren.add(child);
 
   let stdoutBytes = 0, stderrBytes = 0;
   let stdoutTrunc = false, stderrTrunc = false;
@@ -554,6 +562,7 @@ async function handleExec(req, res) {
     child.on("close", (code, signal) => resolve({ code, signal }));
     child.on("error", () => resolve({ code: -1, signal: null }));
   });
+  activeExecChildren.delete(child);
 
   // Timeout detection. `timeout --signal=KILL Ns sh -c <cmd>` may
   // return EITHER:
@@ -580,6 +589,20 @@ async function handleExec(req, res) {
     timedOut,
     durationMs: Date.now() - started,
   });
+}
+
+async function handleCancel(_req, res) {
+  let cancelled = 0;
+  for (const child of activeExecChildren) {
+    if (!child.pid) continue;
+    try {
+      process.kill(-child.pid, "SIGKILL");
+      cancelled += 1;
+    } catch (error) {
+      if (error?.code !== "ESRCH") throw error;
+    }
+  }
+  send(res, 200, { ok: true, cancelled });
 }
 
 async function handleWriteFiles(req, res) {
@@ -667,6 +690,7 @@ const server = http.createServer(async (req, res) => {
     // auth check failed (header missing vs. token mismatch).
     if (!authOk(req)) return send(res, 401, { error: "unauthorized" });
 
+    if (req.method === "POST" && url.pathname === "/cancel") return await handleCancel(req, res);
     if (req.method === "POST" && url.pathname === "/exec") return await handleExec(req, res);
     if (req.method === "POST" && url.pathname === "/writeFiles") return await handleWriteFiles(req, res);
     if (req.method === "DELETE" && url.pathname === "/files") return await handleRemoveFiles(req, res);

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject, type RefObject } from "react";
+import { flushSync } from "react-dom";
 import { useSearchParams } from "react-router-dom";
 import type { Options as ConfettiOptions } from "canvas-confetti";
 import type { FunctionTest, Lesson, SourceCheck, TestReport, ValidationResult } from "../types";
@@ -199,6 +200,7 @@ export function useLessonValidator({
   const startLesson = useProgressStore((s) => s.startLesson);
   const setPendingAsk = useAIStore((s) => s.setPendingAsk);
   const projectRevision = useProjectStore((s) => s.revision);
+  const currentRunRevision = useRunStore((s) => s.runRevision);
   const currentRunResult = useRunStore((s) => s.result);
   const currentRunError = useRunStore((s) => s.error);
 
@@ -261,6 +263,28 @@ export function useLessonValidator({
     setResetUndo(null);
     resetUndoRevisionRef.current = null;
   }, [currentRunResult, currentRunError, resetUndo]);
+
+  // Starting a fresh execution invalidates any visible Check verdict, even
+  // when the source itself has not changed. Otherwise a learner can see an
+  // old "Run your code first" or failed-output banner while the new run has
+  // already produced different evidence. Clear presentation state at the
+  // moment Run begins. `runRevision` is monotonic because a very fast program
+  // can flip the transient running flag true and false inside one React batch.
+  // Attempt history remains intact and the next Check evaluates the newly
+  // committed result.
+  useEffect(() => {
+    if (!initializedRef.current) return;
+    testOperationRef.current = null;
+    setRunningTests(false);
+    setTestReport(null);
+    setPracticeTestReport(null);
+    setValidation(null);
+    setPracticeValidation(null);
+    setPracticeSaveError(null);
+    setShowComplete(false);
+    setCompletionPresentationPending(false);
+    setHasChecked(false);
+  }, [currentRunRevision, initializedRef]);
 
   // Any executable-source revision invalidates every current Check artifact.
   // Historical attempt counters remain useful, but pass/fail praise and late
@@ -700,12 +724,18 @@ export function useLessonValidator({
     // runner already keep anonymous work on their anonymous endpoints, so
     // both the completion CTA and the persistent Practice chip may enter the
     // same local practice state without creating an account.
+    const current = courseId && lessonId
+      ? useProgressStore.getState().lessonProgress[`${courseId}/${lessonId}`]
+      : null;
+    const completed = new Set(current?.practiceCompletedIds ?? []);
+    const resumeIndex = lesson.practiceExercises.findIndex((exercise) => !completed.has(exercise.id));
+    const targetIndex = resumeIndex >= 0 ? resumeIndex : 0;
     setPracticeMode(true);
-    setPracticeIndex(0);
+    setPracticeIndex(targetIndex);
     setShowComplete(false);
     setCompletionPresentationPending(false);
-    applyPracticeStarter(0);
-  }, [lesson, applyPracticeStarter]);
+    applyPracticeStarter(targetIndex);
+  }, [lesson, courseId, lessonId, applyPracticeStarter]);
 
   // Auto-enter practice mode when navigated with ?mode=practice. Fires once
   // per lesson load, only if the lesson is actually completed + has
@@ -745,8 +775,13 @@ export function useLessonValidator({
 
   const handleSelectPracticeExercise = useCallback(
     (index: number) => {
-      setPracticeIndex(index);
-      applyPracticeStarter(index);
+      // Project state lives in Zustand while the selected instructions live
+      // in React. Flush them as one transition so no frame can pair the next
+      // challenge's prose with the previous challenge's editable buffer.
+      flushSync(() => {
+        applyPracticeStarter(index);
+        setPracticeIndex(index);
+      });
     },
     [applyPracticeStarter],
   );
@@ -755,8 +790,10 @@ export function useLessonValidator({
     if (!lesson?.practiceExercises) return;
     const next = practiceIndex + 1;
     if (next >= lesson.practiceExercises.length) return;
-    setPracticeIndex(next);
-    applyPracticeStarter(next);
+    flushSync(() => {
+      applyPracticeStarter(next);
+      setPracticeIndex(next);
+    });
   }, [lesson, practiceIndex, applyPracticeStarter]);
 
   const handleResetPracticeProgress = useCallback(async () => {

@@ -47,6 +47,80 @@ test.describe("lesson edge cases", () => {
     await expect(S.outputPanel(page)).toContainText(/25 years old/i);
   });
 
+  test("a fresh run clears a stale Check verdict before publishing new output", async ({
+    page,
+  }) => {
+    await loadProfile(page, "empty");
+    await page.goto(`/learn/course/${COURSE_ID}/lesson/hello-world`);
+    await waitForMonacoReady(page);
+    await setMonacoValue(page, readLessonSolution(COURSE_ID, "hello-world"));
+
+    await S.checkMyWorkButton(page).click();
+    const staleVerdict = page.getByText("Run your code first before checking.", {
+      exact: true,
+    });
+    await expect(staleVerdict).toBeVisible();
+
+    await S.lessonRunButton(page).click();
+    await expect(staleVerdict).toHaveCount(0);
+    await expect(S.outputPanel(page)).toContainText(/Hello, Alice!/i, {
+      timeout: 30_000,
+    });
+  });
+
+  test("missing lesson gives a responsive recovery path without header collisions", async ({
+    page,
+  }) => {
+    await loadProfile(page, "empty");
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`/learn/course/${COURSE_ID}/lesson/not-a-real-lesson`);
+
+    await expect(
+      page.getByRole("heading", { name: "Lesson unavailable", exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText("CodeTutor AI", { exact: true })).toBeHidden();
+
+    const headerCollisions = await page.locator("header").evaluate((header) => {
+      const controls = [...header.querySelectorAll<HTMLElement>("button, select, [role='status']")]
+        .map((element) => ({
+          name: element.getAttribute("aria-label") ?? element.textContent?.trim() ?? element.tagName,
+          rect: element.getBoundingClientRect(),
+        }))
+        .filter(({ rect }) => rect.width > 0 && rect.height > 0);
+      const collisions: string[] = [];
+      for (let left = 0; left < controls.length; left += 1) {
+        for (let right = left + 1; right < controls.length; right += 1) {
+          const a = controls[left]!;
+          const b = controls[right]!;
+          const overlapX = Math.min(a.rect.right, b.rect.right) - Math.max(a.rect.left, b.rect.left);
+          const overlapY = Math.min(a.rect.bottom, b.rect.bottom) - Math.max(a.rect.top, b.rect.top);
+          if (overlapX > 0.5 && overlapY > 0.5) collisions.push(`${a.name} overlaps ${b.name}`);
+        }
+      }
+      return collisions;
+    });
+    expect(headerCollisions).toEqual([]);
+
+    const browse = page.getByRole("link", {
+      name: "Browse guided learning",
+      exact: true,
+    });
+    const start = page.getByRole("link", { name: "Go to Start", exact: true });
+    for (const link of [browse, start]) {
+      const box = await link.boundingBox();
+      expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+      expect(box?.width ?? 0).toBeGreaterThanOrEqual(44);
+    }
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      ),
+    ).toBeLessThanOrEqual(1);
+
+    await browse.click();
+    await expect(page.getByRole("heading", { name: "Guided Learning" })).toBeVisible();
+  });
+
   test("locked lesson: prerequisite-blocked lesson renders disabled in LessonList", async ({
     page,
   }) => {

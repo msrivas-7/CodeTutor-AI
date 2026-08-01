@@ -88,7 +88,7 @@ export function LessonInstructionsPanel({
           whispering after a fanfare (the cinematic just rendered
           the user's name at 84px). The thing the user is here to
           do should be the largest typographic element on the page. */}
-      <div className="border-b border-border px-5 py-4">
+      <div className="shrink-0 border-b border-border px-5 py-4">
         <h1 className="font-display text-[28px] font-semibold leading-tight tracking-tight text-ink">
           {meta.title}
         </h1>
@@ -96,7 +96,7 @@ export function LessonInstructionsPanel({
           Lesson {meta.order} · ~{meta.estimatedMinutes} min
         </p>
       </div>
-      <header className="flex min-h-11 items-center gap-2 border-b border-border px-4">
+      <header className="flex min-h-11 shrink-0 items-center gap-2 border-b border-border px-4">
         <span className="flex-1 text-micro uppercase tracking-wider text-muted">
           Instructions
         </span>

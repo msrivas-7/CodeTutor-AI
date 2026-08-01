@@ -87,6 +87,9 @@ function makeFake(kind: string): ConfigurableFake {
         durationMs: 1,
       };
     },
+    async cancel(handle) {
+      calls.push({ method: "cancel", args: [handle] });
+    },
     async writeFiles(handle, files) {
       calls.push({ method: "writeFiles", args: [handle, files] });
     },

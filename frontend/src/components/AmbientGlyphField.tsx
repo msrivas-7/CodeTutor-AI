@@ -61,6 +61,7 @@ export function AmbientGlyphField({
     // through-the-UI noise.
     <div
       aria-hidden="true"
+      data-testid="ambient-glyph-field"
       className="pointer-events-none absolute inset-0 overflow-hidden"
       style={{ mixBlendMode: "screen" }}
     >

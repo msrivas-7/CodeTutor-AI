@@ -37,6 +37,41 @@ describe("project revision contract", () => {
     expect(useProjectStore.getState().files["main.py"]).toContain("two");
   });
 
+  it("renames an empty file without mistaking it for a missing file", () => {
+    useProjectStore.setState({
+      files: { "untitled.py": "" },
+      order: ["untitled.py"],
+      activeFile: "untitled.py",
+      openTabs: ["untitled.py"],
+    });
+
+    expect(useProjectStore.getState().renameFile("untitled.py", "named.py")).toEqual({ ok: true });
+    expect(useProjectStore.getState()).toMatchObject({
+      files: { "named.py": "" },
+      order: ["named.py"],
+      activeFile: "named.py",
+      openTabs: ["named.py"],
+    });
+  });
+
+  it("does not overwrite an existing empty destination during rename", () => {
+    useProjectStore.setState({
+      files: { "source.py": "print('keep me')", "empty.py": "" },
+      order: ["source.py", "empty.py"],
+      activeFile: "source.py",
+      openTabs: ["source.py", "empty.py"],
+    });
+
+    expect(useProjectStore.getState().renameFile("source.py", "empty.py")).toEqual({
+      ok: false,
+      error: "destination exists",
+    });
+    expect(useProjectStore.getState().files).toEqual({
+      "source.py": "print('keep me')",
+      "empty.py": "",
+    });
+  });
+
   it("binds captured versions and operations to both context and revision", () => {
     const version = captureProjectVersion();
     const operation = beginProjectOperation();

@@ -18,6 +18,7 @@
   --color-faint: 122 139 163;
   --color-accent: 56 189 248;
   --color-accent-muted: 14 165 233;
+  --color-accent-ink: 56 189 248;
   --color-success: 52 211 153;
   --color-warn: 251 191 36;
   --color-warn-ink: 251 191 36;
@@ -38,7 +39,8 @@
   --color-faint: 100 116 139;
   --color-accent: 2 132 199;
   --color-accent-muted: 3 105 161;
-  --color-success: 5 150 105;
+  --color-accent-ink: 3 105 161;
+  --color-success: 4 112 80;
   --color-warn: 217 119 6;
   --color-warn-ink: 180 83 9;
   --color-danger: 220 38 38;
@@ -129,6 +131,112 @@ code, pre, .font-mono {
 /* Visible focus ring for buttons/inputs without the blue default outline. */
 :where(button, input, select, textarea):focus-visible {
   @apply outline-none ring-2 ring-accent/60 ring-offset-1 ring-offset-bg;
+}
+
+/* Settings contains account recovery, privacy, and destructive controls.
+   Every actionable target keeps the same 44px floor as the learning flow;
+   compact utility typography must never shrink its hit area. */
+[data-settings-surface] :where(button, a[href]) {
+  min-height: 44px;
+}
+
+[data-settings-surface] :where(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+  min-height: 44px;
+  font-size: 14px;
+}
+
+/* Completion is a destination, not a scroll container. Its hierarchy stays
+   inside one dialog at every supported height; secondary recap/share details
+   progressively yield on short windows while continuation actions remain. */
+.lesson-complete-panel {
+  max-height: calc(100dvh - 2rem);
+}
+
+/* Phones need the complete celebration to read as one card, not a document
+   trapped inside a modal. Preserve the recap, practice, share, next step, and
+   feedback at normal phone heights while trimming only decorative scale and
+   low-value metadata. The 44px action floor remains unchanged. */
+@media (max-width: 639px) {
+  .lesson-complete-panel .completion-tags {
+    display: none;
+  }
+
+  .lesson-complete-panel .completion-celebration {
+    margin-bottom: 0.5rem;
+  }
+
+  .lesson-complete-panel .completion-check {
+    width: 56px;
+    height: 56px;
+  }
+
+  .lesson-complete-panel .completion-title {
+    font-size: 30px;
+  }
+
+  .lesson-complete-panel .completion-time,
+  .lesson-complete-panel .completion-recap,
+  .lesson-complete-panel .completion-practice,
+  .lesson-complete-panel .completion-share,
+  .lesson-complete-panel .completion-post-credits {
+    margin-bottom: 0.5rem;
+  }
+
+  .lesson-complete-panel .completion-recap,
+  .lesson-complete-panel .completion-practice {
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+  }
+
+  .lesson-complete-panel .completion-share {
+    padding-top: 0.625rem;
+    padding-bottom: 0.625rem;
+  }
+}
+
+/* At the shorter supported phone height, the persistent workspace Feedback
+   entry remains available after dismissal. Yield this optional duplicate row
+   so the continuation actions never need an internal scrollbar. */
+@media (max-width: 639px) and (max-height: 820px) {
+  .lesson-complete-panel .completion-feedback {
+    display: none;
+  }
+}
+
+@media (max-height: 700px) {
+  .lesson-complete-panel .completion-tags,
+  .lesson-complete-panel .completion-post-credits,
+  .lesson-complete-panel .completion-feedback {
+    display: none;
+  }
+
+  .lesson-complete-panel .completion-celebration {
+    margin-bottom: 0.5rem;
+  }
+
+  .lesson-complete-panel .completion-check {
+    width: 56px;
+    height: 56px;
+  }
+}
+
+@media (max-height: 560px) {
+  .lesson-complete-panel .completion-recap,
+  .lesson-complete-panel .completion-practice,
+  .lesson-complete-panel .completion-share,
+  .lesson-complete-panel .completion-feedback,
+  .lesson-complete-panel .completion-time {
+    display: none;
+  }
+
+  .lesson-complete-panel .completion-check {
+    width: 48px;
+    height: 48px;
+  }
+
+  .lesson-complete-panel .completion-title {
+    font-size: 28px;
+  }
 }
 
 /* A5: honor user's OS-level reduced-motion preference. Disables decorative

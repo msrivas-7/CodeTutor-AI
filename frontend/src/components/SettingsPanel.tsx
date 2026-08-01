@@ -70,14 +70,14 @@ export function SettingsPanel({
   const visibleTabs = Object.keys(TAB_LABEL) as Tab[];
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4">
+    <div data-settings-surface className="flex min-h-0 flex-1 flex-col gap-4">
       <div className="flex items-center justify-between">
         <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">
           Settings
         </span>
         {onClose && (
           <button
-            className="rounded px-2 py-0.5 text-[11px] text-muted transition hover:bg-elevated hover:text-ink"
+            className="rounded-lg px-3 py-2 text-sm text-muted transition hover:bg-elevated hover:text-ink"
             onClick={onClose}
           >
             close
@@ -87,10 +87,10 @@ export function SettingsPanel({
 
       <PaidInterestBanner />
 
-      <div className="flex min-h-0 flex-1 gap-4">
+      <div className="flex min-h-0 flex-1 flex-col gap-4 sm:flex-row">
         <nav
           aria-label="Settings sections"
-          className="flex w-28 shrink-0 flex-col gap-0.5"
+          className="flex w-full shrink-0 gap-0.5 sm:w-28 sm:flex-col"
         >
           {visibleTabs.map((t) => {
             const active = tab === t;
@@ -100,7 +100,7 @@ export function SettingsPanel({
                 type="button"
                 onClick={() => setTab(t)}
                 aria-current={active ? "page" : undefined}
-                className={`rounded px-2 py-1.5 text-left text-[11px] font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+                className={`flex-1 rounded-lg px-3 py-2 text-center text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent sm:flex-none sm:text-left ${
                   active
                     ? "bg-elevated text-ink"
                     : "text-muted hover:bg-elevated/60 hover:text-ink"
@@ -195,7 +195,7 @@ function PaidInterestBanner() {
     <div
       role="region"
       aria-label="Paid plan interest"
-      className={`flex items-center gap-3 rounded-md border px-3 py-2 ${
+      className={`flex flex-col items-stretch gap-2 rounded-md border px-3 py-2 sm:flex-row sm:items-center sm:gap-3 ${
         hasShown ? "border-success/40 bg-success/10" : "border-accent/40 bg-accent/10"
       }`}
     >
@@ -204,7 +204,7 @@ function PaidInterestBanner() {
           <span className="text-[11px] text-ink" role="status" aria-live="polite">
             <span className="text-success">●</span> Interest recorded. Clicked by mistake?
           </span>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="flex items-center gap-2 sm:ml-auto">
             <button
               type="button"
               onClick={handleWithdraw}
@@ -220,12 +220,12 @@ function PaidInterestBanner() {
           <span className="text-[11px] text-ink">
             Interested in a managed paid plan? One click — no form.
           </span>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="flex w-full items-center gap-2 sm:ml-auto sm:w-auto">
             <button
               type="button"
               onClick={handleInterested}
               disabled={submitting}
-              className="rounded-md border border-accent/60 bg-accent/20 px-2.5 py-0.5 text-[11px] font-semibold text-ink transition hover:bg-accent/30 disabled:cursor-not-allowed disabled:opacity-60"
+              className="min-h-11 flex-1 rounded-md border border-accent/60 bg-accent/20 px-2.5 py-2 text-[11px] font-semibold text-ink transition hover:bg-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60 sm:flex-none"
             >
               {submitting ? "Sending…" : "Register interest in a paid plan"}
             </button>
@@ -233,7 +233,7 @@ function PaidInterestBanner() {
               type="button"
               onClick={() => setDismissed(true)}
               aria-label="Dismiss for now"
-              className="flex h-5 w-5 items-center justify-center rounded text-muted transition hover:bg-elevated hover:text-ink"
+              className="flex min-h-11 min-w-11 items-center justify-center rounded text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               ×
             </button>
@@ -1307,12 +1307,16 @@ function StreakDisplaySection() {
 function DataExportSection() {
   const [exporting, setExporting] = useState(false);
   const [exportErr, setExportErr] = useState<string | null>(null);
+  const [exportSuccess, setExportSuccess] = useState<string | null>(null);
 
   const handleDownloadData = async () => {
     setExportErr(null);
+    setExportSuccess(null);
     setExporting(true);
     try {
       await api.downloadUserExport();
+      const stamp = new Date().toISOString().slice(0, 10);
+      setExportSuccess(`Downloaded codetutor-export-${stamp}.json`);
     } catch (e) {
       setExportErr((e as Error).message);
     } finally {
@@ -1331,12 +1335,21 @@ function DataExportSection() {
           {exportErr}
         </div>
       )}
+      {exportSuccess && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="rounded-md border border-success/40 bg-success/10 px-3 py-2 text-sm text-success"
+        >
+          {exportSuccess}
+        </div>
+      )}
       <button
         type="button"
         onClick={handleDownloadData}
         disabled={exporting}
         aria-busy={exporting}
-        className="self-start rounded-md border border-border bg-elevated px-3 py-1 text-[11px] font-semibold text-ink transition hover:border-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60"
+        className="min-h-11 self-start rounded-lg border border-border bg-elevated px-4 py-2 text-sm font-semibold text-ink transition hover:border-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60"
       >
         {exporting ? "Preparing…" : "Download my data"}
       </button>

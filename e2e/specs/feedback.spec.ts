@@ -40,11 +40,12 @@ test.describe("feedback modal", () => {
     await expect(
       page.getByRole("heading", { name: /send feedback/i }),
     ).toBeVisible();
-    // Cancel closes without submitting.
-    await page.getByRole("button", { name: /cancel/i }).click();
+    // Close exits without submitting and returns keyboard focus to the trigger.
+    await page.getByRole("dialog").getByRole("button", { name: "Close", exact: true }).click();
     await expect(
       page.getByRole("heading", { name: /send feedback/i }),
     ).not.toBeVisible();
+    await expect(button).toBeFocused();
   });
 
   test("FeedbackButton is mounted on the editor and dashboard too", async ({
@@ -58,6 +59,34 @@ test.describe("feedback modal", () => {
     await expect(page.getByTestId("feedback-button")).toBeVisible({
       timeout: 15_000,
     });
+  });
+
+  test("draft close preserves the report, restores focus, enforces the limit, and discard clears it", async ({
+    page,
+  }) => {
+    await page.goto("/start");
+    const trigger = page.getByTestId("feedback-button");
+    await trigger.click();
+
+    const dialog = page.getByRole("dialog");
+    const message = dialog.getByLabel(/feedback message/i);
+    await message.fill("x".repeat(4_105));
+    await expect(message).toHaveValue("x".repeat(4_000));
+    await expect(dialog.getByRole("status")).toContainText("0 characters remaining");
+
+    await page.keyboard.press("Escape");
+    await expect(dialog).not.toBeVisible();
+    await expect(trigger).toBeFocused();
+
+    await trigger.click();
+    await expect(page.getByRole("dialog").getByLabel(/feedback message/i)).toHaveValue(
+      "x".repeat(4_000),
+    );
+    await page.getByRole("dialog").getByRole("button", { name: /discard draft/i }).click();
+    await expect(trigger).toBeFocused();
+
+    await trigger.click();
+    await expect(page.getByRole("dialog").getByLabel(/feedback message/i)).toHaveValue("");
   });
 
   test("submits with diagnostics OFF → backend row exists with empty diagnostics", async ({
@@ -200,6 +229,68 @@ test.describe("lesson-end feedback chip", () => {
     for (const mood of ["good", "okay", "bad"] as const) {
       await expect(page.getByTestId(`lesson-feedback-${mood}`)).toBeVisible();
     }
+  });
+
+  test("phone completion is one fitted card with meaningful focus and no clipped actions", async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await completeHelloWorld(page, testInfo.workerIndex);
+
+    const dialog = page.getByRole("dialog", { name: "Lesson Complete!" });
+    const practice = dialog.getByRole("button", { name: "Start practice challenges" });
+    await expect(practice).toBeFocused();
+
+    for (const viewport of [
+      { width: 390, height: 844 },
+      { width: 360, height: 800 },
+    ]) {
+      await page.setViewportSize(viewport);
+      await page.evaluate(() => document.fonts.ready);
+
+      const geometry = await dialog.evaluate((panel) => {
+        const bounds = panel.getBoundingClientRect();
+        const actions = Array.from(panel.querySelectorAll<HTMLButtonElement>("button"))
+          .filter((button) => !button.disabled && button.getClientRects().length > 0)
+          .map((button) => {
+            const rect = button.getBoundingClientRect();
+            return {
+              name: button.getAttribute("aria-label") ?? button.textContent?.trim() ?? "",
+              top: rect.top,
+              bottom: rect.bottom,
+              height: rect.height,
+            };
+          });
+        return {
+          top: bounds.top,
+          bottom: bounds.bottom,
+          clientHeight: panel.clientHeight,
+          scrollHeight: panel.scrollHeight,
+          actions,
+        };
+      });
+
+      expect(
+        geometry.scrollHeight,
+        `${viewport.width}x${viewport.height} completion must not scroll internally`,
+      ).toBeLessThanOrEqual(geometry.clientHeight + 1);
+      for (const action of geometry.actions) {
+        expect(action.top, `${action.name} begins inside the card`).toBeGreaterThanOrEqual(
+          geometry.top - 1,
+        );
+        expect(action.bottom, `${action.name} ends inside the card`).toBeLessThanOrEqual(
+          geometry.bottom + 1,
+        );
+        expect(action.height, `${action.name} keeps the touch floor`).toBeGreaterThanOrEqual(44);
+      }
+    }
+
+    const keepPracticing = dialog.getByRole("button", {
+      name: "Keep practicing on this lesson",
+    });
+    await keepPracticing.click();
+    await expect(dialog).not.toBeVisible();
+    await expect(S.checkMyWorkButton(page)).toBeFocused();
   });
 
   test("😕 opens the modal pre-selecting Bug and seeding the body with the lesson title", async ({

@@ -11,7 +11,7 @@ import { useRunStore } from "../../../state/runStore";
 import { useSessionStore } from "../../../state/sessionStore";
 import { useProgressStore } from "../stores/progressStore";
 import { useFirstSuccessStore } from "../stores/firstSuccessStore";
-import { api } from "../../../api/client";
+import { abortAnonRunRequests, abortSessionRequests, api } from "../../../api/client";
 
 export interface UseLessonRunnerArgs {
   lesson: Lesson | null;
@@ -58,9 +58,11 @@ export function useLessonRunner({
   const sessionId = useSessionStore((s) => s.sessionId);
   const sessionPhase = useSessionStore((s) => s.phase);
   const running = useRunStore((s) => s.running);
+  const stopping = useRunStore((s) => s.stopping);
   const lastResult = useRunStore((s) => s.result);
   const inputRevision = useRunStore((s) => s.inputRevision);
   const setPendingAsk = useAIStore((s) => s.setPendingAsk);
+  const requestTutorOpen = useAIStore((s) => s.requestTutorOpen);
   const incrementRun = useProgressStore((s) => s.incrementRun);
   const saveCode = useProgressStore((s) => s.saveCode);
   const saveOutput = useProgressStore((s) => s.saveOutput);
@@ -153,6 +155,24 @@ export function useLessonRunner({
     }
   }, [interactionBlocked, mode, sessionId, sessionPhase, running, courseId, lessonId, lesson, incrementRun, saveOutput, saveCode, practiceMode]);
 
+  const handleStop = useCallback(async () => {
+    const store = useRunStore.getState();
+    if (!store.requestStop()) return;
+    try {
+      if (mode === "anon") {
+        abortAnonRunRequests();
+      } else if (sessionId) {
+        await api.cancelExecution(sessionId);
+        abortSessionRequests(sessionId);
+      }
+      useRunStore.getState().finishStop();
+    } catch (error) {
+      useRunStore.getState().failStop(
+        `Couldn't stop the run yet. It will still end at the safety limit. ${(error as Error).message}`,
+      );
+    }
+  }, [mode, sessionId]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
@@ -191,11 +211,23 @@ export function useLessonRunner({
   const handleExplainError = useCallback(() => {
     if (!lastResult?.stderr) return;
     const errText = lastResult.stderr.trim().slice(0, 500);
+    // Error help is an alternate entry into the same tutor surface as the
+    // authored assistance actions. Increment the shared open request before
+    // queuing the question so phone layouts bring the response into view;
+    // merely uncollapsing the desktop rail leaves the phone tutor below the
+    // fixed editor/output bands (especially after a quota wall is dismissed).
+    requestTutorOpen();
     setPendingAsk(
       `I got this error when I ran my code:\n\`\`\`\n${errText}\n\`\`\`\nCan you help me understand what went wrong?`,
     );
     if (tutorCollapsed) setTutorCollapsed(false);
-  }, [lastResult, setPendingAsk, tutorCollapsed, setTutorCollapsed]);
+  }, [
+    lastResult,
+    requestTutorOpen,
+    setPendingAsk,
+    tutorCollapsed,
+    setTutorCollapsed,
+  ]);
 
   const hasStderr = !!(lastResult?.stderr?.trim());
   // Phase 27-v2.1: anon mode doesn't need a session — Run is enabled
@@ -212,6 +244,7 @@ export function useLessonRunner({
 
   return {
     handleRun,
+    handleStop,
     handleExplainError,
     hasRun: currentWorkspaceReady && hasRun,
     hasEdited: currentWorkspaceReady && hasEdited,
@@ -220,6 +253,7 @@ export function useLessonRunner({
     hasStderr,
     lastResult,
     running,
+    stopping,
     sessionId,
     sessionPhase,
     setHasRun,

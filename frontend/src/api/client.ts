@@ -96,6 +96,7 @@ async function authenticatedFetch(path: string, init: RequestInit = {}): Promise
 // "session not found" error against a session that was just successfully
 // recreated under a new id.
 const sessionAbortRegistry = new Map<string, Set<AbortController>>();
+const anonRunAbortRegistry = new Set<AbortController>();
 
 function registerSessionRequest(sessionId: string): AbortController {
   const ctrl = new AbortController();
@@ -122,6 +123,13 @@ export function abortSessionRequests(sessionId: string): number {
   for (const ctrl of bucket) ctrl.abort();
   sessionAbortRegistry.delete(sessionId);
   return n;
+}
+
+export function abortAnonRunRequests(): number {
+  const count = anonRunAbortRegistry.size;
+  for (const controller of anonRunAbortRegistry) controller.abort();
+  anonRunAbortRegistry.clear();
+  return count;
 }
 
 async function post<T>(path: string, body?: unknown, extraHeaders?: Record<string, string>): Promise<T> {
@@ -1030,6 +1038,15 @@ export const api = {
       releaseSessionRequest(sessionId, ctrl);
     }
   },
+  cancelExecution: async (sessionId: string): Promise<void> => {
+    const path = "/api/execute/cancel";
+    const res = await authenticatedFetch(path, {
+      method: "POST",
+      headers: { ...JSON_HEADERS, ...CSRF_HEADER },
+      body: JSON.stringify({ sessionId }),
+    });
+    if (!res.ok) await throwApiError(res, path);
+  },
   /**
    * Phase 27-v2.1 — anon (unauthed) one-shot Python execution. Used by
    * useLessonRunner when LessonPage is in mode="anon" (the /try/
@@ -1048,15 +1065,22 @@ export const api = {
     files: ProjectFile[],
     stdin?: string,
   ) => {
-    const res = await fetch(`${API_BASE}/api/anon/run`, {
-      method: "POST",
-      headers: { ...JSON_HEADERS, ...CSRF_HEADER },
-      body: JSON.stringify({ language, files, stdin }),
-    });
-    if (!res.ok) {
-      await throwApiError(res, "/api/anon/run");
+    const controller = new AbortController();
+    anonRunAbortRegistry.add(controller);
+    try {
+      const res = await fetch(`${API_BASE}/api/anon/run`, {
+        method: "POST",
+        headers: { ...JSON_HEADERS, ...CSRF_HEADER },
+        body: JSON.stringify({ language, files, stdin }),
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        await throwApiError(res, "/api/anon/run");
+      }
+      return (await res.json()) as RunResult;
+    } finally {
+      anonRunAbortRegistry.delete(controller);
     }
-    return (await res.json()) as RunResult;
   },
 
   deleteAnonEvalSamples: (subjectToken: string) =>
