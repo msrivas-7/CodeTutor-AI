@@ -186,7 +186,11 @@ test.describe("anonymous lesson 1 (Phase 27 §3a)", () => {
     // Any other pair stays outside LessonPage and gets a clear recovery
     // surface. The backend allowlist remains the second enforcement layer.
     await page.goto("/try/lesson/python-fundamentals/variables");
-    await expect(page.getByRole("heading", { name: /variables comes after lesson 1/i })).toBeVisible();
+    const blockedHeading = page.getByRole("heading", {
+      name: /variables comes after lesson 1/i,
+    });
+    await expect(blockedHeading).toBeVisible();
+    await expect(blockedHeading).toBeFocused();
     await expect(page.getByRole("link", { name: /start lesson 1/i })).toHaveAttribute(
       "href",
       "/try/lesson/python-fundamentals/hello-world",

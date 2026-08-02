@@ -264,7 +264,12 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       return { openTabs, activeFile };
     }),
   setContent: (path, content) => {
-    const prev = get().files[path];
+    const currentFiles = get().files;
+    // Monaco can emit a final onChange while its model is being disposed.
+    // Once a file has been deleted or renamed, that stale callback must not
+    // recreate the old path in the project.
+    if (!Object.prototype.hasOwnProperty.call(currentFiles, path)) return;
+    const prev = currentFiles[path];
     // Only count it as an edit if the content actually changed — Monaco fires
     // onChange on focus/blur round-trips in some cases, and we don't want to
     // inflate the counter the tutor reads.
@@ -278,7 +283,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
   createFile: (path, content = "") => {
     const s = get();
-    if (s.files[path]) return { ok: false, error: "file exists" };
+    if (Object.prototype.hasOwnProperty.call(s.files, path)) {
+      return { ok: false, error: "file exists" };
+    }
     if (!/^[A-Za-z0-9_./-]+$/.test(path) || path.includes("..")) {
       return { ok: false, error: "invalid path" };
     }
@@ -295,7 +302,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
   deleteFile: (path) => {
     const s = get();
-    if (!s.files[path]) return;
+    // Empty files are still real files. A truthiness check silently made the
+    // ordinary create-then-delete path a no-op until content was typed.
+    if (!Object.prototype.hasOwnProperty.call(s.files, path)) return;
     const files = { ...s.files };
     delete files[path];
     const order = s.order.filter((p) => p !== path);

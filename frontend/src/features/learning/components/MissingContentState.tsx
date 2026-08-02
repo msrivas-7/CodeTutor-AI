@@ -1,7 +1,16 @@
+import { useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 
 export function MissingContentState({ kind }: { kind: "course" | "lesson" }) {
   const label = kind === "course" ? "course" : "lesson";
+  const titleRef = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      titleRef.current?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [kind]);
   return (
     <section
       role="status"
@@ -14,7 +23,12 @@ export function MissingContentState({ kind }: { kind: "course" | "lesson" }) {
       >
         ?
       </div>
-      <h1 id="missing-content-title" className="font-display text-2xl font-semibold text-ink">
+      <h1
+        ref={titleRef}
+        id="missing-content-title"
+        tabIndex={-1}
+        className="font-display text-2xl font-semibold text-ink focus:outline-none"
+      >
         {kind === "course" ? "Course unavailable" : "Lesson unavailable"}
       </h1>
       <p className="mt-3 text-base leading-relaxed text-muted">

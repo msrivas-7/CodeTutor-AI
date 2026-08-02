@@ -16,7 +16,7 @@
 // user-keyed rate-limit buckets don't collide across parallel tests.
 
 import { test as baseTest, request as playwrightRequest } from "@playwright/test";
-import type { Page } from "@playwright/test";
+import type { BrowserContext, Page } from "@playwright/test";
 import { createClient, type Session, type SupabaseClient } from "@supabase/supabase-js";
 import {
   buildCurrentRunTestEmail,
@@ -325,12 +325,16 @@ export async function removeAdminEmailPreviewFixture(id: string): Promise<void> 
 // backend-only request context (the page has already closed by teardown
 // time, so in-browser fetch won't work).
 export function trackSessionCleanup(
-  page: Page,
+  source: BrowserContext | Page,
   workerIndex: number,
 ): () => Promise<void> {
+  // Keep the helper compatible with the few suites that install cleanup
+  // explicitly from a page, but always listen on the owning context so peer
+  // tabs are covered too.
+  const context = "context" in source ? source.context() : source;
   const createdSessionIds = new Set<string>();
   // Each response's body read is async; stash the promises so we can await
-  // them before teardown — Playwright doesn't block on `page.on` callbacks
+  // them before teardown — Playwright doesn't block on `context.on` callbacks
   // and the test could finish before a late JSON parse resolves.
   const inflight: Promise<unknown>[] = [];
   const capture = (res: import("@playwright/test").Response) => {
@@ -351,13 +355,15 @@ export function trackSessionCleanup(
         }),
     );
   };
-  page.on("response", capture);
+  // Listen at context scope rather than on the fixture's primary page. A
+  // multi-tab journey can create or rebind a runner from a peer page; page-
+  // scoped tracking leaked those sessions into whichever spec ran next.
+  context.on("response", capture);
 
   return async () => {
-    page.off("response", capture);
+    context.off("response", capture);
     await Promise.allSettled(inflight);
 
-    if (createdSessionIds.size === 0) return;
     const user = await getWorkerUser(workerIndex);
     const ctx = await playwrightRequest.newContext({
       extraHTTPHeaders: {
@@ -378,8 +384,28 @@ export function trackSessionCleanup(
               // Best-effort: a stray 404 (already reaped) or transient
               // network hiccup here must not fail the test.
             }),
-        ),
+          ),
       );
+
+      // A failed page can close after the backend creates its runner but
+      // before Playwright finishes reading the POST response body above. The
+      // worker account is an ephemeral identity used sequentially, so drain
+      // any remaining runners owned by that account through the non-creating
+      // resume endpoint. This also covers sessions created from peer tabs that
+      // disappeared before their response event reached the coordinator.
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        const resume = await ctx.post(`${BACKEND_URL}/api/session/resume`);
+        if (resume.status() === 404) break;
+        if (!resume.ok()) break;
+        const body = (await resume.json().catch(() => null)) as {
+          sessionId?: unknown;
+        } | null;
+        if (typeof body?.sessionId !== "string" || body.sessionId.length === 0) break;
+        const ended = await ctx.post(`${BACKEND_URL}/api/session/end`, {
+          data: { sessionId: body.sessionId },
+        });
+        if (!ended.ok()) break;
+      }
     } finally {
       await ctx.dispose();
     }
@@ -397,7 +423,7 @@ type CodeTutorFixtures = {
 
 export const test = baseTest.extend<CodeTutorFixtures>({
   memoryWarmupsEnabled: [false, { option: true }],
-  page: async ({ page, memoryWarmupsEnabled }, use, testInfo) => {
+  page: async ({ page, context, memoryWarmupsEnabled }, use, testInfo) => {
     await loginAsTestUser(page, testInfo.workerIndex);
     if (!memoryWarmupsEnabled) {
       await page.route("**/api/user/memory/warmup?**", async (route) => {
@@ -408,7 +434,7 @@ export const test = baseTest.extend<CodeTutorFixtures>({
         });
       });
     }
-    const cleanupSessions = trackSessionCleanup(page, testInfo.workerIndex);
+    const cleanupSessions = trackSessionCleanup(context, testInfo.workerIndex);
     try {
       await use(page);
     } finally {

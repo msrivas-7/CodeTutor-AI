@@ -237,11 +237,34 @@ test.describe("practice mode", () => {
 
     // Back in instructions view — the lesson's h1 title (renders in
     // LessonInstructionsPanel, not the practice header).
-    await expect(page.getByRole("heading", { level: 1, name: /^functions$/i })).toBeVisible({
+    const lessonHeading = page.getByRole("heading", { level: 1, name: /^functions$/i });
+    await expect(lessonHeading).toBeVisible({
       timeout: 5_000,
     });
+    await expect(lessonHeading).toBeFocused();
+    await expect(page).not.toHaveURL(/mode=practice/);
     // And the Practice "X of Y" header chip is gone.
     await expect(page.getByText(/\d+ of 3/)).toHaveCount(0);
+  });
+
+  test("collapsed practice exit focuses the visible instructions restore control", async ({
+    page,
+  }) => {
+    await loadProfile(page, "capstones-pending");
+    await page.goto(`/learn/course/${COURSE_ID}/lesson/${LESSON_ID}?mode=practice`);
+    await waitForMonacoReady(page);
+
+    await page.getByRole("button", { name: "Collapse practice instructions" }).click();
+    const restoreInstructions = page.getByRole("button", {
+      name: "Show instructions panel",
+    });
+    await expect(restoreInstructions).toBeVisible();
+
+    await page
+      .getByRole("button", { name: "Exit practice mode and return to lesson" })
+      .click();
+    await expect(page.getByText("Practice Mode", { exact: true })).toHaveCount(0);
+    await expect(restoreInstructions).toBeFocused();
   });
 
   test("AI tutor sends the active exercise identity for server-resolved context", async ({ page }) => {

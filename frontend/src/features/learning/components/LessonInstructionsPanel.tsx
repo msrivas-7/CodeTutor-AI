@@ -89,7 +89,11 @@ export function LessonInstructionsPanel({
           the user's name at 84px). The thing the user is here to
           do should be the largest typographic element on the page. */}
       <div className="shrink-0 border-b border-border px-5 py-4">
-        <h1 className="font-display text-[28px] font-semibold leading-tight tracking-tight text-ink">
+        <h1
+          data-lesson-title
+          tabIndex={-1}
+          className="font-display text-[28px] font-semibold leading-tight tracking-tight text-ink focus:outline-none"
+        >
           {meta.title}
         </h1>
         <p className="mt-1 text-meta text-muted">

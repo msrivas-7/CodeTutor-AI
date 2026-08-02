@@ -1,7 +1,19 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAIStore } from "../state/aiStore";
 import { Modal } from "./Modal";
 import { useFirstRunStore } from "../features/firstRun/useFirstRunStore";
+
+export const OPEN_KEYBOARD_SHORTCUTS_EVENT = "codetutor:open-keyboard-shortcuts";
+
+/** Open the single app-wide shortcuts dialog from a visible product control. */
+export function openKeyboardShortcuts(returnFocus?: HTMLElement): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new window.CustomEvent(OPEN_KEYBOARD_SHORTCUTS_EVENT, {
+      detail: { returnFocus },
+    }),
+  );
+}
 
 // QA-L4 + M-12: single window-level keydown handler for app-wide shortcuts.
 //
@@ -29,9 +41,19 @@ export function isTypingTarget(el: EventTarget | null): boolean {
 
 export function GlobalShortcuts() {
   const [helpOpen, setHelpOpen] = useState(false);
+  const helpReturnFocusRef = useRef<HTMLElement | null>(null);
   const bumpFocusComposer = useAIStore((s) => s.bumpFocusComposer);
 
   useEffect(() => {
+    const onOpenHelp = (event: Event) => {
+      const explicitTarget =
+        event instanceof window.CustomEvent && event.detail?.returnFocus instanceof HTMLElement
+          ? event.detail.returnFocus
+          : null;
+      helpReturnFocusRef.current = explicitTarget ??
+        (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+      setHelpOpen(true);
+    };
     const onKey = (e: KeyboardEvent) => {
       // The opening cinematic owns the complete interaction layer. Do not
       // mount a hidden dialog or move focus into the obscured workspace.
@@ -57,13 +79,19 @@ export function GlobalShortcuts() {
       if (e.key === "?" && !e.metaKey && !e.ctrlKey && !e.altKey) {
         if (isTypingTarget(e.target)) return;
         e.preventDefault();
+        helpReturnFocusRef.current =
+          document.activeElement instanceof HTMLElement ? document.activeElement : null;
         setHelpOpen(true);
         return;
       }
 
     };
+    window.addEventListener(OPEN_KEYBOARD_SHORTCUTS_EVENT, onOpenHelp);
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener(OPEN_KEYBOARD_SHORTCUTS_EVENT, onOpenHelp);
+      window.removeEventListener("keydown", onKey);
+    };
   }, [bumpFocusComposer]);
 
   if (!helpOpen) return null;
@@ -82,6 +110,7 @@ export function GlobalShortcuts() {
   return (
     <Modal
       onClose={() => setHelpOpen(false)}
+      returnFocusRef={helpReturnFocusRef}
       labelledBy="kbd-help-title"
       position="center"
       panelClassName="mx-4 w-full max-w-md rounded-xl border border-border bg-panel p-5 shadow-xl"

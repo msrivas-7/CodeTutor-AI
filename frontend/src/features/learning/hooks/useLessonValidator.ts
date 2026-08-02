@@ -762,6 +762,10 @@ export function useLessonValidator({
   }, [lesson, courseId, lessonId, searchParams, setSearchParams, handleEnterPractice]);
 
   const handleExitPractice = useCallback(() => {
+    // Clear the route intent in the same action as the UI state. Otherwise an
+    // immediate exit can race the initial ?mode=practice auto-entry effect and
+    // make the prominent Back to lesson control appear to do nothing.
+    setSearchParams({}, { replace: true });
     setPracticeMode(false);
     setPracticeValidation(null);
     setPracticeTestReport(null);
@@ -771,7 +775,7 @@ export function useLessonValidator({
       useRunStore.getState().switchRunContext(lessonContext);
     }
     savedLessonCode.current = null;
-  }, [courseId, lessonId, mode, savedLessonCode]);
+  }, [courseId, lessonId, mode, savedLessonCode, setSearchParams]);
 
   const handleSelectPracticeExercise = useCallback(
     (index: number) => {

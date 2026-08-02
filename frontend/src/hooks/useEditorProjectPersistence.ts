@@ -18,6 +18,12 @@ import { tabWriterId } from "../util/tabWriterId";
 
 const DEBOUNCE_MS = 800;
 
+// Applying the authoritative remote snapshot is hydration, not a local edit.
+// Without this one-transition guard, replaceProject schedules an identical PUT
+// that advances the server revision and immediately creates a new conflict in
+// the tab that originally wrote that version.
+let suppressNextRemoteApplySave = false;
+
 export function useEditorProjectPersistence(): void {
   const user = useAuthStore((s) => s.user);
   const authLoading = useAuthStore((s) => s.loading);
@@ -93,6 +99,10 @@ export function useEditorProjectPersistence(): void {
         if (prev.editorSaveError && !s.editorSaveError) schedule();
         return;
       }
+      if (suppressNextRemoteApplySave) {
+        suppressNextRemoteApplySave = false;
+        return;
+      }
       schedule();
     });
     const unsubR = useRunStore.subscribe((s, prev) => {
@@ -128,6 +138,7 @@ export async function resolveEditorProjectConflict(
   if (!conflict) return false;
   if (choice === "remote") {
     const remote = conflict.remote;
+    suppressNextRemoteApplySave = true;
     useProjectStore.getState().replaceProject({
       language: remote.language as typeof state.language,
       files: remote.files,
@@ -135,6 +146,9 @@ export async function resolveEditorProjectConflict(
       activeFile: remote.activeFile,
       openTabs: remote.openTabs,
     });
+    // Zustand subscriptions run synchronously. Clear defensively as well so a
+    // conflict resolved during teardown cannot suppress a later real edit.
+    suppressNextRemoteApplySave = false;
     useRunStore.setState({ stdin: remote.stdin, result: null, error: null });
     useProjectStore.setState({
       editorServerRevision: remote.revision,

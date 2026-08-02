@@ -67,6 +67,7 @@ export default function AnonLessonPage() {
   const allowed =
     courseId === ANON_ALLOWED.courseId && lessonId === ANON_ALLOWED.lessonId;
   const initialWorkspaceRef = useRef(readAnonWorkspace());
+  const blockedTitleRef = useRef<HTMLHeadingElement>(null);
 
   // Cinematic — anon variant. Plays once per browser tab; reload mid-
   // lesson does NOT replay (sessionStorage flag).
@@ -177,6 +178,14 @@ export default function AnonLessonPage() {
     api.postFunnelEvent("anon_page_view");
   }, [allowed]);
 
+  useEffect(() => {
+    if (authLoading || user || allowed) return;
+    const frame = window.requestAnimationFrame(() => {
+      blockedTitleRef.current?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [allowed, authLoading, courseId, lessonId, user]);
+
   // Resolve the existing browser session before choosing the public trial.
   // Signed-in learners belong in the authenticated lesson, never in a hybrid
   // anonymous shell with saved progress and first-run narration mixed in.
@@ -204,7 +213,12 @@ export default function AnonLessonPage() {
       <main className="flex min-h-screen items-center justify-center bg-bg px-5 text-ink">
         <section className="w-full max-w-lg rounded-2xl border border-border bg-panel p-6 shadow-2xl sm:p-8" aria-labelledby="anon-access-title">
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-accent">Continue learning</p>
-          <h1 id="anon-access-title" className="mt-3 font-display text-3xl font-semibold capitalize">
+          <h1
+            ref={blockedTitleRef}
+            id="anon-access-title"
+            tabIndex={-1}
+            className="mt-3 font-display text-3xl font-semibold capitalize focus:outline-none"
+          >
             {requestedLesson} comes after lesson 1
           </h1>
           <p className="mt-3 text-base leading-relaxed text-muted">

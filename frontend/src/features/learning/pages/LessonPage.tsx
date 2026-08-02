@@ -306,6 +306,11 @@ export default function LessonPage({
   const [practiceMode, setPracticeMode] = useState(false);
   const [practiceIndex, setPracticeIndex] = useState(0);
   const [resolvingDraftConflict, setResolvingDraftConflict] = useState(false);
+  const [editorFocusRequest, setEditorFocusRequest] = useState<{
+    path: string;
+    ticket: number;
+  } | null>(null);
+  const editorFocusTicket = useRef(0);
   const savedLessonCode = useRef<Record<string, string> | null>(null);
 
   const isFirstRun = searchParams.get("firstRun") === "1";
@@ -596,6 +601,66 @@ export default function LessonPage({
     mode,
     retrievalAnswered,
   });
+
+  const handleExitPractice = () => {
+    validator.handleExitPractice();
+    requestAnimationFrame(() => {
+      if (layout.instrCollapsed) {
+        instructionsRestoreRef.current?.focus({ preventScroll: true });
+        return;
+      }
+      const root: ParentNode = layout.instrRef.current ?? document;
+      root
+        .querySelector<HTMLElement>("[data-lesson-title]")
+        ?.focus({ preventScroll: true });
+    });
+  };
+
+  const handleUseRemoteDraft = () => {
+    if (!courseId || !lessonId) return;
+    const remote = useProgressStore
+      .getState()
+      .acceptRemoteDraft(courseId, lessonId);
+    if (!remote) return;
+    const order = Object.keys(remote);
+    useProjectStore.getState().replaceProject({
+      files: remote,
+      order,
+      activeFile: order[0] ?? null,
+      openTabs: order[0] ? [order[0]] : [],
+    });
+    const activeFile = useProjectStore.getState().activeFile;
+    if (activeFile) {
+      editorFocusTicket.current += 1;
+      setEditorFocusRequest({
+        path: activeFile,
+        ticket: editorFocusTicket.current,
+      });
+    }
+  };
+
+  const handleKeepLocalDraft = async () => {
+    if (!courseId || !lessonId) return;
+    setResolvingDraftConflict(true);
+    const resolved = await useProgressStore
+      .getState()
+      .keepLocalDraft(courseId, lessonId);
+    setResolvingDraftConflict(false);
+    const activeFile = useProjectStore.getState().activeFile;
+    if (resolved && activeFile) {
+      editorFocusTicket.current += 1;
+      setEditorFocusRequest({
+        path: activeFile,
+        ticket: editorFocusTicket.current,
+      });
+    }
+  };
+
+  const handleEditorFocusRequestSettled = (ticket: number) => {
+    setEditorFocusRequest((request) =>
+      request?.ticket === ticket ? null : request,
+    );
+  };
 
   const anonWorkspaceHydratedRef = useRef(false);
   useEffect(() => {
@@ -1279,19 +1344,7 @@ export default function LessonPage({
             <button
               type="button"
               disabled={resolvingDraftConflict}
-              onClick={() => {
-                const remote = useProgressStore
-                  .getState()
-                  .acceptRemoteDraft(courseId, lessonId);
-                if (!remote) return;
-                const order = Object.keys(remote);
-                useProjectStore.getState().replaceProject({
-                  files: remote,
-                  order,
-                  activeFile: order[0] ?? null,
-                  openTabs: order[0] ? [order[0]] : [],
-                });
-              }}
+              onClick={handleUseRemoteDraft}
               className="min-h-11 rounded-lg border border-border bg-panel px-3 py-2 text-xs font-semibold text-muted transition hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-60"
             >
               Use newer saved version
@@ -1299,13 +1352,7 @@ export default function LessonPage({
             <button
               type="button"
               disabled={resolvingDraftConflict}
-              onClick={() => {
-                setResolvingDraftConflict(true);
-                void useProgressStore
-                  .getState()
-                  .keepLocalDraft(courseId, lessonId)
-                  .finally(() => setResolvingDraftConflict(false));
-              }}
+              onClick={() => void handleKeepLocalDraft()}
               className="min-h-11 rounded-lg bg-warn/20 px-3 py-2 text-xs font-semibold text-warn ring-1 ring-warn/40 transition hover:bg-warn/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn disabled:opacity-60"
             >
               {resolvingDraftConflict ? "Saving…" : "Keep this version"}
@@ -1449,7 +1496,7 @@ export default function LessonPage({
                   testReport={validator.practiceTestReport}
                   saveError={validator.practiceSaveError}
                   onSelectExercise={validator.handleSelectPracticeExercise}
-                  onExitPractice={validator.handleExitPractice}
+                  onExitPractice={handleExitPractice}
                   onNextExercise={validator.handleNextPracticeExercise}
                   onResetPractice={validator.handleResetPracticeProgress}
                   onHintReveal={validator.handlePracticeHintReveal}
@@ -1495,7 +1542,12 @@ export default function LessonPage({
                     <div className="p-4 text-sm text-muted">Loading editor…</div>
                   }
                 >
-                  <MonacoPane attentionTarget={contextualGuide.target} readOnly={editorLocked} />
+                  <MonacoPane
+                    attentionTarget={contextualGuide.target}
+                    focusRequest={editorFocusRequest}
+                    onFocusRequestSettled={handleEditorFocusRequestSettled}
+                    readOnly={editorLocked}
+                  />
                 </Suspense>
               </div>
             </section>
@@ -1645,7 +1697,7 @@ export default function LessonPage({
                 <button
                   type="button"
                   onClick={() => {
-                    if (practiceMode) validator.handleExitPractice();
+                    if (practiceMode) handleExitPractice();
                     else validator.handleEnterPractice();
                   }}
                   disabled={runner.running || validator.runningTests || validator.completionSaving}
@@ -1745,7 +1797,7 @@ export default function LessonPage({
                 testReport={validator.practiceTestReport}
                 saveError={validator.practiceSaveError}
                 onSelectExercise={validator.handleSelectPracticeExercise}
-                onExitPractice={validator.handleExitPractice}
+                onExitPractice={handleExitPractice}
                 onNextExercise={validator.handleNextPracticeExercise}
                 onResetPractice={validator.handleResetPracticeProgress}
                 onHintReveal={validator.handlePracticeHintReveal}
@@ -1825,7 +1877,12 @@ export default function LessonPage({
             <EditorTabs mode="lesson" />
             <div className="min-h-0 flex-1">
               <Suspense fallback={<div className="p-4 text-sm text-muted">Loading editor…</div>}>
-                <MonacoPane attentionTarget={contextualGuide.target} readOnly={editorLocked} />
+                <MonacoPane
+                  attentionTarget={contextualGuide.target}
+                  focusRequest={editorFocusRequest}
+                  onFocusRequestSettled={handleEditorFocusRequestSettled}
+                  readOnly={editorLocked}
+                />
               </Suspense>
             </div>
             <Splitter
@@ -2037,7 +2094,7 @@ export default function LessonPage({
                       Practice Mode
                     </span>
                     <button
-                      onClick={validator.handleExitPractice}
+                      onClick={handleExitPractice}
                       className="min-h-11 border-l-2 border-violet/40 bg-violet/25 px-3 py-2 text-sm font-semibold text-violet transition hover:bg-violet/40 hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-violet"
                       title="Exit practice and return to the lesson"
                       aria-label="Exit practice mode and return to lesson"

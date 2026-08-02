@@ -62,6 +62,7 @@ const BOUNDS = {
 export default function EditorPage() {
   const nav = useNavigate();
   const switchChatContext = useAIStore((s) => s.switchChatContext);
+  const bumpFocusComposer = useAIStore((s) => s.bumpFocusComposer);
   const switchProjectContext = useProjectStore((s) => s.switchProjectContext);
   const switchRunContext = useRunStore((s) => s.switchRunContext);
   useSessionLifecycle();
@@ -100,6 +101,11 @@ export default function EditorPage() {
   const [showSettings, setShowSettings] = useState(false);
   const [showCoach, setShowCoach] = useState(false);
   const [resolvingConflict, setResolvingConflict] = useState(false);
+  const [editorFocusRequest, setEditorFocusRequest] = useState<{
+    path: string;
+    ticket: number;
+  } | null>(null);
+  const editorFocusTicket = useRef(0);
   const editorSaveConflict = useProjectStore((s) => s.editorSaveConflict);
   const editorSaveError = useProjectStore((s) => s.editorSaveError);
 
@@ -127,6 +133,7 @@ export default function EditorPage() {
   }, [compact, setTutorCollapsed]);
 
   const langPickerRef = useRef<HTMLLabelElement>(null);
+  const editorHeadingRef = useRef<HTMLHeadingElement>(null);
   const fileTreeRef = useRef<HTMLElement>(null);
   const editorRef = useRef<HTMLElement>(null);
   const runButtonRef = useRef<HTMLButtonElement>(null);
@@ -134,6 +141,26 @@ export default function EditorPage() {
   const tutorRef = useRef<HTMLElement>(null);
   const filesRestoreRef = useRef<HTMLButtonElement>(null);
   const tutorRestoreRef = useRef<HTMLButtonElement>(null);
+
+  const handleEditorConflictChoice = async (choice: "remote" | "local") => {
+    setResolvingConflict(true);
+    const resolved = await resolveEditorProjectConflict(choice);
+    setResolvingConflict(false);
+    const activeFile = useProjectStore.getState().activeFile;
+    if (resolved && activeFile) {
+      editorFocusTicket.current += 1;
+      setEditorFocusRequest({
+        path: activeFile,
+        ticket: editorFocusTicket.current,
+      });
+    }
+  };
+
+  const handleEditorFocusRequestSettled = (ticket: number) => {
+    setEditorFocusRequest((request) =>
+      request?.ticket === ticket ? null : request,
+    );
+  };
 
   useEffect(() => {
     if (tutorOpenNonce <= 0) return;
@@ -180,7 +207,11 @@ export default function EditorPage() {
           </button>
           <span className="hidden lg:inline-flex"><Wordmark size="sm" /></span>
           <span className="hidden h-4 w-px bg-border lg:inline-block" aria-hidden="true" />
-          <h1 className="text-[14px] font-medium tracking-tight text-ink">
+          <h1
+            ref={editorHeadingRef}
+            tabIndex={-1}
+            className="text-[14px] font-medium tracking-tight text-ink focus:outline-none"
+          >
             Editor
           </h1>
           <nav className="ml-auto flex items-center overflow-hidden rounded-md border border-border text-[11px] sm:ml-2" aria-label="Mode switcher">
@@ -232,7 +263,7 @@ export default function EditorPage() {
             <button
               type="button"
               disabled={resolvingConflict}
-              onClick={() => void resolveEditorProjectConflict("remote")}
+              onClick={() => void handleEditorConflictChoice("remote")}
               className="min-h-11 rounded-lg border border-border bg-panel px-3 py-2 text-xs font-semibold text-muted transition hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-60"
             >
               Use newer saved version
@@ -240,12 +271,7 @@ export default function EditorPage() {
             <button
               type="button"
               disabled={resolvingConflict}
-              onClick={() => {
-                setResolvingConflict(true);
-                void resolveEditorProjectConflict("local").finally(() =>
-                  setResolvingConflict(false),
-                );
-              }}
+              onClick={() => void handleEditorConflictChoice("local")}
               className="min-h-11 rounded-lg bg-warn/20 px-3 py-2 text-xs font-semibold text-warn ring-1 ring-warn/40 transition hover:bg-warn/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn disabled:opacity-60"
             >
               {resolvingConflict ? "Saving…" : "Keep this version"}
@@ -343,7 +369,10 @@ export default function EditorPage() {
           <EditorTabs />
           <div className="min-h-0 flex-1">
             <Suspense fallback={<div className="p-4 text-sm text-muted">Loading editor…</div>}>
-              <MonacoPane />
+              <MonacoPane
+                focusRequest={editorFocusRequest}
+                onFocusRequestSettled={handleEditorFocusRequestSettled}
+              />
             </Suspense>
           </div>
           <Splitter
@@ -426,7 +455,13 @@ export default function EditorPage() {
             outputPanel: outputRef.current,
             tutorPanel: tutorRef.current,
           }}
-          onComplete={() => setShowCoach(false)}
+          onComplete={(outcome) => {
+            setShowCoach(false);
+            requestAnimationFrame(() => {
+              if (outcome === "completed") bumpFocusComposer();
+              else editorHeadingRef.current?.focus({ preventScroll: true });
+            });
+          }}
         />
       )}
       <NarrowViewportGate />

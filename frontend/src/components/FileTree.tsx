@@ -3,6 +3,7 @@ import { useProjectStore } from "../state/projectStore";
 import { LANGUAGE_ENTRYPOINT } from "../types";
 import { fileIcon } from "../util/fileIcon";
 import { Modal } from "./Modal";
+import { openKeyboardShortcuts } from "./GlobalShortcuts";
 
 export function FileTree({ onCollapse }: { onCollapse?: () => void }) {
   const { order, activeFile, language, openFile, createFile, deleteFile, renameFile } =
@@ -62,8 +63,9 @@ export function FileTree({ onCollapse }: { onCollapse?: () => void }) {
           <button
             type="button"
             tabIndex={0}
+            onClick={(event) => openKeyboardShortcuts(event.currentTarget)}
             title={`main = entrypoint for the current language (${entrypoint})\nDouble-click a filename to rename.`}
-            aria-label="File tree help — main is the entrypoint for the current language; double-click a filename to rename"
+            aria-label="Show keyboard shortcuts"
             className="flex h-11 w-11 items-center justify-center rounded-lg text-sm font-semibold text-muted transition hover:bg-elevated hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             <span aria-hidden="true">?</span>
@@ -233,8 +235,13 @@ export function FileTree({ onCollapse }: { onCollapse?: () => void }) {
             </button>
             <button
               onClick={() => {
-                deleteFile(pendingDelete);
+                const deletedPath = pendingDelete;
+                deleteFile(deletedPath);
                 setPendingDelete(null);
+                requestAnimationFrame(() => {
+                  const nextPath = useProjectStore.getState().activeFile;
+                  if (nextPath) fileButtonRefs.current.get(nextPath)?.focus();
+                });
               }}
               className="min-h-11 flex-1 rounded-lg bg-danger/20 px-4 py-2 text-sm font-semibold text-danger ring-1 ring-danger/40 transition hover:bg-danger/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-danger"
             >

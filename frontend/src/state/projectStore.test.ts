@@ -54,6 +54,62 @@ describe("project revision contract", () => {
     });
   });
 
+  it("deletes an empty file and selects a surviving neighbor", () => {
+    useProjectStore.setState({
+      files: { "main.py": "print('keep')\n", "empty.py": "" },
+      order: ["main.py", "empty.py"],
+      activeFile: "empty.py",
+      openTabs: ["main.py", "empty.py"],
+      revision: 0,
+    });
+
+    useProjectStore.getState().deleteFile("empty.py");
+
+    expect(useProjectStore.getState()).toMatchObject({
+      files: { "main.py": "print('keep')\n" },
+      order: ["main.py"],
+      activeFile: "main.py",
+      openTabs: ["main.py"],
+      revision: 1,
+    });
+  });
+
+  it("does not resurrect a deleted file from a stale editor callback", () => {
+    useProjectStore.setState({
+      files: { "main.py": "print('keep')\n", "empty.py": "" },
+      order: ["main.py", "empty.py"],
+      activeFile: "empty.py",
+      openTabs: ["main.py", "empty.py"],
+      revision: 0,
+    });
+
+    useProjectStore.getState().deleteFile("empty.py");
+    useProjectStore.getState().setContent("empty.py", "");
+
+    expect(useProjectStore.getState()).toMatchObject({
+      files: { "main.py": "print('keep')\n" },
+      order: ["main.py"],
+      activeFile: "main.py",
+      openTabs: ["main.py"],
+      revision: 1,
+    });
+  });
+
+  it("does not overwrite an existing empty file during creation", () => {
+    useProjectStore.setState({
+      files: { "empty.py": "" },
+      order: ["empty.py"],
+      activeFile: "empty.py",
+      openTabs: ["empty.py"],
+    });
+
+    expect(useProjectStore.getState().createFile("empty.py", "replacement")).toEqual({
+      ok: false,
+      error: "file exists",
+    });
+    expect(useProjectStore.getState().files).toEqual({ "empty.py": "" });
+  });
+
   it("does not overwrite an existing empty destination during rename", () => {
     useProjectStore.setState({
       files: { "source.py": "print('keep me')", "empty.py": "" },

@@ -58,6 +58,23 @@ test.describe("keyboard shortcuts + schema-error branch", () => {
     await expect(page.getByRole("dialog", { name: /keyboard shortcuts/i })).toHaveCount(0);
   });
 
+  test("the visible Files help button opens the same shortcuts dialog", async ({ page }) => {
+    await loadProfile(page, "empty");
+    await page.goto("/editor");
+    await waitForMonacoReady(page);
+
+    const help = page.getByRole("button", { name: "Show keyboard shortcuts" });
+    await help.click();
+
+    const dialog = page.getByRole("dialog", { name: /keyboard shortcuts/i });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText(/jump focus to the tutor composer/i)).toBeVisible();
+
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    await expect(help).toBeFocused();
+  });
+
   test("pressing '?' inside a textarea does NOT open the cheatsheet", async ({ page }) => {
     // isTypingTarget bails on INPUT/TEXTAREA/contenteditable/.monaco-editor —
     // the unit test pins the predicate, but this spec confirms the app-level
