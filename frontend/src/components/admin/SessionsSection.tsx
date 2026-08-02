@@ -5,6 +5,8 @@ import {
   type AdminSessionsResponse,
 } from "../../api/client";
 import { useLivePolling } from "../../auth/useLivePolling";
+import { AdminLoadFailure } from "./AdminLoadFailure";
+import { useAdminDraft } from "./useAdminDraft";
 
 const POLL_MS = 5000;
 const PHRASE_KILL_SESSION =
@@ -54,7 +56,7 @@ export function SessionsSection() {
         </div>
       </div>
 
-      {error && (
+      {error && data && (
         <div
           role="alert"
           className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-[11px] text-danger"
@@ -63,7 +65,13 @@ export function SessionsSection() {
         </div>
       )}
 
-      {sessions.length === 0 && data ? (
+      {error && !data ? (
+        <AdminLoadFailure
+          title="Sessions did not load"
+          error={error}
+          onRetry={() => void refresh()}
+        />
+      ) : sessions.length === 0 && data ? (
         <div className="rounded-md border border-border bg-elevated/30 px-3 py-6 text-center text-[11px] text-muted">
           No active sessions.
         </div>
@@ -174,8 +182,11 @@ function KillSessionDrawer({
   onDone: () => void;
   onCancel: () => void;
 }) {
-  const [reason, setReason] = useState("");
-  const [phrase, setPhrase] = useState("");
+  const { draft, setDraft, clear: clearDraft, hasDraft, restored } = useAdminDraft(
+    `session-kill.${session.sessionId}`,
+    { reason: "", phrase: "" },
+  );
+  const { reason, phrase } = draft;
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const ready = reason.trim().length >= 4 && phrase === PHRASE_KILL_SESSION;
@@ -187,13 +198,16 @@ function KillSessionDrawer({
           Kill session{" "}
           <span className="font-mono text-danger">{session.sessionId}</span>?
         </h3>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="text-[11px] text-muted hover:text-ink"
-        >
-          Cancel
-        </button>
+        <div className="flex gap-2">
+          {hasDraft && (
+            <button type="button" onClick={() => { clearDraft(); onCancel(); }} className="min-h-11 rounded-md px-2 text-[11px] text-danger hover:bg-danger/10">
+              Discard draft
+            </button>
+          )}
+          <button type="button" onClick={onCancel} className="min-h-11 rounded-md px-2 text-[11px] text-muted hover:bg-elevated hover:text-ink">
+            Close
+          </button>
+        </div>
       </div>
       <p className="mt-1 text-[11px] text-muted">
         The container is destroyed immediately. Any unsaved code in the
@@ -201,12 +215,13 @@ function KillSessionDrawer({
         session on next ping.
       </p>
       <div className="mt-3 flex flex-col gap-2">
+        {restored && <div role="status" className="text-[11px] text-accent">Restored your unfinished termination draft.</div>}
         <label className="text-[11px]">
           <div className="text-muted">Reason (≥ 4 chars)</div>
           <input
             type="text"
             value={reason}
-            onChange={(e) => setReason(e.target.value)}
+            onChange={(e) => setDraft((current) => ({ ...current, reason: e.target.value }))}
             className="mt-0.5 w-full rounded-md border border-border bg-bg px-2 py-1 text-ink"
             placeholder="e.g. learner reported stuck container"
           />
@@ -219,7 +234,7 @@ function KillSessionDrawer({
           <input
             type="text"
             value={phrase}
-            onChange={(e) => setPhrase(e.target.value)}
+            onChange={(e) => setDraft((current) => ({ ...current, phrase: e.target.value }))}
             className={`mt-0.5 w-full rounded-md border bg-bg px-2 py-1 ${phrase === PHRASE_KILL_SESSION ? "border-success/40 text-success" : "border-border text-ink"}`}
           />
         </label>
@@ -236,6 +251,7 @@ function KillSessionDrawer({
                   reason,
                   confirmKill: phrase,
                 });
+                clearDraft();
                 onDone();
               } catch (e) {
                 setErr(e instanceof Error ? e.message : String(e));
@@ -260,9 +276,11 @@ function BulkKillDrawer({
   onDone: () => void;
   onCancel: () => void;
 }) {
-  const [userId, setUserId] = useState("");
-  const [reason, setReason] = useState("");
-  const [phrase, setPhrase] = useState("");
+  const { draft, setDraft, clear: clearDraft, hasDraft, restored } = useAdminDraft(
+    "session-kill.bulk",
+    { userId: "", reason: "", phrase: "" },
+  );
+  const { userId, reason, phrase } = draft;
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const ready =
@@ -276,24 +294,28 @@ function BulkKillDrawer({
         <h3 className="text-[12px] font-semibold text-ink">
           Kill all sessions for user
         </h3>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="text-[11px] text-muted hover:text-ink"
-        >
-          Cancel
-        </button>
+        <div className="flex gap-2">
+          {hasDraft && (
+            <button type="button" onClick={() => { clearDraft(); onCancel(); }} className="min-h-11 rounded-md px-2 text-[11px] text-danger hover:bg-danger/10">
+              Discard draft
+            </button>
+          )}
+          <button type="button" onClick={onCancel} className="min-h-11 rounded-md px-2 text-[11px] text-muted hover:bg-elevated hover:text-ink">
+            Close
+          </button>
+        </div>
       </div>
       <p className="mt-1 text-[11px] text-muted">
         Destroys every active session owned by this userId.
       </p>
       <div className="mt-3 flex flex-col gap-2">
+        {restored && <div role="status" className="text-[11px] text-accent">Restored your unfinished bulk-termination draft.</div>}
         <label className="text-[11px]">
           <div className="text-muted">User ID (UUID, from Users page)</div>
           <input
             type="text"
             value={userId}
-            onChange={(e) => setUserId(e.target.value)}
+            onChange={(e) => setDraft((current) => ({ ...current, userId: e.target.value }))}
             className="mt-0.5 w-full rounded-md border border-border bg-bg px-2 py-1 font-mono text-ink"
             placeholder="00000000-0000-0000-0000-000000000000"
           />
@@ -303,7 +325,7 @@ function BulkKillDrawer({
           <input
             type="text"
             value={reason}
-            onChange={(e) => setReason(e.target.value)}
+            onChange={(e) => setDraft((current) => ({ ...current, reason: e.target.value }))}
             className="mt-0.5 w-full rounded-md border border-border bg-bg px-2 py-1 text-ink"
           />
         </label>
@@ -314,7 +336,7 @@ function BulkKillDrawer({
           <input
             type="text"
             value={phrase}
-            onChange={(e) => setPhrase(e.target.value)}
+            onChange={(e) => setDraft((current) => ({ ...current, phrase: e.target.value }))}
             className={`mt-0.5 w-full rounded-md border bg-bg px-2 py-1 ${phrase === PHRASE_KILL_SESSION ? "border-success/40 text-success" : "border-border text-ink"}`}
           />
         </label>
@@ -331,6 +353,7 @@ function BulkKillDrawer({
                   reason,
                   confirmKill: phrase,
                 });
+                clearDraft();
                 onDone();
               } catch (e) {
                 setErr(e instanceof Error ? e.message : String(e));

@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { api, type AdminAnonSummary } from "../../api/client";
 import { useLivePolling } from "../../auth/useLivePolling";
+import { AdminLoadFailure } from "./AdminLoadFailure";
 
 // Phase 27-v2.2 Fix 7b — admin "Trial path" tab. Read-only summary of the
 // anon trial path (the /try/lesson/... funnel that backs Phase 27's
@@ -42,7 +43,7 @@ export function AnonSection() {
         <RefreshButton onClick={() => void refresh()} stale={!!error} />
       </div>
 
-      {error && (
+      {error && data && (
         <div
           role="alert"
           className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-[11px] text-danger"
@@ -63,7 +64,13 @@ export function AnonSection() {
         </div>
       )}
 
-      {!data ? (
+      {error && !data ? (
+        <AdminLoadFailure
+          title="Trial-path data did not load"
+          error={error}
+          onRetry={() => void refresh()}
+        />
+      ) : !data ? (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
           {Array.from({ length: 4 }).map((_, i) => (
             <SkeletonCard key={i} />
@@ -114,11 +121,26 @@ function TrafficTile({ snap }: { snap: AdminAnonSummary }) {
 
 function FunnelTile({ snap }: { snap: AdminAnonSummary }) {
   const fe = snap.funnelEvents;
-  // Stage-by-stage drop-off rate, computed client-side.
+  const inconsistent =
+    fe.anon_first_run > fe.anon_page_view ||
+    fe.anon_lesson_completed > fe.anon_first_run ||
+    fe.anon_wall_opened > fe.anon_page_view ||
+    fe.anon_signup_completed > fe.anon_wall_opened ||
+    fe.anon_lesson2_reached > fe.anon_signup_completed;
+  // Stage-by-stage drop-off rate over the server-projected same-day cohort.
   const pct = (a: number, b: number) =>
-    b === 0 ? "—" : `${Math.round((a / b) * 100)}%`;
+    b === 0 ? "—" : a > b ? "data mismatch" : `${Math.round((a / b) * 100)}%`;
   return (
     <Tile title="Funnel (today, UTC)">
+      {inconsistent && (
+        <div
+          role="alert"
+          className="mb-2 rounded border border-danger/40 bg-danger/10 px-2 py-1.5 text-[10px] leading-relaxed text-danger"
+        >
+          Funnel stages are inconsistent. Do not use these rates for a rollout
+          decision; inspect telemetry ingestion.
+        </div>
+      )}
       <div className="flex flex-col gap-1.5 text-[11px]">
         <FunnelRow label="Page view" value={fe.anon_page_view} />
         <FunnelRow
@@ -148,9 +170,9 @@ function FunnelTile({ snap }: { snap: AdminAnonSummary }) {
         />
       </div>
       <div className="mt-2 text-[10px] leading-relaxed text-faint">
-        Today (UTC). Wall opens are measured from landings because they can
-        happen before completion; other percentages name their denominator.
-        Resets at midnight.
+        Unique privacy-bounded trial cohorts, today (UTC). A later stage counts
+        only when the same cohort reached its named prerequisite today, so
+        conversion never exceeds 100%. Resets at midnight.
       </div>
     </Tile>
   );
@@ -188,8 +210,9 @@ function DistributionTile({ snap }: { snap: AdminAnonSummary }) {
         </table>
       </div>
       <p className="mt-2 text-[10px] leading-relaxed text-faint">
-        Coarse first touch only: direct, organic lesson/category pages, or a
-        learner share. No raw referrer URL or share token is retained.
+        Unique same-day cohorts by coarse first touch: direct, organic
+        lesson/category pages, or a learner share. No raw referrer URL or share
+        token is retained.
       </p>
     </Tile>
   );
@@ -367,7 +390,7 @@ function RefreshButton({
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-md border px-3 py-1 text-[11px] font-semibold transition ${stale ? "border-warn/40 bg-warn/10 text-warn" : "border-border bg-elevated text-muted hover:text-ink"}`}
+      className={`min-h-11 rounded-md border px-3 py-2 text-[11px] font-semibold transition ${stale ? "border-warn/40 bg-warn/10 text-warn" : "border-border bg-elevated text-muted hover:text-ink"}`}
     >
       Refresh
     </button>

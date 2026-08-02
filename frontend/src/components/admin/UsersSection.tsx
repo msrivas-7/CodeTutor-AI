@@ -5,6 +5,7 @@ import {
   type AdminUserListEntry,
   type AdminUserOverride,
 } from "../../api/client";
+import { useAdminDraft } from "./useAdminDraft";
 
 // Phase 20-P5: paginated users table + per-user override editor.
 //
@@ -286,9 +287,11 @@ function AbuseControls({
   denylist: AdminDenylistRow | null;
   onChanged: () => Promise<void>;
 }) {
-  const [denyReason, setDenyReason] = useState("");
-  const [freezeReason, setFreezeReason] = useState("");
-  const [freezePhrase, setFreezePhrase] = useState("");
+  const { draft, setDraft, clear: clearDraft, hasDraft, restored } = useAdminDraft(
+    `user-abuse.${userId}`,
+    { denyReason: "", freezeReason: "", freezePhrase: "" },
+  );
+  const { denyReason, freezeReason, freezePhrase } = draft;
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -305,9 +308,7 @@ function AbuseControls({
     try {
       await fn();
       await onChanged();
-      setDenyReason("");
-      setFreezeReason("");
-      setFreezePhrase("");
+      clearDraft();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -317,6 +318,7 @@ function AbuseControls({
 
   return (
     <div className="flex flex-col gap-3">
+      {restored && <div role="status" className="text-[10px] text-accent">Restored your unfinished account-control draft.</div>}
       <div className="flex flex-wrap gap-1.5 text-[10px]">
         <span
           className={`inline-block rounded-full border px-2 py-0.5 font-semibold ${isDenied ? "border-danger/40 bg-danger/10 text-danger" : "border-success/40 bg-success/10 text-success"}`}
@@ -352,7 +354,7 @@ function AbuseControls({
           <input
             type="text"
             value={denyReason}
-            onChange={(e) => setDenyReason(e.target.value)}
+            onChange={(e) => setDraft((current) => ({ ...current, denyReason: e.target.value }))}
             disabled={busy}
             placeholder={isDenied ? "(unused — only needed to add)" : "why deny platform AI"}
             className="mt-0.5 w-full rounded border border-border bg-bg px-2 py-1 text-ink"
@@ -400,7 +402,7 @@ function AbuseControls({
               <input
                 type="text"
                 value={freezeReason}
-                onChange={(e) => setFreezeReason(e.target.value)}
+                onChange={(e) => setDraft((current) => ({ ...current, freezeReason: e.target.value }))}
                 disabled={busy}
                 placeholder="why this account must be fully blocked"
                 className="mt-0.5 w-full rounded border border-border bg-bg px-2 py-1 text-ink"
@@ -414,7 +416,7 @@ function AbuseControls({
               <input
                 type="text"
                 value={freezePhrase}
-                onChange={(e) => setFreezePhrase(e.target.value)}
+                onChange={(e) => setDraft((current) => ({ ...current, freezePhrase: e.target.value }))}
                 disabled={busy}
                 className={`mt-0.5 w-full rounded border bg-bg px-2 py-1 ${freezePhrase === PHRASE_FREEZE_USER ? "border-success/40 text-success" : "border-border text-ink"}`}
               />
@@ -458,6 +460,12 @@ function AbuseControls({
           ~1h refresh window can't keep them authed. */}
       <ForceSignOutControl userId={userId} onChanged={onChanged} />
 
+      {hasDraft && (
+        <button type="button" onClick={clearDraft} disabled={busy} className="min-h-11 self-start rounded-md px-3 text-[11px] text-danger hover:bg-danger/10 disabled:opacity-50">
+          Discard account-control draft
+        </button>
+      )}
+
       {err && (
         <div className="rounded border border-danger/40 bg-danger/10 px-2 py-1 text-[10px] text-danger">
           {err}
@@ -477,9 +485,12 @@ function ForceSignOutControl({
   userId: string;
   onChanged: () => Promise<void>;
 }) {
-  const [open, setOpen] = useState(false);
-  const [reason, setReason] = useState("");
-  const [phrase, setPhrase] = useState("");
+  const { draft, setDraft, clear: clearDraft, hasDraft, restored } = useAdminDraft(
+    `user-force-signout.${userId}`,
+    { reason: "", phrase: "" },
+  );
+  const { reason, phrase } = draft;
+  const [open, setOpen] = useState(restored);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [result, setResult] = useState<{
@@ -503,6 +514,7 @@ function ForceSignOutControl({
         </button>
       ) : (
         <>
+          {restored && <div role="status" className="text-[10px] text-accent">Restored your unfinished sign-out draft.</div>}
           <p className="text-[10px] text-muted">
             Revokes every refresh token this user holds. Their existing JWT
             stops working on every device immediately. Pair with{" "}
@@ -514,7 +526,7 @@ function ForceSignOutControl({
             <input
               type="text"
               value={reason}
-              onChange={(e) => setReason(e.target.value)}
+              onChange={(e) => setDraft((current) => ({ ...current, reason: e.target.value }))}
               disabled={busy}
               placeholder="e.g. compromised admin — demoted at 14:02 UTC"
               className="mt-0.5 w-full rounded border border-border bg-bg px-2 py-1 text-ink"
@@ -528,7 +540,7 @@ function ForceSignOutControl({
             <input
               type="text"
               value={phrase}
-              onChange={(e) => setPhrase(e.target.value)}
+              onChange={(e) => setDraft((current) => ({ ...current, phrase: e.target.value }))}
               disabled={busy}
               className={`mt-0.5 w-full rounded border bg-bg px-2 py-1 ${phrase === PHRASE_FORCE_SIGNOUT ? "border-success/40 text-success" : "border-border text-ink"}`}
             />
@@ -557,8 +569,7 @@ function ForceSignOutControl({
                     sessionsKilled: r.sessionsKilled,
                     streamsAborted: r.streamsAborted,
                   });
-                  setReason("");
-                  setPhrase("");
+                  clearDraft();
                   await onChanged();
                 } catch (e) {
                   setErr(e instanceof Error ? e.message : String(e));
@@ -577,6 +588,11 @@ function ForceSignOutControl({
             >
               Cancel
             </button>
+            {hasDraft && (
+              <button type="button" onClick={() => { clearDraft(); setOpen(false); }} disabled={busy} className="min-h-11 rounded-md px-3 text-[11px] text-danger hover:bg-danger/10 disabled:opacity-50">
+                Discard draft
+              </button>
+            )}
           </div>
         </>
       )}
@@ -591,16 +607,16 @@ interface OverrideFormProps {
 }
 
 function OverrideForm({ userId, override, onSaved }: OverrideFormProps) {
-  const [dailyQ, setDailyQ] = useState<string>(
-    override?.dailyQuestionsCap?.toString() ?? "",
+  const { draft, setDraft, clear: clearDraft, hasDraft, restored } = useAdminDraft(
+    `user-override.${userId}`,
+    {
+      dailyQ: override?.dailyQuestionsCap?.toString() ?? "",
+      dailyUsd: override?.dailyUsdCap?.toString() ?? "",
+      lifetimeUsd: override?.lifetimeUsdCap?.toString() ?? "",
+      reason: "",
+    },
   );
-  const [dailyUsd, setDailyUsd] = useState<string>(
-    override?.dailyUsdCap?.toString() ?? "",
-  );
-  const [lifetimeUsd, setLifetimeUsd] = useState<string>(
-    override?.lifetimeUsdCap?.toString() ?? "",
-  );
-  const [reason, setReason] = useState("");
+  const { dailyQ, dailyUsd, lifetimeUsd, reason } = draft;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -640,7 +656,7 @@ function OverrideForm({ userId, override, onSaved }: OverrideFormProps) {
         reason: reason.trim(),
       });
       await onSaved();
-      setReason("");
+      clearDraft();
     } catch (e) {
       setError((e as Error).message);
       setBusy(false);
@@ -653,10 +669,7 @@ function OverrideForm({ userId, override, onSaved }: OverrideFormProps) {
     try {
       await api.adminClearUserOverride(userId);
       await onSaved();
-      setDailyQ("");
-      setDailyUsd("");
-      setLifetimeUsd("");
-      setReason("");
+      clearDraft();
     } catch (e) {
       setError((e as Error).message);
       setBusy(false);
@@ -665,11 +678,12 @@ function OverrideForm({ userId, override, onSaved }: OverrideFormProps) {
 
   return (
     <div className="flex flex-col gap-2">
+      {restored && <div role="status" className="text-[10px] text-accent">Restored your unfinished cap draft.</div>}
       <div className="grid grid-cols-3 gap-2">
         <CapInput
           label="Daily questions"
           value={dailyQ}
-          onChange={setDailyQ}
+          onChange={(value) => setDraft((current) => ({ ...current, dailyQ: value }))}
           max={10000}
           placeholder="default"
           disabled={busy}
@@ -677,7 +691,7 @@ function OverrideForm({ userId, override, onSaved }: OverrideFormProps) {
         <CapInput
           label="Daily $"
           value={dailyUsd}
-          onChange={setDailyUsd}
+          onChange={(value) => setDraft((current) => ({ ...current, dailyUsd: value }))}
           max={100}
           step="0.01"
           placeholder="default"
@@ -686,7 +700,7 @@ function OverrideForm({ userId, override, onSaved }: OverrideFormProps) {
         <CapInput
           label="Lifetime $"
           value={lifetimeUsd}
-          onChange={setLifetimeUsd}
+          onChange={(value) => setDraft((current) => ({ ...current, lifetimeUsd: value }))}
           max={1000}
           step="0.01"
           placeholder="default"
@@ -711,7 +725,7 @@ function OverrideForm({ userId, override, onSaved }: OverrideFormProps) {
         <input
           type="text"
           value={reason}
-          onChange={(e) => setReason(e.target.value)}
+          onChange={(e) => setDraft((current) => ({ ...current, reason: e.target.value }))}
           disabled={busy}
           placeholder="why this user gets a custom cap"
           className="rounded border border-border bg-bg px-2 py-1 text-[11px] text-ink"
@@ -739,6 +753,11 @@ function OverrideForm({ userId, override, onSaved }: OverrideFormProps) {
             className="rounded-md border border-border bg-elevated px-3 py-1 text-[11px] text-muted transition hover:text-ink"
           >
             Clear all caps
+          </button>
+        )}
+        {hasDraft && (
+          <button onClick={clearDraft} disabled={busy} className="min-h-11 rounded-md px-3 text-[11px] text-danger hover:bg-danger/10 disabled:opacity-50">
+            Discard draft
           </button>
         )}
       </div>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   api,
+  type AdminAuditLogCategory,
   type AdminAuditLogEntry,
   type AdminAuditEventType,
 } from "../../api/client";
@@ -30,6 +31,10 @@ const EVENT_LABEL: Record<AdminAuditEventType, string> = {
   platform_auth_unstick: "Unstick platform auth",
   // Phase 26
   user_force_signout: "Force sign-out",
+  // Phase B8
+  eval_sample_viewed: "Viewed eval sample",
+  eval_sample_reviewed: "Reviewed eval sample",
+  eval_sample_queue_resolved: "Resolved eval queue item",
 };
 
 const EVENT_TONE: Record<AdminAuditEventType, string> = {
@@ -50,9 +55,13 @@ const EVENT_TONE: Record<AdminAuditEventType, string> = {
   platform_auth_unstick: "bg-warn/15 text-warn",
   // Phase 26
   user_force_signout: "bg-warn/15 text-warn",
+  // Phase B8
+  eval_sample_viewed: "bg-muted/15 text-muted",
+  eval_sample_reviewed: "bg-accent/15 text-accent",
+  eval_sample_queue_resolved: "bg-warn/15 text-warn",
 };
 
-const EVENT_TYPES: AdminAuditEventType[] = [
+const CHANGE_EVENT_TYPES: AdminAuditEventType[] = [
   "user_override_set",
   "user_override_cleared",
   "system_config_set",
@@ -67,7 +76,13 @@ const EVENT_TYPES: AdminAuditEventType[] = [
   "budget_watcher_reset",
   "platform_auth_unstick",
   "user_force_signout",
+  "eval_sample_reviewed",
+  "eval_sample_queue_resolved",
+];
+
+const REVIEW_EVENT_TYPES: AdminAuditEventType[] = [
   "tab_opened",
+  "eval_sample_viewed",
 ];
 
 function escapeCsvCell(v: unknown): string {
@@ -130,12 +145,21 @@ export function AuditLogSection() {
   const [entries, setEntries] = useState<AdminAuditLogEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [eventType, setEventType] = useState<string>("");
+  const [category, setCategory] = useState<AdminAuditLogCategory>("changes");
+  const [queryDraft, setQueryDraft] = useState("");
+  const [query, setQuery] = useState("");
 
-  const refresh = async (filter: string = eventType) => {
+  const refresh = async (
+    filter: string = eventType,
+    nextCategory: AdminAuditLogCategory = category,
+    nextQuery: string = query,
+  ) => {
     try {
       const r = await api.adminGetAuditLog({
         limit: 50,
         eventType: filter || undefined,
+        category: nextCategory,
+        query: nextQuery || undefined,
       });
       setEntries(r.entries);
       setError(null);
@@ -145,9 +169,9 @@ export function AuditLogSection() {
   };
 
   useEffect(() => {
-    void refresh(eventType);
+    void refresh(eventType, category, query);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eventType]);
+  }, [eventType, category, query]);
 
   if (error) {
     return (
@@ -161,27 +185,89 @@ export function AuditLogSection() {
   }
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <p className="text-[10px] text-faint">
-            Last {entries.length} admin actions, newest first.
-          </p>
-          <label className="text-[10px] text-muted">
-            Filter:{" "}
+    <div className="flex flex-col gap-3">
+      <div>
+        <h2 className="text-sm font-semibold text-ink">Operational history</h2>
+        <p className="mt-0.5 max-w-3xl text-[11px] leading-relaxed text-muted">
+          Changes and safety events are shown first by default. Routine tab and
+          sample views live in Review activity, so they cannot bury a mutation
+          during an incident.
+        </p>
+      </div>
+      <div className="flex flex-wrap items-end justify-between gap-3 rounded-lg border border-border bg-elevated/20 p-3">
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="flex flex-col gap-1 text-[10px] text-muted">
+            Activity
             <select
+              value={category}
+              onChange={(e) => {
+                setCategory(e.target.value as AdminAuditLogCategory);
+                setEventType("");
+              }}
+              className="min-h-11 rounded-md border border-border bg-bg px-3 py-2 text-xs text-ink"
+            >
+              <option value="changes">Changes and safety</option>
+              <option value="reviews">Review activity</option>
+              <option value="all">All activity</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-[10px] text-muted">
+            Event type
+            <select
+              key={category}
               value={eventType}
               onChange={(e) => setEventType(e.target.value)}
-              className="rounded-md border border-border bg-bg px-2 py-0.5 text-[10px] text-ink"
+              className="min-h-11 rounded-md border border-border bg-bg px-3 py-2 text-xs text-ink"
             >
               <option value="">All events</option>
-              {EVENT_TYPES.map((t) => (
+              {(category === "changes"
+                ? CHANGE_EVENT_TYPES
+                : category === "reviews"
+                  ? REVIEW_EVENT_TYPES
+                  : [...CHANGE_EVENT_TYPES, ...REVIEW_EVENT_TYPES]
+              ).map((t) => (
                 <option key={t} value={t}>
                   {EVENT_LABEL[t]}
                 </option>
               ))}
             </select>
           </label>
+          <form
+            className="flex items-end gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              setQuery(queryDraft.trim());
+            }}
+          >
+            <label className="flex flex-col gap-1 text-[10px] text-muted">
+              Search actor, target, key, or reason
+              <input
+                type="search"
+                value={queryDraft}
+                onChange={(event) => setQueryDraft(event.target.value)}
+                className="min-h-11 w-64 max-w-full rounded-md border border-border bg-bg px-3 py-2 text-xs text-ink"
+                placeholder="e.g. anon_lesson_enabled"
+              />
+            </label>
+            <button
+              type="submit"
+              className="min-h-11 rounded-md border border-border bg-elevated px-3 py-2 text-xs font-semibold text-ink"
+            >
+              Search
+            </button>
+            {(query || queryDraft) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setQueryDraft("");
+                  setQuery("");
+                }}
+                className="min-h-11 rounded-md px-3 py-2 text-xs text-muted hover:text-ink"
+              >
+                Clear
+              </button>
+            )}
+          </form>
         </div>
         <div className="flex gap-2">
           <button
@@ -189,18 +275,21 @@ export function AuditLogSection() {
               const stamp = new Date().toISOString().replace(/[:.]/g, "-");
               downloadCsv(`admin-audit-${stamp}.csv`, entriesToCsv(entries));
             }}
-            className="rounded-md border border-border bg-elevated px-2 py-0.5 text-[10px] text-muted transition hover:text-ink"
+            className="min-h-11 rounded-md border border-border bg-elevated px-3 py-2 text-[10px] text-muted transition hover:text-ink"
           >
             Export CSV
           </button>
           <button
             onClick={() => void refresh()}
-            className="rounded-md border border-border bg-elevated px-2 py-0.5 text-[10px] text-muted transition hover:text-ink"
+            className="min-h-11 rounded-md border border-border bg-elevated px-3 py-2 text-[10px] text-muted transition hover:text-ink"
           >
             Refresh
           </button>
         </div>
       </div>
+      <p className="text-[10px] text-faint">
+        Last {entries.length} matching events, newest first.
+      </p>
       {entries.length === 0 && (
         <div className="rounded-md border border-border bg-elevated/30 p-3 text-[11px] text-muted">
           No admin actions match the current filter.

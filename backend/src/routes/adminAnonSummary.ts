@@ -153,28 +153,43 @@ adminAnonSummaryRouter.get("/anon-summary", async (_req, res, next) => {
     // today's ledger numbers — the admin tab labels both as "today" so
     // the operator's wall→signup ratio drifts upward as funnel data
     // accumulates. The (event, occurred_at) index now matches.
-    const funnelPromise = sql<
-      Array<{ event: string; n: number }>
-    >`
-      SELECT event, COUNT(*)::int AS n
+    // Q7: report coherent same-day cohorts, not raw event-volume ratios.
+    // Raw events can repeat (reloads, retries, and multiple runs), which made
+    // the old UI claim impossible conversions such as 5 runs from 1 landing.
+    // `ip_hash` is the existing privacy-bounded daily actor key. Every later
+    // stage is intersected with its prerequisite, so a percentage can never
+    // exceed 100% and late events from an older cohort are not misattributed.
+    const funnelPromise = sql<Array<AnonSummary["funnelEvents"]>>`
+      WITH journey AS (
+        SELECT
+          ip_hash,
+          bool_or(event = 'anon_page_view') AS landed,
+          bool_or(event = 'anon_first_run') AS ran,
+          bool_or(event = 'anon_lesson_completed') AS completed,
+          bool_or(event = 'anon_wall_opened') AS wall_opened,
+          bool_or(event = 'anon_signup_completed') AS signed_up,
+          bool_or(event = 'anon_lesson2_reached') AS reached_lesson_2
         FROM public.phase27_funnel_events
-       WHERE occurred_at >= ${since}
-       GROUP BY event
-    `.then((rows) => {
-      const out: AnonSummary["funnelEvents"] = {
-        anon_page_view: 0,
-        anon_first_run: 0,
-        anon_lesson_completed: 0,
-        anon_wall_opened: 0,
-        anon_signup_completed: 0,
-        anon_lesson2_reached: 0,
-      };
-      for (const r of rows) {
-        if (r.event in out) {
-          (out as Record<string, number>)[r.event] = Number(r.n);
-        }
-      }
-      return out;
+        WHERE occurred_at >= ${since}
+        GROUP BY ip_hash
+      )
+      SELECT
+        count(*) FILTER (WHERE landed)::int AS anon_page_view,
+        count(*) FILTER (WHERE landed AND ran)::int AS anon_first_run,
+        count(*) FILTER (WHERE landed AND ran AND completed)::int AS anon_lesson_completed,
+        count(*) FILTER (WHERE landed AND wall_opened)::int AS anon_wall_opened,
+        count(*) FILTER (WHERE landed AND wall_opened AND signed_up)::int AS anon_signup_completed,
+        count(*) FILTER (
+          WHERE landed AND wall_opened AND signed_up AND reached_lesson_2
+        )::int AS anon_lesson2_reached
+      FROM journey
+    `.then((rows) => rows[0] ?? {
+      anon_page_view: 0,
+      anon_first_run: 0,
+      anon_lesson_completed: 0,
+      anon_wall_opened: 0,
+      anon_signup_completed: 0,
+      anon_lesson2_reached: 0,
     }).catch((err: { code?: string }) => {
       if (err.code === "42P01") {
         return {
@@ -189,17 +204,32 @@ adminAnonSummaryRouter.get("/anon-summary", async (_req, res, next) => {
       throw err;
     });
 
-    const channelPromise = sql<
-      Array<{
-        source: "direct" | "organic" | "share";
-        event: string;
-        n: number;
-      }>
-    >`
-      SELECT acquisition_source AS source, event, COUNT(*)::int AS n
+    const channelPromise = sql<Array<AnonSummary["distributionChannels"][number]>>`
+      WITH journey AS (
+        SELECT
+          acquisition_source AS source,
+          ip_hash,
+          bool_or(event = 'anon_page_view') AS landed,
+          bool_or(event = 'anon_first_run') AS ran,
+          bool_or(event = 'anon_lesson_completed') AS completed,
+          bool_or(event = 'anon_wall_opened') AS wall_opened,
+          bool_or(event = 'anon_signup_completed') AS signed_up,
+          bool_or(event = 'anon_lesson2_reached') AS reached_lesson_2
         FROM public.phase27_funnel_events
-       WHERE occurred_at >= ${since}
-       GROUP BY acquisition_source, event
+        WHERE occurred_at >= ${since}
+        GROUP BY acquisition_source, ip_hash
+      )
+      SELECT
+        source,
+        count(*) FILTER (WHERE landed)::int AS anon_page_view,
+        count(*) FILTER (WHERE landed AND ran)::int AS anon_first_run,
+        count(*) FILTER (WHERE landed AND ran AND completed)::int AS anon_lesson_completed,
+        count(*) FILTER (WHERE landed AND wall_opened AND signed_up)::int AS anon_signup_completed,
+        count(*) FILTER (
+          WHERE landed AND wall_opened AND signed_up AND reached_lesson_2
+        )::int AS anon_lesson2_reached
+      FROM journey
+      GROUP BY source
     `.then((rows) => {
       const bySource = new Map<
         AnonSummary["distributionChannels"][number]["source"],
@@ -215,11 +245,7 @@ adminAnonSummaryRouter.get("/anon-summary", async (_req, res, next) => {
           anon_lesson2_reached: 0,
         });
       }
-      for (const row of rows) {
-        const channel = bySource.get(row.source);
-        if (!channel || !(row.event in channel)) continue;
-        (channel as unknown as Record<string, string | number>)[row.event] = Number(row.n);
-      }
+      for (const row of rows) bySource.set(row.source, row);
       return [...bySource.values()];
     }).catch((err: { code?: string }) => {
       if (err.code === "42P01" || err.code === "42703") {

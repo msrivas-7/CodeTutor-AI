@@ -1,6 +1,8 @@
 import { useCallback, useMemo, useState } from "react";
 import { api, type AdminDashboardSnapshot } from "../../api/client";
 import { useLivePolling } from "../../auth/useLivePolling";
+import { AdminLoadFailure } from "./AdminLoadFailure";
+import { useAdminDraft } from "./useAdminDraft";
 
 // Phase 25: live overview dashboard. Six tiles + a flagged-state banner.
 // Polls /api/admin/dashboard every 5s; pauses on tab blur.
@@ -27,7 +29,7 @@ export function OverviewSection() {
         <RefreshButton onClick={() => void refresh()} stale={!!error} />
       </div>
 
-      {error && (
+      {error && data && (
         <div
           role="alert"
           className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-[11px] text-danger"
@@ -50,7 +52,13 @@ export function OverviewSection() {
         </div>
       ))}
 
-      {!data ? (
+      {error && !data ? (
+        <AdminLoadFailure
+          title="Overview did not load"
+          error={error}
+          onRetry={() => void refresh()}
+        />
+      ) : !data ? (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (
             <SkeletonCard key={i} />
@@ -95,9 +103,12 @@ function PlatformAuthCard({
   snap: AdminDashboardSnapshot;
   onChanged: () => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const [reason, setReason] = useState("");
-  const [phrase, setPhrase] = useState("");
+  const { draft, setDraft, clear: clearDraft, hasDraft, restored } = useAdminDraft(
+    "overview.platform-auth",
+    { reason: "", phrase: "" },
+  );
+  const { reason, phrase } = draft;
+  const [open, setOpen] = useState(restored);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const failed = snap.health.platformAuth === "failed";
@@ -125,12 +136,13 @@ function PlatformAuthCard({
       )}
       {open && (
         <div className="mt-2 flex flex-col gap-2 border-t border-border pt-2">
+          {restored && <div role="status" className="text-[11px] text-accent">Restored your unfinished draft.</div>}
           <label className="text-[11px]">
             <span className="text-muted">Reason (≥4 chars)</span>
             <input
               type="text"
               value={reason}
-              onChange={(e) => setReason(e.target.value)}
+              onChange={(e) => setDraft((current) => ({ ...current, reason: e.target.value }))}
               className="mt-0.5 w-full rounded border border-border bg-bg px-2 py-1 text-ink"
               placeholder="e.g. rotated key in KV"
             />
@@ -143,7 +155,7 @@ function PlatformAuthCard({
             <input
               type="text"
               value={phrase}
-              onChange={(e) => setPhrase(e.target.value)}
+              onChange={(e) => setDraft((current) => ({ ...current, phrase: e.target.value }))}
               className={`mt-0.5 w-full rounded border bg-bg px-2 py-1 ${phrase === PHRASE_UNSTICK_AUTH ? "border-success/40 text-success" : "border-border text-ink"}`}
             />
           </label>
@@ -161,8 +173,7 @@ function PlatformAuthCard({
                     confirmUnstick: phrase,
                   });
                   setOpen(false);
-                  setReason("");
-                  setPhrase("");
+                  clearDraft();
                   onChanged();
                 } catch (e) {
                   setErr(e instanceof Error ? e.message : String(e));
@@ -179,8 +190,13 @@ function PlatformAuthCard({
               onClick={() => setOpen(false)}
               className="rounded-md border border-border bg-elevated px-3 py-1 text-[11px] text-muted hover:text-ink"
             >
-              Cancel
+              Close
             </button>
+            {hasDraft && (
+              <button type="button" onClick={() => { clearDraft(); setOpen(false); }} className="min-h-11 rounded-md px-3 text-[11px] text-danger hover:bg-danger/10">
+                Discard draft
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -195,9 +211,12 @@ function BudgetWatcherCard({
   snap: AdminDashboardSnapshot;
   onChanged: () => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const [reason, setReason] = useState("");
-  const [phrase, setPhrase] = useState("");
+  const { draft, setDraft, clear: clearDraft, hasDraft, restored } = useAdminDraft(
+    "overview.budget-watcher",
+    { reason: "", phrase: "" },
+  );
+  const { reason, phrase } = draft;
+  const [open, setOpen] = useState(restored);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const lastFired = snap.freeTier.lastFiredKey;
@@ -226,12 +245,13 @@ function BudgetWatcherCard({
         </button>
       ) : (
         <div className="mt-2 flex flex-col gap-2 border-t border-border pt-2">
+          {restored && <div role="status" className="text-[11px] text-accent">Restored your unfinished draft.</div>}
           <label className="text-[11px]">
             <span className="text-muted">Reason (≥4 chars)</span>
             <input
               type="text"
               value={reason}
-              onChange={(e) => setReason(e.target.value)}
+              onChange={(e) => setDraft((current) => ({ ...current, reason: e.target.value }))}
               className="mt-0.5 w-full rounded border border-border bg-bg px-2 py-1 text-ink"
             />
           </label>
@@ -243,7 +263,7 @@ function BudgetWatcherCard({
             <input
               type="text"
               value={phrase}
-              onChange={(e) => setPhrase(e.target.value)}
+              onChange={(e) => setDraft((current) => ({ ...current, phrase: e.target.value }))}
               className={`mt-0.5 w-full rounded border bg-bg px-2 py-1 ${phrase === PHRASE_RESET_BUDGET ? "border-success/40 text-success" : "border-border text-ink"}`}
             />
           </label>
@@ -261,8 +281,7 @@ function BudgetWatcherCard({
                     confirmReset: phrase,
                   });
                   setOpen(false);
-                  setReason("");
-                  setPhrase("");
+                  clearDraft();
                   onChanged();
                 } catch (e) {
                   setErr(e instanceof Error ? e.message : String(e));
@@ -279,8 +298,13 @@ function BudgetWatcherCard({
               onClick={() => setOpen(false)}
               className="rounded-md border border-border bg-elevated px-3 py-1 text-[11px] text-muted hover:text-ink"
             >
-              Cancel
+              Close
             </button>
+            {hasDraft && (
+              <button type="button" onClick={() => { clearDraft(); setOpen(false); }} className="min-h-11 rounded-md px-3 text-[11px] text-danger hover:bg-danger/10">
+                Discard draft
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -344,7 +368,7 @@ function RefreshButton({ onClick, stale }: { onClick: () => void; stale: boolean
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-md border px-3 py-1 text-[11px] font-semibold transition ${stale ? "border-warn/40 bg-warn/10 text-warn" : "border-border bg-elevated text-muted hover:text-ink"}`}
+      className={`min-h-11 rounded-md border px-3 py-2 text-[11px] font-semibold transition ${stale ? "border-warn/40 bg-warn/10 text-warn" : "border-border bg-elevated text-muted hover:text-ink"}`}
     >
       Refresh
     </button>

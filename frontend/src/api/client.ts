@@ -51,6 +51,13 @@ async function authHeaders(): Promise<Record<string, string>> {
 
 let refreshInFlight: Promise<string | null> | null = null;
 
+// Admin operations are intentionally bounded. The console is an incident-
+// response surface: an unanswered request must become a visible retry state
+// instead of leaving an operator to guess whether a skeleton is still alive.
+// Keep this longer than the normal 5 s polling cadence, while still short
+// enough to be useful during an outage.
+export const ADMIN_REQUEST_TIMEOUT_MS = 10_000;
+
 async function refreshAccessToken(): Promise<string | null> {
   if (refreshInFlight) return refreshInFlight;
   refreshInFlight = supabase.auth
@@ -72,21 +79,50 @@ async function refreshAccessToken(): Promise<string | null> {
  * not silently sign the learner out or destroy the route they were using.
  */
 async function authenticatedFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const isAdminRequest = path.startsWith("/api/admin/");
+  const timeoutController = isAdminRequest ? new AbortController() : null;
+  const callerSignal = init.signal;
+  let timedOut = false;
+  const forwardAbort = () => timeoutController?.abort(callerSignal?.reason);
+  if (callerSignal && timeoutController) {
+    if (callerSignal.aborted) forwardAbort();
+    else callerSignal.addEventListener("abort", forwardAbort, { once: true });
+  }
+  const timeoutId = timeoutController
+    ? globalThis.setTimeout(() => {
+        timedOut = true;
+        timeoutController.abort();
+      }, ADMIN_REQUEST_TIMEOUT_MS)
+    : null;
+
   const send = async (tokenOverride?: string | null) => {
     const auth = tokenOverride
       ? { Authorization: `Bearer ${tokenOverride}` }
       : await authHeaders();
     return fetch(`${API_BASE}${path}`, {
       ...init,
+      signal: timeoutController?.signal ?? callerSignal,
       headers: { ...auth, ...(init.headers ?? {}) },
     });
   };
-  let res = await send();
-  if (res.status !== 401) return res;
-  const refreshed = await refreshAccessToken();
-  if (!refreshed) return res;
-  res = await send(refreshed);
-  return res;
+  try {
+    let res = await send();
+    if (res.status !== 401) return res;
+    const refreshed = await refreshAccessToken();
+    if (!refreshed) return res;
+    res = await send(refreshed);
+    return res;
+  } catch (error) {
+    if (timedOut) {
+      throw new Error(
+        "The admin request took too long. Check the connection and try again.",
+      );
+    }
+    throw error;
+  } finally {
+    if (timeoutId !== null) globalThis.clearTimeout(timeoutId);
+    callerSignal?.removeEventListener("abort", forwardAbort);
+  }
 }
 
 // QA-H3: registry of in-flight fetches keyed by sessionId so a rebind that
@@ -571,6 +607,9 @@ export interface SystemConfigEntry {
   setBy: string | null;
   setAt: string | null;
   reason: string | null;
+  bounds:
+    | { type: "number"; min: number; max: number; step: string }
+    | { type: "boolean" };
 }
 
 export interface SystemConfigResponse {
@@ -594,7 +633,13 @@ export type AdminAuditEventType =
   | "budget_watcher_reset"
   | "platform_auth_unstick"
   // Phase 26 additions
-  | "user_force_signout";
+  | "user_force_signout"
+  // Phase B8 governed evaluation review.
+  | "eval_sample_viewed"
+  | "eval_sample_reviewed"
+  | "eval_sample_queue_resolved";
+
+export type AdminAuditLogCategory = "changes" | "reviews" | "all";
 
 export interface AdminAuditLogEntry {
   id: string;
@@ -632,8 +677,8 @@ export interface AdminAnonSummary {
     /** Phase A — A4: fabricated-API tripwire hits (all tutor routes). */
     tutor_suspect_api: number;
   };
-  /** Cumulative funnel events since the table started recording. Useful
-   *  for "did the page get hit / wall open / signup happen" sanity. */
+  /** Unique privacy-bounded same-day cohorts. Every later stage is
+   *  intersected with its prerequisite, so conversion stays <= 100%. */
   funnelEvents: {
     anon_page_view: number;
     anon_first_run: number;
@@ -1657,12 +1702,20 @@ export const api = {
     ),
 
   adminGetAuditLog: (
-    opts: { cursor?: string; limit?: number; eventType?: string } = {},
+    opts: {
+      cursor?: string;
+      limit?: number;
+      eventType?: string;
+      category?: AdminAuditLogCategory;
+      query?: string;
+    } = {},
   ) => {
     const qs = new URLSearchParams();
     if (opts.cursor) qs.set("cursor", opts.cursor);
     if (opts.limit) qs.set("limit", String(opts.limit));
     if (opts.eventType) qs.set("eventType", opts.eventType);
+    if (opts.category) qs.set("category", opts.category);
+    if (opts.query) qs.set("query", opts.query);
     const suffix = qs.toString() ? `?${qs}` : "";
     return get<AdminAuditLogResponse>(`/api/admin/audit-log${suffix}`);
   },

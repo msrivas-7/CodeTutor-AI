@@ -18,7 +18,11 @@
 import { test as baseTest, request as playwrightRequest } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { createClient, type Session, type SupabaseClient } from "@supabase/supabase-js";
-import { buildWorkerTestEmail, listAllUsers } from "./testIdentity";
+import {
+  buildCurrentRunTestEmail,
+  buildWorkerTestEmail,
+  listAllUsers,
+} from "./testIdentity";
 
 const BACKEND_URL = process.env.E2E_API_URL ?? "http://localhost:4000";
 const APP_ORIGIN = process.env.E2E_APP_ORIGIN ?? "http://localhost:5173";
@@ -66,6 +70,7 @@ type CachedUser = {
 // rather than once per test. The access token is valid an hour — plenty
 // for a full spec run.
 const workerCache = new Map<number, Promise<CachedUser>>();
+const adminWorkerCache = new Map<number, Promise<CachedUser>>();
 
 async function createOrReuseUser(email: string): Promise<string> {
   // `createUser` returns the existing record when email collides (by
@@ -219,6 +224,83 @@ export async function loginAsTestUser(
     { key: STORAGE_KEY, value: JSON.stringify(storedSession) },
   );
   return user;
+}
+
+/**
+ * Dedicated admin identity for browser coverage. It never reuses the normal
+ * worker account, so admin-role state cannot leak into learner specs that
+ * assert ordinary menus and authorization boundaries.
+ */
+export async function getAdminWorkerUser(workerIndex: number): Promise<CachedUser> {
+  const cached = adminWorkerCache.get(workerIndex);
+  if (cached) return cached;
+  const email = buildCurrentRunTestEmail(`admin-w${workerIndex}`);
+  const promise = (async () => {
+    const userId = await createOrReuseUser(email);
+    const { error: metadataError } = await admin.auth.admin.updateUserById(userId, {
+      app_metadata: { role: "admin" },
+    });
+    if (metadataError) throw metadataError;
+    const { error: roleError } = await admin.from("user_roles").upsert({
+      user_id: userId,
+      role: "admin",
+      granted_by: userId,
+      reason: "E2E admin-console fixture",
+    });
+    if (roleError) throw roleError;
+    const session = await freshSession(email);
+    return { email, userId, session };
+  })();
+  adminWorkerCache.set(workerIndex, promise);
+  return promise;
+}
+
+export async function loginAsAdminTestUser(
+  page: Page,
+  workerIndex: number,
+): Promise<CachedUser> {
+  const user = await getAdminWorkerUser(workerIndex);
+  const storedSession = {
+    access_token: user.session.access_token,
+    refresh_token: user.session.refresh_token,
+    expires_at: user.session.expires_at,
+    expires_in: user.session.expires_in,
+    token_type: user.session.token_type,
+    user: user.session.user,
+  };
+  await page.addInitScript(
+    ({ key, value }) => localStorage.setItem(key, value),
+    { key: STORAGE_KEY, value: JSON.stringify(storedSession) },
+  );
+  return user;
+}
+
+export async function seedAdminEmailPreviewFixture(
+  workerIndex: number,
+): Promise<{ id: string; token: string }> {
+  const user = await getAdminWorkerUser(workerIndex);
+  const token = `q7-e2e-capability-${Date.now()}`;
+  const unsubscribeUrl = `https://codetutor.test/api/email/unsubscribe?token=${token}`;
+  const { data, error } = await admin
+    .from("email_sent_log")
+    .insert({
+      user_id: user.userId,
+      kind: "q7_browser_audit",
+      to_email: user.email,
+      subject: "Q7 safe preview fixture",
+      text_body: `Review copy. Unsubscribe: ${unsubscribeUrl}`,
+      html_body: `<p>Review copy.</p><a href="${unsubscribeUrl}">Unsubscribe</a>`,
+      acs_op_id: "q7-browser-audit",
+    })
+    .select("id")
+    .single();
+  if (error) throw error;
+  return { id: data.id as string, token };
+}
+
+export async function removeAdminEmailPreviewFixture(id: string): Promise<void> {
+  const { error } = await admin.from("email_sent_log").delete().eq("id", id);
+  if (error) throw error;
 }
 
 /**

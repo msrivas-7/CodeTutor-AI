@@ -28,7 +28,7 @@ vi.mock("../auth/supabaseClient", () => ({
   },
 }));
 
-const { api } = await import("./client");
+const { ADMIN_REQUEST_TIMEOUT_MS, api } = await import("./client");
 
 describe("expired session recovery", () => {
   beforeEach(() => {
@@ -80,6 +80,40 @@ describe("expired session recovery", () => {
     await expect(api.getPreferences()).rejects.toMatchObject({ status: 401 });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(signOut).not.toHaveBeenCalled();
+  });
+});
+
+describe("admin request recovery", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+    getSession.mockReset();
+    getSession.mockResolvedValue({
+      data: { session: { access_token: "admin-token" } },
+    });
+  });
+
+  it("turns a hung admin read into a bounded, actionable error", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("aborted", "AbortError")),
+            { once: true },
+          );
+        }),
+      ),
+    );
+
+    const request = expect(api.adminGetDashboard()).rejects.toThrow(
+      "The admin request took too long. Check the connection and try again.",
+    );
+    await vi.advanceTimersByTimeAsync(ADMIN_REQUEST_TIMEOUT_MS);
+    await request;
+    vi.useRealTimers();
   });
 });
 

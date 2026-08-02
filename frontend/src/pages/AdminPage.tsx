@@ -15,7 +15,7 @@ export default function AdminPage() {
   const nav = useNavigate();
   return (
     <div className="flex min-h-screen flex-col bg-bg text-ink">
-      <header className="flex items-center justify-between border-b border-border bg-panel/40 px-6 py-3">
+      <header className="flex items-center justify-between border-b border-border bg-panel/40 px-3 py-3 sm:px-6">
         <button
           type="button"
           onClick={() => nav("/start")}
@@ -29,9 +29,9 @@ export default function AdminPage() {
         </button>
         <UserMenu />
       </header>
-      <div className="flex flex-1">
+      <div className="flex min-w-0 flex-1 flex-col md:flex-row">
         <AdminSidebar />
-        <main className="flex-1 overflow-y-auto p-6">
+        <main className="min-w-0 flex-1 overflow-y-auto p-3 sm:p-4 lg:p-6">
           <Outlet />
         </main>
       </div>

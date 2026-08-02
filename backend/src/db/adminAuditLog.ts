@@ -34,6 +34,8 @@ export type AuditEventType =
   | "eval_sample_reviewed"
   | "eval_sample_queue_resolved";
 
+export type AuditLogCategory = "changes" | "reviews" | "all";
+
 export interface AdminAuditLogRow {
   id: string;
   actorId: string;
@@ -107,6 +109,11 @@ interface ListOpts {
   // Phase 25: optional event_type filter for the redesigned audit-log
   // section. Validated at the route layer; here we just splice it in.
   eventType?: string | null;
+  // Q7: keep routine read/review traffic out of the default operational
+  // history so configuration and destructive changes remain immediately
+  // visible during an incident.
+  category?: AuditLogCategory;
+  query?: string | null;
 }
 
 export async function listAdminAuditLog(
@@ -119,6 +126,22 @@ export async function listAdminAuditLog(
     : sql``;
   const eventTypeClause = opts.eventType
     ? sql`AND event_type = ${opts.eventType}`
+    : sql``;
+  const categoryClause = opts.eventType
+    ? sql``
+    : opts.category === "reviews"
+    ? sql`AND event_type IN ('tab_opened', 'eval_sample_viewed')`
+    : opts.category === "changes"
+      ? sql`AND event_type NOT IN ('tab_opened', 'eval_sample_viewed')`
+      : sql``;
+  const queryClause = opts.query?.trim()
+    ? sql`AND (
+        event_type ILIKE ${`%${opts.query.trim()}%`}
+        OR actor_id::text ILIKE ${`%${opts.query.trim()}%`}
+        OR COALESCE(target_user_id::text, '') ILIKE ${`%${opts.query.trim()}%`}
+        OR COALESCE(target_key, '') ILIKE ${`%${opts.query.trim()}%`}
+        OR COALESCE(reason, '') ILIKE ${`%${opts.query.trim()}%`}
+      )`
     : sql``;
   const rows = await sql<
     Array<{
@@ -139,6 +162,8 @@ export async function listAdminAuditLog(
      WHERE 1=1
        ${cursorClause}
        ${eventTypeClause}
+       ${categoryClause}
+       ${queryClause}
      ORDER BY created_at DESC
      LIMIT ${limit + 1}
   `;
