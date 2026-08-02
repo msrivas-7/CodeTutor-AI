@@ -71,6 +71,26 @@ expand/contract compatibility: a new backend accepts the current frontend,
 and database migrations remain backward-compatible through the promotion
 window.
 
+## Recovering after a failed release
+
+Path-based promotion scope normally describes the commit that triggered the
+run. If an application release fails and the next main-branch commit changes
+only tests, that follow-up run does not automatically infer the unpromoted
+application changes from the earlier commit.
+
+After the corrective commit is merged and its automatic release is green:
+
+1. Confirm production still reports the older SHA.
+2. Open **Actions → Production release → Run workflow** on `main`.
+3. Enable **Promote every tested artifact**.
+4. Require the forced run's complete CI, E2E, and security gates to pass.
+5. Verify `/release.json` and deep health report the forced run's SHA before
+   beginning browser acceptance.
+
+This builds and tests a fresh immutable candidate from the complete current
+`main` branch. Do not rerun the older failed SHA and do not manufacture a
+browser-facing source change merely to trigger deployment.
+
 ## Automatic VM rollback
 
 `infra/scripts/vm-promote-candidate.sh` restores the prior Git SHA and both
