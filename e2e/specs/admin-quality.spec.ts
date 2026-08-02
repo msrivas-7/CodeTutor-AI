@@ -94,12 +94,17 @@ test.describe("Q7 calm and trustworthy admin operations", () => {
 
   test("a hung admin read becomes an explicit retry state and recovers", async ({ page }) => {
     await page.route("**/api/admin/anon-summary", async (route) => {
-      await new Promise((resolve) => setTimeout(resolve, 15_000));
+      // Playwright keeps the intercepted fetch pending until this handler
+      // releases it, even after the page's AbortController fires at 10 s.
+      // Release just after that boundary so the browser can surface the
+      // already-triggered timeout. client.test.ts enforces the exact 10 s
+      // timer; this journey owns the rendered recovery and retry contract.
+      await new Promise((resolve) => setTimeout(resolve, 11_000));
       await route.continue().catch(() => undefined);
     });
     await page.goto("/admin/anon");
     const alert = page.getByRole("alert");
-    await expect(alert).toContainText("Trial-path data did not load", { timeout: 12_000 });
+    await expect(alert).toContainText("Trial-path data did not load", { timeout: 14_000 });
     await expect(alert).toContainText("admin request took too long");
     const retry = page.getByRole("button", { name: "Try again" });
     await expect(retry).toBeVisible();
