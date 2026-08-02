@@ -1,13 +1,19 @@
 # Live-browser UX evidence template
 
 Use this after exercising the real product through the Browser or Chrome
-control skill. Standalone Playwright, unit tests, DOM scripts, source review,
-and screenshots captured without interaction are useful supporting checks but
-do not satisfy this gate.
+control skill, or through Computer Use when the finding requires a native
+browser such as Safari. Standalone Playwright, unit tests, DOM scripts, source
+review, and screenshots captured without interaction are useful supporting
+checks but do not satisfy this gate.
 
 Store screenshots below `.agent-harness/browser-evidence/<session-id>/`; this
 keeps potentially account-specific UI evidence out of Git. Never capture or
 record passwords, OAuth callback codes, private tokens, or sensitive user data.
+
+Use `--tool computer-use:computer-use --browser "Safari native macOS"` for
+authentic Safari verification. The evidence narrative must identify the native
+browser and platform; never label Safari evidence as Chromium merely to satisfy
+the harness.
 
 ## Finding-level record
 
