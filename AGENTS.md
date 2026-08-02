@@ -51,7 +51,8 @@ promotion rules, lifecycle, and research behind this loop.
 
 Before a phase commit, push, pull request update, or handoff:
 
-1. After fixing each named finding, use the actual Browser/Chrome control skill
+1. After fixing each named finding, use the actual Browser/Chrome control skill,
+   or Computer Use when the finding specifically requires a native browser,
    and record a passing finding-level audit with
    `node scripts/agent-harness.mjs browser-audit ... --level finding`. Scripted
    Playwright is supporting evidence and cannot replace this interaction.

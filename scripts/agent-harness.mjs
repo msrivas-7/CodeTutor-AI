@@ -46,6 +46,7 @@ const BROWSER_RESULTS = new Set(["pass", "fail"]);
 const BROWSER_TOOLS = new Set([
   "browser:control-in-app-browser",
   "chrome:control-chrome",
+  "computer-use:computer-use",
 ]);
 const BROWSER_ENVIRONMENTS = new Set(["local", "preview", "production"]);
 const SECRET_PATTERNS = [

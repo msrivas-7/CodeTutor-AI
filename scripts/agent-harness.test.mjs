@@ -331,3 +331,36 @@ test("requires finding and final-phase browser evidence and binds it to the stag
   assert.notEqual(stale.status, 0);
   assert.match(stale.stderr, /does not match a completed harness session/i);
 });
+
+test("accepts truthful native-browser evidence through Computer Use", () => {
+  const root = fixture();
+  const started = run(root, [
+    "start", "--feature", "native Safari audit", "--scope", "frontend,e2e",
+    "--findings", "UX-041",
+  ]);
+  assert.equal(started.status, 0, started.stderr);
+  const session = started.stdout.match(/HARNESS_SESSION_ID=([0-9a-f-]+)/)?.[1];
+  assert.ok(session);
+
+  const screenshotDir = path.join(root, ".agent-harness", "browser-evidence", session);
+  fs.mkdirSync(screenshotDir, { recursive: true });
+  const screenshot = path.join(screenshotDir, "safari-proof.png");
+  fs.writeFileSync(screenshot, "native Safari fixture evidence");
+  const audit = run(root, [
+    "browser-audit", "--session", session, "--level", "finding",
+    "--findings", "UX-041",
+    "--tool", "computer-use:computer-use",
+    "--browser", "Safari native macOS",
+    "--environment", "production",
+    "--url", "https://example.test/lesson",
+    "--entrypoint", "Opened the production lesson in native Safari.",
+    "--happy", "Completed the visible interaction in the real browser.",
+    "--failure-recovery", "Triggered the native window transition and recovered.",
+    "--adversarial", "Repeated Escape through the fullscreen boundary.",
+    "--viewports", "Safari fullscreen and restored compact window",
+    "--focus", "Verified the product layer and keyboard path after reflow.",
+    "--screenshots", path.relative(root, screenshot),
+    "--result", "pass",
+  ]);
+  assert.equal(audit.status, 0, audit.stderr);
+});
