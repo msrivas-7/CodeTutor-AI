@@ -4,6 +4,13 @@ name: Production release
 # against the candidate SHA (and the exact backend/runner image digests), then
 # promote only the artifacts recorded in release-manifest.json.
 on:
+  workflow_dispatch:
+    inputs:
+      force_promote_all:
+        description: Promote every tested artifact even when the triggering commit is test-only
+        required: true
+        default: false
+        type: boolean
   push:
     branches: [main]
     paths:
@@ -46,9 +53,9 @@ jobs:
     name: Resolve promotion scope
     runs-on: ubuntu-latest
     outputs:
-      backend: ${{ steps.filter.outputs.backend }}
-      runner: ${{ steps.filter.outputs.runner }}
-      frontend: ${{ steps.filter.outputs.frontend }}
+      backend: ${{ (github.event_name == 'workflow_dispatch' && inputs.force_promote_all) || steps.filter.outputs.backend }}
+      runner: ${{ (github.event_name == 'workflow_dispatch' && inputs.force_promote_all) || steps.filter.outputs.runner }}
+      frontend: ${{ (github.event_name == 'workflow_dispatch' && inputs.force_promote_all) || steps.filter.outputs.frontend }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
