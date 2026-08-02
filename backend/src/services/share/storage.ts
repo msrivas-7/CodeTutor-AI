@@ -106,13 +106,10 @@ async function uploadWithRetry(
             ...adminHeaders(),
             "Content-Type": "image/png",
             "x-upsert": "true",
-            // 24h TTL (was 1y `immutable`). The audit flagged that
-            // revoking a share leaves the cached PNG live forever on
-            // Twitter / Slack / IG CDNs because the immutable header
-            // tells caches to never re-fetch. 1 day caps the leak
-            // window after revoke at 24h, while still covering the
-            // typical "share goes viral within an hour" curve.
-            "Cache-Control": "public, max-age=86400",
+            // Keep the origin cache short because the owner can edit, rotate,
+            // or revoke this artifact. Third-party apps may retain copies
+            // under their own policies, but our CDN will revalidate quickly.
+            "Cache-Control": "public, max-age=300",
           },
           // Node Buffer IS a subclass of Uint8Array and Node 18+ fetch
           // accepts it at runtime. The TS BodyInit type in this
@@ -179,7 +176,7 @@ export function publicUrl(objectPath: string): string {
 
 /**
  * Delete both share images for a token. Called from the revoke path
- * so the cached PNG stops serving (caches respect the 24h TTL we set
+ * so the cached PNG stops serving (caches respect the short TTL we set
  * on upload, but a missing object 404s immediately on origin re-fetch).
  *
  * Best-effort: a missing object 404 is fine (idempotent revoke). Other

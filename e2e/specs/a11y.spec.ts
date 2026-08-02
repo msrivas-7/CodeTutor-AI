@@ -37,10 +37,34 @@ async function runAxe(page: import("@playwright/test").Page) {
     .analyze();
 }
 
-function severeViolations(results: { violations: Array<{ impact?: string | null; id: string; description: string; nodes: unknown[] }> }) {
+type AxeNode = {
+  target: unknown;
+  html: string;
+  failureSummary?: string;
+};
+
+type SevereViolation = {
+  impact?: string | null;
+  id: string;
+  description: string;
+  nodes: AxeNode[];
+};
+
+function severeViolations(results: { violations: SevereViolation[] }) {
   return results.violations.filter(
     (v) => v.impact === "serious" || v.impact === "critical",
   );
+}
+
+function formatViolations(violations: SevereViolation[]) {
+  return violations
+    .map((violation) => [
+      `  ${violation.id} (${violation.impact}): ${violation.description} [${violation.nodes.length} node(s)]`,
+      ...violation.nodes.map((node) =>
+        `    target=${JSON.stringify(node.target)} html=${node.html}${node.failureSummary ? ` ${node.failureSummary}` : ""}`,
+      ),
+    ].join("\n"))
+    .join("\n");
 }
 
 test.describe(
@@ -71,9 +95,7 @@ test.describe(
     const severe = severeViolations(results);
     if (severe.length > 0) {
       console.error(
-        `[a11y] /learn serious+critical violations:\n${severe
-          .map((v) => `  ${v.id} (${v.impact}): ${v.description} [${v.nodes.length} node(s)]`)
-          .join("\n")}`,
+        `[a11y] /learn serious+critical violations:\n${formatViolations(severe)}`,
       );
     }
     expect(severe).toEqual([]);
@@ -88,9 +110,7 @@ test.describe(
     const severe = severeViolations(results);
     if (severe.length > 0) {
       console.error(
-        `[a11y] /editor serious+critical violations:\n${severe
-          .map((v) => `  ${v.id} (${v.impact}): ${v.description} [${v.nodes.length} node(s)]`)
-          .join("\n")}`,
+        `[a11y] /editor serious+critical violations:\n${formatViolations(severe)}`,
       );
     }
     expect(severe).toEqual([]);
@@ -107,9 +127,7 @@ test.describe(
     const severe = severeViolations(results);
     if (severe.length > 0) {
       console.error(
-        `[a11y] lesson page serious+critical violations:\n${severe
-          .map((v) => `  ${v.id} (${v.impact}): ${v.description} [${v.nodes.length} node(s)]`)
-          .join("\n")}`,
+        `[a11y] lesson page serious+critical violations:\n${formatViolations(severe)}`,
       );
     }
     expect(severe).toEqual([]);

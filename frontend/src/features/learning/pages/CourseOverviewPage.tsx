@@ -18,6 +18,7 @@ import {
   clearCourseCelebratedFlag,
 } from "../components/CourseCompleteFlourish";
 import { CourseCompleteHero } from "../components/CourseCompleteHero";
+import { MissingContentState } from "../components/MissingContentState";
 import { motion } from "framer-motion";
 import type { ProgressStatus } from "../types";
 
@@ -36,6 +37,8 @@ export default function CourseOverviewPage() {
   const [lessons, setLessons] = useState<LessonMeta[]>([]);
   const [loading, setLoading] = useState(true);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!courseId) return;
@@ -330,14 +333,14 @@ export default function CourseOverviewPage() {
             </StaggerItem>
           </StaggerReveal>
         ) : (
-          <div className="flex items-center justify-center py-20 text-sm text-muted">
-            Course not found
-          </div>
+          <MissingContentState kind="course" />
         )}
       </div>
       {confirmReset && course && (
         <Modal
-          onClose={() => setConfirmReset(false)}
+          onClose={() => {
+            if (!resetting) setConfirmReset(false);
+          }}
           role="alertdialog"
           labelledBy="reset-course-title"
           position="center"
@@ -347,26 +350,44 @@ export default function CourseOverviewPage() {
           <p className="mt-2 text-base leading-relaxed text-muted sm:text-body">
             This will clear all progress for every lesson in <span className="font-semibold text-ink">{course.title}</span> — attempts, runs, hints, saved code, and completion status. You'll start the entire course from scratch.
           </p>
+          {resetError && (
+            <div
+              role="alert"
+              className="mt-3 rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger"
+            >
+              Nothing was cleared. {resetError}
+            </div>
+          )}
           <div className="mt-4 flex items-center gap-2">
             <button
               onClick={() => setConfirmReset(false)}
+              disabled={resetting}
               className="min-h-11 flex-1 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               Cancel
             </button>
             <button
               onClick={() => {
-                resetCourseProgress(learnerId, courseId, course.lessonOrder);
-                // Clear the "already celebrated" flag so that if the
-                // learner re-completes this course, the confetti burst
-                // fires again. Persistent flourish comes back online
-                // automatically when pct climbs back to 100.
-                clearCourseCelebratedFlag(courseId);
-                setConfirmReset(false);
+                setResetting(true);
+                setResetError(null);
+                void resetCourseProgress(learnerId, courseId, course.lessonOrder)
+                  .then(() => {
+                    clearCourseCelebratedFlag(courseId);
+                    setConfirmReset(false);
+                  })
+                  .catch((cause) => {
+                    setResetError(
+                      cause instanceof Error
+                        ? cause.message
+                        : "Could not reset this course.",
+                    );
+                  })
+                  .finally(() => setResetting(false));
               }}
+              disabled={resetting}
               className="min-h-11 flex-1 rounded-lg bg-danger/20 px-4 py-2 text-sm font-semibold text-danger ring-1 ring-danger/40 transition hover:bg-danger/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger"
             >
-              Reset Course
+              {resetting ? "Resetting…" : "Reset Course"}
             </button>
           </div>
         </Modal>

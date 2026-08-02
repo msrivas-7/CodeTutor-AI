@@ -58,7 +58,7 @@ function buildSteps(runPhrase: string, askPhrase: string): CoachStep[] {
     {
       targetKey: "tutorPanel",
       title: "AI Tutor",
-      body: `Ask questions about your code and get structured hints. Highlight code and press ${askPhrase} to ask about a selection. Requires an OpenAI API key in Settings.`,
+      body: `Ask questions about your code and get structured hints. Highlight code and press ${askPhrase} to ask about a selection. Included questions are used first; your own OpenAI key is optional.`,
       position: "left",
     },
   ];
@@ -156,7 +156,9 @@ export function EditorCoach({ refs, onComplete }: EditorCoachProps) {
 
   return (
     <>
-      <div className="fixed inset-0 z-50" onClick={advance} />
+      {/* The dimmer is visual only. The highlighted product control remains
+          real and usable; learners advance with Next after trying it. */}
+      <div className="pointer-events-none fixed inset-0 z-50" />
       {/* Spotlight cutout — Cinema Kit Continuity Pass. Glides
           between targets via framer's `animate` instead of snapping.
           Same treatment + curve as WorkspaceCoach so the editor and
@@ -181,7 +183,7 @@ export function EditorCoach({ refs, onComplete }: EditorCoachProps) {
       />
       <button
         onClick={dismiss}
-        className="fixed right-4 top-14 z-[53] rounded-md bg-panel/90 px-3 py-1 text-[11px] text-muted ring-1 ring-border transition hover:text-ink"
+        className="fixed right-4 top-14 z-[53] min-h-11 rounded-lg bg-panel/95 px-3 py-2 text-sm text-muted ring-1 ring-border transition hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       >
         Skip tour
       </button>

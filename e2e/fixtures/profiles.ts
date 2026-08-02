@@ -14,7 +14,7 @@
 // Everything else (course progress, lesson progress) goes to the progress
 // endpoints.
 
-import type { Page } from "@playwright/test";
+import type { APIRequestContext, APIResponse, Page } from "@playwright/test";
 import { request, test } from "@playwright/test";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -44,6 +44,58 @@ export async function newBackendContext() {
   return request.newContext({ extraHTTPHeaders: { Origin: ORIGIN } });
 }
 
+async function requireOk(response: APIResponse, operation: string): Promise<void> {
+  if (response.ok()) return;
+  const detail = (await response.text()).slice(0, 500);
+  throw new Error(`${operation} failed (${response.status()}): ${detail}`);
+}
+
+function authenticatedHeaders(token: string): Record<string, string> {
+  return {
+    "X-Requested-With": "codetutor",
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+  };
+}
+
+const E2E_WRITER_ID = "00000000-0000-4000-8000-000000000001";
+
+async function seedLessonState(
+  ctx: APIRequestContext,
+  token: string,
+  courseId: string,
+  lessonId: string,
+  body: Record<string, unknown>,
+): Promise<void> {
+  const { lastCode, ...progressBody } = body;
+  const progress = await ctx.patch(
+    `${BACKEND}/api/user/lessons/${courseId}/${lessonId}`,
+    {
+      headers: authenticatedHeaders(token),
+      data: progressBody,
+    },
+  );
+  await requireOk(progress, `seed lesson ${courseId}/${lessonId}`);
+
+  if (lastCode === undefined || lastCode === null) return;
+  if (typeof lastCode !== "object" || Array.isArray(lastCode)) {
+    throw new Error(`Profile draft for ${courseId}/${lessonId} must be a file map`);
+  }
+  const saved = (await progress.json()) as { draftRevision?: number };
+  const draft = await ctx.put(
+    `${BACKEND}/api/user/lessons/${courseId}/${lessonId}/draft`,
+    {
+      headers: authenticatedHeaders(token),
+      data: {
+        code: lastCode,
+        expectedRevision: saved.draftRevision ?? 0,
+        writerId: E2E_WRITER_ID,
+      },
+    },
+  );
+  await requireOk(draft, `seed lesson draft ${courseId}/${lessonId}`);
+}
+
 function readSeed(id: ProfileId): Record<string, string> {
   const p = path.join(SEED_DIR, `${id}.json`);
   if (!fs.existsSync(p)) {
@@ -53,6 +105,28 @@ function readSeed(id: ProfileId): Record<string, string> {
     );
   }
   return JSON.parse(fs.readFileSync(p, "utf8"));
+}
+
+function readCourseLessonOrder(courseId: string): string[] {
+  const manifestPath = path.resolve(
+    __dirname,
+    "../../frontend/public/courses",
+    courseId,
+    "course.json",
+  );
+  if (!fs.existsSync(manifestPath)) {
+    throw new Error(`Profile references missing course manifest ${manifestPath}`);
+  }
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as {
+    lessonOrder?: unknown;
+  };
+  if (
+    !Array.isArray(manifest.lessonOrder) ||
+    !manifest.lessonOrder.every((lessonId) => typeof lessonId === "string")
+  ) {
+    throw new Error(`Course manifest ${manifestPath} has an invalid lessonOrder`);
+  }
+  return manifest.lessonOrder;
 }
 
 // Turn the JSON seed (localStorage-shaped) into discrete backend writes.
@@ -139,38 +213,46 @@ function translateSeed(seed: Record<string, string>): TranslatedSeed {
 async function resetServerState(token: string): Promise<void> {
   const ctx = await newBackendContext();
   try {
+    // Shares intentionally outlive lesson resets in the product. Test profiles
+    // need a stronger boundary so attribution and snapshot state cannot leak
+    // from one spec into the next worker-reused account.
+    const shareList = await ctx.get(`${BACKEND}/api/shares/mine/all`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    await requireOk(shareList, "list shares before profile reset");
+    const { shares } = (await shareList.json()) as {
+      shares: Array<{ shareToken: string }>;
+    };
+    for (const share of shares) {
+      const revoked = await ctx.delete(`${BACKEND}/api/shares/${share.shareToken}`, {
+        headers: authenticatedHeaders(token),
+      });
+      await requireOk(revoked, `revoke share ${share.shareToken} during profile reset`);
+    }
+
     // Discover courses the user currently has rows for.
     const res = await ctx.get(`${BACKEND}/api/user/courses`, {
       headers: { Authorization: `Bearer ${token}` },
     });
-    if (res.ok()) {
-      const body = (await res.json()) as {
-        courses: Array<{ courseId: string }>;
-      };
-      for (const c of body.courses) {
-        await ctx.delete(`${BACKEND}/api/user/courses/${c.courseId}`, {
-          headers: {
-            "X-Requested-With": "codetutor",
-            Authorization: `Bearer ${token}`,
-          },
-        });
-      }
+    await requireOk(res, "list course progress before profile reset");
+    const body = (await res.json()) as {
+      courses: Array<{ courseId: string }>;
+    };
+    for (const c of body.courses) {
+      const deleted = await ctx.delete(`${BACKEND}/api/user/courses/${c.courseId}`, {
+        headers: authenticatedHeaders(token),
+      });
+      await requireOk(deleted, `reset course ${c.courseId}`);
     }
     // Wipe any saved BYOK OpenAI key so state doesn't leak across tests.
     // Safe to call even when no key is stored — the DELETE is idempotent.
-    await ctx.delete(`${BACKEND}/api/user/openai-key`, {
-      headers: {
-        "X-Requested-With": "codetutor",
-        Authorization: `Bearer ${token}`,
-      },
+    const clearedKey = await ctx.delete(`${BACKEND}/api/user/openai-key`, {
+      headers: authenticatedHeaders(token),
     });
+    await requireOk(clearedKey, "clear profile OpenAI key");
     // Reset preferences back to defaults.
-    await ctx.patch(`${BACKEND}/api/user/preferences`, {
-      headers: {
-        "X-Requested-With": "codetutor",
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
+    const resetPreferences = await ctx.patch(`${BACKEND}/api/user/preferences`, {
+      headers: authenticatedHeaders(token),
       data: {
         persona: "intermediate",
         openaiModel: null,
@@ -184,15 +266,17 @@ async function resetServerState(token: string): Promise<void> {
         disableStreaks: false,
       },
     });
+    await requireOk(resetPreferences, "reset profile preferences");
     // Editor project — overwrite with an empty/starter-like row. The app's
     // own starter templates fill in if server is empty, so we PUT a clean
-    // default.
-    await ctx.put(`${BACKEND}/api/user/editor-project`, {
-      headers: {
-        "X-Requested-With": "codetutor",
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
+    // default through the optimistic-concurrency contract.
+    const currentProject = await ctx.get(`${BACKEND}/api/user/editor-project`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    await requireOk(currentProject, "read editor project before profile reset");
+    const { revision } = (await currentProject.json()) as { revision: number };
+    const resetProject = await ctx.put(`${BACKEND}/api/user/editor-project`, {
+      headers: authenticatedHeaders(token),
       data: {
         language: "python",
         files: {},
@@ -200,8 +284,11 @@ async function resetServerState(token: string): Promise<void> {
         openTabs: [],
         fileOrder: [],
         stdin: "",
+        expectedRevision: revision,
+        writerId: E2E_WRITER_ID,
       },
     });
+    await requireOk(resetProject, "reset editor project");
   } finally {
     await ctx.dispose();
   }
@@ -214,37 +301,81 @@ async function seedServerState(
   const ctx = await newBackendContext();
   try {
     if (Object.keys(seed.prefsPatch).length > 0) {
-      await ctx.patch(`${BACKEND}/api/user/preferences`, {
-        headers: {
-          "X-Requested-With": "codetutor",
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
+      const preferences = await ctx.patch(`${BACKEND}/api/user/preferences`, {
+        headers: authenticatedHeaders(token),
         data: seed.prefsPatch,
       });
+      await requireOk(preferences, "seed profile preferences");
     }
-    for (const { courseId, body } of seed.coursePatches) {
-      await ctx.patch(`${BACKEND}/api/user/courses/${courseId}`, {
-        headers: {
-          "X-Requested-With": "codetutor",
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        data: body,
+
+    const lessonsByCourse = new Map<string, Map<string, Record<string, unknown>>>();
+    for (const lesson of seed.lessonPatches) {
+      const courseLessons = lessonsByCourse.get(lesson.courseId) ?? new Map();
+      courseLessons.set(lesson.lessonId, lesson.body);
+      lessonsByCourse.set(lesson.courseId, courseLessons);
+    }
+
+    for (const { courseId, body: courseBody } of seed.coursePatches) {
+      const completedLessonIds = Array.isArray(courseBody.completedLessonIds)
+        ? courseBody.completedLessonIds.filter(
+            (lessonId): lessonId is string => typeof lessonId === "string",
+          )
+        : [];
+      if (courseBody.status === "completed") {
+        const authoredLessonOrder = readCourseLessonOrder(courseId);
+        if (
+          authoredLessonOrder.length !== completedLessonIds.length ||
+          authoredLessonOrder.some(
+            (lessonId, index) => completedLessonIds[index] !== lessonId,
+          )
+        ) {
+          throw new Error(
+            `Completed profile for ${courseId} must include the current authored lessonOrder exactly; ` +
+              `expected ${authoredLessonOrder.join(", ")}, received ${completedLessonIds.join(", ")}`,
+          );
+        }
+      }
+      const courseLessons = lessonsByCourse.get(courseId) ?? new Map();
+      const seededLessons = new Set<string>();
+
+      // The server owns unlock state. Seed authored completion rows in
+      // prerequisite order, then let one final course write derive the
+      // canonical completedLessonIds from those trusted rows.
+      for (const lessonId of completedLessonIds) {
+        const authored = courseLessons.get(lessonId);
+        if (authored?.status && authored.status !== "completed") {
+          throw new Error(
+            `Profile marks ${courseId}/${lessonId} completed at course level but lesson status is ${String(authored.status)}`,
+          );
+        }
+        const now = new Date().toISOString();
+        await seedLessonState(ctx, token, courseId, lessonId, {
+          status: "completed",
+          startedAt: now,
+          completedAt: now,
+          attemptCount: 1,
+          ...authored,
+        });
+        seededLessons.add(lessonId);
+      }
+
+      for (const [lessonId, lessonBody] of courseLessons) {
+        if (seededLessons.has(lessonId)) continue;
+        await seedLessonState(ctx, token, courseId, lessonId, lessonBody);
+      }
+
+      const finalCourse = await ctx.patch(`${BACKEND}/api/user/courses/${courseId}`, {
+        headers: authenticatedHeaders(token),
+        data: courseBody,
       });
+      await requireOk(finalCourse, `finalize seeded course ${courseId}`);
+      lessonsByCourse.delete(courseId);
     }
-    for (const { courseId, lessonId, body } of seed.lessonPatches) {
-      await ctx.patch(
-        `${BACKEND}/api/user/lessons/${courseId}/${lessonId}`,
-        {
-          headers: {
-            "X-Requested-With": "codetutor",
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          data: body,
-        },
-      );
+
+    for (const [courseId, courseLessons] of lessonsByCourse) {
+      for (const [lessonId, lessonBody] of courseLessons) {
+        await seedLessonState(ctx, token, courseId, lessonId, lessonBody);
+      }
     }
   } finally {
     await ctx.dispose();
@@ -293,18 +424,15 @@ export async function loadProfile(
     if (!hasWelcome || !hasWorkspace || !hasEditor) {
       const ctx = await newBackendContext();
       try {
-        await ctx.patch(`${BACKEND}/api/user/preferences`, {
-          headers: {
-            "X-Requested-With": "codetutor",
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
+        const onboarding = await ctx.patch(`${BACKEND}/api/user/preferences`, {
+          headers: authenticatedHeaders(token),
           data: {
             welcomeDone: true,
             workspaceCoachDone: true,
             editorCoachDone: true,
           },
         });
+        await requireOk(onboarding, "mark seeded profile onboarding complete");
       } finally {
         await ctx.dispose();
       }
@@ -325,18 +453,15 @@ export async function markOnboardingDone(page: Page): Promise<void> {
   const token = user.session.access_token;
   const ctx = await newBackendContext();
   try {
-    await ctx.patch(`${BACKEND}/api/user/preferences`, {
-      headers: {
-        "X-Requested-With": "codetutor",
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
+    const onboarding = await ctx.patch(`${BACKEND}/api/user/preferences`, {
+      headers: authenticatedHeaders(token),
       data: {
         welcomeDone: true,
         workspaceCoachDone: true,
         editorCoachDone: true,
       },
     });
+    await requireOk(onboarding, "mark onboarding complete");
   } finally {
     await ctx.dispose();
   }
@@ -370,32 +495,25 @@ export async function seedApiKey(
   const token = user.session.access_token;
   const ctx = await newBackendContext();
   try {
-    await ctx.patch(`${BACKEND}/api/user/preferences`, {
-      headers: {
-        "X-Requested-With": "codetutor",
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
+    const preferences = await ctx.patch(`${BACKEND}/api/user/preferences`, {
+      headers: authenticatedHeaders(token),
       data: { persona, openaiModel: model },
     });
-    await ctx.put(`${BACKEND}/api/user/openai-key`, {
-      headers: {
-        "X-Requested-With": "codetutor",
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
+    await requireOk(preferences, "seed tutor preferences");
+    const openaiKey = await ctx.put(`${BACKEND}/api/user/openai-key`, {
+      headers: authenticatedHeaders(token),
       data: { key },
     });
+    await requireOk(openaiKey, "seed tutor key");
   } finally {
     await ctx.dispose();
   }
 }
 
-// Seed `completedLessonIds` on the course row so useLessonLoader's prereq
-// guard lets a spec deep-link into a mid-course lesson without cascading
-// through every prior lesson's completion flow. Pair with `loadProfile`'s
-// "empty" baseline: empty clears state, this helper layers the specific
-// prereqs back in.
+// Seed an authored prerequisite chain through the same trusted lesson rows
+// the server uses for access decisions. Callers must provide the complete
+// prerequisite prefix in course order; a sparse client-side unlock list is
+// intentionally no longer accepted by the product.
 export async function seedCompletedLessons(
   _page: Page,
   courseId: string,
@@ -406,18 +524,27 @@ export async function seedCompletedLessons(
   const token = user.session.access_token;
   const ctx = await newBackendContext();
   try {
-    await ctx.patch(`${BACKEND}/api/user/courses/${courseId}`, {
-      headers: {
-        "X-Requested-With": "codetutor",
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
+    const startedAt = new Date().toISOString();
+    for (const lessonId of completedLessonIds) {
+      const completedAt = new Date().toISOString();
+      await seedLessonState(ctx, token, courseId, lessonId, {
+        status: "completed",
+        startedAt,
+        completedAt,
+        attemptCount: 1,
+      });
+    }
+
+    const course = await ctx.patch(`${BACKEND}/api/user/courses/${courseId}`, {
+      headers: authenticatedHeaders(token),
       data: {
         status: "in_progress",
-        startedAt: new Date().toISOString(),
+        startedAt,
+        lastLessonId: completedLessonIds.at(-1) ?? null,
         completedLessonIds,
       },
     });
+    await requireOk(course, `finalize completed lessons for ${courseId}`);
   } finally {
     await ctx.dispose();
   }
@@ -450,17 +577,7 @@ export async function seedLessonProgress(
   if (opts.lastCode !== undefined) body.lastCode = opts.lastCode;
   if (opts.lastOutput !== undefined) body.lastOutput = opts.lastOutput;
   try {
-    await ctx.patch(
-      `${BACKEND}/api/user/lessons/${courseId}/${lessonId}`,
-      {
-        headers: {
-          "X-Requested-With": "codetutor",
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        data: body,
-      },
-    );
+    await seedLessonState(ctx, token, courseId, lessonId, body);
   } finally {
     await ctx.dispose();
   }

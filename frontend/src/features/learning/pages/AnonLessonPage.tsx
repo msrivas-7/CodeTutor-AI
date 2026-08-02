@@ -1,17 +1,19 @@
 import { useEffect, useRef, useState } from "react";
-import { Navigate, useParams } from "react-router-dom";
+import { Link, Navigate, useParams } from "react-router-dom";
 import LessonPage, { type AnonSharePayload } from "./LessonPage";
 import { CinematicGreeting } from "../../firstRun/CinematicGreeting";
 import { SignupWallDialog, type SignupWallReason } from "../components/SignupWallDialog";
 import { PhoneGraduationDialog } from "../components/PhoneGraduationDialog";
 import { AnonShareDialog } from "../components/AnonShareDialog";
 import { useProjectStore } from "../../../state/projectStore";
+import { useAuthStore } from "../../../auth/authStore";
 import { api } from "../../../api/client";
 import { usePhoneFormFactor } from "../../../util/layoutPrefs";
 import {
   extractNameFromCode,
   hasCinematicSeen,
   markCinematicSeen,
+  readAnonWorkspace,
   readAnonStash,
   writeAnonStash,
 } from "../../anon/anonStash";
@@ -60,8 +62,11 @@ const ANON_ALLOWED = {
 
 export default function AnonLessonPage() {
   const { courseId, lessonId } = useParams<{ courseId: string; lessonId: string }>();
+  const authLoading = useAuthStore((state) => state.loading);
+  const user = useAuthStore((state) => state.user);
   const allowed =
     courseId === ANON_ALLOWED.courseId && lessonId === ANON_ALLOWED.lessonId;
+  const initialWorkspaceRef = useRef(readAnonWorkspace());
 
   // Cinematic — anon variant. Plays once per browser tab; reload mid-
   // lesson does NOT replay (sessionStorage flag).
@@ -113,6 +118,7 @@ export default function AnonLessonPage() {
   }>({ open: false, url: "" });
   const anonShareTriggerRef = useRef<HTMLElement | null>(null);
   const anonShareDismissCompletionRef = useRef<(() => void) | null>(null);
+  const wallTriggerRef = useRef<HTMLElement | null>(null);
   const anonShareDismissFocusPendingRef = useRef(false);
   const wallDismissFocusPendingRef = useRef(false);
 
@@ -131,12 +137,16 @@ export default function AnonLessonPage() {
   useEffect(() => {
     if (wall.open || !wallDismissFocusPendingRef.current) return;
     wallDismissFocusPendingRef.current = false;
+    const explicitTrigger = wallTriggerRef.current;
     const shareTrigger = anonShareTriggerRef.current;
-    const target = shareTrigger?.isConnected
-      ? shareTrigger
-      : document.querySelector<HTMLElement>("[data-anon-signup-trigger]");
+    const target = explicitTrigger?.isConnected
+      ? explicitTrigger
+      : shareTrigger?.isConnected
+        ? shareTrigger
+        : document.querySelector<HTMLElement>("[data-anon-signup-trigger]");
     if (!target) return;
     target.focus({ preventScroll: true });
+    wallTriggerRef.current = null;
     anonShareTriggerRef.current = null;
   }, [wall.open]);
 
@@ -167,15 +177,65 @@ export default function AnonLessonPage() {
     api.postFunnelEvent("anon_page_view");
   }, [allowed]);
 
-  // Allowlist guard — any other (courseId, lessonId) redirects home.
-  if (!allowed) return <Navigate to="/" replace />;
+  // Resolve the existing browser session before choosing the public trial.
+  // Signed-in learners belong in the authenticated lesson, never in a hybrid
+  // anonymous shell with saved progress and first-run narration mixed in.
+  if (authLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-bg text-sm text-muted" role="status">
+        Preparing your lesson…
+      </div>
+    );
+  }
+  if (user && courseId && lessonId) {
+    return <Navigate to={`/learn/course/${courseId}/lesson/${lessonId}`} replace />;
+  }
+
+  // Keep the lesson-1-only anonymous boundary, but explain it and preserve the
+  // requested destination through sign-in instead of silently going home.
+  if (!allowed) {
+    const requestedLesson = lessonId
+      ? lessonId.replaceAll("-", " ")
+      : "this lesson";
+    const returnTo = courseId && lessonId
+      ? `/learn/course/${courseId}/lesson/${lessonId}`
+      : "/start";
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-bg px-5 text-ink">
+        <section className="w-full max-w-lg rounded-2xl border border-border bg-panel p-6 shadow-2xl sm:p-8" aria-labelledby="anon-access-title">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-accent">Continue learning</p>
+          <h1 id="anon-access-title" className="mt-3 font-display text-3xl font-semibold capitalize">
+            {requestedLesson} comes after lesson 1
+          </h1>
+          <p className="mt-3 text-base leading-relaxed text-muted">
+            The first Python lesson is available without an account. Sign in to open this lesson, or start with lesson 1 now.
+          </p>
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+            <Link
+              to="/try/lesson/python-fundamentals/hello-world"
+              className="inline-flex min-h-11 flex-1 items-center justify-center rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              Start lesson 1
+            </Link>
+            <Link
+              to={`/login?returnTo=${encodeURIComponent(returnTo)}`}
+              className="inline-flex min-h-11 flex-1 items-center justify-center rounded-lg border border-border px-4 py-2 text-sm font-semibold text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              Sign in to continue
+            </Link>
+          </div>
+        </section>
+      </main>
+    );
+  }
 
   // Phase 27-v2.2 Fix 6 — every wall-open path also emits a funnel
   // event tagged with the reason so the admin dashboard can split
   // "save" vs "next-lesson" vs "exhausted" vs "share" conversion
   // pressure. openWall is the single point that does both — keeps the
   // setWall + telemetry pair atomic.
-  const openWall = (reason: SignupWallReason) => {
+  const openWall = (reason: SignupWallReason, trigger?: HTMLElement | null) => {
+    wallTriggerRef.current = trigger ?? (document.activeElement as HTMLElement | null);
     const files = useProjectStore.getState().snapshot();
     const main = files.find((file) => file.path === "main.py") ?? files[0];
     const liveName = extractNameFromCode(main?.content ?? "");
@@ -186,7 +246,7 @@ export default function AnonLessonPage() {
     });
     api.postFunnelEvent("anon_wall_opened", reason);
   };
-  const onAnonSave = () => openWall("save");
+  const onAnonSave = (trigger?: HTMLElement | null) => openWall("save", trigger);
   // Phase 27-v2.1 audit pass 1 fix #5: GuidedTutorPanel calls this when
   // /api/anon/ai/ask/stream returns 429 ANON_EXHAUSTED (the L_anon
   // per-IP daily cap). Same wall surface as save/next-lesson, different
@@ -268,8 +328,9 @@ export default function AnonLessonPage() {
     return { code, parsedName };
   };
 
-  const onAnonNext = () => {
+  const onAnonNext = (trigger: HTMLButtonElement) => {
     const { code, parsedName } = stashCompletedLesson();
+    wallTriggerRef.current = trigger;
     if (isPhone) {
       // Phase A — A2 device contract: phone learners see the
       // graduation handoff dialog instead of the wall. Its dismiss action
@@ -278,7 +339,7 @@ export default function AnonLessonPage() {
       api.postFunnelEvent("anon_wall_opened", "next-lesson");
       return;
     }
-    openWall("next-lesson");
+    openWall("next-lesson", trigger);
   };
 
   return (
@@ -315,8 +376,10 @@ export default function AnonLessonPage() {
       )}
       <LessonPage
         mode="anon"
+        openingBlocked={showCinematic}
         courseId={ANON_ALLOWED.courseId}
         lessonId={ANON_ALLOWED.lessonId}
+        anonResumeSnapshot={initialWorkspaceRef.current}
         onAnonSave={onAnonSave}
         onAnonNext={onAnonNext}
         onAnonExhausted={onAnonExhausted}
@@ -341,8 +404,13 @@ export default function AnonLessonPage() {
         reason={wall.reason}
         initialFirstName={wall.initialFirstName}
         onDismiss={() => {
+          // Every wall close must restore its concrete opener. Relying on the
+          // generic modal snapshot is not enough for stacked dialogs because
+          // the completion layer becomes inert while this wall mounts, and
+          // some browsers move focus to body before passive effects capture
+          // it. The wrapper already owns the durable trigger for every reason.
+          wallDismissFocusPendingRef.current = true;
           if (wall.reason === "share" && anonShareTriggerRef.current) {
-            wallDismissFocusPendingRef.current = true;
             anonShareDismissCompletionRef.current = null;
           }
           setWall((current) => ({ ...current, open: false }));

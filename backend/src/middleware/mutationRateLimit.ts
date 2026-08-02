@@ -49,6 +49,7 @@ export const mutationLimit = rateLimit({
   standardHeaders: "draft-7",
   legacyHeaders: false,
   message: { error: "Too many requests; slow down." },
+  skip: (req) => req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS",
 });
 
 // Phase 20-P5 / safety guard #3: stricter bucket on /api/admin/* writes.

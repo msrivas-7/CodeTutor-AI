@@ -2,9 +2,9 @@ import {
   TEST_SENTINEL,
   RESULT_MARKER,
   RESULT_ERR_MARKER,
-  type FunctionTest,
   type HarnessBackend,
   type HarnessFile,
+  type HarnessSuite,
 } from "./types.js";
 
 export const HARNESS_PY = "__codetutor_tests.py";
@@ -78,14 +78,140 @@ if "HARNESS_PER_TEST_TIMEOUT_MS" in os.environ:
 
 # --- Read tests into memory, then delete the file (hides C3) ----------
 _tests_path = ${JSON.stringify(HARNESS_JSON)}
-_tests = []
+_suite = {"tests": [], "sourceChecks": []}
 _load_err = None
 try:
     with open(_tests_path, "r", encoding="utf-8") as _f:
-        _tests = json.load(_f)
+        _suite = json.load(_f)
     os.remove(_tests_path)
 except BaseException as _e:
     _load_err = "could not load test specs: " + repr(_e)
+_tests = _suite.get("tests") or []
+_source_checks = _suite.get("sourceChecks") or []
+
+# --- Static source-contract checks -----------------------------------
+# These checks run in the signed parent process before learner code. Python's
+# own AST gives technique-focused lessons honest structural evidence while the
+# ordinary runtime tests continue to prove behavior. Nodes placed under a
+# statically-false branch do not count as mastery evidence.
+def _qualified_name(node):
+    import ast
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        parent = _qualified_name(node.value)
+        return (parent + "." if parent else "") + node.attr
+    return ""
+
+def _constant_truth(node):
+    import ast
+    if isinstance(node, ast.Constant):
+        return bool(node.value)
+    if isinstance(node, (ast.List, ast.Tuple, ast.Set, ast.Dict)):
+        return bool(getattr(node, "elts", None) or getattr(node, "keys", None))
+    return None
+
+def _is_descendant_in(node, branch):
+    return node in branch
+
+def _is_reachable(node, parents):
+    import ast
+    current = node
+    while current in parents:
+        parent = parents[current]
+        if isinstance(parent, ast.If):
+            truth = _constant_truth(parent.test)
+            if truth is False and _is_descendant_in(current, parent.body):
+                return False
+            if truth is True and _is_descendant_in(current, parent.orelse):
+                return False
+        if isinstance(parent, ast.While):
+            truth = _constant_truth(parent.test)
+            if truth is False and _is_descendant_in(current, parent.body):
+                return False
+        current = parent
+    return True
+
+def _scope_for(node, parents):
+    import ast
+    names = []
+    current = node
+    while current in parents:
+        current = parents[current]
+        if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.append(current.name)
+    return ".".join(reversed(names))
+
+def _check_source(check):
+    import ast
+    shell = {
+        "name": check.get("name", ""),
+        "hidden": bool(check.get("hidden", False)),
+        "category": check.get("category"),
+        "passed": False,
+        "actualRepr": None,
+        "expectedRepr": None,
+        "stdoutDuring": "",
+        "error": None,
+        "feedback": check.get("feedback"),
+        "evidence": "source",
+    }
+    path = check.get("file") or "main.py"
+    try:
+        with open(path, "r", encoding="utf-8") as source_file:
+            tree = ast.parse(source_file.read(), filename=path)
+    except BaseException:
+        shell["error"] = "Could not inspect " + path + "."
+        return shell
+    parents = {}
+    for parent in ast.walk(tree):
+        for child in ast.iter_child_nodes(parent):
+            parents[child] = parent
+    kind = check.get("kind") or ""
+    target = check.get("target") or ""
+    scope = check.get("scope") or ""
+    required = int(check.get("minCount") or 1)
+    node_types = {
+        "python_list_comprehension": (ast.ListComp,),
+        "python_dict_comprehension": (ast.DictComp,),
+        "python_set_comprehension": (ast.SetComp,),
+        "python_generator_expression": (ast.GeneratorExp,),
+        "python_while_loop": (ast.While,),
+        "python_with_statement": (ast.With, ast.AsyncWith),
+        "python_yield": (ast.Yield, ast.YieldFrom),
+        "python_lambda": (ast.Lambda,),
+    }
+    matches = []
+    for node in ast.walk(tree):
+        if not _is_reachable(node, parents):
+            continue
+        node_scope = _scope_for(node, parents)
+        if scope and node_scope != scope:
+            continue
+        if kind in node_types and isinstance(node, node_types[kind]):
+            if kind == "python_with_statement" and target:
+                context_calls = [
+                    item.context_expr
+                    for item in node.items
+                    if isinstance(item.context_expr, ast.Call)
+                ]
+                if not any(_qualified_name(call.func) == target for call in context_calls):
+                    continue
+            matches.append(node)
+        elif kind == "python_specific_except" and isinstance(node, ast.ExceptHandler):
+            if node.type is not None and _qualified_name(node.type) == target:
+                matches.append(node)
+        elif kind == "python_raise" and isinstance(node, ast.Raise) and node.exc is not None:
+            exc = node.exc.func if isinstance(node.exc, ast.Call) else node.exc
+            if _qualified_name(exc) == target:
+                matches.append(node)
+        elif kind == "python_call" and isinstance(node, ast.Call):
+            if _qualified_name(node.func) == target:
+                matches.append(node)
+    shell["passed"] = len(matches) >= required
+    shell["actualRepr"] = str(len(matches))
+    shell["expectedRepr"] = "at least " + str(required)
+    return shell
 
 # --- Driver run by each per-test subprocess ---------------------------
 # The driver reads the test spec from sys.argv[1] (setup + call only — the
@@ -99,7 +225,11 @@ _DRIVER = (
     "_out = io.StringIO()\\n"
     "try:\\n"
     "    with contextlib.redirect_stdout(_out):\\n"
-    "        _ns = runpy.run_path('main.py', run_name='__codetutor_main__')\\n"
+    "        _ns = {}\\n"
+    "        _before = _test.get('beforeLoad') or ''\\n"
+    "        if _before:\\n"
+    "            exec(_before, _ns)\\n"
+    "        _ns = runpy.run_path('main.py', init_globals=_ns, run_name='__codetutor_main__')\\n"
     "        _setup = _test.get('setup') or ''\\n"
     "        if _setup:\\n"
     "            exec(_setup, _ns)\\n"
@@ -157,12 +287,18 @@ def _result_shell(test):
         "expectedRepr": None,
         "stdoutDuring": "",
         "error": None,
+        "feedback": None,
+        "evidence": "behavior",
     }
 
 def _run_one(test):
     shell = _result_shell(test)
     # Only send setup + call into the subprocess. Expected stays in parent RAM.
-    payload = json.dumps({"setup": test.get("setup") or "", "call": test.get("call") or ""})
+    payload = json.dumps({
+        "beforeLoad": test.get("beforeLoad") or "",
+        "setup": test.get("setup") or "",
+        "call": test.get("call") or "",
+    })
     try:
         # stdin=DEVNULL so the child cannot read the parent's drained stdin
         # pipe (where the nonce arrived). Belt-and-suspenders — by this point
@@ -183,11 +319,16 @@ def _run_one(test):
     err_blob = _extract_between(child_out, RESULT_ERR_MARKER)
     shell["stdoutDuring"] = _strip_markers(child_out)
 
-    expected_src = test.get("expected", "")
+    expected_src = test.get("expected")
+    expected_error = test.get("expectedError")
     if actual_repr is not None:
+        if expected_error is not None:
+            shell["actualRepr"] = actual_repr
+            shell["expectedRepr"] = "raises " + str(expected_error.get("type") or "exception")
+            return shell
         try:
             import ast
-            expected = ast.literal_eval(expected_src)
+            expected = ast.literal_eval(expected_src or "")
         except BaseException:
             shell["error"] = "invalid expected (must be a Python literal): " + expected_src[:200]
             shell["actualRepr"] = actual_repr
@@ -205,6 +346,14 @@ def _run_one(test):
 
     if err_blob is not None:
         tail = (err_blob.strip().splitlines() or [""])[-1]
+        if expected_error is not None:
+            expected_type = str(expected_error.get("type") or "")
+            expected_message = expected_error.get("message")
+            expected_tail = expected_type + ((": " + str(expected_message)) if expected_message else "")
+            shell["passed"] = tail == expected_tail if expected_message else tail.startswith(expected_type + ":")
+            shell["actualRepr"] = tail or "no exception"
+            shell["expectedRepr"] = "raises " + expected_tail
+            return shell
         shell["error"] = tail or "Test raised an exception."
         return shell
 
@@ -232,6 +381,8 @@ if _harness_error is None:
         _harness_error = _msg
     else:
         _clean_stdout = _probe.stdout or ""
+        for _check in _source_checks:
+            _results.append(_check_source(_check))
         for _t in _tests:
             _results.append(_run_one(_t))
 
@@ -250,10 +401,10 @@ sys.stdout.write(SENTINEL + _encoded + SENTINEL + "\\n")
 
 export const pythonHarness: HarnessBackend = {
   language: "python",
-  prepareFiles(tests: FunctionTest[]): HarnessFile[] {
+  prepareFiles(suite: HarnessSuite): HarnessFile[] {
     return [
       { name: HARNESS_PY, content: harnessPython() },
-      { name: HARNESS_JSON, content: JSON.stringify(tests) },
+      { name: HARNESS_JSON, content: JSON.stringify(suite) },
     ];
   },
   execCommand(): string {

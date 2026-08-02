@@ -257,18 +257,6 @@ export function CinematicGreeting(props: CinematicGreetingProps) {
     onSkipRef.current();
   };
 
-  // Esc listener — same dismiss as the Skip link.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") handleSkipOnce();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-    // handleSkipOnce is stable (reads from refs). Empty deps = one
-    // listener for the lifetime of the mount.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   // Reduced-motion short-circuit: one opacity fade-up of just the hero
   // line + subtitle, no typewriter, no blur, no theatre. Still
   // personalized, still legible. Duration scales to half for respect.
@@ -306,6 +294,7 @@ export function CinematicGreeting(props: CinematicGreetingProps) {
 
   return (
     <div
+      data-first-run-cinematic
       className="fixed inset-0 z-[60] flex items-center justify-center overflow-hidden bg-bg text-ink"
       role="presentation"
       aria-hidden={exiting ? "true" : undefined}
@@ -788,6 +777,7 @@ function ReducedMotionFallback({
 
   return (
     <div
+      data-first-run-cinematic
       className="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-3 bg-bg text-center text-ink"
       role="presentation"
     >

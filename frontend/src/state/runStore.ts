@@ -13,6 +13,8 @@ const runCache = new Map<string, RunSnapshot>();
 
 interface RunState {
   running: boolean;
+  stopping: boolean;
+  runNotice: string | null;
   // Identifies the one Run operation currently allowed to publish. Context
   // switches and project edits invalidate this id, so a late response cannot
   // overwrite a newer project or a newer Run.
@@ -30,6 +32,11 @@ interface RunState {
   // Tutor requests capture it alongside the project revision so changing
   // stdin also makes an in-flight answer stale.
   inputRevision: number;
+  // Monotonic identity for a Run press. Unlike the transient `running` flag,
+  // this cannot be skipped by React batching when a very fast program starts
+  // and finishes between renders. Check/coach surfaces use it to retire
+  // verdicts that predate the newest execution.
+  runRevision: number;
   runContext: string | null;
   setRunningTests: (v: boolean) => void;
   setStdin: (v: string) => void;
@@ -37,6 +44,9 @@ interface RunState {
   commitRunResult: (operationId: string, result: RunResult) => boolean;
   commitRunError: (operationId: string, error: string) => boolean;
   finishRun: (operationId: string) => void;
+  requestStop: () => boolean;
+  finishStop: (message?: string) => void;
+  failStop: (message: string) => void;
   invalidateEvidence: () => void;
   switchRunContext: (contextKey: string, defaults?: { stdin?: string }) => void;
   reset: () => void;
@@ -44,12 +54,15 @@ interface RunState {
 
 export const useRunStore = create<RunState>((set, get) => ({
   running: false,
+  stopping: false,
+  runNotice: null,
   activeRunId: null,
   runningTests: false,
   result: null,
   error: null,
   stdin: starterStdin("python"),
   inputRevision: 0,
+  runRevision: 0,
   runContext: null,
   setRunningTests: (runningTests) => set({ runningTests }),
   setStdin: (stdin) => {
@@ -65,17 +78,24 @@ export const useRunStore = create<RunState>((set, get) => ({
   },
   beginRun: (operationId) => {
     if (get().running) return false;
-    set({ running: true, activeRunId: operationId, error: null });
+    set({
+      running: true,
+      stopping: false,
+      runNotice: null,
+      activeRunId: operationId,
+      error: null,
+      runRevision: get().runRevision + 1,
+    });
     return true;
   },
   commitRunResult: (operationId, result) => {
-    if (get().activeRunId !== operationId) return false;
+    if (get().activeRunId !== operationId || get().stopping) return false;
     set({ result, error: null });
     useAIStore.getState().noteRun();
     return true;
   },
   commitRunError: (operationId, error) => {
-    if (get().activeRunId !== operationId) return false;
+    if (get().activeRunId !== operationId || get().stopping) return false;
     set({ error, result: null });
     return true;
   },
@@ -83,9 +103,19 @@ export const useRunStore = create<RunState>((set, get) => ({
     if (get().activeRunId !== operationId) return;
     set({ running: false, activeRunId: null });
   },
+  requestStop: () => {
+    if (!get().running || get().stopping) return false;
+    set({ stopping: true, runNotice: "Stopping this run…", result: null, error: null });
+    return true;
+  },
+  finishStop: (message = "Run stopped. Your code is unchanged.") =>
+    set({ running: false, stopping: false, activeRunId: null, runNotice: message }),
+  failStop: (message) => set({ stopping: false, runNotice: message }),
   invalidateEvidence: () =>
     set({
       running: false,
+      stopping: false,
+      runNotice: null,
       activeRunId: null,
       result: null,
       error: null,
@@ -107,6 +137,8 @@ export const useRunStore = create<RunState>((set, get) => ({
     set({
       runContext: contextKey,
       running: false,
+      stopping: false,
+      runNotice: null,
       activeRunId: null,
       runningTests: false,
       result: saved?.result ?? null,
@@ -119,12 +151,15 @@ export const useRunStore = create<RunState>((set, get) => ({
     runCache.clear();
     set((state) => ({
       running: false,
+      stopping: false,
+      runNotice: null,
       activeRunId: null,
       runningTests: false,
       result: null,
       error: null,
       stdin: starterStdin("python"),
       inputRevision: state.inputRevision + 1,
+      runRevision: state.runRevision + 1,
       runContext: null,
     }));
   },

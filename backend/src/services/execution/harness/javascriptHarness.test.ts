@@ -58,7 +58,9 @@ describe("harnessJavaScript (source)", () => {
   });
 
   it("does not pass the expected value to the driver subprocess", () => {
-    expect(src).toMatch(/setup:\s*test\.setup[^,]*,\s*call:\s*test\.call/);
+    expect(src).toContain('beforeLoad: test.beforeLoad');
+    expect(src).toContain('setup: test.setup');
+    expect(src).toContain('call: test.call');
     expect(src).not.toMatch(/expected:\s*test\.expected/);
   });
 
@@ -79,15 +81,15 @@ describe("javascriptHarness (HarnessBackend adapter)", () => {
   });
 
   it("prepareFiles returns the harness script + serialized tests JSON", () => {
-    const files = javascriptHarness.prepareFiles([
-      { name: "basic", call: "square(2)", expected: "4" },
-    ]);
+    const suite = {
+      tests: [{ name: "basic", call: "square(2)", expected: "4" }],
+      sourceChecks: [],
+    };
+    const files = javascriptHarness.prepareFiles(suite);
     expect(files).toHaveLength(2);
     const byName = new Map(files.map((f) => [f.name, f.content]));
     expect(byName.get(HARNESS_JS)).toContain(TEST_SENTINEL);
-    expect(JSON.parse(byName.get(HARNESS_JSON)!)).toEqual([
-      { name: "basic", call: "square(2)", expected: "4" },
-    ]);
+    expect(JSON.parse(byName.get(HARNESS_JSON)!)).toEqual(suite);
   });
 
   it("execCommand invokes the harness script under node", () => {
@@ -107,7 +109,7 @@ describe("javascriptHarness integration (runs node)", () => {
     fs.writeFileSync(path.join(tmp, HARNESS_JS), harnessJavaScript(), "utf8");
     fs.writeFileSync(
       path.join(tmp, HARNESS_JSON),
-      JSON.stringify(tests),
+      JSON.stringify({ tests, sourceChecks: [] }),
       "utf8",
     );
     const r = spawnSync("node", [HARNESS_JS], {
@@ -249,6 +251,35 @@ function count() { return items.length; }
       );
       expect(report.results[0].passed).toBe(false);
       expect(report.results[0].error).toMatch(/invalid expected/i);
+    },
+  );
+
+  it.skipIf(!hasNode)(
+    "supports expected errors and pre-load forbidden-API traps",
+    () => {
+      const expectedError = runHarnessWith(
+        'function fail() { throw new RangeError("outside"); }',
+        [{
+          name: "throws-range",
+          call: "fail()",
+          expectedError: { type: "RangeError", message: "outside" },
+        }],
+      ).report;
+      const forbiddenApi = runHarnessWith(
+        "function maxInArray(nums) { return Math.max(...nums); }",
+        [{
+          name: "without Math.max",
+          beforeLoad: 'Math.max = () => { throw new Error("Math.max is not allowed"); }; Object.freeze(Math);',
+          call: "maxInArray([2, 9, 4])",
+          expected: "9",
+        }],
+      ).report;
+      expect(expectedError.results[0]).toMatchObject({ passed: true, evidence: "behavior" });
+      expect(forbiddenApi.results[0]).toMatchObject({
+        passed: false,
+        expectedRepr: "9",
+      });
+      expect(forbiddenApi.results[0].error).toContain("Math.max is not allowed");
     },
   );
 

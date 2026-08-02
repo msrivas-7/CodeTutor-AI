@@ -1,7 +1,8 @@
 // AI tutor specs (Phase 12F). Exercises the GuidedTutorPanel + AssistantPanel
 // surfaces with a mocked /api/ai/ask/stream so no real OpenAI calls fire.
 // Covers: first-turn rendering, hint-ladder cycling, action chips, selection
-// preview via Cmd+K, error-with-retry, usage chip, setup warning flow, and a
+// preview via Cmd+K, error-with-retry, learner-facing usage privacy, platform
+// tutor access, and a
 // streaming cancel.
 //
 // To run a focused subset against the real OpenAI backend, set
@@ -19,7 +20,7 @@ import {
   mockTutorResponse,
   mockValidateKey,
 } from "../fixtures/aiMocks";
-import { waitForMonacoReady } from "../fixtures/monaco";
+import { setMonacoValue, waitForMonacoReady } from "../fixtures/monaco";
 import { loadProfile, markOnboardingDone, seedApiKey } from "../fixtures/profiles";
 import * as S from "../utils/selectors";
 
@@ -71,18 +72,35 @@ test.describe("AI tutor", () => {
     await installAllTutorMocks(page);
   });
 
-  test("TutorSetupWarning renders when no API key, links to Settings", async ({ page }) => {
+  test("platform tutor works without a personal API key", async ({ page }) => {
     await loadProfile(page, "empty");
+    // This is a frontend entitlement-state contract, not a deployment-config
+    // test. CI deliberately boots the shared stack with ENABLE_FREE_TIER=0,
+    // while many local environments enable it. Pin the response so the same
+    // learner-visible platform state is exercised in both environments.
+    await page.route("**/api/user/ai-status", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          source: "platform",
+          remainingToday: 30,
+          capToday: 30,
+          resetAtUtc: "2099-01-01T00:00:00.000Z",
+          hasShownPaidInterest: false,
+        }),
+      });
+    });
     await page.goto(`/learn/course/${COURSE_ID}/lesson/hello-world`);
     await waitForMonacoReady(page);
 
-    // Warning copy lives in TutorSetupWarning.tsx + the "More settings →"
-    // link (only present when onOpenSettings prop is passed — LessonPage does).
-    await expect(page.getByText(/connect your tutor/i)).toBeVisible();
-    await expect(page.getByRole("button", { name: /more settings →/i })).toBeVisible();
-
-    // Tutor input is disabled until a key is configured.
-    await expect(S.tutorInput(page)).toBeDisabled();
+    // Platform-funded access is the default learner experience. A missing
+    // personal key must not send an eligible learner into the legacy BYOK
+    // setup flow or leave the composer unusable.
+    await expect(page.getByRole("status", { name: /free tutor/i })).toBeVisible();
+    await expect(S.tutorInput(page)).toBeEnabled();
+    await expect(page.getByText(/connect your tutor/i)).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /more settings →/i })).toHaveCount(0);
   });
 
   test("structured concept sections render after a mocked stream", async ({ page }) => {
@@ -103,6 +121,14 @@ test.describe("AI tutor", () => {
     await expect(
       page.getByText(/a function groups reusable steps under a name/i).first(),
     ).toBeVisible({ timeout: 10_000 });
+
+    const reflection = page.getByRole("button", {
+      name: /what's the difference between.*tap to take a swing/i,
+    });
+    await reflection.click();
+    await expect(S.tutorInput(page)).toBeFocused();
+    await expect(S.tutorInput(page)).toHaveValue("My answer: ");
+    await expect(page.getByRole("button", { name: /^stop$/i })).toHaveCount(0);
   });
 
   test("first task turn asks one question, then sends proof to unlock the approach", async ({ page }) => {
@@ -383,7 +409,7 @@ test.describe("AI tutor", () => {
     ).toBeVisible({ timeout: 10_000 });
   });
 
-  test("usage chip renders when response includes token usage", async ({ page }) => {
+  test("model token accounting stays out of the learner experience", async ({ page }) => {
     await loadProfile(page, "empty");
     await seedApiKey(page, { key: "sk-test-e2e-padding-12345", model: "gpt-4o-mini" });
     await mockTutorResponse(page, "first-turn-concept");
@@ -395,12 +421,13 @@ test.describe("AI tutor", () => {
     await S.tutorInput(page).fill("What's a variable?");
     await page.getByRole("button", { name: /^ask$/i }).click();
 
-    // The first-turn-concept mock carries usage: { totalTokens: 516 }.
-    // UsageChip renders formatted tokens — match on the digits with optional
-    // comma + "tokens" label.
+    // The mock still carries usage: { totalTokens: 516 } for internal
+    // accounting. The response must render, but raw token jargon is not a
+    // useful learner-facing concept and should not consume tutor space.
     await expect(
-      page.getByText(/516\s*tokens/i).first(),
+      page.getByText(/a function groups reusable steps under a name/i).first(),
     ).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/516\s*tokens/i)).toHaveCount(0);
   });
 
   test("SSE stream interrupted mid-response (no done frame) surfaces partial or error, never silent", async ({
@@ -494,8 +521,18 @@ test.describe("AI tutor", () => {
     const stop = page.getByRole("button", { name: /^stop$/i });
     await expect(stop).toBeVisible({ timeout: 5_000 });
     await stop.click();
-    // After stop the Ask button returns.
+    // After stop the Ask button returns with human recovery copy. Browser
+    // AbortError text must never leak, and retry must reuse the same learner
+    // bubble rather than appending a duplicate.
     await expect(page.getByRole("button", { name: /^ask$/i })).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("Stopped by you")).toBeVisible();
+    await expect(page.getByText(/may count toward today’s allowance/i)).toBeVisible();
+    await expect(page.getByText(/signal is aborted/i)).toHaveCount(0);
+    await expect(page.getByText("Long answer please.", { exact: true })).toHaveCount(1);
+    await page.getByRole("button", { name: /retry the last question/i }).click();
+    await expect(page.getByText("Long answer please.", { exact: true })).toHaveCount(1);
+    await expect(page.getByRole("button", { name: /^stop$/i })).toBeVisible();
+    await page.getByRole("button", { name: /^stop$/i }).click();
   });
 
   test("editor-page AssistantPanel: exhausted + dismissed disables composer + shows reset-time hint", async ({
@@ -563,6 +600,50 @@ test.describe("AI tutor", () => {
     await expect(
       page.getByText(/a function groups reusable steps under a name/i).first(),
     ).toBeVisible({ timeout: 10_000 });
+
+    // Clearing a study conversation is destructive and must require a second
+    // explicit decision on the editor surface as well as in lessons.
+    await page.getByRole("button", { name: "Clear conversation" }).click();
+    await expect(page.getByRole("group", { name: /confirm clearing conversation/i })).toBeVisible();
+    await page.getByRole("button", { name: "Keep" }).click();
+    await expect(page.getByText(/a function groups reusable steps/i).first()).toBeVisible();
+    await page.getByRole("button", { name: "Clear conversation" }).click();
+    await page.getByRole("button", { name: "Clear chat" }).click();
+    await expect(page.getByText(/a function groups reusable steps/i)).toHaveCount(0);
+  });
+
+  test("editor walkthrough opens a collapsed tutor before submitting", async ({ page }) => {
+    await loadProfile(page, "empty");
+    await seedApiKey(page, { key: "sk-test-e2e-padding-12345", model: "gpt-4o-mini" });
+    await mockTutorResponse(page, "first-turn-concept");
+    await page.goto("/editor");
+    await waitForMonacoReady(page);
+    await configureTutorKey(page, "sk-test-e2e-padding-12345");
+
+    await page.getByRole("button", { name: "Collapse tutor" }).click();
+    await expect(page.getByRole("button", { name: "Show tutor panel" })).toBeFocused();
+    await page.getByRole("button", { name: /walk me through main\.py/i }).click();
+    await expect(page.getByRole("button", { name: "Show tutor panel" })).toHaveCount(0);
+    await expect(page.getByText("Walk me through main.py, one step at a time.")).toHaveCount(1);
+    await expect(page.getByText(/a function groups reusable steps/i).first()).toBeVisible();
+  });
+
+  test("phone lesson walkthrough brings the tutor response into view", async ({ page }) => {
+    await loadProfile(page, "empty");
+    await seedApiKey(page, { key: "sk-test-e2e-padding-12345", model: "gpt-4o-mini" });
+    await mockTutorResponse(page, "first-turn-concept");
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`/learn/course/${COURSE_ID}/lesson/hello-world`);
+    await waitForMonacoReady(page);
+    await configureTutorKey(page, "sk-test-e2e-padding-12345");
+
+    const tutor = page.getByRole("region", { name: "AI tutor" });
+    await page.getByRole("button", { name: /walk me through main\.py/i }).click();
+
+    await expect(tutor).toBeInViewport({ ratio: 0.5 });
+    await expect(tutor).toBeFocused();
+    await expect(page.getByText("Walk me through main.py, one step at a time.")).toHaveCount(1);
+    await expect(page.getByText(/a function groups reusable steps/i).first()).toBeVisible();
   });
 
   test("real-openai: LessonPage tutor ask produces a non-empty response", async ({ page }) => {
@@ -644,8 +725,26 @@ test.describe("AI tutor", () => {
     await page.reload();
     await waitForMonacoReady(page);
     await expect(
-      page.getByRole("button", { name: /^saved · 1$/i }).first(),
+      page.getByRole("button", { name: /^saved for this lesson · 1$/i }).first(),
     ).toBeVisible({ timeout: 10_000 });
+
+    // A later edit makes old source references unsafe. The saved explanation
+    // remains readable, but its jump controls disappear until the learner
+    // saves a response against the new source.
+    await setMonacoValue(page, 'print("Changed after save")\n');
+    await page.getByRole("button", { name: /^saved for this lesson · 1$/i }).first().click();
+    await expect(page.getByText(/code has changed since this was saved/i)).toBeVisible();
+
+    await page.getByRole("button", { name: "Remove from saved" }).first().click();
+    await expect(page.getByRole("button", { name: "Undo" })).toBeVisible();
+    await page.getByRole("button", { name: "Undo" }).click();
+    await expect(page.getByText(/code has changed since this was saved/i)).toBeVisible();
+
+    await page.getByRole("button", { name: /user menu for/i }).click();
+    await page.getByRole("menuitem", { name: "Saved tutor notes" }).click();
+    await expect(page).toHaveURL(/\/learn\/saved$/);
+    await expect(page.getByRole("heading", { name: "Saved tutor notes" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /python fundamentals.*hello.*world/i })).toBeVisible();
   });
 
   test("Phase 21A: lesson view and practice mode have separate chat histories", async ({ page }) => {

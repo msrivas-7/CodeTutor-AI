@@ -5,7 +5,13 @@ import { useAuthStore } from "./authStore";
 // invoke `signInWithOAuth(provider)` and the browser is redirected to the
 // provider, then back to `/auth/callback`. If a provider isn't enabled in
 // the Supabase dashboard, the SDK returns an error we surface inline.
-export function OAuthButtons({ disabled }: { disabled?: boolean }) {
+export function OAuthButtons({
+  disabled,
+  returnTo = "/start",
+}: {
+  disabled?: boolean;
+  returnTo?: string;
+}) {
   const signInWithOAuth = useAuthStore((s) => s.signInWithOAuth);
   const [pending, setPending] = useState<"google" | "github" | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -14,7 +20,7 @@ export function OAuthButtons({ disabled }: { disabled?: boolean }) {
     setErr(null);
     setPending(provider);
     try {
-      await signInWithOAuth(provider);
+      await signInWithOAuth(provider, returnTo);
       // On success the browser redirects — we usually don't reach the line
       // below. If we do (popup blocked, etc.), clear the pending state.
     } catch (e) {

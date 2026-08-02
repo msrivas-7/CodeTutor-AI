@@ -89,6 +89,22 @@ export async function listSavedTutorMessages(
   return rows.map(rowToSaved);
 }
 
+export async function listAllSavedTutorMessages(
+  userId: string,
+): Promise<SavedTutorMessage[]> {
+  const rows = await withRlsContext(userId, async (tx) => {
+    return await tx`
+      SELECT id, course_id, lesson_id, exercise_id, message_id, role, content,
+             sections, model, created_at, updated_at
+        FROM public.saved_tutor_messages
+       WHERE user_id = ${userId}
+       ORDER BY created_at DESC
+       LIMIT 500
+    `;
+  });
+  return rows.map(rowToSaved);
+}
+
 // Per-user cap: max 100 saved per (course, lesson) tuple. Editor-scope
 // (null/null) shares its own bucket. Returns the count for cap enforcement.
 export async function countSavedForLesson(

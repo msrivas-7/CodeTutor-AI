@@ -6,6 +6,7 @@ import { ResendEmailButton } from "../../../auth/ResendEmailButton";
 import { useAuthStore } from "../../../auth/authStore";
 import { api } from "../../../api/client";
 import { readAnonStash } from "../../anon/anonStash";
+import { authPath } from "../../../auth/returnTarget";
 
 // B5 — in-product continuation card for anonymous lesson 1.
 //
@@ -202,7 +203,7 @@ export function SignupWallDialog({
           </p>
           <div className="mt-4">
             <ResendEmailButton
-              onResend={() => resendSignupConfirmation(sentEmail)}
+              onResend={() => resendSignupConfirmation(sentEmail, "/start")}
               label="confirmation email"
             />
           </div>
@@ -266,6 +267,7 @@ export function SignupWallDialog({
             submitLabel={copy.submit}
             emailDividerLabel="or continue with email"
             layout="continuation"
+            returnTo="/start"
             onSubmitted={setSentEmail}
             secondaryAction={{ label: copy.dismiss, onClick: onDismiss }}
           />
@@ -273,7 +275,7 @@ export function SignupWallDialog({
           <p className="mt-1 text-center text-sm text-muted">
             Already have an account?{" "}
             <Link
-              to="/login"
+              to={authPath("/login", "/start")}
               className="inline-flex min-h-11 items-center font-medium text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               Sign in and continue

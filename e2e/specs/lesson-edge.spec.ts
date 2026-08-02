@@ -24,9 +24,9 @@ test.describe("lesson edge cases", () => {
 
   test("input-output lesson: stdin tab text feeds input() at runtime", async ({ page }) => {
     await loadProfile(page, "empty");
-    // useLessonLoader now bounces direct URLs that skip prereqs; input-output
-    // depends on `variables`. Seed the direct prereq so the guard lets us in.
-    await seedCompletedLessons(page, COURSE_ID, ["variables"]);
+    // Seed the complete trusted prerequisite prefix; the server deliberately
+    // refuses sparse client-side unlock lists.
+    await seedCompletedLessons(page, COURSE_ID, ["hello-world", "variables"]);
     await page.goto(`/learn/course/${COURSE_ID}/lesson/input-output`);
     await waitForMonacoReady(page);
     await expect(S.lessonRunButton(page)).toBeEnabled({ timeout: 30_000 });
@@ -35,10 +35,9 @@ test.describe("lesson edge cases", () => {
     // prints "Hi <name>! You are about <age> years old.".
     await setMonacoValue(page, readLessonSolution(COURSE_ID, "input-output"));
 
-    // Load canned stdin via the Stdin tab. The OutputPanel tab bar reuses the
-    // shared #output-panel-body textarea for stdin authoring.
+    // Load canned stdin via the Stdin tab's named textarea.
     await S.stdinTab(page).click();
-    const stdinBox = page.locator("#output-panel-body");
+    const stdinBox = S.stdinInput(page);
     await stdinBox.click();
     await stdinBox.fill("Alice\n2000\n");
     await S.outputTab(page).click();
@@ -46,6 +45,80 @@ test.describe("lesson edge cases", () => {
     await S.lessonRunButton(page).click();
     await expect(S.outputPanel(page)).toContainText(/Hi Alice/i, { timeout: 30_000 });
     await expect(S.outputPanel(page)).toContainText(/25 years old/i);
+  });
+
+  test("a fresh run clears a stale Check verdict before publishing new output", async ({
+    page,
+  }) => {
+    await loadProfile(page, "empty");
+    await page.goto(`/learn/course/${COURSE_ID}/lesson/hello-world`);
+    await waitForMonacoReady(page);
+    await setMonacoValue(page, readLessonSolution(COURSE_ID, "hello-world"));
+
+    await S.checkMyWorkButton(page).click();
+    const staleVerdict = page.getByText("Run your code first before checking.", {
+      exact: true,
+    });
+    await expect(staleVerdict).toBeVisible();
+
+    await S.lessonRunButton(page).click();
+    await expect(staleVerdict).toHaveCount(0);
+    await expect(S.outputPanel(page)).toContainText(/Hello, Alice!/i, {
+      timeout: 30_000,
+    });
+  });
+
+  test("missing lesson gives a responsive recovery path without header collisions", async ({
+    page,
+  }) => {
+    await loadProfile(page, "empty");
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`/learn/course/${COURSE_ID}/lesson/not-a-real-lesson`);
+
+    await expect(
+      page.getByRole("heading", { name: "Lesson unavailable", exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText("CodeTutor AI", { exact: true })).toBeHidden();
+
+    const headerCollisions = await page.locator("header").evaluate((header) => {
+      const controls = [...header.querySelectorAll<HTMLElement>("button, select, [role='status']")]
+        .map((element) => ({
+          name: element.getAttribute("aria-label") ?? element.textContent?.trim() ?? element.tagName,
+          rect: element.getBoundingClientRect(),
+        }))
+        .filter(({ rect }) => rect.width > 0 && rect.height > 0);
+      const collisions: string[] = [];
+      for (let left = 0; left < controls.length; left += 1) {
+        for (let right = left + 1; right < controls.length; right += 1) {
+          const a = controls[left]!;
+          const b = controls[right]!;
+          const overlapX = Math.min(a.rect.right, b.rect.right) - Math.max(a.rect.left, b.rect.left);
+          const overlapY = Math.min(a.rect.bottom, b.rect.bottom) - Math.max(a.rect.top, b.rect.top);
+          if (overlapX > 0.5 && overlapY > 0.5) collisions.push(`${a.name} overlaps ${b.name}`);
+        }
+      }
+      return collisions;
+    });
+    expect(headerCollisions).toEqual([]);
+
+    const browse = page.getByRole("link", {
+      name: "Browse guided learning",
+      exact: true,
+    });
+    const start = page.getByRole("link", { name: "Go to Start", exact: true });
+    for (const link of [browse, start]) {
+      const box = await link.boundingBox();
+      expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+      expect(box?.width ?? 0).toBeGreaterThanOrEqual(44);
+    }
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      ),
+    ).toBeLessThanOrEqual(1);
+
+    await browse.click();
+    await expect(page.getByRole("heading", { name: "Guided Learning" })).toBeVisible();
   });
 
   test("locked lesson: prerequisite-blocked lesson renders disabled in LessonList", async ({
@@ -63,6 +136,20 @@ test.describe("lesson edge cases", () => {
     });
     await expect(lockedVariables).toBeVisible({ timeout: 10_000 });
     await expect(lockedVariables).toBeDisabled();
+  });
+
+  test("signed-in try URL redirects to the authenticated lesson with saved progress", async ({
+    page,
+  }) => {
+    await loadProfile(page, "all-complete");
+    await page.goto(`/try/lesson/${COURSE_ID}/hello-world`);
+    await waitForMonacoReady(page);
+
+    await expect(page).toHaveURL(
+      new RegExp(`/learn/course/${COURSE_ID}/lesson/hello-world$`),
+    );
+    await expect(page.getByRole("button", { name: /sign up to save/i })).toHaveCount(0);
+    await expect(page.getByText("✓ Completed", { exact: true })).toBeVisible();
   });
 
   test("locked lesson: direct URL to a prereq-blocked lesson bounces to course page", async ({

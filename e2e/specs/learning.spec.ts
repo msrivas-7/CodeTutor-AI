@@ -157,6 +157,13 @@ test.describe("learning", () => {
     // the ⋯ menu). Reset Lesson stays in the menu.
     await S.resetCodeButton(page).click();
 
+    const modal = page.locator('[role="alertdialog"]').filter({
+      hasText: /reset this code/i,
+    });
+    await expect(modal).toBeVisible();
+    await modal.getByRole("button", { name: /^reset code$/i }).click();
+    await expect(modal).toHaveCount(0);
+
     // After reset, Monaco should match the starter again.
     await expect.poll(async () => await getMonacoValue(page), { timeout: 5_000 }).toBe(starter);
   });
@@ -274,6 +281,9 @@ test.describe("learning", () => {
     });
     // Each row has a "Done" or "In progress" pill.
     await expect(page.getByText(/^Done$|^In progress$/i).first()).toBeVisible();
+    await expect(page.getByText(/\b3 runs · 1 attempt\b/i).first()).toBeVisible();
+    await expect(page.getByText(/\b1 runs\b|\b1 attempts\b/i)).toHaveCount(0);
+    await expect(page.locator('[data-testid="ambient-glyph-field"]')).toHaveCount(0);
   });
 
   test("Reset all course progress modal wipes completions after confirm", async ({ page }) => {

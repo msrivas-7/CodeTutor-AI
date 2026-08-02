@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, type RefObject } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import type { LessonMeta } from "../types";
 import { formatTimeSpent, type MasteryLevel } from "../utils/mastery";
@@ -33,7 +33,7 @@ interface LessonCompletePanelProps {
   completedPracticeIds?: string[];
   mastery?: MasteryLevel | null;
   timeSpentMs?: number;
-  onNext?: () => void;
+  onNext?: (trigger: HTMLButtonElement) => void;
   onDismiss: () => void;
   onStartPractice?: () => void;
   // Phase 21C: opens the cinematic Share dialog. When omitted (e.g., we
@@ -56,6 +56,7 @@ interface LessonCompletePanelProps {
    * mastery callout, and Next CTA all render the same on both modes.
    */
   mode?: "authed" | "anon";
+  returnFocusRef?: RefObject<HTMLElement | null>;
 }
 
 export function LessonCompletePanel({
@@ -69,6 +70,7 @@ export function LessonCompletePanel({
   onShare,
   nextLessonTitle = null,
   mode = "authed",
+  returnFocusRef,
 }: LessonCompletePanelProps) {
   const postCredits = resolvePostCredits(lesson.nextLessonHint, nextLessonTitle);
   const practiceExercises = lesson.practiceExercises ?? [];
@@ -161,7 +163,8 @@ export function LessonCompletePanel({
       describedBy="lesson-complete-desc"
       position="center"
       zIndex={55}
-      panelClassName="relative mx-4 max-h-[calc(100dvh-2rem)] w-full max-w-2xl overflow-y-auto rounded-2xl border border-success/30 bg-panel/95 p-5 shadow-2xl backdrop-blur sm:p-8 lg:p-10"
+      returnFocusRef={returnFocusRef}
+      panelClassName="lesson-complete-panel relative w-[calc(100%-2rem)] max-w-2xl overflow-hidden rounded-2xl border border-success/30 bg-panel/95 p-4 shadow-2xl backdrop-blur sm:p-6"
     >
       <div className="relative">
         {/* Phase 21B (iter-4): always-fire streak celebration on the
@@ -214,7 +217,7 @@ export function LessonCompletePanel({
         <div className="sr-only" id="lesson-complete-desc">
           Lesson {lesson.order}: {lesson.title}
         </div>
-        <div className="mb-4 text-center">
+        <div className="completion-time mb-3 text-center">
           {/* Heading + subtitle are rendered inside <CelebrationHeader>
               for the animated version. These SR-only copies duplicate
               them so labelledBy/describedBy still point at valid nodes
@@ -235,17 +238,17 @@ export function LessonCompletePanel({
         </div>
 
         {lesson.recap && (
-          <div className="mb-4 rounded-lg bg-success/5 px-4 py-3">
+          <div className="completion-recap mb-3 rounded-lg bg-success/5 px-4 py-2.5">
             <h3 className="mb-1 text-meta font-semibold uppercase tracking-wider text-success/70">
               What you learned
             </h3>
-            <p className="text-base leading-relaxed text-ink/80 sm:text-body">{lesson.recap}</p>
+            <p className="line-clamp-2 text-sm leading-relaxed text-ink/80">{lesson.recap}</p>
           </div>
         )}
 
         {lesson.teachesConceptTags.length > 0 && (
-          <div className="mb-4 flex flex-wrap gap-1.5">
-            {lesson.teachesConceptTags.map((tag) => (
+          <div className="completion-tags mb-3 flex flex-wrap gap-1.5">
+            {lesson.teachesConceptTags.slice(0, 4).map((tag) => (
               <span
                 key={tag}
                 className="rounded-full bg-violet/10 px-2 py-1 text-meta font-medium text-violet"
@@ -253,12 +256,17 @@ export function LessonCompletePanel({
                 {tag}
               </span>
             ))}
+            {lesson.teachesConceptTags.length > 4 && (
+              <span className="rounded-full bg-elevated px-2 py-1 text-meta font-medium text-muted">
+                +{lesson.teachesConceptTags.length - 4} more
+              </span>
+            )}
           </div>
         )}
 
         {practiceCount > 0 && (
           <div
-            className={`mb-5 rounded-lg border bg-violet/5 px-4 py-3 ${
+            className={`completion-practice mb-3 rounded-lg border bg-violet/5 px-4 py-2.5 ${
               showShakyNudge
                 ? "border-l-4 border-l-warn border-y-warn/25 border-r-warn/25"
                 : "border-violet/20"
@@ -277,28 +285,11 @@ export function LessonCompletePanel({
                 {practiceDone}/{practiceCount}
               </span>
             </div>
-            <ul className="mb-2 space-y-1.5">
-              {practiceExercises.map((ex, i) => {
-                const done = completedPracticeIds.includes(ex.id);
-                return (
-                  <li key={ex.id} className="flex items-start gap-2 text-base leading-relaxed text-ink/80 sm:text-body">
-                    <span
-                      aria-hidden="true"
-                      className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-meta font-bold ${
-                        done
-                          ? "bg-success/20 text-success"
-                          : "bg-violet/15 text-violet"
-                      }`}
-                    >
-                      {done ? "✓" : i + 1}
-                    </span>
-                    <span className={done ? "line-through opacity-60" : ""}>
-                      {ex.title}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
+            <p className="mb-2 text-sm leading-relaxed text-ink/80">
+              {practiceDone === practiceCount
+                ? "All optional challenges complete."
+                : `${practiceCount - practiceDone} short challenge${practiceCount - practiceDone === 1 ? "" : "s"} can help this lesson stick.`}
+            </p>
             {onStartPractice && practiceDone < practiceCount && !showShakyNudge && (
               <button
                 onClick={onStartPractice}
@@ -312,18 +303,14 @@ export function LessonCompletePanel({
         )}
 
         {lesson.practicePrompts && lesson.practicePrompts.length > 0 && practiceCount === 0 && (
-          <div className="mb-5 rounded-lg border border-accent/20 bg-accent/5 px-4 py-3">
+          <div className="completion-practice mb-3 rounded-lg border border-accent/20 bg-accent/5 px-4 py-2.5">
             <h3 className="mb-2 text-meta font-semibold uppercase tracking-wider text-accent/70">
               Try these next
             </h3>
-            <ul className="space-y-1.5">
-              {lesson.practicePrompts.map((prompt, i) => (
-                <li key={i} className="flex gap-2 text-base leading-relaxed text-ink/80 sm:text-body">
-                  <span className="shrink-0 text-accent/60">•</span>
-                  {prompt}
-                </li>
-              ))}
-            </ul>
+            <p className="line-clamp-2 text-sm leading-relaxed text-ink/80">
+              {lesson.practicePrompts[0]}
+              {lesson.practicePrompts.length > 1 ? ` · +${lesson.practicePrompts.length - 1} more` : ""}
+            </p>
           </div>
         )}
 
@@ -334,14 +321,15 @@ export function LessonCompletePanel({
             Replaces the bottom pill for lesson 1; pill stays for the
             rest of the course. */}
         {lesson.order === 1 && onShare && (
-          <div className="mb-5 rounded-lg border border-accent/30 bg-gradient-to-br from-accent/10 via-violet/5 to-success/10 px-4 py-4">
-            <h3 className="mb-1 text-meta font-semibold uppercase tracking-wider text-accent/80">
-              Your first one
-            </h3>
-            <p className="mb-3 text-base leading-relaxed text-ink/85 sm:text-body">
-              First program shipped. Text it to someone who'd be proud — a
-              friend, a group chat, anyone you want to show.
-            </p>
+          <div className="completion-share mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-accent/30 bg-gradient-to-br from-accent/10 via-violet/5 to-success/10 px-4 py-3">
+            <div className="min-w-0 flex-1">
+              <h3 className="text-meta font-semibold uppercase tracking-wider text-accent/80">
+                Your first one
+              </h3>
+              <p className="text-sm leading-relaxed text-ink/85">
+                First program shipped. Share the win with someone you'd like to show.
+              </p>
+            </div>
             <button
               type="button"
               onClick={(event) => onShare(event.currentTarget)}
@@ -374,7 +362,7 @@ export function LessonCompletePanel({
             the tease is the last thing read before choosing to
             continue — the "next episode" card, not a nag. */}
         {postCredits && (
-          <p className="mb-3 text-center text-base italic leading-relaxed text-muted sm:text-body">
+          <p className="completion-post-credits mb-3 text-center text-sm italic leading-relaxed text-muted">
             {postCredits}
           </p>
         )}
@@ -392,7 +380,7 @@ export function LessonCompletePanel({
               </button>
               {onNext && (
                 <button
-                  onClick={onNext}
+                  onClick={(event) => onNext(event.currentTarget)}
                   className="min-h-11 rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                   aria-label="Skip to next lesson"
                 >
@@ -418,7 +406,7 @@ export function LessonCompletePanel({
               </button>
               {onNext && (
                 <button
-                  onClick={onNext}
+                  onClick={(event) => onNext(event.currentTarget)}
                   className="min-h-11 flex-1 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-bg transition hover:bg-accent/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                   aria-label="Go to next lesson"
                 >
@@ -468,7 +456,9 @@ export function LessonCompletePanel({
         )}
 
         {mode === "authed" && (
-          <LessonFeedbackChip lessonId={lesson.id} lessonTitle={lesson.title} />
+          <div className="completion-feedback">
+            <LessonFeedbackChip lessonId={lesson.id} lessonTitle={lesson.title} />
+          </div>
         )}
       </div>
     </Modal>
@@ -488,7 +478,7 @@ function CelebrationHeader({ orderLabel }: { orderLabel: string }) {
   const reduce = useReducedMotion();
 
   return (
-    <div className="relative mb-5 flex flex-col items-center text-center">
+    <div className="completion-celebration relative mb-3 flex flex-col items-center text-center">
       {/* Ring cluster behind the check: three concentric rings expand
           outward in a staggered loop. Sits absolute so it's layered
           under the check SVG. pointer-events-none so the panel's own
@@ -533,7 +523,7 @@ function CelebrationHeader({ orderLabel }: { orderLabel: string }) {
         viewBox="0 0 80 80"
         width="72"
         height="72"
-        className="relative z-10 mb-2"
+        className="completion-check relative z-10 mb-1"
         aria-hidden="true"
         initial={reduce ? { opacity: 0 } : { scale: 0.3, opacity: 0, rotate: -12 }}
         animate={reduce ? { opacity: 1 } : { scale: 1, opacity: 1, rotate: 0 }}
@@ -591,7 +581,7 @@ function CelebrationHeader({ orderLabel }: { orderLabel: string }) {
           weight. The new full-frame takeover gives the heading
           breathing room. */}
       <motion.h2
-        className="mb-1 bg-gradient-to-r from-success via-accent to-violet bg-clip-text font-display text-[40px] font-semibold leading-tight tracking-tight text-transparent"
+        className="completion-title mb-1 bg-gradient-to-r from-success via-accent to-violet bg-clip-text font-display text-[34px] font-semibold leading-tight tracking-tight text-transparent sm:text-[38px]"
         initial={reduce ? { opacity: 0 } : { opacity: 0, scale: 0.85, y: 6 }}
         animate={reduce ? { opacity: 1 } : { opacity: 1, scale: 1, y: 0 }}
         transition={

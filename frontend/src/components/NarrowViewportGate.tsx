@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { useFirstRunStore } from "../features/firstRun/useFirstRunStore";
 
@@ -44,6 +44,7 @@ export function shouldSuppressForPath(pathname: string): boolean {
 }
 
 export function NarrowViewportGate() {
+  const dismissRef = useRef<HTMLButtonElement>(null);
   const [size, setSize] = useState<Size>(() => readSize());
   const [dismissedSizes, setDismissedSizes] = useState<Set<Size>>(() => {
     if (typeof window === "undefined") return new Set();
@@ -98,6 +99,12 @@ export function NarrowViewportGate() {
       next.add(size);
       return next;
     });
+    window.setTimeout(() => {
+      const firstWorkspaceControl = document.querySelector<HTMLElement>(
+        "#main-content button, #main-content a[href], #main-content select, #main-content textarea, #main-content [tabindex]:not([tabindex='-1'])",
+      );
+      firstWorkspaceControl?.focus();
+    }, 0);
   };
 
   const isPhone = size === "phone";
@@ -112,7 +119,7 @@ export function NarrowViewportGate() {
     <div
       role="status"
       aria-live="polite"
-      className="fixed left-1/2 top-2 z-40 -translate-x-1/2 rounded-lg border border-border bg-panel/95 px-3 py-2 text-xs text-ink shadow-md backdrop-blur"
+      className="fixed bottom-10 left-2 right-2 z-40 rounded-lg border border-border bg-panel/95 px-3 py-2 text-xs text-ink shadow-md backdrop-blur sm:left-auto sm:right-3 sm:w-[26rem]"
       style={{ maxWidth: "calc(100vw - 1rem)" }}
     >
       <div className="flex items-start gap-2">
@@ -134,10 +141,11 @@ export function NarrowViewportGate() {
           <p className="mt-0.5 text-[11px] text-muted">{body}</p>
         </div>
         <button
+          ref={dismissRef}
           type="button"
           onClick={onDismiss}
           aria-label="Dismiss"
-          className="ml-1 flex-shrink-0 rounded p-1 text-muted hover:bg-border/40 hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="ml-1 flex min-h-11 min-w-11 flex-shrink-0 items-center justify-center rounded text-muted hover:bg-border/40 hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
           <svg
             className="h-3.5 w-3.5"

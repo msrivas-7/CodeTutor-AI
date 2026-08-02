@@ -1,8 +1,38 @@
 import { describe, expect, it } from "vitest";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import {
+  MarkdownContent,
   readFencedCodeBlock,
   readOrderedListBlock,
 } from "./LessonInstructionsPanel";
+
+describe("MarkdownContent", () => {
+  it("renders GFM tables, emphasis, inline code, and fenced code without raw markers", () => {
+    const markdown = [
+      "| mode | meaning |",
+      "| --- | --- |",
+      "| `r` | *read* |",
+      "",
+      "Use **one** context manager.",
+      "",
+      "```python",
+      'with open("x") as file:',
+      "    pass",
+      "```",
+    ].join("\n");
+    const html = renderToStaticMarkup(
+      React.createElement(MarkdownContent, { text: markdown }),
+    );
+    expect(html).toContain("<table");
+    expect(html).toContain("<em");
+    expect(html).toContain("<strong");
+    expect(html).toContain("<pre");
+    expect(html).not.toContain("| --- | --- |");
+    expect(html).not.toContain("**one**");
+    expect(html).not.toContain("```python");
+  });
+});
 
 describe("readFencedCodeBlock", () => {
   it("renders a list-indented fenced example without exposing its delimiters", () => {

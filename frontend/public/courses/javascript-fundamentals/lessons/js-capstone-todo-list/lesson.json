@@ -96,6 +96,13 @@
           "expected": "false"
         },
         {
+          "name": "toggleTodo: returns a new array and preserves the original graph",
+          "call": "(() => { const original = [{id:1,text:'a',done:false},{id:2,text:'b',done:false}]; const first = original[0]; const second = original[1]; const result = toggleTodo(original, 1); return { newArray: result !== original, newChangedTodo: result[0] !== first, stableUntouchedTodo: result[1] === second, originalDone: original[0].done, resultDone: result[0].done }; })()",
+          "expected": "{\"newArray\":true,\"newChangedTodo\":true,\"stableUntouchedTodo\":true,\"originalDone\":false,\"resultDone\":true}",
+          "hidden": true,
+          "category": "immutability"
+        },
+        {
           "name": "toggleTodo: missing id is a no-op",
           "call": "toggleTodo([{id:1,text:'a',done:false}], 99).map(t => t.done)",
           "expected": "[false]"
@@ -174,6 +181,13 @@
               "call": "renameTodo([{id:1,text:'a',done:false}], 99, 'X')[0].text",
               "expected": "\"a\"",
               "hidden": true
+            },
+            {
+              "name": "returns a new array and does not mutate the original todo",
+              "call": "(() => { const original = [{id:1,text:'old',done:false},{id:2,text:'keep',done:true}]; const first = original[0]; const second = original[1]; const result = renameTodo(original, 1, 'new'); return { newArray: result !== original, newChangedTodo: result[0] !== first, stableUntouchedTodo: result[1] === second, originalText: original[0].text, resultText: result[0].text }; })()",
+              "expected": "{\"newArray\":true,\"newChangedTodo\":true,\"stableUntouchedTodo\":true,\"originalText\":\"old\",\"resultText\":\"new\"}",
+              "hidden": true,
+              "category": "immutability"
             }
           ]
         }

@@ -53,11 +53,11 @@ export function FreeTierPill({ remaining, cap, resetAtUtc }: FreeTierPillProps) 
   const amber = cap > 0 && remaining / cap < 0.2;
   const cls = amber
     ? "border-warn/40 bg-warn/10 text-warnInk"
-    : "border-accent/40 bg-accent/10 text-accent";
+    : "border-accent/40 bg-accent/10 text-accentInk";
 
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full border px-2 py-[1px] text-[10px] ${cls}`}
+      className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs ${cls}`}
       title={`Free tutor — ${remaining} of ${cap} questions remaining today`}
       // QA-L3: aria-live polite so an SR user hears the counter decrement and
       // the amber threshold crossing (wording changes to include "running low"

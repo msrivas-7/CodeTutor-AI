@@ -1,19 +1,23 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { AuthShell } from "../auth/AuthShell";
 import { PasswordSignupForm } from "../auth/PasswordSignupForm";
 import { ResendEmailButton } from "../auth/ResendEmailButton";
 import { useAuthStore } from "../auth/authStore";
 import { api } from "../api/client";
 import { readAnonStash } from "../features/anon/anonStash";
+import { authPath, authReturnTarget } from "../auth/returnTarget";
 
 export default function SignupPage() {
   const nav = useNavigate();
+  const location = useLocation();
   // Phase 20-P0 #9: when account-deletion finishes we redirect here with
   // `?deleted=1` so the user gets a gentle confirmation rather than a
   // silent bounce. It is a status message, not a blocker.
   const [searchParams] = useSearchParams();
   const justDeleted = searchParams.get("deleted") === "1";
+  const returnTo = authReturnTarget(location.search, location.state);
+  const destination = readAnonStash() !== null ? "/start" : returnTo;
   const user = useAuthStore((s) => s.user);
   const loading = useAuthStore((s) => s.loading);
   const resendSignupConfirmation = useAuthStore(
@@ -43,12 +47,12 @@ export default function SignupPage() {
         signupEventFiredRef.current = true;
         api.postFunnelEvent("anon_signup_completed");
       }
-      nav("/start", { replace: true });
+      nav(destination, { replace: true });
     }
-  }, [sentEmail, user, nav]);
+  }, [sentEmail, user, nav, destination]);
 
   if (!loading && user && !sentEmail) {
-    return <Navigate to="/start" replace />;
+    return <Navigate to={destination} replace />;
   }
 
   if (sentEmail) {
@@ -72,7 +76,7 @@ export default function SignupPage() {
         </p>
         <div className="mt-3 flex justify-center">
           <ResendEmailButton
-            onResend={() => resendSignupConfirmation(sentEmail)}
+            onResend={() => resendSignupConfirmation(sentEmail, destination)}
             label="confirmation email"
           />
         </div>
@@ -87,7 +91,7 @@ export default function SignupPage() {
       footer={
         <>
           Already have an account?{" "}
-          <Link to="/login" className="text-accent hover:underline">
+          <Link to={authPath("/login", returnTo)} className="text-accent hover:underline">
             Sign in
           </Link>
         </>
@@ -103,6 +107,7 @@ export default function SignupPage() {
       )}
       <PasswordSignupForm
         idPrefix="signup-page"
+        returnTo={destination}
         onSubmitted={setSentEmail}
       />
     </AuthShell>

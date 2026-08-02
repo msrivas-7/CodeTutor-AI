@@ -13,11 +13,12 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 
-const { db, closeDb } = await import("./client.js");
+const { db, closeDb, withRlsContext } = await import("./client.js");
 const prefs = await import("./preferences.js");
 const courses = await import("./courseProgress.js");
 const lessons = await import("./lessonProgress.js");
 const editor = await import("./editorProject.js");
+const shares = await import("./sharedCompletions.js");
 // BYOK round-trips go through the real crypto module on purpose — we want
 // to catch a config mismatch (BYOK_ENCRYPTION_KEY missing / wrong length)
 // the same way a startup boot would.
@@ -77,7 +78,7 @@ describe("db/preferences", () => {
     if (!dbReachable) return;
     const userId = await mkUser();
     const p = await prefs.getPreferences(userId);
-    expect(p.persona).toBe("intermediate");
+    expect(p.persona).toBe("beginner");
     expect(p.theme).toBe("dark");
     expect(p.welcomeDone).toBe(false);
     expect(p.uiLayout).toEqual({});
@@ -314,7 +315,7 @@ describe("db/lessonProgress", () => {
     expect(await lessons.deleteLessonProgress(userId, "ghost-course")).toBe(0);
   });
 
-  it("practiceExerciseCode jsonb round-trips and a later patch replaces it wholesale", async () => {
+  it("practiceExerciseCode merges per-exercise buffers without erasing siblings", async () => {
     if (!dbReachable) return;
     const userId = await mkUser();
     const first = { "ex1": { "main.py": "print('a')" } };
@@ -327,10 +328,7 @@ describe("db/lessonProgress", () => {
     const r2 = await lessons.upsertLessonProgress(userId, "py", "l1", {
       practiceExerciseCode: second,
     });
-    // CASE WHEN practiceExerciseCode !== undefined THEN replace — so "ex1"
-    // should be gone, not merged. This is the invariant that keeps practice
-    // mode from accumulating stale exercise buffers.
-    expect(r2.practiceExerciseCode).toEqual(second);
+    expect(r2.practiceExerciseCode).toEqual({ ...first, ...second });
   });
 
   it("practiceCompletedIds persists; omitting from a later patch preserves prior value", async () => {
@@ -360,6 +358,145 @@ describe("db/lessonProgress", () => {
     });
     expect(cleared.lastCode).toBeNull();
   });
+
+  it("keeps completion and counters monotonic on stale ordinary patches", async () => {
+    if (!dbReachable) return;
+    const userId = await mkUser();
+    await lessons.upsertLessonProgress(userId, "py", "l1", {
+      status: "completed",
+      completedAt: new Date().toISOString(),
+      attemptCount: 5,
+      runCount: 4,
+      hintCount: 3,
+      timeSpentMs: 10_000,
+    });
+    const stale = await lessons.upsertLessonProgress(userId, "py", "l1", {
+      status: "not_started",
+      attemptCount: 0,
+      runCount: 0,
+      hintCount: 0,
+      timeSpentMs: 0,
+    });
+    expect(stale).toMatchObject({
+      status: "completed",
+      attemptCount: 5,
+      runCount: 4,
+      hintCount: 3,
+      timeSpentMs: 10_000,
+    });
+  });
+
+  it("uses reset revision as a tombstone against a stale lesson draft", async () => {
+    if (!dbReachable) return;
+    const userId = await mkUser();
+    const writerA = "00000000-0000-4000-8000-000000000001";
+    const first = await lessons.saveLessonDraft(userId, "py", "l1", {
+      code: { "main.py": "first" },
+      expectedRevision: 0,
+      writerId: writerA,
+    });
+    expect(first.ok).toBe(true);
+    const reset = await lessons.resetLessonProgress(userId, "py", "l1");
+    expect(reset).toMatchObject({ status: "not_started", lastCode: null });
+    expect(reset.draftRevision).toBe(2);
+
+    const stale = await lessons.saveLessonDraft(userId, "py", "l1", {
+      code: { "main.py": "stale resurrection" },
+      expectedRevision: 1,
+      writerId: writerA,
+    });
+    expect(stale.ok).toBe(false);
+    if (stale.ok) throw new Error("stale draft unexpectedly overwrote reset");
+    expect(stale.current.lastCode).toBeNull();
+    expect(stale.current.draftRevision).toBe(2);
+  });
+
+  it("does not treat a ghost lesson row as prerequisite authorization", async () => {
+    if (!dbReachable) return;
+    const userId = await mkUser();
+    await lessons.upsertLessonProgress(
+      userId,
+      "python-fundamentals",
+      "variables",
+      { status: "in_progress" },
+    );
+    await expect(
+      lessons.assertLessonAccess(userId, "python-fundamentals", "variables"),
+    ).rejects.toMatchObject({ status: 403 });
+
+    await lessons.upsertLessonProgress(
+      userId,
+      "python-fundamentals",
+      "hello-world",
+      { status: "completed", completedAt: new Date().toISOString() },
+    );
+    await expect(
+      lessons.assertLessonAccess(userId, "python-fundamentals", "variables"),
+    ).resolves.toBeUndefined();
+  });
+
+  it(
+    "does not treat a ghost course summary as prerequisite authorization",
+    async () => {
+      if (!dbReachable) return;
+      const userId = await mkUser();
+      const fundamentals = [
+      "hello-world",
+      "variables",
+      "input-output",
+      "conditionals",
+      "loops",
+      "functions",
+      "lists",
+      "dictionaries",
+      "debugging-basics",
+      "mini-project",
+      "capstone-word-frequency",
+      "capstone-task-tracker",
+    ];
+      await courses.upsertCourseProgress(userId, "python-fundamentals", {
+        status: "completed",
+        completedLessonIds: fundamentals,
+        completedAt: new Date().toISOString(),
+      });
+      await expect(
+        lessons.assertLessonAccess(
+          userId,
+          "python-intermediate",
+          "comprehensions",
+        ),
+      ).rejects.toMatchObject({ status: 403 });
+
+      for (const lessonId of fundamentals.slice(0, -1)) {
+        await lessons.upsertLessonProgress(userId, "python-fundamentals", lessonId, {
+          status: "completed",
+          completedAt: new Date().toISOString(),
+        });
+      }
+      await expect(
+        lessons.assertLessonAccess(
+          userId,
+          "python-intermediate",
+          "comprehensions",
+        ),
+      ).rejects.toMatchObject({ status: 403 });
+
+      await lessons.upsertLessonProgress(
+        userId,
+        "python-fundamentals",
+        fundamentals.at(-1)!,
+        { status: "completed", completedAt: new Date().toISOString() },
+      );
+      await expect(
+        lessons.assertLessonAccess(
+          userId,
+          "python-intermediate",
+          "comprehensions",
+        ),
+      ).resolves.toBeUndefined();
+    },
+    30_000,
+  );
 
   // P-H4 (adversarial audit, bucket 4b): batch-additive heartbeat. Unlike
   // upsertLessonProgress's COALESCE-set semantics, addLessonTimes bumps
@@ -430,10 +567,14 @@ describe("db/editorProject", () => {
       openTabs: ["index.ts"],
       fileOrder: ["index.ts"],
       stdin: "",
+      expectedRevision: 0,
+      writerId: "00000000-0000-4000-8000-000000000001",
     });
-    expect(saved.language).toBe("typescript");
-    expect(saved.files).toEqual({ "index.ts": "const x = 1;" });
-    expect(saved.activeFile).toBe("index.ts");
+    expect(saved.ok).toBe(true);
+    if (!saved.ok) throw new Error("initial editor save unexpectedly conflicted");
+    expect(saved.project.language).toBe("typescript");
+    expect(saved.project.files).toEqual({ "index.ts": "const x = 1;" });
+    expect(saved.project.activeFile).toBe("index.ts");
   });
 
   it("second save overwrites prior files payload", async () => {
@@ -446,6 +587,8 @@ describe("db/editorProject", () => {
       openTabs: ["a.py"],
       fileOrder: ["a.py"],
       stdin: "",
+      expectedRevision: 0,
+      writerId: "00000000-0000-4000-8000-000000000001",
     });
     const second = await editor.saveEditorProject(userId, {
       language: "python",
@@ -454,9 +597,49 @@ describe("db/editorProject", () => {
       openTabs: ["b.py"],
       fileOrder: ["b.py"],
       stdin: "hello",
+      expectedRevision: 1,
+      writerId: "00000000-0000-4000-8000-000000000001",
     });
-    expect(second.files).toEqual({ "b.py": "2" });
-    expect(second.stdin).toBe("hello");
+    expect(second.ok).toBe(true);
+    if (!second.ok) throw new Error("fresh editor save unexpectedly conflicted");
+    expect(second.project.files).toEqual({ "b.py": "2" });
+    expect(second.project.stdin).toBe("hello");
+  });
+
+  it("rejects a stale tab and preserves the newer editor project", async () => {
+    if (!dbReachable) return;
+    const userId = await mkUser();
+    const base = {
+      language: "python",
+      activeFile: "main.py",
+      openTabs: ["main.py"],
+      fileOrder: ["main.py"],
+      stdin: "",
+    };
+    const first = await editor.saveEditorProject(userId, {
+      ...base,
+      files: { "main.py": "first" },
+      expectedRevision: 0,
+      writerId: "00000000-0000-4000-8000-000000000001",
+    });
+    expect(first.ok).toBe(true);
+    const newer = await editor.saveEditorProject(userId, {
+      ...base,
+      files: { "main.py": "newer" },
+      expectedRevision: 1,
+      writerId: "00000000-0000-4000-8000-000000000002",
+    });
+    expect(newer.ok).toBe(true);
+    const stale = await editor.saveEditorProject(userId, {
+      ...base,
+      files: { "main.py": "stale" },
+      expectedRevision: 1,
+      writerId: "00000000-0000-4000-8000-000000000001",
+    });
+    expect(stale.ok).toBe(false);
+    if (stale.ok) throw new Error("stale editor save unexpectedly succeeded");
+    expect(stale.current.files).toEqual({ "main.py": "newer" });
+    expect(stale.current.revision).toBe(2);
   });
 
   it("getEditorProject defaults are the documented shape (never-seen user)", async () => {
@@ -481,8 +664,12 @@ describe("db/editorProject", () => {
       openTabs: [],
       fileOrder: [],
       stdin: "",
+      expectedRevision: 0,
+      writerId: "00000000-0000-4000-8000-000000000001",
     });
-    expect(saved.activeFile).toBeNull();
+    expect(saved.ok).toBe(true);
+    if (!saved.ok) throw new Error("initial editor save unexpectedly conflicted");
+    expect(saved.project.activeFile).toBeNull();
     const refetched = await editor.getEditorProject(userId);
     expect(refetched.activeFile).toBeNull();
   });
@@ -497,10 +684,88 @@ describe("db/editorProject", () => {
       openTabs: [],
       fileOrder: [],
       stdin: "",
+      expectedRevision: 0,
+      writerId: "00000000-0000-4000-8000-000000000001",
     });
-    expect(saved.files).toEqual({});
-    expect(saved.openTabs).toEqual([]);
-    expect(saved.fileOrder).toEqual([]);
-    expect(saved.language).toBe("javascript");
+    expect(saved.ok).toBe(true);
+    if (!saved.ok) throw new Error("initial editor save unexpectedly conflicted");
+    expect(saved.project.files).toEqual({});
+    expect(saved.project.openTabs).toEqual([]);
+    expect(saved.project.fileOrder).toEqual([]);
+    expect(saved.project.language).toBe("javascript");
   });
+});
+
+describe("server-authoritative learner state", () => {
+  it(
+    "denies direct browser mutations while backend-owned writes still succeed",
+    async () => {
+      if (!dbReachable) return;
+      const userId = await mkUser();
+      await courses.upsertCourseProgress(userId, "authority-proof", {
+        status: "in_progress",
+      });
+      await lessons.upsertLessonProgress(userId, "authority-proof", "lesson-1", {
+        status: "in_progress",
+      });
+      const editorWrite = await editor.saveEditorProject(userId, {
+        language: "python",
+        files: { "main.py": "print('safe')" },
+        activeFile: "main.py",
+        openTabs: ["main.py"],
+        fileOrder: ["main.py"],
+        stdin: "",
+        expectedRevision: 0,
+        writerId: "00000000-0000-4000-8000-000000000001",
+      });
+      expect(editorWrite.ok).toBe(true);
+      const share = await shares.insertSharedCompletion({
+        userId,
+        courseId: "authority-proof",
+        lessonId: "lesson-1",
+        lessonTitle: "Authority Proof",
+        lessonOrder: 1,
+        courseTitle: "Authority Proof",
+        courseTotalLessons: 1,
+        mastery: "strong",
+        timeSpentMs: 1,
+        attemptCount: 1,
+        codeSnippet: "print('safe')",
+        displayName: null,
+      });
+
+      const expectDenied = async (operation: () => Promise<unknown>) => {
+        await expect(operation()).rejects.toMatchObject({ code: "42501" });
+      };
+      await expectDenied(() =>
+        withRlsContext(userId, async (tx) => tx`
+          UPDATE public.course_progress
+             SET status = 'completed'
+           WHERE user_id = ${userId} AND course_id = 'authority-proof'
+        `),
+      );
+      await expectDenied(() =>
+        withRlsContext(userId, async (tx) => tx`
+          UPDATE public.lesson_progress
+             SET status = 'completed'
+           WHERE user_id = ${userId} AND course_id = 'authority-proof'
+        `),
+      );
+      await expectDenied(() =>
+        withRlsContext(userId, async (tx) => tx`
+          UPDATE public.editor_project
+             SET revision = revision + 100
+           WHERE user_id = ${userId}
+        `),
+      );
+      await expectDenied(() =>
+        withRlsContext(userId, async (tx) => tx`
+          UPDATE public.shared_lesson_completions
+             SET share_token = 'forgedtoken2'
+           WHERE user_id = ${userId} AND share_token = ${share.shareToken}
+        `),
+      );
+    },
+    30_000,
+  );
 });

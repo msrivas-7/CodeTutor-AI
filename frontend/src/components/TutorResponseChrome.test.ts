@@ -2,6 +2,13 @@ import { describe, expect, it } from "vitest";
 import { classifyAskError } from "./TutorResponseChrome";
 
 describe("tutor recovery copy", () => {
+  it("describes a stopped request without promising a quota refund", () => {
+    const result = classifyAskError("TUTOR_CANCELED_BY_USER");
+    expect(result.title).toBe("Stopped by you");
+    expect(result.hint).toMatch(/may count toward today’s allowance/i);
+    expect(result.hint).not.toMatch(/no question was used/i);
+  });
+
   it("turns network failures into a specific, code-safe recovery state", () => {
     expect(classifyAskError("TypeError: Failed to fetch")).toEqual({
       kind: "network",

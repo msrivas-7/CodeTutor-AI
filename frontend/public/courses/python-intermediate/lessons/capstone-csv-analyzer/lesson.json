@@ -38,17 +38,25 @@
   "completionRules": [
     {
       "type": "expected_stdout",
-      "expected": "total sales: 500\nproducts: ['gadget', 'widget']\ntop product: widget (300)"
+      "expected": "total sales: 500\nproducts: ['gadget', 'widget']\ntop product: widget (300)",
+      "match": "exact"
     },
     {
-      "type": "required_file_contains",
-      "file": "main.py",
-      "pattern": "with open"
+      "type": "function_tests",
+      "tests": [
+        { "name": "analyzes varied rows", "call": "analyze_sales([('2026-02-01', 'a', 5), ('2026-02-02', 'b', 20), ('2026-02-03', 'a', 30)], 'varied.csv')", "expected": "(55, ['a', 'b'], 'a', {'a': 35, 'b': 20})" },
+        { "name": "single product", "call": "analyze_sales([('2026-03-01', 'solo', 9)], 'single.csv')", "expected": "(9, ['solo'], 'solo', {'solo': 9})", "hidden": true }
+      ]
     },
     {
-      "type": "required_file_contains",
-      "file": "main.py",
-      "pattern": "lambda"
+      "type": "source_checks",
+      "checks": [
+        { "name": "Write and read with context managers", "kind": "python_with_statement", "scope": "analyze_sales", "minCount": 2, "feedback": "Use with open(...) for both writing and reading inside analyze_sales()." },
+        { "name": "Build products with a set comprehension", "kind": "python_set_comprehension", "scope": "analyze_sales", "feedback": "Derive the unique products with a set comprehension inside analyze_sales()." },
+        { "name": "Sum through a generator expression", "kind": "python_generator_expression", "scope": "analyze_sales", "feedback": "Compute the total from rows with a generator expression inside analyze_sales()." },
+        { "name": "Pick the top product with max", "kind": "python_call", "target": "max", "scope": "analyze_sales", "feedback": "Pick the top product with max(..., key=lambda ...) inside analyze_sales()." },
+        { "name": "Use a lambda key", "kind": "python_lambda", "scope": "analyze_sales", "feedback": "Pass a lambda as max's key inside analyze_sales()." }
+      ]
     }
   ],
   "prerequisiteLessonIds": ["regex-basics"],
@@ -76,9 +84,10 @@
           ]
         },
         {
-          "type": "required_file_contains",
-          "file": "main.py",
-          "pattern": "def sum_column"
+          "type": "source_checks",
+          "checks": [
+            { "name": "Generator expression in sum_column", "kind": "python_generator_expression", "scope": "sum_column", "feedback": "Combine parsing and conversion in a generator expression inside sum_column()." }
+          ]
         }
       ],
       "hints": [
@@ -105,9 +114,10 @@
           ]
         },
         {
-          "type": "required_file_contains",
-          "file": "main.py",
-          "pattern": "def unique_in_column"
+          "type": "source_checks",
+          "checks": [
+            { "name": "Set comprehension in unique_in_column", "kind": "python_set_comprehension", "scope": "unique_in_column", "feedback": "Build the unique values with a set comprehension inside unique_in_column()." }
+          ]
         }
       ],
       "hints": [
@@ -134,9 +144,11 @@
           ]
         },
         {
-          "type": "required_file_contains",
-          "file": "main.py",
-          "pattern": "lambda"
+          "type": "source_checks",
+          "checks": [
+            { "name": "Use max with a lambda key", "kind": "python_call", "target": "max", "scope": "top_value", "feedback": "Use max(..., key=lambda ...) inside top_value()." },
+            { "name": "Use a lambda key", "kind": "python_lambda", "scope": "top_value", "feedback": "Pass a lambda as max's key inside top_value()." }
+          ]
         }
       ],
       "hints": [

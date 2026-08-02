@@ -29,7 +29,7 @@ export function FeedbackButton() {
         aria-label="Give feedback"
         data-testid="feedback-button"
         title="Report a bug or share an idea"
-        className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-[11px] font-medium text-muted transition hover:bg-elevated hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent sm:min-h-0 sm:min-w-0 sm:justify-start"
+        className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted transition hover:bg-elevated hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent sm:justify-start"
       >
         <svg
           width="12"
@@ -45,12 +45,9 @@ export function FeedbackButton() {
       {open && (
         <Suspense fallback={null}>
           <FeedbackModalLazy
+            returnFocusRef={triggerRef}
             onClose={() => {
               setOpen(false);
-              // A10: Modal's built-in focus-restore relies on the trigger
-              // still existing — it does here, but explicit re-focus guards
-              // against SR edge cases where restore loses the element.
-              triggerRef.current?.focus();
             }}
           />
         </Suspense>

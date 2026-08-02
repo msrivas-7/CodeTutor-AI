@@ -146,6 +146,16 @@ describe("detectSuspectApis — JavaScript", () => {
     })).toEqual([]);
   });
 
+  it("accepts truthful built-in rejection phrasing from the tutor", () => {
+    expect(detectSuspectApis({
+      responseText:
+        "In JavaScript, `printAll()` is not a built-in array method. Remember that `printAll()` is not a built-in method.",
+      userFiles: [{ path: "index.js", content: "const values = [1, 2, 3];" }],
+      userQuestion: "Is array.printAll() how I show each value?",
+      language: "javascript",
+    })).toEqual([]);
+  });
+
   it("still flags a fabricated method when another sentence endorses it", () => {
     expect(detectSuspectApis({
       responseText:

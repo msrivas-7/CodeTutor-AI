@@ -37,6 +37,44 @@ async function expectNoHorizontalOverflow(page: Page) {
 }
 
 test.describe("Phase A-Q — visual viewport matrix", () => {
+  test("phone auth and recovery controls keep a 44px interaction floor", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/login");
+
+    for (const [name, control] of [
+      ["Google", page.getByRole("button", { name: "Google", exact: true })],
+      ["GitHub", page.getByRole("button", { name: "GitHub", exact: true })],
+      ["email", page.getByLabel("Email", { exact: true })],
+      ["password", page.getByLabel("Password", { exact: true })],
+      ["sign in", page.getByRole("button", { name: "Sign in", exact: true })],
+      ["magic link", page.getByRole("button", { name: /prefer not to use a password/i })],
+      ["forgot password", page.getByRole("link", { name: /forgot password/i })],
+      ["create account", page.getByRole("link", { name: /create one/i })],
+    ] as const) {
+      await expect(control, `${name} is visible`).toBeVisible();
+      const box = await control.boundingBox();
+      expect(box?.height ?? 0, `${name} touch target height`).toBeGreaterThanOrEqual(44);
+    }
+    await expectNoHorizontalOverflow(page);
+
+    await page.getByRole("link", { name: /forgot password/i }).click();
+    await expect(
+      page.getByRole("heading", { name: /reset your password/i }),
+    ).toBeVisible();
+    for (const [name, control] of [
+      ["recovery email", page.getByLabel("Email", { exact: true })],
+      ["send reset link", page.getByRole("button", { name: /send reset link/i })],
+      ["back to sign in", page.getByRole("link", { name: /back to sign in/i })],
+    ] as const) {
+      await expect(control, `${name} is visible`).toBeVisible();
+      const box = await control.boundingBox();
+      expect(box?.height ?? 0, `${name} touch target height`).toBeGreaterThanOrEqual(44);
+    }
+    await expectNoHorizontalOverflow(page);
+  });
+
   for (const viewport of VIEWPORTS) {
     test(`${viewport.name} keeps the lesson coherent`, async ({ page }) => {
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
@@ -106,6 +144,56 @@ test.describe("Phase A-Q — visual viewport matrix", () => {
     });
   }
 
+  for (const width of [781, 900, 1366]) {
+    test(`${width}px keeps instructions and tutor mutually exclusive`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 720 });
+      await openStableLesson(page);
+
+      const collapseInstructions = page.getByRole("button", {
+        name: "Collapse instructions",
+        exact: true,
+      });
+      if (await collapseInstructions.isVisible()) await collapseInstructions.click();
+
+      const showTutor = page.getByRole("button", {
+        name: "Show tutor panel",
+        exact: true,
+      });
+      if (await showTutor.isVisible()) await showTutor.click();
+
+      await page.getByRole("button", {
+        name: "Show instructions panel",
+        exact: true,
+      }).click();
+      await expect(collapseInstructions).toBeVisible();
+      await expect(collapseInstructions).toBeFocused();
+      await expect(showTutor).toBeVisible();
+      const tutorRestoreBox = await showTutor.boundingBox();
+      expect(tutorRestoreBox?.width ?? 0).toBeGreaterThanOrEqual(44);
+      await expect(page.getByRole("button", {
+        name: "Collapse tutor",
+        exact: true,
+      })).toHaveCount(0);
+
+      await showTutor.click();
+      const showInstructions = page.getByRole("button", {
+        name: "Show instructions panel",
+        exact: true,
+      });
+      await expect(showInstructions).toBeVisible();
+      const instructionsRestoreBox = await showInstructions.boundingBox();
+      expect(instructionsRestoreBox?.width ?? 0).toBeGreaterThanOrEqual(44);
+      const collapseTutor = page.getByRole("button", {
+        name: "Collapse tutor",
+        exact: true,
+      });
+      await expect(collapseTutor).toBeVisible();
+      await expect(collapseTutor).toBeFocused();
+      await expect(collapseInstructions).toHaveCount(0);
+      await expectNoHorizontalOverflow(page);
+    });
+  }
+
   test("light theme preserves hierarchy and contrast", async ({ page }) => {
     await page.emulateMedia({ colorScheme: "light", reducedMotion: "reduce" });
     await page.setViewportSize({ width: 390, height: 844 });
@@ -116,6 +204,60 @@ test.describe("Phase A-Q — visual viewport matrix", () => {
     });
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
     await expectNoHorizontalOverflow(page);
+    const lessonHeading = page.getByRole("heading", {
+      name: "Hello, World!",
+      level: 1,
+    });
+    const firstMove = page.getByRole("region", { name: "Your first move" });
+    await expect(lessonHeading).toBeVisible();
+    await expect(firstMove).toBeVisible();
+    for (const control of [
+      page.getByRole("button", { name: "Run code", exact: true }),
+      page.getByRole("button", {
+        name: "Check my work against lesson requirements",
+        exact: true,
+      }),
+      page.getByRole("button", { name: "Reset code to starter", exact: true }),
+    ]) {
+      const box = await control.boundingBox();
+      expect(box?.y ?? -1).toBeGreaterThanOrEqual(0);
+      expect((box?.y ?? 0) + (box?.height ?? 0)).toBeLessThanOrEqual(844);
+    }
+    const contrast = await page.evaluate(() => {
+      const css = getComputedStyle(document.documentElement);
+      const token = (name: string) =>
+        css.getPropertyValue(name).trim().split(/\s+/).map(Number) as [number, number, number];
+      const luminance = ([red, green, blue]: [number, number, number]) => {
+        const channel = (value: number) => {
+          const normalized = value / 255;
+          return normalized <= 0.04045
+            ? normalized / 12.92
+            : Math.pow((normalized + 0.055) / 1.055, 2.4);
+        };
+        return 0.2126 * channel(red) + 0.7152 * channel(green) + 0.0722 * channel(blue);
+      };
+      const ratio = (foreground: [number, number, number], background: [number, number, number]) => {
+        const first = luminance(foreground);
+        const second = luminance(background);
+        return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05);
+      };
+      const blend = (
+        foreground: [number, number, number],
+        background: [number, number, number],
+        alpha: number,
+      ): [number, number, number] =>
+        foreground.map((value, index) =>
+          value * alpha + background[index]! * (1 - alpha),
+        ) as [number, number, number];
+      const panel = token("--color-panel");
+      const success = token("--color-success");
+      return {
+        accentOnPanel: ratio(token("--color-accent-ink"), panel),
+        successOnTint: ratio(success, blend(success, panel, 0.15)),
+      };
+    });
+    expect(contrast.accentOnPanel).toBeGreaterThanOrEqual(4.5);
+    expect(contrast.successOnTint).toBeGreaterThanOrEqual(4.5);
     await expect(page).toHaveScreenshot("phone-390x844-light-reduced-motion.png", {
       animations: "disabled",
       caret: "hide",

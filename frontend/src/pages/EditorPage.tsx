@@ -17,7 +17,11 @@ import { StatusBar } from "../components/StatusBar";
 import { Splitter } from "../components/Splitter";
 import { useSessionLifecycle } from "../hooks/useSessionLifecycle";
 import { useGlobalShortcuts } from "../hooks/useGlobalShortcuts";
-import { useEditorProjectPersistence } from "../hooks/useEditorProjectPersistence";
+import {
+  resolveEditorProjectConflict,
+  retryEditorProjectSave,
+  useEditorProjectPersistence,
+} from "../hooks/useEditorProjectPersistence";
 import { useAIStore } from "../state/aiStore";
 import { useProjectStore, consumePendingEditorStdin, starterStdin } from "../state/projectStore";
 import { useRunStore } from "../state/runStore";
@@ -91,21 +95,36 @@ export default function EditorPage() {
   // a desktop session. See useLessonLayout.ts for the same fix on
   // the lesson page.
   const [tutorCollapsed, setTutorCollapsed] = useLocalStorageFlag(LS_TUTOR, false);
+  const tutorOpenNonce = useAIStore((s) => s.tutorOpenNonce);
   const [filesCollapsed, setFilesCollapsed] = useLocalStorageFlag(LS_FILES, false);
   const [showSettings, setShowSettings] = useState(false);
   const [showCoach, setShowCoach] = useState(false);
+  const [resolvingConflict, setResolvingConflict] = useState(false);
+  const editorSaveConflict = useProjectStore((s) => s.editorSaveConflict);
+  const editorSaveError = useProjectStore((s) => s.editorSaveError);
 
   // A20: below 1024 px three columns are too tight. Auto-collapse the files
   // rail once per mount so new arrivals on tablet see a usable two-column
   // layout; user can still open it manually.
   const narrow = useNarrowViewport(1024);
+  const compact = useNarrowViewport(640);
+  const workspaceConstrained = useNarrowViewport(1366);
+  const filesPaneWidth = compact ? "calc(100vw - 44px)" : leftW;
+  const tutorPaneWidth = compact ? "calc(100vw - 44px)" : rightW;
   const autoCollapsedRef = useRef(false);
+  const autoCollapsedTutorRef = useRef(false);
   useEffect(() => {
     if (narrow && !autoCollapsedRef.current) {
       autoCollapsedRef.current = true;
       setFilesCollapsed(true);
     }
   }, [narrow, setFilesCollapsed]);
+  useEffect(() => {
+    if (compact && !autoCollapsedTutorRef.current) {
+      autoCollapsedTutorRef.current = true;
+      setTutorCollapsed(true);
+    }
+  }, [compact, setTutorCollapsed]);
 
   const langPickerRef = useRef<HTMLLabelElement>(null);
   const fileTreeRef = useRef<HTMLElement>(null);
@@ -113,42 +132,67 @@ export default function EditorPage() {
   const runButtonRef = useRef<HTMLButtonElement>(null);
   const outputRef = useRef<HTMLDivElement>(null);
   const tutorRef = useRef<HTMLElement>(null);
+  const filesRestoreRef = useRef<HTMLButtonElement>(null);
+  const tutorRestoreRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (tutorOpenNonce <= 0) return;
+    if (workspaceConstrained) setFilesCollapsed(true);
+    setTutorCollapsed(false);
+  }, [tutorOpenNonce, workspaceConstrained, setFilesCollapsed, setTutorCollapsed]);
 
   const editorCoachDone = usePreferencesStore((s) => s.editorCoachDone);
   useEffect(() => {
-    if (!editorCoachDone) {
+    if (!editorCoachDone && !compact) {
       const t = setTimeout(() => setShowCoach(true), COACH_AUTO_OPEN_MS);
       return () => clearTimeout(t);
     }
-  }, [editorCoachDone]);
+  }, [compact, editorCoachDone]);
+
+  // Onboarding state is account-scoped while panel collapse state is local to
+  // the browser. A new account can therefore inherit collapsed rails from a
+  // previous user and receive a coach step pointing at an invisible sliver.
+  // Keep every surface the coach teaches open for the duration of the tour so
+  // the highlighted product controls are genuinely available to try.
+  useEffect(() => {
+    if (!showCoach) return;
+    if (compact) {
+      setShowCoach(false);
+      setFilesCollapsed(true);
+      setTutorCollapsed(true);
+      return;
+    }
+    setFilesCollapsed(false);
+    setTutorCollapsed(false);
+  }, [compact, showCoach, setFilesCollapsed, setTutorCollapsed]);
 
   return (
     <div className="flex h-full flex-col bg-bg text-ink">
       <SkipToContent />
-      <header className="relative z-30 flex items-center justify-between border-b border-border bg-panel/80 px-4 py-2 backdrop-blur">
-        <div className="flex items-center gap-3">
+      <header className="relative z-30 flex flex-wrap items-center justify-between gap-2 border-b border-border bg-panel/80 px-3 py-2 backdrop-blur sm:px-4">
+        <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:gap-3">
           <button
             onClick={() => nav("/start")}
-            className="rounded px-2 py-1 text-xs font-medium text-ink/80 transition hover:bg-elevated hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="inline-flex min-h-11 items-center rounded-lg px-3 py-2 text-sm font-medium text-ink/80 transition hover:bg-elevated hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             aria-label="Back to home"
           >
             ← Home
           </button>
-          <Wordmark size="sm" />
-          <span className="h-4 w-px bg-border" aria-hidden="true" />
+          <span className="hidden lg:inline-flex"><Wordmark size="sm" /></span>
+          <span className="hidden h-4 w-px bg-border lg:inline-block" aria-hidden="true" />
           <h1 className="text-[14px] font-medium tracking-tight text-ink">
             Editor
           </h1>
-          <nav className="ml-2 flex items-center overflow-hidden rounded-md border border-border text-[11px]" aria-label="Mode switcher">
+          <nav className="ml-auto flex items-center overflow-hidden rounded-md border border-border text-[11px] sm:ml-2" aria-label="Mode switcher">
             <span
               aria-current="page"
-              className="bg-accent/15 px-2.5 py-1 font-semibold text-accent"
+              className="inline-flex min-h-11 items-center bg-accent/15 px-3 py-2 text-sm font-semibold text-accentInk"
             >
               Editor
             </span>
             <button
               onClick={() => nav("/learn")}
-              className="border-l border-border bg-transparent px-2.5 py-1 text-muted transition hover:bg-elevated hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+              className="min-h-11 border-l border-border bg-transparent px-3 py-2 text-sm text-muted transition hover:bg-elevated hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
               title="Switch to guided learning mode"
             >
               Learning
@@ -158,13 +202,13 @@ export default function EditorPage() {
         {/* Phase 21B (iter-3): streak chip absolute-anchored to header
             centre — exact midpoint regardless of left/right content
             widths. */}
-        <div className="pointer-events-none absolute left-1/2 -translate-x-1/2">
+        <div className="pointer-events-none absolute left-1/2 hidden -translate-x-1/2 xl:block">
           <div className="pointer-events-auto"><StreakChip /></div>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex w-full flex-wrap items-center justify-between gap-2 sm:w-auto sm:justify-end">
           <Toolbar langPickerRef={langPickerRef} runButtonRef={runButtonRef} />
           <StatusBadge />
-          <FeedbackButton />
+          <span className="hidden sm:inline-flex"><FeedbackButton /></span>
           <UserMenu />
         </div>
       </header>
@@ -172,6 +216,60 @@ export default function EditorPage() {
       <SessionErrorBanner />
       <SessionRestartBanner />
       <SessionReplacedModal />
+      {editorSaveConflict && (
+        <div
+          role="alert"
+          className="flex flex-col gap-2 border-b border-warn/40 bg-warn/10 px-4 py-3 text-sm text-ink sm:flex-row sm:items-center"
+        >
+          <div className="min-w-0 flex-1">
+            <div className="font-semibold">This project changed somewhere else.</div>
+            <div className="mt-0.5 text-xs text-muted">
+              Both versions are safe until you decide which one should be saved.
+              {editorSaveError ? ` ${editorSaveError}` : ""}
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={resolvingConflict}
+              onClick={() => void resolveEditorProjectConflict("remote")}
+              className="min-h-11 rounded-lg border border-border bg-panel px-3 py-2 text-xs font-semibold text-muted transition hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-60"
+            >
+              Use newer saved version
+            </button>
+            <button
+              type="button"
+              disabled={resolvingConflict}
+              onClick={() => {
+                setResolvingConflict(true);
+                void resolveEditorProjectConflict("local").finally(() =>
+                  setResolvingConflict(false),
+                );
+              }}
+              className="min-h-11 rounded-lg bg-warn/20 px-3 py-2 text-xs font-semibold text-warn ring-1 ring-warn/40 transition hover:bg-warn/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn disabled:opacity-60"
+            >
+              {resolvingConflict ? "Saving…" : "Keep this version"}
+            </button>
+          </div>
+        </div>
+      )}
+      {editorSaveError && !editorSaveConflict && (
+        <div
+          role="alert"
+          className="flex min-h-11 flex-wrap items-center gap-3 border-b border-warn/40 bg-warn/10 px-4 py-2 text-sm"
+        >
+          <span className="min-w-0 flex-1 text-ink">
+            {editorSaveError} We'll retry automatically when you're back online.
+          </span>
+          <button
+            type="button"
+            onClick={retryEditorProjectSave}
+            className="min-h-11 rounded-lg border border-warn/40 px-3 py-2 font-semibold text-warn transition hover:bg-warn/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn"
+          >
+            Retry sync
+          </button>
+        </div>
+      )}
 
       <main id="main-content" className="flex min-h-0 flex-1 overflow-hidden">
         {/* Files panel — collapsible. Cinema Kit Continuity Pass:
@@ -182,10 +280,19 @@ export default function EditorPage() {
             only when collapsed; splitter only when expanded. */}
         {filesCollapsed && (
           <button
-            onClick={() => setFilesCollapsed(false)}
+            ref={filesRestoreRef}
+            onClick={() => {
+              if (workspaceConstrained) setTutorCollapsed(true);
+              setFilesCollapsed(false);
+              requestAnimationFrame(() =>
+                fileTreeRef.current
+                  ?.querySelector<HTMLButtonElement>('[aria-label="Collapse files"]')
+                  ?.focus(),
+              );
+            }}
             title="Show files"
             aria-label="Show files panel"
-            className="flex w-6 shrink-0 flex-col items-center justify-start gap-2 border-r border-border bg-panel pt-3 text-muted transition hover:bg-elevated hover:text-ink"
+            className="flex w-11 shrink-0 flex-col items-center justify-start gap-2 border-r border-border bg-panel pt-3 text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
           >
             <span className="text-[12px]" aria-hidden="true">▸</span>
             <span
@@ -199,7 +306,7 @@ export default function EditorPage() {
         <motion.aside
           ref={fileTreeRef as React.RefObject<HTMLElement>}
           initial={false}
-          animate={{ width: filesCollapsed ? 0 : leftW }}
+          animate={{ width: filesCollapsed ? 0 : filesPaneWidth }}
           transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
           className="min-h-0 shrink-0 overflow-hidden border-r border-border bg-panel"
           aria-hidden={filesCollapsed ? "true" : undefined}
@@ -212,14 +319,21 @@ export default function EditorPage() {
               pattern; this one was the odd one out. */}
           <div
             className="h-full p-3"
-            style={{ width: leftW, minWidth: leftW }}
+            style={{ width: filesPaneWidth, minWidth: filesPaneWidth }}
           >
-            <FileTree onCollapse={() => setFilesCollapsed(true)} />
+            <FileTree onCollapse={() => {
+              setFilesCollapsed(true);
+              requestAnimationFrame(() => filesRestoreRef.current?.focus());
+            }} />
           </div>
         </motion.aside>
-        {!filesCollapsed && (
+        {!filesCollapsed && !compact && (
           <Splitter
             orientation="vertical"
+            valueNow={leftW}
+            valueMin={BOUNDS.left[0]}
+            valueMax={BOUNDS.left[1]}
+            valueText={`Files panel ${Math.round(leftW)} pixels wide`}
             onDrag={(dx) => setLeftW((w) => clampSide(w + dx, BOUNDS.left))}
             onDoubleClick={() => setLeftW(DEFAULTS.left)}
           />
@@ -234,6 +348,10 @@ export default function EditorPage() {
           </div>
           <Splitter
             orientation="horizontal"
+            valueNow={outputH}
+            valueMin={BOUNDS.out[0]}
+            valueMax={BOUNDS.out[1]}
+            valueText={`Output panel ${Math.round(outputH)} pixels high`}
             onDrag={(dy) => setOutputH((h) => clamp(h - dy, BOUNDS.out))}
             onDoubleClick={() => setOutputH(DEFAULTS.out)}
           />
@@ -246,9 +364,19 @@ export default function EditorPage() {
             same width-animation pattern as the file panel above. */}
         {tutorCollapsed && (
           <button
-            onClick={() => setTutorCollapsed(false)}
+            ref={tutorRestoreRef}
+            onClick={() => {
+              if (workspaceConstrained) setFilesCollapsed(true);
+              setTutorCollapsed(false);
+              requestAnimationFrame(() =>
+                tutorRef.current
+                  ?.querySelector<HTMLButtonElement>('[aria-label="Collapse tutor"]')
+                  ?.focus(),
+              );
+            }}
             title="Show tutor"
-            className="flex w-6 shrink-0 flex-col items-center justify-start gap-2 border-l border-border bg-panel pt-3 text-muted transition hover:bg-elevated hover:text-ink"
+            aria-label="Show tutor panel"
+            className="flex w-11 shrink-0 flex-col items-center justify-start gap-2 border-l border-border bg-panel pt-3 text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
           >
             <span className="text-[12px]">◂</span>
             <span
@@ -259,9 +387,13 @@ export default function EditorPage() {
             </span>
           </button>
         )}
-        {!tutorCollapsed && (
+        {!tutorCollapsed && !compact && (
           <Splitter
             orientation="vertical"
+            valueNow={rightW}
+            valueMin={BOUNDS.right[0]}
+            valueMax={BOUNDS.right[1]}
+            valueText={`Tutor panel ${Math.round(rightW)} pixels wide`}
             onDrag={(dx) => setRightW((w) => clampSide(w - dx, BOUNDS.right))}
             onDoubleClick={() => setRightW(DEFAULTS.right)}
           />
@@ -269,13 +401,16 @@ export default function EditorPage() {
         <motion.aside
           ref={tutorRef as React.RefObject<HTMLElement>}
           initial={false}
-          animate={{ width: tutorCollapsed ? 0 : rightW }}
+          animate={{ width: tutorCollapsed ? 0 : tutorPaneWidth }}
           transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
           className="min-h-0 shrink-0 overflow-hidden bg-panel"
           aria-hidden={tutorCollapsed ? "true" : undefined}
           {...((tutorCollapsed ? { inert: "" } : {}) as Record<string, unknown>)}
         >
-          <AssistantPanel onCollapse={() => setTutorCollapsed(true)} onOpenSettings={() => setShowSettings(true)} />
+          <AssistantPanel onCollapse={() => {
+            setTutorCollapsed(true);
+            requestAnimationFrame(() => tutorRestoreRef.current?.focus());
+          }} onOpenSettings={() => setShowSettings(true)} />
         </motion.aside>
       </main>
 

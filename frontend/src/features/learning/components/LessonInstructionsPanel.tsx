@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { FunctionTest, LessonMeta, TestCaseResult, TestReport } from "../types";
 import { CoachRail } from "./CoachRail";
 import { ExamplesSection } from "./ExamplesSection";
@@ -86,7 +88,7 @@ export function LessonInstructionsPanel({
           whispering after a fanfare (the cinematic just rendered
           the user's name at 84px). The thing the user is here to
           do should be the largest typographic element on the page. */}
-      <div className="border-b border-border px-5 py-4">
+      <div className="shrink-0 border-b border-border px-5 py-4">
         <h1 className="font-display text-[28px] font-semibold leading-tight tracking-tight text-ink">
           {meta.title}
         </h1>
@@ -94,7 +96,7 @@ export function LessonInstructionsPanel({
           Lesson {meta.order} · ~{meta.estimatedMinutes} min
         </p>
       </div>
-      <header className="flex min-h-11 items-center gap-2 border-b border-border px-4">
+      <header className="flex min-h-11 shrink-0 items-center gap-2 border-b border-border px-4">
         <span className="flex-1 text-micro uppercase tracking-wider text-muted">
           Instructions
         </span>
@@ -153,6 +155,13 @@ export function LessonInstructionsPanel({
       <div className="flex-1 overflow-y-auto px-4 py-3" tabIndex={0}>
         {activeTab === "instructions" ? (
           <>
+            {!hasExamples && checkFailure && (
+              <FailedTestCallout
+                failure={checkFailure}
+                consecutiveFails={checkFailureStreak ?? 1}
+                onAskTutor={onAskTutorAboutFailure}
+              />
+            )}
             {coachState && !coachState.suppressed && <CoachRail {...coachState} />}
             {meta.order === 1 && !coachState?.lessonComplete && firstMove && (
               <section
@@ -236,74 +245,48 @@ export function LessonInstructionsPanel({
   );
 }
 
-function MarkdownContent({ text }: { text: string }) {
-  const lines = text.split("\n");
-  const elements: React.ReactNode[] = [];
-  let i = 0;
-
-  while (i < lines.length) {
-    const line = lines[i];
-    const fencedBlock = readFencedCodeBlock(lines, i);
-
-    if (line.startsWith("### ")) {
-      elements.push(<h3 key={i} className="mb-1 mt-3 text-sm font-bold uppercase tracking-wide text-muted">{line.slice(4)}</h3>);
-    } else if (line.startsWith("## ")) {
-      elements.push(<h2 key={i} className="mb-1 mt-4 text-sm font-bold">{line.slice(3)}</h2>);
-    } else if (line.startsWith("# ")) {
-      // Phase B: body markdown `# X` demoted from h1 to h2. The page's
-      // primary h1 is now the lesson title at the top of this panel
-      // (rendered above in Fraunces 28px); body content is subordinate.
-      // Keeps the document outline correct (single h1 per page) and
-      // avoids strict-mode collisions in tests that find the lesson
-      // title via getByRole({level: 1, name: /^title$/}).
-      elements.push(<h2 key={i} className="mb-2 mt-4 text-base font-bold">{line.slice(2)}</h2>);
-    } else if (fencedBlock) {
-      i = fencedBlock.endIndex;
-      elements.push(
-        <pre key={`code-${i}`} className="my-2 overflow-x-auto rounded-lg bg-elevated p-3 text-sm">
-          <code>{fencedBlock.code}</code>
-        </pre>
-      );
-    } else if (line.startsWith("- ") || line.startsWith("* ")) {
-      const items: string[] = [line.slice(2)];
-      while (i + 1 < lines.length && (lines[i + 1].startsWith("- ") || lines[i + 1].startsWith("* "))) {
-        i++;
-        items.push(lines[i].slice(2));
-      }
-      elements.push(
-        <ul key={`ul-${i}`} className="my-1 space-y-0.5 pl-4">
-          {items.map((item, j) => (
-            <li key={j} className="list-disc text-base sm:text-body">{renderInline(item)}</li>
-          ))}
-        </ul>
-      );
-    } else if (/^\d+\.\s/.test(line)) {
-      const ordered = readOrderedListBlock(lines, i);
-      i = ordered.endIndex;
-      elements.push(
-        <ol key={`ol-${i}`} className="my-1 list-decimal space-y-0.5 pl-5">
-          {ordered.items.map((item, j) => (
-            <li key={j} className="text-base sm:text-body">
-              {renderInline(item.lead)}
-              {item.body.length > 0 && (
-                <div className="mt-1">
-                  <MarkdownContent text={item.body.join("\n")} />
-                </div>
-              )}
-            </li>
-          ))}
-        </ol>
-      );
-    } else if (line.trim() === "") {
-      elements.push(<div key={i} className="h-2" />);
-    } else {
-      elements.push(<p key={i} className="text-base leading-relaxed sm:text-body">{renderInline(line)}</p>);
-    }
-
-    i++;
-  }
-
-  return <>{elements}</>;
+export function MarkdownContent({ text }: { text: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        h1: ({ children }) => <h2 className="mb-2 mt-4 text-base font-bold">{children}</h2>,
+        h2: ({ children }) => <h2 className="mb-1 mt-4 text-sm font-bold">{children}</h2>,
+        h3: ({ children }) => <h3 className="mb-1 mt-3 text-sm font-bold uppercase tracking-wide text-muted">{children}</h3>,
+        p: ({ children }) => <p className="my-2 break-words text-base leading-relaxed sm:text-body">{children}</p>,
+        ul: ({ children }) => <ul className="my-2 list-disc space-y-1 pl-5">{children}</ul>,
+        ol: ({ children }) => <ol className="my-2 list-decimal space-y-1 pl-5">{children}</ol>,
+        li: ({ children }) => <li className="break-words text-base leading-relaxed sm:text-body">{children}</li>,
+        strong: ({ children }) => <strong className="font-semibold text-ink">{children}</strong>,
+        em: ({ children }) => <em className="italic text-ink/90">{children}</em>,
+        code: ({ className, children }) => {
+          const fenced = Boolean(className?.startsWith("language-"));
+          return fenced ? (
+            <code className={`${className ?? ""} font-mono text-sm text-ink`}>{children}</code>
+          ) : (
+            <code className="break-words rounded bg-elevated px-1 py-0.5 font-mono text-[0.9em] text-accent">
+              {children}
+            </code>
+          );
+        },
+        pre: ({ children }) => (
+          <pre className="my-3 max-w-full overflow-x-auto rounded-lg border border-border bg-elevated p-3 text-sm leading-relaxed">
+            {children}
+          </pre>
+        ),
+        table: ({ children }) => (
+          <table className="my-3 block max-w-full overflow-x-auto whitespace-normal text-left text-sm">
+            {children}
+          </table>
+        ),
+        th: ({ children }) => <th className="border border-border bg-elevated px-2 py-1.5 font-semibold text-ink">{children}</th>,
+        td: ({ children }) => <td className="border border-border px-2 py-1.5 align-top text-ink/85">{children}</td>,
+        blockquote: ({ children }) => <blockquote className="my-3 border-l-2 border-accent pl-3 text-muted">{children}</blockquote>,
+      }}
+    >
+      {text}
+    </ReactMarkdown>
+  );
 }
 
 export interface FencedCodeBlock {

@@ -4,6 +4,7 @@ import {
   type AdminEvalSample,
   type AdminEvalSynthesisQueueItem,
 } from "../../api/client";
+import { useAdminDraft } from "./useAdminDraft";
 
 type Verdict = "pass" | "fail" | "ambiguous" | "reject_privacy";
 type Disposition = "pending_review" | "review_complete" | "synthesis_queued" | "rejected";
@@ -146,9 +147,15 @@ export function EvalQualitySection() {
 }
 
 function EvalSampleCard({ sample, onSaved }: { sample: AdminEvalSample; onSaved: () => Promise<void> }) {
-  const [verdict, setVerdict] = useState<Verdict>("pass");
-  const [issueCode, setIssueCode] = useState<Exclude<IssueCode, "redaction_concern">>("factual_error");
-  const [note, setNote] = useState("");
+  const { draft, setDraft, clear: clearDraft, hasDraft, restored } = useAdminDraft(
+    `eval-review.${sample.id}`,
+    {
+      verdict: "pass" as Verdict,
+      issueCode: "factual_error" as Exclude<IssueCode, "redaction_concern">,
+      note: "",
+    },
+  );
+  const { verdict, issueCode, note } = draft;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -165,6 +172,7 @@ function EvalSampleCard({ sample, onSaved }: { sample: AdminEvalSample; onSaved:
             : [issueCode],
         note: note.trim() || null,
       });
+      clearDraft();
       await onSaved();
     } catch {
       setError("Review was not saved.");
@@ -189,12 +197,17 @@ function EvalSampleCard({ sample, onSaved }: { sample: AdminEvalSample; onSaved:
       </div>
       {sample.disposition === "pending_review" ? (
         <>
+          {restored && (
+            <p role="status" className="mt-4 rounded-md border border-accent/30 bg-accent/10 px-3 py-2 text-xs text-accent">
+              Restored your unfinished review from this browser tab.
+            </p>
+          )}
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,180px)_minmax(0,180px)_minmax(0,1fr)_auto] lg:items-end">
             <label className="space-y-1 text-xs font-semibold text-ink">
               Your independent verdict
               <select
                 value={verdict}
-                onChange={(event) => setVerdict(event.target.value as Verdict)}
+                onChange={(event) => setDraft((current) => ({ ...current, verdict: event.target.value as Verdict }))}
                 className="block min-h-11 w-full cursor-pointer rounded-md border border-border bg-elevated px-3 text-sm font-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
                 {(Object.keys(VERDICT_LABEL) as Verdict[]).map((value) => (
@@ -207,7 +220,7 @@ function EvalSampleCard({ sample, onSaved }: { sample: AdminEvalSample; onSaved:
                 Primary issue
                 <select
                   value={issueCode}
-                  onChange={(event) => setIssueCode(event.target.value as Exclude<IssueCode, "redaction_concern">)}
+                  onChange={(event) => setDraft((current) => ({ ...current, issueCode: event.target.value as Exclude<IssueCode, "redaction_concern"> }))}
                   className="block min-h-11 w-full cursor-pointer rounded-md border border-border bg-elevated px-3 text-sm font-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 >
                   {(Object.keys(ISSUE_LABEL) as Array<Exclude<IssueCode, "redaction_concern">>).map((value) => (
@@ -222,7 +235,7 @@ function EvalSampleCard({ sample, onSaved }: { sample: AdminEvalSample; onSaved:
               Private reviewer note <span className="font-normal text-muted">(optional)</span>
               <input
                 value={note}
-                onChange={(event) => setNote(event.target.value)}
+                onChange={(event) => setDraft((current) => ({ ...current, note: event.target.value }))}
                 maxLength={500}
                 className="block min-h-11 w-full rounded-md border border-border bg-elevated px-3 text-sm font-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               />
@@ -235,6 +248,11 @@ function EvalSampleCard({ sample, onSaved }: { sample: AdminEvalSample; onSaved:
             >
               {saving ? "Saving…" : "Save review"}
             </button>
+            {hasDraft && (
+              <button type="button" onClick={clearDraft} disabled={saving} className="min-h-11 rounded-md px-4 text-sm font-semibold text-danger hover:bg-danger/10 disabled:opacity-50">
+                Discard draft
+              </button>
+            )}
           </div>
           {error && <p role="alert" className="mt-2 text-sm text-danger">{error}</p>}
         </>
@@ -257,8 +275,11 @@ function TextBlock({ label, value }: { label: string; value: string }) {
 }
 
 function SynthesisQueueCard({ item, onSaved }: { item: AdminEvalSynthesisQueueItem; onSaved: () => Promise<void> }) {
-  const [caseId, setCaseId] = useState(item.syntheticCaseId ?? "");
-  const [reason, setReason] = useState("");
+  const { draft, setDraft, clear: clearDraft, hasDraft, restored } = useAdminDraft(
+    `eval-synthesis.${item.id}`,
+    { caseId: item.syntheticCaseId ?? "", reason: "" },
+  );
+  const { caseId, reason } = draft;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -275,6 +296,7 @@ function SynthesisQueueCard({ item, onSaved }: { item: AdminEvalSynthesisQueueIt
         syntheticCaseId: state === "synthetic_case_authored" ? caseId.trim() : null,
         reason: reason.trim(),
       });
+      clearDraft();
       await onSaved();
     } catch {
       setError("Queue resolution was not saved.");
@@ -296,17 +318,19 @@ function SynthesisQueueCard({ item, onSaved }: { item: AdminEvalSynthesisQueueIt
       </p>
       {item.state === "pending_synthesis" && (
         <div className="mt-3 grid gap-3 md:grid-cols-2">
+          {restored && <p role="status" className="rounded-md border border-accent/30 bg-accent/10 px-3 py-2 text-xs text-accent md:col-span-2">Restored your unfinished resolution draft.</p>}
           <label className="space-y-1 text-xs font-semibold text-ink">
             Synthetic golden case ID
-            <input value={caseId} onChange={(event) => setCaseId(event.target.value)} className="block min-h-11 w-full rounded-md border border-border bg-elevated px-3 font-mono text-sm font-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent" placeholder="b8_pattern_example" />
+            <input value={caseId} onChange={(event) => setDraft((current) => ({ ...current, caseId: event.target.value }))} className="block min-h-11 w-full rounded-md border border-border bg-elevated px-3 font-mono text-sm font-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent" placeholder="b8_pattern_example" />
           </label>
           <label className="space-y-1 text-xs font-semibold text-ink">
             Resolution reason
-            <input value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} className="block min-h-11 w-full rounded-md border border-border bg-elevated px-3 text-sm font-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent" />
+            <input value={reason} onChange={(event) => setDraft((current) => ({ ...current, reason: event.target.value }))} maxLength={500} className="block min-h-11 w-full rounded-md border border-border bg-elevated px-3 text-sm font-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent" />
           </label>
           <div className="flex flex-wrap gap-2 md:col-span-2">
             <button type="button" disabled={saving} onClick={() => void resolve("synthetic_case_authored")} className="min-h-11 cursor-pointer rounded-md bg-accent px-4 text-sm font-semibold text-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-wait disabled:opacity-60">Mark synthetic case authored</button>
             <button type="button" disabled={saving} onClick={() => void resolve("rejected")} className="min-h-11 cursor-pointer rounded-md border border-danger/40 px-4 text-sm font-semibold text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger disabled:cursor-wait disabled:opacity-60">Reject pattern</button>
+            {hasDraft && <button type="button" disabled={saving} onClick={clearDraft} className="min-h-11 rounded-md px-4 text-sm font-semibold text-danger hover:bg-danger/10 disabled:opacity-50">Discard draft</button>}
           </div>
           {error && <p role="alert" className="text-sm text-danger md:col-span-2">{error}</p>}
         </div>

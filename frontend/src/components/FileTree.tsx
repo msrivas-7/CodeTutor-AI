@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useProjectStore } from "../state/projectStore";
 import { LANGUAGE_ENTRYPOINT } from "../types";
 import { fileIcon } from "../util/fileIcon";
@@ -14,6 +14,7 @@ export function FileTree({ onCollapse }: { onCollapse?: () => void }) {
   const [renameValue, setRenameValue] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const fileButtonRefs = useRef(new Map<string, HTMLButtonElement>());
 
   const entrypoint = LANGUAGE_ENTRYPOINT[language];
 
@@ -38,6 +39,7 @@ export function FileTree({ onCollapse }: { onCollapse?: () => void }) {
     const trimmed = renameValue.trim();
     if (!trimmed || trimmed === from) {
       setRenaming(null);
+      requestAnimationFrame(() => fileButtonRefs.current.get(from)?.focus());
       return;
     }
     const result = renameFile(from, trimmed);
@@ -47,6 +49,7 @@ export function FileTree({ onCollapse }: { onCollapse?: () => void }) {
     }
     setErr(null);
     setRenaming(null);
+    requestAnimationFrame(() => fileButtonRefs.current.get(trimmed)?.focus());
   };
 
   return (
@@ -61,7 +64,7 @@ export function FileTree({ onCollapse }: { onCollapse?: () => void }) {
             tabIndex={0}
             title={`main = entrypoint for the current language (${entrypoint})\nDouble-click a filename to rename.`}
             aria-label="File tree help — main is the entrypoint for the current language; double-click a filename to rename"
-            className="rounded px-1.5 text-[10px] font-semibold text-muted transition hover:bg-elevated hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="flex h-11 w-11 items-center justify-center rounded-lg text-sm font-semibold text-muted transition hover:bg-elevated hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             <span aria-hidden="true">?</span>
           </button>
@@ -72,7 +75,7 @@ export function FileTree({ onCollapse }: { onCollapse?: () => void }) {
               setCreating(true);
               setNewName("");
             }}
-            className="rounded p-1 text-muted transition hover:bg-elevated hover:text-ink"
+            className="flex h-11 w-11 items-center justify-center rounded-lg text-muted transition hover:bg-elevated hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
               <path d="M7 2v5H2v2h5v5h2V9h5V7H9V2H7z" />
@@ -83,7 +86,7 @@ export function FileTree({ onCollapse }: { onCollapse?: () => void }) {
               onClick={onCollapse}
               title="Collapse files"
               aria-label="Collapse files"
-              className="rounded p-1 text-muted transition hover:bg-elevated hover:text-ink"
+              className="flex h-11 w-11 items-center justify-center rounded-lg text-muted transition hover:bg-elevated hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
                 <path d="M5.5 3.5L10 8l-4.5 4.5L4 11l3-3-3-3z" />
@@ -114,10 +117,11 @@ export function FileTree({ onCollapse }: { onCollapse?: () => void }) {
                     if (e.key === "Escape") {
                       setRenaming(null);
                       setErr(null);
+                      requestAnimationFrame(() => fileButtonRefs.current.get(p)?.focus());
                     }
                   }}
                   title="Enter to save, Esc or click away to cancel"
-                  className="w-full rounded bg-elevated px-2 py-1 font-mono text-xs text-ink outline-none ring-1 ring-accent"
+                  className="min-h-11 w-full rounded-lg bg-elevated px-3 py-2 font-mono text-sm text-ink outline-none ring-1 ring-accent"
                 />
               </li>
             );
@@ -125,7 +129,7 @@ export function FileTree({ onCollapse }: { onCollapse?: () => void }) {
           return (
             <li key={p}>
               <div
-                className={`group flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition ${
+                className={`group flex min-h-11 items-center gap-1.5 rounded-md px-2 py-1 text-xs transition ${
                   isActive
                     ? "bg-elevated text-ink ring-1 ring-border"
                     : "text-muted hover:bg-elevated/60 hover:text-ink"
@@ -137,12 +141,16 @@ export function FileTree({ onCollapse }: { onCollapse?: () => void }) {
                   {icon.label}
                 </span>
                 <button
+                  ref={(element) => {
+                    if (element) fileButtonRefs.current.set(p, element);
+                    else fileButtonRefs.current.delete(p);
+                  }}
                   onClick={() => openFile(p)}
                   onDoubleClick={() => {
                     setRenaming(p);
                     setRenameValue(p);
                   }}
-                  className="flex-1 truncate text-left font-mono"
+                  className="min-h-11 min-w-0 flex-1 truncate text-left font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                   title={`${p}${isEntry ? " — entrypoint" : ""}`}
                 >
                   {p}
@@ -166,7 +174,7 @@ export function FileTree({ onCollapse }: { onCollapse?: () => void }) {
                   }}
                   title={`Delete ${p}`}
                   aria-label={`Delete ${p}`}
-                  className="ml-0.5 inline-block shrink-0 rounded px-1.5 py-1 text-muted transition hover:bg-danger/20 hover:text-danger focus:outline-none focus-visible:ring-2 focus-visible:ring-danger md:hidden md:px-1 md:py-0.5 md:group-hover:inline-block md:group-focus-within:inline-block"
+                  className="ml-0.5 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted transition hover:bg-danger/20 hover:text-danger focus:outline-none focus-visible:ring-2 focus-visible:ring-danger md:hidden md:group-hover:inline-flex md:group-focus-within:inline-flex"
                 >
                   ✕
                 </button>
@@ -190,7 +198,7 @@ export function FileTree({ onCollapse }: { onCollapse?: () => void }) {
                 }
               }}
               placeholder="file.py"
-              className="w-full rounded bg-elevated px-2 py-1 font-mono text-xs text-ink outline-none ring-1 ring-accent"
+              className="min-h-11 w-full rounded-lg bg-elevated px-3 py-2 font-mono text-sm text-ink outline-none ring-1 ring-accent"
             />
           </li>
         )}

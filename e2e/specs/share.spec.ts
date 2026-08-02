@@ -145,6 +145,9 @@ test.describe("Phase 21C: cinematic share", () => {
       const href = await cta.getAttribute("href");
       expect(href).not.toBeNull();
       const ctaUrl = new URL(href!);
+      expect(ctaUrl.pathname).toBe(
+        "/try/lesson/python-fundamentals/hello-world",
+      );
       expect(ctaUrl.searchParams.get("utm_source")).toBe("share");
       expect(ctaUrl.searchParams.get("utm_medium")).toBe("lesson_share");
       expect(ctaUrl.searchParams.get("utm_campaign")).toBe(COURSE_ID);
@@ -172,7 +175,7 @@ test.describe("Phase 21C: cinematic share", () => {
       const anonPage = await anon.newPage();
       await anonPage.goto(`/s/${shareToken}`);
       await expect(
-        anonPage.getByText("A learner on CodeTutor"),
+        anonPage.getByText("A learner on CodeTutor AI"),
       ).toBeVisible({ timeout: 10_000 });
     } finally {
       await anon.close();
@@ -227,10 +230,17 @@ test.describe("Phase 21C: cinematic share", () => {
       await expect(
         anonPage.getByRole("heading", { name: /Share not found/i }),
       ).toBeVisible({ timeout: 10_000 });
+      await expect(anonPage).toHaveTitle("Share not found · CodeTutor AI");
       // Recovery CTA is present so a misdirected visitor still has
       // somewhere to go.
       await expect(
-        anonPage.getByRole("button", { name: /Go to CodeTutor/i }),
+        anonPage.getByRole("link", { name: /try the first lesson/i }),
+      ).toBeVisible();
+      await expect(
+        anonPage.getByRole("link", {
+          name: "Go to CodeTutor AI home",
+          exact: true,
+        }),
       ).toBeVisible();
     } finally {
       await anon.close();
@@ -248,6 +258,55 @@ test.describe("Phase 21C: cinematic share", () => {
       await expect(
         anonPage.getByRole("heading", { name: /Share not found/i }),
       ).toBeVisible({ timeout: 10_000 });
+      await expect(
+        anonPage.getByText(/invalid or no longer public/i),
+      ).toBeVisible();
+    } finally {
+      await anon.close();
+    }
+  });
+
+  test("temporary share failure offers a real retry without losing the link", async ({
+    context,
+  }) => {
+    const anon = await context.browser()!.newContext();
+    try {
+      const anonPage = await anon.newPage();
+      let requests = 0;
+      let recovered = false;
+      await anonPage.route("**/api/shares/aaaaaaaaaaaa", async (route) => {
+        requests += 1;
+        await route.fulfill({
+          // React development Strict Mode may mount the initial effect
+          // twice. Keep every initial request in the same outage state;
+          // only the explicit learner action changes the boundary.
+          status: recovered ? 404 : 503,
+          contentType: "application/json",
+          body: JSON.stringify({ error: recovered ? "Not found" : "Unavailable" }),
+        });
+      });
+
+      await anonPage.goto("/s/aaaaaaaaaaaa");
+      const failureHeading = anonPage.getByRole("heading", {
+        name: /couldn't load this share/i,
+      });
+      await expect(failureHeading).toBeVisible();
+      await expect(failureHeading).toBeFocused();
+      await expect(anonPage).toHaveTitle(
+        "Couldn't load this share · CodeTutor AI",
+      );
+      await expect(
+        anonPage.getByText(/link may still work/i),
+      ).toBeVisible();
+
+      const requestsBeforeRetry = requests;
+      recovered = true;
+      await anonPage.getByRole("button", { name: /try again/i }).click();
+      await expect(
+        anonPage.getByRole("heading", { name: /share not found/i }),
+      ).toBeVisible();
+      await expect(anonPage).toHaveURL(/\/s\/aaaaaaaaaaaa$/);
+      expect(requests).toBe(requestsBeforeRetry + 1);
     } finally {
       await anon.close();
     }
@@ -352,6 +411,177 @@ test.describe("Phase 21C: cinematic share", () => {
       await ctx.dispose();
     }
   });
+
+  test(
+    "existing public share is restored, editable, replaceable, and revocable",
+    criticalTest({
+      risk: "p1",
+      owner: "share",
+      browsers: ["chromium"],
+      devices: ["desktop"],
+      quarantine: { state: "none" },
+    }),
+    async ({ page }) => {
+      await page.addInitScript(() => {
+        Object.defineProperty(navigator, "clipboard", {
+          configurable: true,
+          value: { writeText: async () => undefined },
+        });
+      });
+      await loadProfile(page, "empty");
+      await seedLessonProgress(page, COURSE_ID, LESSON_ID, {
+        status: "completed",
+        lastCode: { "main.py": SAMPLE_CODE },
+      });
+      const original = await createShare({ displayName: "Mehul" });
+
+      // A fresh lesson mount is the post-login boundary: authoritative
+      // owner state must replace the plain Publish affordance.
+      await page.goto(`/learn/course/${COURSE_ID}/lesson/${LESSON_ID}`);
+      const existingShare = page
+        .getByRole("button", {
+          name: /view existing share for( | this )lesson/i,
+        })
+        .first();
+      await expect(existingShare).toBeVisible({ timeout: 10_000 });
+      await expect(existingShare).toContainText(/shared/i);
+      await existingShare.click();
+
+      const shareUrl = page.getByLabel("Share URL");
+      const originalPublicUrl = new URL(original.url, page.url()).toString();
+      await expect(shareUrl).toHaveValue(originalPublicUrl);
+      await expect(shareUrl).toBeFocused();
+      await expect(
+        page.getByRole("heading", { name: "Manage public share" }),
+      ).toBeVisible();
+
+      await page.getByRole("button", { name: "Copy", exact: true }).click();
+      await expect(
+        page.getByRole("button", { name: /copied/i }),
+      ).toBeVisible();
+
+      const nameToggle = page.getByRole("checkbox", { name: /show my name/i });
+      await expect(nameToggle).toBeChecked();
+      // The checkbox reflects authoritative owner state after the async
+      // update returns, so exercise the user click and assert the settled
+      // result instead of requiring an immediate uncontrolled DOM flip.
+      await nameToggle.click();
+      await expect(page.getByText("Currently anonymous.")).toBeVisible();
+      await expect(nameToggle).not.toBeChecked();
+
+      const refresh = page.getByRole("button", {
+        name: /update shared code/i,
+      });
+      await refresh.click();
+      await expect(refresh).toBeEnabled();
+
+      await page
+        .getByRole("button", { name: "Replace public link", exact: true })
+        .click();
+      let rotateDialog = page.getByRole("alertdialog");
+      await expect(
+        rotateDialog.getByRole("heading", { name: /replace the public link/i }),
+      ).toBeVisible();
+      const cancelRotate = rotateDialog.getByRole("button", {
+        name: "Cancel",
+        exact: true,
+      });
+      await expect(cancelRotate).toBeFocused();
+      await cancelRotate.click();
+      await expect(rotateDialog).toHaveCount(0);
+      const replaceLink = page.getByRole("button", {
+        name: "Replace public link",
+        exact: true,
+      });
+      await expect(replaceLink).toBeFocused();
+
+      await replaceLink.click();
+      rotateDialog = page.getByRole("alertdialog");
+      await rotateDialog
+        .getByRole("button", { name: "Replace link", exact: true })
+        .click();
+      await expect(rotateDialog).toHaveCount(0);
+      await expect(shareUrl).toBeFocused();
+      await expect(shareUrl).not.toHaveValue(originalPublicUrl);
+      const replacementUrl = await shareUrl.inputValue();
+      expect(replacementUrl).toMatch(/\/s\/[a-z0-9]{12}$/);
+      expect(
+        (
+          await page.request.get(
+            `${BACKEND}/api/shares/${original.shareToken}`,
+          )
+        ).status(),
+      ).toBe(404);
+
+      const stopInDialog = page.getByRole("button", {
+        name: /stop sharing publicly/i,
+      });
+      await stopInDialog.click();
+      let revokeDialog = page.getByRole("alertdialog");
+      await expect(
+        revokeDialog.getByRole("heading", { name: /stop sharing this lesson/i }),
+      ).toBeVisible();
+      const cancelRevoke = revokeDialog.getByRole("button", {
+        name: "Cancel",
+        exact: true,
+      });
+      await expect(cancelRevoke).toBeFocused();
+      await cancelRevoke.click();
+      await expect(revokeDialog).toHaveCount(0);
+      await expect(stopInDialog).toBeFocused();
+
+      // The Settings inventory is the durable off-ramp after leaving a
+      // lesson or signing in again. Exercise its reversible confirmation
+      // and final removal rather than relying only on the lesson dialog.
+      await page
+        .getByRole("button", { name: "Close share dialog", exact: true })
+        .click();
+      await page.getByRole("button", { name: /user menu for/i }).click();
+      await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+      await page.getByRole("button", { name: "Account", exact: true }).click();
+      await expect(
+        page.getByRole("heading", { name: "My public shares", exact: true }),
+      ).toBeVisible();
+      const inventoryStop = page.getByRole("button", {
+        name: "Stop sharing",
+        exact: true,
+      });
+      await inventoryStop.click();
+      let inventoryConfirm = page.getByRole("button", {
+        name: "Stop sharing",
+        exact: true,
+      });
+      await expect(inventoryConfirm).toBeFocused();
+      await page
+        .getByRole("button", { name: "Keep public", exact: true })
+        .click();
+      await expect(inventoryStop).toBeFocused();
+
+      await inventoryStop.click();
+      inventoryConfirm = page.getByRole("button", {
+        name: "Stop sharing",
+        exact: true,
+      });
+      await expect(inventoryConfirm).toBeFocused();
+      await inventoryConfirm.click();
+      await expect(page.getByText("You have no public lesson pages.")).toBeVisible();
+      await expect(
+        page.getByRole("heading", { name: "My public shares", exact: true }),
+      ).toBeFocused();
+      await expect(page.getByRole("alertdialog")).toHaveCount(0);
+      revokeDialog = page.getByRole("alertdialog");
+      await expect(revokeDialog).toHaveCount(0);
+      const replacementToken = new URL(replacementUrl).pathname.split("/").pop();
+      expect(replacementToken).toMatch(/^[a-z0-9]{12}$/);
+      expect(
+        (
+          await page.request.get(
+            `${BACKEND}/api/shares/${replacementToken}`,
+          )
+        ).status(),
+      ).toBe(404);
+    },
+  );
 
   test(
     "OG meta tags reflect canonical share data (server lookup)",

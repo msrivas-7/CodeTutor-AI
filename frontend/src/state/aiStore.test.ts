@@ -33,4 +33,24 @@ describe("per-task tutor progression proof", () => {
     useAIStore.getState().switchChatContext("lesson:python/variables");
     expect(useAIStore.getState().tutorProgressToken).toBeNull();
   });
+
+  it("invalidates an in-flight reply when the conversation is cleared", () => {
+    const before = useAIStore.getState().conversationRevision;
+    useAIStore.setState({
+      asking: true,
+      pending: { raw: "partial", sections: {} },
+      pendingScripted: true,
+      pendingAsk: "late action",
+    });
+
+    useAIStore.getState().clearConversation();
+
+    expect(useAIStore.getState()).toMatchObject({
+      asking: false,
+      pending: null,
+      pendingScripted: false,
+      pendingAsk: null,
+      conversationRevision: before + 1,
+    });
+  });
 });

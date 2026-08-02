@@ -6,8 +6,13 @@ import {
   endSession,
   getSessionStatus,
   rebindSession,
+  resumeMostRecentSession,
   BACKEND_BOOT_ID,
 } from "../services/session/sessionManager.js";
+import {
+  mutationLimit,
+  sessionCreateLimit,
+} from "../middleware/mutationRateLimit.js";
 
 export const sessionRouter = Router();
 
@@ -21,12 +26,34 @@ function requireUser(req: import("express").Request): string {
   return u;
 }
 
-sessionRouter.post("/", async (req, res, next) => {
+sessionRouter.post("/", sessionCreateLimit, async (req, res, next) => {
   try {
     const s = await startSession(requireUser(req));
     res.json({
       sessionId: s.id,
       createdAt: s.createdAt,
+      backendBootId: BACKEND_BOOT_ID,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Creating a runner has the strict IP floor above. Every other session
+// mutation uses the normal per-account bucket; GET/HEAD requests are skipped.
+// This keeps heartbeats and recovery usable without leaving resume/ping/end as
+// unbounded authenticated work.
+sessionRouter.use(mutationLimit);
+
+sessionRouter.post("/resume", async (req, res, next) => {
+  try {
+    const session = await resumeMostRecentSession(requireUser(req));
+    if (!session) {
+      return res.status(404).json({ error: "no active runner to resume" });
+    }
+    return res.json({
+      sessionId: session.id,
+      reused: true,
       backendBootId: BACKEND_BOOT_ID,
     });
   } catch (err) {
@@ -52,7 +79,7 @@ sessionRouter.post("/ping", (req, res) => {
   res.json({ ok: true, backendBootId: BACKEND_BOOT_ID });
 });
 
-sessionRouter.post("/rebind", async (req, res, next) => {
+sessionRouter.post("/rebind", sessionCreateLimit, async (req, res, next) => {
   const parsed = idBody.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "sessionId required" });
   try {

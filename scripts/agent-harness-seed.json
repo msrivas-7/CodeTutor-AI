@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "seedVersion": "2026-07-31.2",
+  "seedVersion": "2026-07-31.3",
   "generatedFrom": "tracked-bootstrap",
   "entries": [
     {
@@ -138,6 +138,23 @@
       "createdAt": "2026-07-30T00:00:00.000Z",
       "updatedAt": "2026-07-30T00:00:00.000Z",
       "reviewAfter": "2026-10-28T00:00:00.000Z"
+    },
+    {
+      "id": "seed-live-browser-quality-gate",
+      "fingerprint": "seed-live-browser-quality-gate",
+      "scopes": ["all"],
+      "symptom": "A browser-observable change is committed after scripted checks without being exercised as a real user, or a phase is declared complete from one shallow adversarial case.",
+      "cause": "Scripted tests prove selected contracts but do not judge the complete rendered timing, focus, layout, continuity, recovery, or interaction collisions a learner experiences.",
+      "prevention": "Use the Browser or Chrome control skill after every finding fix, exercise every adversarial interaction relevant to that feature, repeat the complete phase journey on the final staged code, and record both finding and phase evidence before finish.",
+      "evidence": "AGENTS.md, docs/templates/BROWSER_UX_AUDIT_EVIDENCE.md, the browser-audit lifecycle tests, and the staged-fingerprint pre-commit regression.",
+      "enforcement": "scripts/agent-harness.mjs browser-audit and pre-commit; .githooks/pre-commit; scripts/agent-harness.test.mjs",
+      "confidence": "verified",
+      "promotionReason": "tracked-bootstrap",
+      "occurrences": 1,
+      "status": "active",
+      "createdAt": "2026-07-31T00:00:00.000Z",
+      "updatedAt": "2026-07-31T00:00:00.000Z",
+      "reviewAfter": "2026-10-29T00:00:00.000Z"
     }
   ]
 }

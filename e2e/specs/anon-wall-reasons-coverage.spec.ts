@@ -8,8 +8,7 @@
 //                          progress save automatically..."
 //                          / "Create account & start saving"
 //   reason="next-lesson" — celebration dismiss / Next Lesson click /
-//                          header in-page Next Lesson click / practice
-//                          start (medium-lock). Copy: "Lesson 2 is
+//                          header in-page Next Lesson click. Copy: "Lesson 2 is
 //                          queued up." / "Save your spot. Your code,
 //                          your name...come with you." / "Create account
 //                          & continue" / "Maybe later"
@@ -169,8 +168,13 @@ test.describe("Phase 27-v2.1 — SignupWallDialog reasons coverage", () => {
     ).toBeVisible();
     await handoff.getByRole("button", { name: /^maybe later$/i }).click();
     await expect(handoff).toHaveCount(0);
-    await expect(page.getByRole("heading", { level: 1, name: /Hello, World!/i })).toBeVisible();
-    await expect(page.getByText(/Nice work! You can practice more/i)).toBeVisible();
+    // The completion dialog remains the active layer, so the workspace behind
+    // it correctly stays out of the interaction tree until completion itself
+    // is dismissed.
+    await expect(completion).toBeVisible();
+    await expect(
+      completion.getByRole("button", { name: /next lesson/i }),
+    ).toBeVisible();
     await expect(page.getByText(/Lesson 2 is queued up/i)).toHaveCount(0);
     await context.close();
   });

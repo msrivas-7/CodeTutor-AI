@@ -29,7 +29,6 @@ import { requestLogger } from "./middleware/requestLogger.js";
 import {
   adminWriteLimit,
   mutationLimit,
-  sessionCreateLimit,
 } from "./middleware/mutationRateLimit.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { makeExecutionBackend } from "./services/execution/backends/index.js";
@@ -325,10 +324,9 @@ async function main() {
   //                     Runs BEFORE any rate limit so (a) unauthenticated
   //                     garbage can't eat the IP bucket for real users and
   //                     (b) user-keyed buckets downstream see req.userId.
-  //   sessionCreateLimit — floor on /api/session container spawns. Keyed
-  //                     off userId when present (set by authMiddleware);
-  //                     falls back to IP for the unauthenticated edge case
-  //                     that shouldn't actually reach here.
+  //   sessionCreateLimit — route-local IP floor on create/rebind operations
+  //                     that can provision a container. Session recovery and
+  //                     heartbeat routes use the normal mutation limiter.
   //   mutationLimit   — user-keyed throttle on non-session-create writes.
   //
   // `/api/health` stays public (no csrf/auth). `/api/ai/validate-key` is
@@ -339,7 +337,6 @@ async function main() {
     bodyLimit(64 * 1024),
     csrfGuard,
     authMiddleware,
-    sessionCreateLimit,
     sessionRouter,
   );
   app.use(

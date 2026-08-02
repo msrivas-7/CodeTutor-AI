@@ -17,6 +17,7 @@ export default {
         faint: "rgb(var(--color-faint) / <alpha-value>)",
         accent: "rgb(var(--color-accent) / <alpha-value>)",
         accentMuted: "rgb(var(--color-accent-muted) / <alpha-value>)",
+        accentInk: "rgb(var(--color-accent-ink) / <alpha-value>)",
         success: "rgb(var(--color-success) / <alpha-value>)",
         warn: "rgb(var(--color-warn) / <alpha-value>)",
         warnInk: "rgb(var(--color-warn-ink) / <alpha-value>)",

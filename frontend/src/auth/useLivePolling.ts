@@ -17,6 +17,58 @@ interface UseLivePollingOpts {
   enabled?: boolean;
 }
 
+interface PollSchedulerEnvironment {
+  isHidden: () => boolean;
+  setTimer: (callback: () => void, delayMs: number) => number;
+  clearTimer: (timer: number) => void;
+}
+
+/** A small deterministic core for the browser-facing hook below. */
+export function createSequentialPollScheduler(
+  run: () => Promise<void>,
+  intervalMs: number,
+  environment: PollSchedulerEnvironment,
+) {
+  let stopped = false;
+  let timer: number | null = null;
+  let ticking = false;
+
+  const schedule = () => {
+    if (stopped || timer !== null) return;
+    timer = environment.setTimer(() => {
+      timer = null;
+      void tick();
+    }, intervalMs);
+  };
+
+  const tick = async () => {
+    if (stopped || environment.isHidden() || ticking) return;
+    ticking = true;
+    try {
+      await run();
+    } finally {
+      ticking = false;
+      schedule();
+    }
+  };
+
+  const visibilityChanged = () => {
+    if (timer !== null) {
+      environment.clearTimer(timer);
+      timer = null;
+    }
+    if (!environment.isHidden()) void tick();
+  };
+
+  const stop = () => {
+    stopped = true;
+    if (timer !== null) environment.clearTimer(timer);
+    timer = null;
+  };
+
+  return { start: () => void tick(), visibilityChanged, stop };
+}
+
 export function useLivePolling<T>(
   fetcher: () => Promise<T>,
   intervalMs: number,
@@ -34,58 +86,53 @@ export function useLivePolling<T>(
   // read inside the interval callback.
   const fetcherRef = useRef(fetcher);
   fetcherRef.current = fetcher;
+  const mountedRef = useRef(true);
+  const inFlightRef = useRef<Promise<void> | null>(null);
 
   const refresh = useCallback(async () => {
-    try {
-      const data = await fetcherRef.current();
-      setState({ data, error: null, loading: false });
-    } catch (err) {
-      setState((prev) => ({
-        data: prev.data,
-        error: err instanceof Error ? err.message : String(err),
-        loading: false,
-      }));
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!enabled) return;
-    let cancelled = false;
-    let timer: number | null = null;
-
-    const tick = async () => {
-      if (cancelled || document.hidden) return;
+    if (inFlightRef.current) return inFlightRef.current;
+    const request = (async () => {
       try {
         const data = await fetcherRef.current();
-        if (!cancelled) setState({ data, error: null, loading: false });
+        if (mountedRef.current) setState({ data, error: null, loading: false });
       } catch (err) {
-        if (!cancelled) {
+        if (mountedRef.current) {
           setState((prev) => ({
             data: prev.data,
             error: err instanceof Error ? err.message : String(err),
             loading: false,
           }));
         }
+      } finally {
+        inFlightRef.current = null;
       }
-    };
+    })();
+    inFlightRef.current = request;
+    return request;
+  }, []);
+
+  useEffect(() => {
+    if (!enabled) return;
+    mountedRef.current = true;
+    const scheduler = createSequentialPollScheduler(refresh, intervalMs, {
+      isHidden: () => document.hidden,
+      setTimer: (callback, delayMs) => window.setTimeout(callback, delayMs),
+      clearTimer: (timer) => window.clearTimeout(timer),
+    });
 
     // Fire once immediately so the screen isn't blank for `intervalMs`.
-    void tick();
-    timer = window.setInterval(() => void tick(), intervalMs);
+    scheduler.start();
 
     // Pause on tab blur, resume + immediate-tick on tab focus.
-    const onVisibility = () => {
-      if (document.hidden) return;
-      void tick();
-    };
+    const onVisibility = scheduler.visibilityChanged;
     document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
-      cancelled = true;
-      if (timer !== null) window.clearInterval(timer);
+      mountedRef.current = false;
+      scheduler.stop();
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [intervalMs, enabled]);
+  }, [intervalMs, enabled, refresh]);
 
   return { ...state, refresh };
 }

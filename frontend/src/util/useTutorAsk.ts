@@ -11,7 +11,11 @@ import {
   isProjectVersionCurrent,
   useProjectStore,
 } from "../state/projectStore";
-import { useAIStatus, notePlatformQuestionConsumed } from "../state/useAIStatus";
+import {
+  invalidateAIStatus,
+  notePlatformQuestionConsumed,
+  useAIStatus,
+} from "../state/useAIStatus";
 import type { EditorSelection, ProjectFile, AIMessage } from "../types";
 import { computeDiffSinceLast } from "./diffSinceLast";
 import { parsePartialTutor } from "./partialJson";
@@ -80,7 +84,7 @@ export interface UseTutorAskOpts {
 }
 
 export interface UseTutorAskResult {
-  submitAsk: (question: string) => Promise<void>;
+  submitAsk: (question: string, options?: { appendUser?: boolean }) => Promise<void>;
   cancelAsk: () => void;
 }
 
@@ -99,7 +103,16 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
   // P-C1: shallow-compared reactive slice + stable action refs. A no-arg
   // `useAIStore()` re-runs this hook's body on every noteEdit/noteRun tick,
   // which fires during the stream loop (each delta triggers updateStream).
-  const { selectedModel, history, asking, lastTurnFiles, activeSelection, chatContext, tutorProgressToken } =
+  const {
+    selectedModel,
+    history,
+    asking,
+    lastTurnFiles,
+    activeSelection,
+    chatContext,
+    tutorProgressToken,
+    conversationRevision,
+  } =
     useAIStore(
       useShallow((s) => ({
         selectedModel: s.selectedModel,
@@ -109,6 +122,7 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
         activeSelection: s.activeSelection,
         chatContext: s.chatContext,
         tutorProgressToken: s.tutorProgressToken,
+        conversationRevision: s.conversationRevision,
       })),
     );
   const pushUser = useAIStore((s) => s.pushUser);
@@ -136,8 +150,10 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
   // to enter the current conversation; callback guards below remain the
   // authoritative protection in case the transport races the abort.
   useEffect(() => {
-    abortRef.current?.abort();
-  }, [projectRevision, projectContext, chatContext, inputRevision]);
+    if (!abortRef.current) return;
+    setAskError("TUTOR_CONTEXT_CHANGED");
+    abortRef.current.abort();
+  }, [projectRevision, projectContext, chatContext, inputRevision, conversationRevision]);
 
   // Platform (free-tier) users have no BYOK key and no selectedModel — the
   // backend picks `gpt-4.1-nano` for them. Mirror the panel-level gate here
@@ -149,19 +165,23 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
   const onPlatform = !hasKey && aiStatus?.source === "platform";
   const configured = isAnon || onPlatform || (hasKey && !!selectedModel);
 
-  const submitAsk = async (question: string): Promise<void> => {
+  const submitAsk = async (
+    question: string,
+    options: { appendUser?: boolean } = {},
+  ): Promise<void> => {
     const trimmed = question.trim();
     if (!trimmed || !configured || asking) return;
 
     const operation = beginProjectOperation();
     const inputRevisionForTurn = inputRevision;
     const conversationForTurn = chatContext;
+    const conversationRevisionForTurn = conversationRevision;
     const selectionForTurn =
       activeSelection && isProjectVersionCurrent(activeSelection.project)
         ? activeSelection.selection
         : null;
     setActiveSelection(null);
-    pushUser(trimmed);
+    if (options.appendUser !== false) pushUser(trimmed);
     setAsking(true);
     setAskError(null);
     startStream();
@@ -172,6 +192,7 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
     const operationIsCurrent = (): boolean =>
       abortRef.current === controller &&
       useAIStore.getState().chatContext === conversationForTurn &&
+      useAIStore.getState().conversationRevision === conversationRevisionForTurn &&
       useRunStore.getState().inputRevision === inputRevisionForTurn &&
       isProjectOperationCurrent(operation);
     const notifyCompletion = (ok: boolean): void => {
@@ -275,6 +296,16 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
           onError: (message) => {
             cancelPending();
             if (!operationIsCurrent()) return;
+            // The transport can report its own AbortError after the learner
+            // presses Stop (or after a context change). The action that
+            // initiated the abort already installed the useful explanation;
+            // never replace it with browser-specific text such as
+            // "signal is aborted without reason".
+            if (controller.signal.aborted) {
+              clearStream();
+              committed = true;
+              return;
+            }
             // Phase 27-v2.1 audit pass 1 fix #5: detect the L_anon
             // cap-exceeded error code and route to the wall instead
             // of showing a generic AskErrorView with a Retry button
@@ -293,6 +324,12 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
               // so case-insensitive match on that is sufficient + safe.
               /ANON_EXHAUSTED/i.test(message)
             ) {
+              pushAssistant(
+                "I couldn't send that because today's free tutor questions are used. Your question is still here, and you can keep working without the tutor or create an account for the full daily allowance.",
+                undefined,
+                undefined,
+                { scripted: true },
+              );
               opts.onAnonExhausted();
               clearStream();
               committed = true;
@@ -333,7 +370,9 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
     } catch (err) {
       cancelPending();
       if (operationIsCurrent()) {
-        setAskError((err as Error).message);
+        if (!controller.signal.aborted) {
+          setAskError((err as Error).message);
+        }
         clearStream();
         notifyCompletion(false);
       }
@@ -353,7 +392,16 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
   };
 
   const cancelAsk = (): void => {
+    if (!abortRef.current) return;
+    setAskError("TUTOR_CANCELED_BY_USER");
     abortRef.current?.abort();
+    // A Stop can race a provider completion by a few milliseconds. The
+    // server does not count a confirmed abort, but a completion that already
+    // won the race legitimately counts. Reconcile after finalization instead
+    // of leaving the optimistic counter stale until the next navigation.
+    if (!isAnon && aiStatus?.source === "platform") {
+      setTimeout(invalidateAIStatus, 1_000);
+    }
   };
 
   return { submitAsk, cancelAsk };

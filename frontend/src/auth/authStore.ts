@@ -11,6 +11,7 @@ import {
   useProgressStore,
 } from "../features/learning/stores/progressStore";
 import { bumpGen } from "./generation";
+import { callbackUrl, rememberReturnTarget } from "./returnTarget";
 
 // Zustand store mirroring Supabase's auth state. We subscribe once at
 // bootstrap via `initAuth()` below and push every change through the store
@@ -44,13 +45,14 @@ interface AuthState {
     email: string,
     password: string,
     meta?: { firstName: string },
+    returnTo?: string,
   ) => Promise<void>;
-  signInWithMagicLink: (email: string) => Promise<void>;
-  signInWithOAuth: (provider: "google" | "github") => Promise<void>;
+  signInWithMagicLink: (email: string, returnTo?: string) => Promise<void>;
+  signInWithOAuth: (provider: "google" | "github", returnTo?: string) => Promise<void>;
   // Phase 20-P1: re-send the signup confirmation email. Supabase treats
   // this as a no-op if the user is already confirmed — safe to offer
   // unconditionally from the "check your inbox" screen.
-  resendSignupConfirmation: (email: string) => Promise<void>;
+  resendSignupConfirmation: (email: string, returnTo?: string) => Promise<void>;
   sendPasswordReset: (email: string) => Promise<void>;
   updatePassword: (newPassword: string) => Promise<void>;
   updateDisplayName: (firstName: string, lastName?: string) => Promise<void>;
@@ -79,7 +81,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     // onAuthStateChange will push the new user/session into the store.
   },
 
-  signUpWithPassword: async (email, password, meta) => {
+  signUpWithPassword: async (email, password, meta, returnTo = "/start") => {
     set({ error: null });
     const { error } = await supabase.auth.signUp({
       email,
@@ -87,7 +89,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       options: {
         // Send learners back to the app after they click the email link.
         // This is what Supabase appends `?code=...` to for the PKCE exchange.
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
+        emailRedirectTo: callbackUrl(returnTo),
         // Display name lives in `auth.users.raw_user_meta_data` — Supabase
         // stores this jsonb alongside the user row, no DB schema change
         // needed. We read it back as `user.user_metadata.first_name` to
@@ -105,12 +107,12 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
   },
 
-  signInWithMagicLink: async (email) => {
+  signInWithMagicLink: async (email, returnTo = "/start") => {
     set({ error: null });
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
+        emailRedirectTo: callbackUrl(returnTo),
       },
     });
     if (error) {
@@ -119,12 +121,13 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
   },
 
-  signInWithOAuth: async (provider) => {
+  signInWithOAuth: async (provider, returnTo = "/start") => {
     set({ error: null });
+    rememberReturnTarget(returnTo);
     const { error } = await supabase.auth.signInWithOAuth({
       provider,
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: callbackUrl(returnTo),
       },
     });
     if (error) {
@@ -134,13 +137,13 @@ export const useAuthStore = create<AuthState>((set) => ({
     // Browser will redirect to the provider; we don't reach here normally.
   },
 
-  resendSignupConfirmation: async (email) => {
+  resendSignupConfirmation: async (email, returnTo = "/start") => {
     set({ error: null });
     const { error } = await supabase.auth.resend({
       type: "signup",
       email,
       options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
+        emailRedirectTo: callbackUrl(returnTo),
       },
     });
     if (error) {

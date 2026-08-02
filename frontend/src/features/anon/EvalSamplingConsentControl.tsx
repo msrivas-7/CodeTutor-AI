@@ -65,11 +65,11 @@ export function EvalSamplingConsentControl() {
   return (
     <div
       data-testid="eval-sampling-consent"
-      className="mb-2 rounded-lg border border-border/80 bg-elevated/45 px-2.5 py-2"
+      className="relative mb-1 flex min-h-11 items-center gap-2 rounded-lg border border-border/80 bg-elevated/45 px-2.5 py-1.5"
     >
       <label
         htmlFor={inputId}
-        className="flex min-h-11 cursor-pointer items-center gap-2.5"
+        className="flex min-h-11 min-w-0 flex-1 cursor-pointer items-center gap-2.5"
       >
         <input
           id={inputId}
@@ -80,30 +80,31 @@ export function EvalSamplingConsentControl() {
           onChange={(event) => void handleChange(event.target.checked)}
           className="h-4 w-4 shrink-0 cursor-pointer accent-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-wait"
         />
-        <span className="min-w-0">
-          <span className="block text-xs font-semibold text-ink">Help improve the tutor</span>
-          <span id={descriptionId} className="mt-0.5 block text-[11px] leading-4 text-muted">
-            Off by default. Share 5% of redacted anonymous turns for up to 30 days.
-          </span>
+        <span className="min-w-0 truncate text-xs font-medium text-ink">
+          Improve tutor <span id={descriptionId} className="font-normal text-muted">· optional, redacted</span>
         </span>
       </label>
 
-      <details className="ml-6 text-[11px] leading-4 text-muted">
-        <summary className="min-h-11 cursor-pointer py-3 text-accentMuted underline decoration-accentMuted/40 underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
-          What is shared?
+      <details className="group shrink-0 text-[11px] leading-4 text-muted">
+        <summary className="flex min-h-11 cursor-pointer list-none items-center rounded-lg px-2 text-accentMuted underline decoration-accentMuted/40 underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+          Privacy
         </summary>
-        <p className="pb-2 pr-1">
-          Files, source code, selections, terminal output, paths, and raw history are never
-          stored. Personal details and identifiers are removed before saving. Turn this off
-          to delete retained samples. BYOK chats are excluded. Read the{" "}
-          <Link className="text-accentMuted underline underline-offset-2" to="/privacy#ai">
-            privacy details
+        <div className="absolute bottom-[calc(100%+0.375rem)] left-0 right-0 z-30 rounded-xl border border-border bg-panel p-3 text-xs leading-relaxed text-muted shadow-2xl">
+          <p>
+            Off by default. If enabled, 5% of anonymous turns may be kept for up to 30 days after personal details are removed. Files, code, paths, output, and raw history are never stored. Turning this off deletes retained samples. BYOK chats are excluded.
+          </p>
+          <Link
+            className="mt-2 inline-flex min-h-11 items-center font-semibold text-accentMuted underline underline-offset-2"
+            to="/privacy#ai"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Open full privacy details
           </Link>
-          .
-        </p>
+        </div>
       </details>
 
-      <div className="ml-6 min-h-4 text-[11px] leading-4" aria-live="polite">
+      <div className="absolute bottom-full left-0 right-0 mb-1 text-[11px] leading-4" aria-live="polite">
         {busy ? (
           <span className="text-muted">Turning off and deleting retained samples…</span>
         ) : error ? (

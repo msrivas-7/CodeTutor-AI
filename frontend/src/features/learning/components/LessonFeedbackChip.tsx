@@ -122,7 +122,7 @@ export function LessonFeedbackChip({ lessonId, lessonTitle }: LessonFeedbackChip
               onClick={() => handleMoodClick(mood, category)}
               aria-label={label}
               data-testid={`lesson-feedback-${mood}`}
-              className="flex h-8 w-8 items-center justify-center rounded-full border border-transparent bg-panel/80 text-base transition hover:border-accent/40 hover:bg-accent/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              className="flex h-11 w-11 items-center justify-center rounded-full border border-transparent bg-panel/80 text-base transition hover:border-accent/40 hover:bg-accent/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               <span aria-hidden="true">{emoji}</span>
             </button>

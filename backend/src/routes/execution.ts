@@ -15,8 +15,25 @@ const body = z.object({
   stdin: z.string().max(100_000).optional(),
 });
 
+const cancelBody = z.object({ sessionId: z.string().min(1) });
+
 export function createExecutionRouter(backend: ExecutionBackend): Router {
   const router = Router();
+
+  router.post("/cancel", async (req, res, next) => {
+    const parsed = cancelBody.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.message });
+    const userId = req.userId;
+    if (!userId) return res.status(401).json({ error: "unauthenticated" });
+    try {
+      const session = requireActiveSession(parsed.data.sessionId, userId);
+      await backend.cancel(session.handle);
+      touchSession(parsed.data.sessionId);
+      res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  });
 
   router.post("/", async (req, res, next) => {
     const parsed = body.safeParse(req.body);

@@ -112,9 +112,13 @@ export interface EditorAttentionTarget {
 
 interface MonacoPaneProps {
   attentionTarget?: EditorAttentionTarget | null;
+  readOnly?: boolean;
 }
 
-export function MonacoPane({ attentionTarget = null }: MonacoPaneProps = {}) {
+export function MonacoPane({
+  attentionTarget = null,
+  readOnly = false,
+}: MonacoPaneProps = {}) {
   // P-C1: scoped selectors — a no-arg `useProjectStore()` re-renders on every
   // file-tree reorder / tab change, dragging Monaco through a full re-render
   // storm on navigation. Files map is shallow-compared so only content edits
@@ -283,6 +287,8 @@ export function MonacoPane({ attentionTarget = null }: MonacoPaneProps = {}) {
       theme={theme === "light" ? "ai-light" : "ai-dark"}
       beforeMount={defineThemes}
       options={{
+        readOnly,
+        readOnlyMessage: { value: "Finish or skip the welcome to start editing." },
         fontSize: 13,
         fontFamily: "'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace",
         fontLigatures: true,

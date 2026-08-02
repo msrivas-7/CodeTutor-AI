@@ -125,7 +125,7 @@ export function useFirstRunChoreography({
   validator,
   onSeed = "authed-mark-prefs",
   resolvePraiseName,
-}: UseFirstRunChoreographyArgs): void {
+}: UseFirstRunChoreographyArgs): { skipChoreography: () => void } {
   const step = useFirstRunStore((s) => s.step);
   const skipped = useFirstRunStore((s) => s.skipped);
   const start = useFirstRunStore((s) => s.start);
@@ -162,6 +162,12 @@ export function useFirstRunChoreography({
       void markFirstRunComplete();
     }
   }, [onSeed]);
+
+  const skipChoreography = useCallback(() => {
+    currentStreamRef.current?.cancel();
+    persistDoneOnSkip();
+    skip();
+  }, [persistDoneOnSkip, skip]);
 
   // Cancel the current scripted stream if the user types a question.
   // Detection: `aiStore.history` gains a user-role message after the
@@ -549,4 +555,6 @@ export function useFirstRunChoreography({
       setStep("seed");
     }
   }, [enabled, skipped, step, validator.validation, setStep]);
+
+  return { skipChoreography };
 }

@@ -77,6 +77,9 @@ export interface ExecutionBackend {
     opts?: ExecOptions,
   ): Promise<ExecResult>;
 
+  /** Terminate learner-owned processes currently running in this session. */
+  cancel(handle: SessionHandle): Promise<void>;
+
   /** Overlay-write files into the session workspace. Creates parent dirs. */
   writeFiles(handle: SessionHandle, files: WorkspaceFile[]): Promise<void>;
 

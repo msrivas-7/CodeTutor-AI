@@ -279,14 +279,19 @@ export function StreakChip({ override, compact, interactive = true, prominent = 
         setAnchorRect(buttonRef.current.getBoundingClientRect());
       }
     };
+    const closeForViewportChange = () => setOpen(false);
     const ro = new ResizeObserver(update);
     ro.observe(buttonRef.current);
-    window.addEventListener("resize", update);
+    window.addEventListener("resize", closeForViewportChange);
     window.addEventListener("scroll", update, true);
+    document.addEventListener("fullscreenchange", closeForViewportChange);
+    document.addEventListener("webkitfullscreenchange", closeForViewportChange);
     return () => {
       ro.disconnect();
-      window.removeEventListener("resize", update);
+      window.removeEventListener("resize", closeForViewportChange);
       window.removeEventListener("scroll", update, true);
+      document.removeEventListener("fullscreenchange", closeForViewportChange);
+      document.removeEventListener("webkitfullscreenchange", closeForViewportChange);
     };
   }, [open]);
 
@@ -363,7 +368,7 @@ export function StreakChip({ override, compact, interactive = true, prominent = 
         // chip — invisible, but a child of the button so clicks on it
         // count as clicks on the button. `prominent` mode is already
         // ~44px tall so it skips the expansion.
-        className={`relative inline-flex items-center gap-1.5 rounded-full border ${padding} ${fontSize} font-medium tabular-nums ${tier.border} ${tier.ink} transition-colors motion-reduce:transition-none focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${isInteractive ? "cursor-pointer" : "cursor-default"} ${
+        className={`relative inline-flex min-h-11 items-center gap-1.5 rounded-full border ${padding} ${fontSize} font-medium tabular-nums ${tier.border} ${tier.ink} transition-colors motion-reduce:transition-none focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${isInteractive ? "cursor-pointer" : "cursor-default"} ${
           // Open state: chip darkens slightly and gains a stronger border
           // so it visually reads as "active source" — the popover that
           // ballooned out is anchored to it.
@@ -372,7 +377,7 @@ export function StreakChip({ override, compact, interactive = true, prominent = 
           // Tap-target halo. Only on the interactive path — passive
           // chips don't need expanded hit areas.
           isInteractive && !prominent
-            ? "before:absolute before:-inset-[10px] before:content-['']"
+            ? "before:absolute before:-inset-x-[10px] before:content-['']"
             : ""
         }`}
         style={{ boxShadow: tier.glowStyle, letterSpacing: "0.01em" }}

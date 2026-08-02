@@ -14,9 +14,13 @@ import {
 } from "../db/courseProgress.js";
 import {
   addLessonTimes,
+  assertLessonAccess,
   listLessonProgress,
+  saveLessonDraft,
+  resetCourseLessonProgress,
+  resetLessonProgress,
+  resetPracticeProgress,
   upsertLessonProgress,
-  deleteLessonProgress,
 } from "../db/lessonProgress.js";
 import { getEditorProject, saveEditorProject } from "../db/editorProject.js";
 import {
@@ -24,6 +28,7 @@ import {
   deleteSavedTutorMessage,
   insertSavedTutorMessage,
   listSavedTutorMessages,
+  listAllSavedTutorMessages,
 } from "../db/savedTutorMessages.js";
 import {
   getStreakHistory,
@@ -45,6 +50,7 @@ import {
 } from "../db/conceptMemory.js";
 import {
   getCourseConceptTags,
+  getCourseStructure,
   getPracticeEvidenceSnapshot,
 } from "../services/share/lessonCatalog.js";
 
@@ -236,10 +242,35 @@ userDataRouter.patch("/courses/:courseId", async (req, res, next) => {
     return res.status(400).json({ error: "invalid course patch" });
   }
   try {
+    const userId = requireUser(req);
+    const structure = await getCourseStructure(courseId.data);
+    if (!structure) return res.status(404).json({ error: "course not found" });
+    const lessonRows = await listLessonProgress(userId, courseId.data);
+    const completedSet = new Set(
+      lessonRows
+        .filter((lesson) => lesson.status === "completed")
+        .map((lesson) => lesson.lessonId),
+    );
+    const completedLessonIds = structure.lessonOrder.filter((id) => completedSet.has(id));
+    const allDone =
+      structure.lessonOrder.length > 0 &&
+      completedLessonIds.length === structure.lessonOrder.length;
+    const hasStarted =
+      lessonRows.some((lesson) => lesson.status !== "not_started") ||
+      parsed.data.status === "in_progress";
     const row = await upsertCourseProgress(
-      requireUser(req),
+      userId,
       courseId.data,
-      parsed.data,
+      {
+        startedAt: parsed.data.startedAt,
+        lastLessonId:
+          parsed.data.lastLessonId && structure.lessonOrder.includes(parsed.data.lastLessonId)
+            ? parsed.data.lastLessonId
+            : undefined,
+        completedLessonIds,
+        status: allDone ? "completed" : hasStarted ? "in_progress" : "not_started",
+        completedAt: allDone ? parsed.data.completedAt ?? new Date().toISOString() : null,
+      },
     );
     res.json(row);
   } catch (err) {
@@ -254,7 +285,7 @@ userDataRouter.delete("/courses/:courseId", async (req, res, next) => {
   }
   try {
     const userId = requireUser(req);
-    const deletedLessons = await deleteLessonProgress(userId, courseId.data);
+    const deletedLessons = await resetCourseLessonProgress(userId, courseId.data);
     const deletedCourse = await deleteCourseProgress(userId, courseId.data);
     res.json({ course: deletedCourse, lessons: deletedLessons });
   } catch (err) {
@@ -297,7 +328,6 @@ const lessonPatchSchema = z
     runCount: z.number().int().nonnegative().max(1_000_000).optional(),
     hintCount: z.number().int().nonnegative().max(1_000_000).optional(),
     timeSpentMs: z.number().int().nonnegative().max(30 * 24 * 3600 * 1000).optional(),
-    lastCode: lastCodeSchema.optional(),
     lastOutput: z.string().max(200_000).nullable().optional(),
     practiceCompletedIds: z.array(slug("practiceId")).max(256).optional(),
     practiceExerciseCode: practiceExerciseCodeSchema.optional(),
@@ -360,8 +390,14 @@ userDataRouter.post("/lessons/heartbeat", async (req, res, next) => {
     return res.status(400).json({ error: "invalid heartbeat batch" });
   }
   try {
+    const userId = requireUser(req);
+    await Promise.all(
+      parsed.data.items.map((item) =>
+        assertLessonAccess(userId, item.courseId, item.lessonId),
+      ),
+    );
     const written = await addLessonTimes(
-      requireUser(req),
+      userId,
       parsed.data.items.map((i) => ({
         courseId: i.courseId,
         lessonId: i.lessonId,
@@ -373,6 +409,103 @@ userDataRouter.post("/lessons/heartbeat", async (req, res, next) => {
     next(err);
   }
 });
+
+const lessonDraftBody = z
+  .object({
+    code: lastCodeSchema.refine((value) => value !== null, {
+      message: "code required",
+    }),
+    expectedRevision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+    writerId: z.string().uuid(),
+  })
+  .strict();
+
+userDataRouter.put(
+  "/lessons/:courseId/:lessonId/draft",
+  async (req, res, next) => {
+    const courseId = slug("courseId").safeParse(req.params.courseId);
+    const lessonId = slug("lessonId").safeParse(req.params.lessonId);
+    const parsed = lessonDraftBody.safeParse(req.body ?? {});
+    if (!courseId.success || !lessonId.success || !parsed.success) {
+      return res.status(400).json({ error: "invalid lesson draft" });
+    }
+    try {
+      const userId = requireUser(req);
+      await assertLessonAccess(userId, courseId.data, lessonId.data);
+      const result = await saveLessonDraft(userId, courseId.data, lessonId.data, {
+        code: parsed.data.code as Record<string, string>,
+        expectedRevision: parsed.data.expectedRevision,
+        writerId: parsed.data.writerId,
+      });
+      if (!result.ok) {
+        return res.status(409).json({
+          error: "lesson draft changed in another tab or device",
+          current: result.current,
+        });
+      }
+      return res.json(result.lesson);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+userDataRouter.delete(
+  "/lessons/:courseId/:lessonId/practice",
+  async (req, res, next) => {
+    const courseId = slug("courseId").safeParse(req.params.courseId);
+    const lessonId = slug("lessonId").safeParse(req.params.lessonId);
+    if (!courseId.success || !lessonId.success) {
+      return res.status(400).json({ error: "invalid courseId or lessonId" });
+    }
+    try {
+      const userId = requireUser(req);
+      await assertLessonAccess(userId, courseId.data, lessonId.data);
+      const row = await resetPracticeProgress(userId, courseId.data, lessonId.data);
+      return res.json(row);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+userDataRouter.delete(
+  "/lessons/:courseId/:lessonId",
+  async (req, res, next) => {
+    const courseId = slug("courseId").safeParse(req.params.courseId);
+    const lessonId = slug("lessonId").safeParse(req.params.lessonId);
+    if (!courseId.success || !lessonId.success) {
+      return res.status(400).json({ error: "invalid courseId or lessonId" });
+    }
+    try {
+      const userId = requireUser(req);
+      const structure = await getCourseStructure(courseId.data);
+      if (!structure || !structure.lessonOrder.includes(lessonId.data)) {
+        return res.status(404).json({ error: "lesson not found" });
+      }
+      const reset = await resetLessonProgress(userId, courseId.data, lessonId.data);
+      const remaining = await listLessonProgress(userId, courseId.data);
+      const completedSet = new Set(
+        remaining
+          .filter((lesson) => lesson.status === "completed")
+          .map((lesson) => lesson.lessonId),
+      );
+      const completedLessonIds = structure.lessonOrder.filter((id) => completedSet.has(id));
+      const anyStarted = remaining.some((lesson) => lesson.status !== "not_started");
+      const course = await upsertCourseProgress(userId, courseId.data, {
+        status: anyStarted ? "in_progress" : "not_started",
+        completedAt: null,
+        completedLessonIds,
+        lastLessonId:
+          remaining.filter((lesson) => lesson.status !== "not_started").at(-1)
+            ?.lessonId ?? null,
+      });
+      return res.json({ reset, course });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 userDataRouter.patch(
   "/lessons/:courseId/:lessonId",
@@ -388,6 +521,7 @@ userDataRouter.patch(
     }
     try {
       const userId = requireUser(req);
+      await assertLessonAccess(userId, courseId.data, lessonId.data);
       const { practiceEvidence, ...lessonPatch } = parsed.data;
       const practiceSnapshot = practiceEvidence
         ? await getPracticeEvidenceSnapshot(
@@ -549,6 +683,8 @@ const editorProjectSchema = z
     openTabs: z.array(editorPathSchema).max(EDITOR_MAX_FILES),
     fileOrder: z.array(editorPathSchema).max(EDITOR_MAX_FILES),
     stdin: z.string().max(EDITOR_STDIN_MAX),
+    expectedRevision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+    writerId: z.string().uuid(),
   })
   .strict();
 
@@ -567,8 +703,14 @@ userDataRouter.put("/editor-project", async (req, res, next) => {
     return res.status(400).json({ error: "invalid editor project payload" });
   }
   try {
-    const project = await saveEditorProject(requireUser(req), parsed.data);
-    res.json(project);
+    const result = await saveEditorProject(requireUser(req), parsed.data);
+    if (!result.ok) {
+      return res.status(409).json({
+        error: "editor project changed in another tab or device",
+        current: result.current,
+      });
+    }
+    res.json(result.project);
   } catch (err) {
     next(err);
   }
@@ -712,6 +854,15 @@ userDataRouter.get("/saved-tutor-messages", async (req, res, next) => {
   }
   try {
     const messages = await listSavedTutorMessages(requireUser(req), scopeResult.scope);
+    res.json({ messages });
+  } catch (err) {
+    next(err);
+  }
+});
+
+userDataRouter.get("/saved-tutor-messages/all", async (req, res, next) => {
+  try {
+    const messages = await listAllSavedTutorMessages(requireUser(req));
     res.json({ messages });
   } catch (err) {
     next(err);

@@ -825,7 +825,7 @@ function lintCompletionRules(
         const pyAvailable = isPythonAvailable();
         for (let j = 0; j < rule.tests.length; j++) {
           const t = rule.tests[j];
-          if (pyAvailable) {
+          if (pyAvailable && t.expected !== undefined) {
             const ok = pythonLiteralEvalOk(t.expected);
             if (!ok) {
               issues.push({
@@ -840,7 +840,7 @@ function lintCompletionRules(
       } else if (lessonLanguage === "javascript") {
         for (let j = 0; j < rule.tests.length; j++) {
           const t = rule.tests[j];
-          if (!jsonLiteralOk(t.expected)) {
+          if (t.expected !== undefined && !jsonLiteralOk(t.expected)) {
             issues.push({
               severity: "error",
               file: relLesson,
@@ -850,6 +850,27 @@ function lintCompletionRules(
           }
         }
       }
+    } else if (rule.type === "source_checks") {
+      if (lessonLanguage !== "python") {
+        issues.push({
+          severity: "error",
+          file: relLesson,
+          pointer: `${pointerPrefix}[${i}]`,
+          message: `source_checks is currently supported only for Python lessons`,
+        });
+      }
+      const starterDir = join(lessonDir, "starter");
+      rule.checks.forEach((check, checkIndex) => {
+        const target = check.file ?? "main.py";
+        if (existsSync(starterDir) && !existsSync(join(starterDir, target))) {
+          issues.push({
+            severity: "warning",
+            file: relLesson,
+            pointer: `${pointerPrefix}[${i}].checks[${checkIndex}].file`,
+            message: `source_checks references file "${target}" which is not in starter/`,
+          });
+        }
+      });
     } else if (rule.type === "required_file_contains" && rule.file) {
       const starterDir = join(lessonDir, "starter");
       if (existsSync(starterDir) && !existsSync(join(starterDir, rule.file))) {

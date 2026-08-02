@@ -29,10 +29,18 @@ async function verifyZeroStateJourney(
   await primary.click();
   await expect(page).toHaveURL(new RegExp(`${TRIAL_PATH}$`));
 
+  // The lesson route is lazy-loaded. On a cold CI stack, wait for the
+  // cinematic's stable interaction boundary before asserting details inside
+  // the same frame; this keeps startup time separate from choreography time.
+  const skipIntroduction = page.getByRole("button", { name: /skip introduction/i });
+  await expect(skipIntroduction).toBeVisible({ timeout: 15_000 });
+
   // The named snippet is explicitly presented as an example, never as if the
   // product already knows the visitor.
-  await expect(page.getByText(/Example code · Maya/i)).toBeVisible({ timeout: 6_000 });
+  await expect(page.getByText(/Example code · Maya/i)).toBeVisible();
   await page.keyboard.press("Escape");
+  await expect(skipIntroduction).toBeVisible();
+  await skipIntroduction.click();
 
   await expect(page.getByRole("heading", { level: 1, name: /Hello, World!/i })).toBeVisible({
     timeout: 12_000,
@@ -43,6 +51,8 @@ async function verifyZeroStateJourney(
   await expect(page.getByRole("button", { name: /run/i }).first()).toBeVisible({
     timeout: 15_000,
   });
+  await page.getByRole("button", { name: /skip welcome/i }).click();
+  await expect(page.getByRole("button", { name: /run/i }).first()).toBeEnabled();
   await expect(page.getByText(/Sign up to save\?/i)).toHaveCount(0);
 
   const widths = await page.evaluate(() => ({

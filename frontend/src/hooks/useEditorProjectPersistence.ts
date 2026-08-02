@@ -3,6 +3,8 @@ import { api, type EditorProjectPayload } from "../api/client";
 import { useProjectStore } from "../state/projectStore";
 import { useRunStore } from "../state/runStore";
 import { useAuthStore } from "../auth/authStore";
+import { ApiError } from "../api/ApiError";
+import { tabWriterId } from "../util/tabWriterId";
 
 // Phase 18b: persist the free-form editor project (files, active file, tab
 // order, stdin, language) to the user_data.editor_project table so it
@@ -20,6 +22,7 @@ export function useEditorProjectPersistence(): void {
   const user = useAuthStore((s) => s.user);
   const authLoading = useAuthStore((s) => s.loading);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveChain = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
     if (authLoading || !user) return;
@@ -27,20 +30,54 @@ export function useEditorProjectPersistence(): void {
     function schedule() {
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(() => {
-        if (!useProjectStore.getState().editorHydrated) return;
-        const p = useProjectStore.getState();
-        if (p.projectContext !== "editor") return;
-        const payload: EditorProjectPayload = {
-          language: p.language,
-          files: p.files,
-          activeFile: p.activeFile,
-          openTabs: p.openTabs,
-          fileOrder: p.order,
-          stdin: useRunStore.getState().stdin,
-        };
-        api.saveEditorProject(payload).catch((err) => {
-          console.error("[editorProject] save failed:", (err as Error).message);
-        });
+        saveChain.current = saveChain.current
+          .catch(() => undefined)
+          .then(async () => {
+            const p = useProjectStore.getState();
+            if (!p.editorHydrated || p.projectContext !== "editor") return;
+            if (p.editorSaveConflict) return;
+            const payload: EditorProjectPayload = {
+              language: p.language,
+              files: p.files,
+              activeFile: p.activeFile,
+              openTabs: p.openTabs,
+              fileOrder: p.order,
+              stdin: useRunStore.getState().stdin,
+              expectedRevision: p.editorServerRevision,
+              writerId: tabWriterId,
+            };
+            try {
+              const saved = await api.saveEditorProject(payload);
+              useProjectStore.setState({
+                editorServerRevision: saved.revision,
+                editorServerWriterId: saved.writerId,
+                editorSaveError: null,
+              });
+            } catch (err) {
+              if (err instanceof ApiError && err.status === 409) {
+                try {
+                  const body = JSON.parse(err.body) as {
+                    current?: Awaited<ReturnType<typeof api.getEditorProject>>;
+                  };
+                  if (body.current) {
+                    useProjectStore.setState({
+                      editorServerRevision: body.current.revision,
+                      editorServerWriterId: body.current.writerId,
+                      editorSaveError: null,
+                      editorSaveConflict: { local: payload, remote: body.current },
+                    });
+                    return;
+                  }
+                } catch {
+                  // Continue to the ordinary save-error log.
+                }
+              }
+              console.error("[editorProject] save failed:", (err as Error).message);
+              useProjectStore.setState({
+                editorSaveError: "Your project is still open here, but it has not synced yet.",
+              });
+            }
+          });
       }, DEBOUNCE_MS);
     }
 
@@ -53,6 +90,7 @@ export function useEditorProjectPersistence(): void {
         s.openTabs === prev.openTabs &&
         s.order === prev.order
       ) {
+        if (prev.editorSaveError && !s.editorSaveError) schedule();
         return;
       }
       schedule();
@@ -62,11 +100,68 @@ export function useEditorProjectPersistence(): void {
       if (useProjectStore.getState().projectContext !== "editor") return;
       schedule();
     });
+    const retryWhenOnline = () => {
+      if (useProjectStore.getState().editorSaveError) schedule();
+    };
+    window.addEventListener("online", retryWhenOnline);
 
     return () => {
       unsubP();
       unsubR();
+      window.removeEventListener("online", retryWhenOnline);
       if (saveTimer.current) clearTimeout(saveTimer.current);
     };
   }, [authLoading, user]);
+}
+
+export function retryEditorProjectSave(): void {
+  const state = useProjectStore.getState();
+  if (!state.editorSaveError || state.editorSaveConflict) return;
+  useProjectStore.setState({ editorSaveError: null });
+}
+
+export async function resolveEditorProjectConflict(
+  choice: "remote" | "local",
+): Promise<boolean> {
+  const state = useProjectStore.getState();
+  const conflict = state.editorSaveConflict;
+  if (!conflict) return false;
+  if (choice === "remote") {
+    const remote = conflict.remote;
+    useProjectStore.getState().replaceProject({
+      language: remote.language as typeof state.language,
+      files: remote.files,
+      order: remote.fileOrder,
+      activeFile: remote.activeFile,
+      openTabs: remote.openTabs,
+    });
+    useRunStore.setState({ stdin: remote.stdin, result: null, error: null });
+    useProjectStore.setState({
+      editorServerRevision: remote.revision,
+      editorServerWriterId: remote.writerId,
+      editorSaveError: null,
+      editorSaveConflict: null,
+    });
+    return true;
+  }
+  try {
+    const saved = await api.saveEditorProject({
+      ...conflict.local,
+      expectedRevision: conflict.remote.revision,
+      writerId: tabWriterId,
+    });
+    useProjectStore.setState({
+      editorServerRevision: saved.revision,
+      editorServerWriterId: saved.writerId,
+      editorSaveError: null,
+      editorSaveConflict: null,
+    });
+    return true;
+  } catch (error) {
+    console.error("[editorProject] conflict resolution failed:", (error as Error).message);
+    useProjectStore.setState({
+      editorSaveError: "That version could not be saved yet. Both copies are still available.",
+    });
+    return false;
+  }
 }

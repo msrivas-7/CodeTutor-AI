@@ -8,14 +8,20 @@ const {
   patchLessonProgress,
   patchCourseProgress,
   deleteCourseProgress,
+  resetLessonProgress,
   listCourseProgress,
   listLessonProgress,
+  resetPracticeProgress,
+  saveLessonDraft,
 } = vi.hoisted(() => ({
-  patchLessonProgress: vi.fn(async () => ({})),
-  patchCourseProgress: vi.fn(async () => ({})),
+  patchLessonProgress: vi.fn(),
+  patchCourseProgress: vi.fn(),
   deleteCourseProgress: vi.fn(async () => ({})),
+  resetLessonProgress: vi.fn(),
   listCourseProgress: vi.fn(async () => ({ courses: [] as unknown[] })),
   listLessonProgress: vi.fn(async () => ({ lessons: [] as unknown[] })),
+  resetPracticeProgress: vi.fn(),
+  saveLessonDraft: vi.fn(),
 }));
 
 vi.mock("../../../api/client", () => ({
@@ -23,8 +29,11 @@ vi.mock("../../../api/client", () => ({
     patchLessonProgress,
     patchCourseProgress,
     deleteCourseProgress,
+    resetLessonProgress,
     listCourseProgress,
     listLessonProgress,
+    resetPracticeProgress,
+    saveLessonDraft,
     // Phase 21B: completeLesson invalidates the streak after the
     // lesson PATCH resolves, which reaches into api.getUserStreak.
     // Stub it so the streak refetch is a no-op in these tests
@@ -76,12 +85,117 @@ function reset(): void {
 beforeEach(() => {
   reset();
   patchLessonProgress.mockClear();
-  patchCourseProgress.mockClear();
+  patchCourseProgress.mockReset();
   deleteCourseProgress.mockClear();
+  resetLessonProgress.mockReset();
+  resetPracticeProgress.mockReset();
+  saveLessonDraft.mockReset();
   listCourseProgress.mockReset();
   listLessonProgress.mockReset();
   listCourseProgress.mockResolvedValue({ courses: [] });
   listLessonProgress.mockResolvedValue({ lessons: [] });
+  patchLessonProgress.mockImplementation(
+    async (courseId: string, lessonId: string, body: Record<string, unknown>) => ({
+      courseId,
+      lessonId,
+      status: body.status ?? "in_progress",
+      startedAt: body.startedAt ?? "t1",
+      completedAt: body.completedAt ?? null,
+      updatedAt: "t2",
+      attemptCount: 0,
+      runCount: 0,
+      hintCount: 0,
+      timeSpentMs: 0,
+      lastCode: null,
+      draftRevision: 0,
+      draftWriterId: null,
+      draftUpdatedAt: null,
+      lastOutput: null,
+      practiceCompletedIds: body.practiceCompletedIds ?? [],
+      practiceExerciseCode: body.practiceExerciseCode ?? {},
+    }),
+  );
+  patchCourseProgress.mockImplementation(
+    async (courseId: string, body: Record<string, unknown>) => ({
+      courseId,
+      status: body.status ?? "in_progress",
+      startedAt: body.startedAt ?? "t1",
+      completedAt: body.completedAt ?? null,
+      updatedAt: "t2",
+      lastLessonId: body.lastLessonId ?? null,
+      completedLessonIds: body.completedLessonIds ?? [],
+    }),
+  );
+  saveLessonDraft.mockImplementation(
+    async (_courseId: string, _lessonId: string, body: Record<string, unknown>) => ({
+      courseId: COURSE,
+      lessonId: LESSON,
+      status: "in_progress",
+      startedAt: "t1",
+      completedAt: null,
+      updatedAt: "t2",
+      attemptCount: 0,
+      runCount: 0,
+      hintCount: 0,
+      timeSpentMs: 0,
+      lastCode: body.code,
+      draftRevision: 1,
+      draftWriterId: body.writerId,
+      draftUpdatedAt: "t2",
+      lastOutput: null,
+      practiceCompletedIds: [],
+      practiceExerciseCode: {},
+    }),
+  );
+  resetPracticeProgress.mockResolvedValue({
+    courseId: COURSE,
+    lessonId: LESSON,
+    status: "in_progress",
+    startedAt: "t1",
+    completedAt: null,
+    updatedAt: "t2",
+    attemptCount: 0,
+    runCount: 0,
+    hintCount: 0,
+    timeSpentMs: 0,
+    lastCode: null,
+    draftRevision: 0,
+    draftWriterId: null,
+    draftUpdatedAt: null,
+    lastOutput: null,
+    practiceCompletedIds: [],
+    practiceExerciseCode: {},
+  });
+  resetLessonProgress.mockResolvedValue({
+    reset: {
+      courseId: COURSE,
+      lessonId: LESSON,
+      status: "not_started",
+      startedAt: null,
+      completedAt: null,
+      updatedAt: "t2",
+      attemptCount: 0,
+      runCount: 0,
+      hintCount: 0,
+      timeSpentMs: 0,
+      lastCode: null,
+      draftRevision: 2,
+      draftWriterId: null,
+      draftUpdatedAt: "t2",
+      lastOutput: null,
+      practiceCompletedIds: [],
+      practiceExerciseCode: {},
+    },
+    course: {
+      courseId: COURSE,
+      status: "not_started",
+      startedAt: null,
+      completedAt: null,
+      updatedAt: "t2",
+      lastLessonId: null,
+      completedLessonIds: [],
+    },
+  });
 });
 
 afterEach(() => {
@@ -330,12 +444,12 @@ describe("progressStore.startLesson", () => {
 });
 
 describe("progressStore.completeLesson", () => {
-  it("marks lesson completed and appends to course.completedLessonIds", () => {
+  it("marks lesson completed and appends to course.completedLessonIds", async () => {
     useProgressStore.getState().startLesson(LEARNER, COURSE, LESSON);
     patchLessonProgress.mockClear();
     patchCourseProgress.mockClear();
 
-    useProgressStore.getState().completeLesson(LEARNER, COURSE, LESSON, 3);
+    await useProgressStore.getState().completeLesson(LEARNER, COURSE, LESSON, 3);
 
     const lp = useProgressStore.getState().lessonProgress[KEY];
     expect(lp.status).toBe("completed");
@@ -352,9 +466,9 @@ describe("progressStore.completeLesson", () => {
     );
   });
 
-  it("flips course to completed when the final lesson lands", () => {
-    useProgressStore.getState().completeLesson(LEARNER, COURSE, "a", 2);
-    useProgressStore.getState().completeLesson(LEARNER, COURSE, "b", 2);
+  it("flips course to completed when the final lesson lands", async () => {
+    await useProgressStore.getState().completeLesson(LEARNER, COURSE, "a", 2);
+    await useProgressStore.getState().completeLesson(LEARNER, COURSE, "b", 2);
     const cp = useProgressStore.getState().courseProgress[COURSE];
     expect(cp.status).toBe("completed");
     expect(cp.completedAt).toBeTruthy();
@@ -403,16 +517,63 @@ describe("progressStore.saveCode / saveOutput", () => {
     patchLessonProgress.mockClear();
   });
 
-  it("saveCode stores the files map and patches lastCode", () => {
+  it("saveCode stores the files map with a revisioned draft write", async () => {
     const code = { "main.py": "print('hi')" };
-    useProgressStore.getState().saveCode(COURSE, LESSON, code);
+    await useProgressStore.getState().saveCode(COURSE, LESSON, code);
     expect(useProgressStore.getState().lessonProgress[KEY].lastCode).toEqual(code);
-    expect(patchLessonProgress).toHaveBeenLastCalledWith(
+    expect(saveLessonDraft).toHaveBeenLastCalledWith(
       COURSE,
       LESSON,
-      { lastCode: code },
+      expect.objectContaining({ code, expectedRevision: 0 }),
     );
     expect(loadSavedCode(COURSE, LESSON)).toEqual(code);
+  });
+
+  it("keeps an offline draft visible and clears the warning after retry", async () => {
+    const code = { "main.py": "print('offline but safe')" };
+    saveLessonDraft.mockRejectedValueOnce(new Error("offline"));
+
+    await useProgressStore.getState().saveCode(COURSE, LESSON, code);
+    expect(useProgressStore.getState().lessonProgress[KEY].lastCode).toEqual(code);
+    expect(useProgressStore.getState().draftSaveErrors[KEY]).toMatch(/not synced/i);
+
+    await useProgressStore.getState().retryDraftSave(COURSE, LESSON);
+    expect(useProgressStore.getState().draftSaveErrors[KEY]).toBeUndefined();
+    expect(saveLessonDraft).toHaveBeenLastCalledWith(
+      COURSE,
+      LESSON,
+      expect.objectContaining({ code, expectedRevision: 0 }),
+    );
+  });
+
+  it("keeps the chosen local copy through a conflict resolution write", async () => {
+    const localCode = { "main.py": "print('keep me')" };
+    useProgressStore.setState((state) => ({
+      draftConflicts: {
+        ...state.draftConflicts,
+        [KEY]: {
+          courseId: COURSE,
+          lessonId: LESSON,
+          localCode,
+          remoteCode: { "main.py": "print('remote')" },
+          remoteRevision: 4,
+          remoteWriterId: "other-tab",
+          remoteUpdatedAt: "t4",
+        },
+      },
+    }));
+
+    await expect(
+      useProgressStore.getState().keepLocalDraft(COURSE, LESSON),
+    ).resolves.toBe(true);
+
+    expect(saveLessonDraft).toHaveBeenLastCalledWith(
+      COURSE,
+      LESSON,
+      expect.objectContaining({ code: localCode, expectedRevision: 4 }),
+    );
+    expect(useProgressStore.getState().draftConflicts[KEY]).toBeUndefined();
+    expect(useProgressStore.getState().lessonProgress[KEY].lastCode).toEqual(localCode);
   });
 
   it("saveOutput stores the output and patches", () => {
@@ -475,25 +636,22 @@ describe("progressStore practice", () => {
       practiceEvidence("00000000-0000-4000-8000-000000000004"),
     );
     patchLessonProgress.mockClear();
-    useProgressStore.getState().resetPracticeProgress(COURSE, LESSON);
+    await useProgressStore.getState().resetPracticeProgress(COURSE, LESSON);
     expect(useProgressStore.getState().lessonProgress[KEY].practiceCompletedIds).toEqual([]);
-    expect(patchLessonProgress).toHaveBeenLastCalledWith(
-      COURSE,
-      LESSON,
-      { practiceCompletedIds: [], practiceExerciseCode: {} },
-    );
+    expect(resetPracticeProgress).toHaveBeenLastCalledWith(COURSE, LESSON);
   });
 
-  it("rolls back optimistic completion when the evidence write fails", async () => {
+  it("does not celebrate completion when the evidence write fails", async () => {
     patchLessonProgress.mockRejectedValueOnce(new Error("offline"));
-    const recorded = await useProgressStore.getState().completePracticeExercise(
-      COURSE,
-      LESSON,
-      "ex-1",
-      practiceEvidence("00000000-0000-4000-8000-000000000005"),
-    );
+    await expect(
+      useProgressStore.getState().completePracticeExercise(
+        COURSE,
+        LESSON,
+        "ex-1",
+        practiceEvidence("00000000-0000-4000-8000-000000000005"),
+      ),
+    ).rejects.toThrow("offline");
 
-    expect(recorded).toBe(false);
     expect(
       useProgressStore.getState().lessonProgress[KEY].practiceCompletedIds,
     ).toEqual([]);
@@ -501,39 +659,68 @@ describe("progressStore practice", () => {
 });
 
 describe("progressStore.resetLessonProgress", () => {
-  it("drops the lesson in-memory and zeros out the server row", () => {
+  it("applies the durable reset and discards an obsolete draft conflict", async () => {
     useProgressStore.getState().startLesson(LEARNER, COURSE, LESSON);
-    useProgressStore.getState().completeLesson(LEARNER, COURSE, LESSON, 2);
+    await useProgressStore.getState().completeLesson(LEARNER, COURSE, LESSON, 2);
+    useProgressStore.setState({
+      draftConflicts: {
+        [KEY]: {
+          courseId: COURSE,
+          lessonId: LESSON,
+          localCode: { "main.py": "local" },
+          remoteCode: { "main.py": "remote" },
+          remoteRevision: 1,
+          remoteWriterId: null,
+          remoteUpdatedAt: null,
+        },
+      },
+    });
     patchLessonProgress.mockClear();
     patchCourseProgress.mockClear();
 
-    useProgressStore.getState().resetLessonProgress(LEARNER, COURSE, LESSON);
+    await useProgressStore.getState().resetLessonProgress(LEARNER, COURSE, LESSON);
 
-    expect(useProgressStore.getState().lessonProgress[KEY]).toBeUndefined();
+    expect(useProgressStore.getState().lessonProgress[KEY]).toMatchObject({
+      status: "not_started",
+      lastCode: null,
+      draftRevision: 2,
+    });
     expect(useProgressStore.getState().courseProgress[COURSE].completedLessonIds).toEqual([]);
-    expect(patchLessonProgress).toHaveBeenCalledWith(
-      COURSE,
-      LESSON,
-      expect.objectContaining({ status: "not_started", attemptCount: 0 }),
-    );
-    expect(patchCourseProgress).toHaveBeenCalledWith(
-      COURSE,
-      expect.objectContaining({ completedLessonIds: [] }),
-    );
+    expect(useProgressStore.getState().draftConflicts[KEY]).toBeUndefined();
+    expect(resetLessonProgress).toHaveBeenCalledWith(COURSE, LESSON);
+    expect(patchCourseProgress).not.toHaveBeenCalled();
   });
 });
 
 describe("progressStore.resetCourseProgress", () => {
-  it("wipes lessons + course in-memory and calls DELETE", () => {
+  it("wipes lessons + course in-memory only after the server reset", async () => {
     useProgressStore.getState().startLesson(LEARNER, COURSE, "a");
     useProgressStore.getState().startLesson(LEARNER, COURSE, "b");
+    useProgressStore.setState({
+      draftConflicts: Object.fromEntries(
+        ["a", "b"].map((lessonId) => [
+          `${COURSE}/${lessonId}`,
+          {
+            courseId: COURSE,
+            lessonId,
+            localCode: { "main.py": "local" },
+            remoteCode: { "main.py": "remote" },
+            remoteRevision: 1,
+            remoteWriterId: null,
+            remoteUpdatedAt: null,
+          },
+        ]),
+      ),
+    });
 
-    useProgressStore.getState().resetCourseProgress(LEARNER, COURSE, ["a", "b"]);
+    await useProgressStore.getState().resetCourseProgress(LEARNER, COURSE, ["a", "b"]);
 
     const s = useProgressStore.getState();
     expect(s.lessonProgress[`${COURSE}/a`]).toBeUndefined();
     expect(s.lessonProgress[`${COURSE}/b`]).toBeUndefined();
     expect(s.courseProgress[COURSE].status).toBe("not_started");
+    expect(s.draftConflicts[`${COURSE}/a`]).toBeUndefined();
+    expect(s.draftConflicts[`${COURSE}/b`]).toBeUndefined();
     expect(deleteCourseProgress).toHaveBeenCalledWith(COURSE);
   });
 });

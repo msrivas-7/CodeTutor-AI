@@ -23,6 +23,7 @@ export function EditorTabs({ mode = "editor" }: EditorTabsProps = {}) {
   const selectedModel = useAIStore((s) => s.selectedModel);
   const asking = useAIStore((s) => s.asking);
   const setPendingAsk = useAIStore((s) => s.setPendingAsk);
+  const requestTutorOpen = useAIStore((s) => s.requestTutorOpen);
   const { status } = useAIStatus();
   const onPlatform = status?.source === "platform";
   const tutorReady = onPlatform || (hasKey && !!selectedModel);
@@ -36,7 +37,11 @@ export function EditorTabs({ mode = "editor" }: EditorTabsProps = {}) {
 
   return (
     <div className="flex shrink-0 items-center overflow-x-auto border-b border-border bg-panel">
-      <div className="flex flex-1 overflow-x-auto">
+      <div
+        role="toolbar"
+        aria-label="Open files"
+        className="flex flex-1 overflow-x-auto"
+      >
       {openTabs.map((path) => {
         const icon = fileIcon(path);
         const isActive = path === activeFile;
@@ -44,37 +49,79 @@ export function EditorTabs({ mode = "editor" }: EditorTabsProps = {}) {
         return (
           <div
             key={path}
-            onClick={() => setActive(path)}
-            onAuxClick={
-              allowClose
-                ? (e) => {
-                    if (e.button === 1) {
-                      e.preventDefault();
-                      closeTab(path);
-                    }
-                  }
-                : undefined
-            }
-            title={path}
-            className={`group flex cursor-pointer items-center gap-1.5 border-r border-border px-3 py-1.5 text-xs transition ${
+            role="presentation"
+            className={`group flex shrink-0 items-center border-r border-border transition ${
               isActive
                 ? "bg-bg text-ink"
                 : "text-muted hover:bg-elevated/60 hover:text-ink"
             }`}
           >
-            <span className={`font-mono text-[10px] font-semibold ${icon.color}`}>
-              {icon.label}
-            </span>
-            <span className="max-w-[180px] truncate font-mono" aria-label={path}>{name}</span>
+            <button
+              type="button"
+              onClick={() => setActive(path)}
+              onKeyDown={(event) => {
+                if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+                  return;
+                }
+                event.preventDefault();
+                const tabs = Array.from(
+                  event.currentTarget
+                    .closest('[role="toolbar"]')
+                    ?.querySelectorAll<HTMLButtonElement>('[data-editor-file]') ?? [],
+                );
+                const current = tabs.indexOf(event.currentTarget);
+                const next = event.key === "Home"
+                  ? 0
+                  : event.key === "End"
+                    ? tabs.length - 1
+                    : (current + (event.key === "ArrowRight" ? 1 : -1) + tabs.length)
+                      % tabs.length;
+                const nextTab = tabs[next];
+                const nextPath = openTabs[next];
+                if (nextTab && nextPath) {
+                  setActive(nextPath);
+                  nextTab.focus();
+                }
+              }}
+              onAuxClick={
+                allowClose
+                  ? (event) => {
+                      if (event.button === 1) {
+                        event.preventDefault();
+                        closeTab(path);
+                      }
+                    }
+                  : undefined
+              }
+              title={path}
+              data-editor-file
+              tabIndex={isActive ? 0 : -1}
+              aria-pressed={isActive}
+              aria-label={isActive ? `Active file ${path}` : `Open file ${path}`}
+              className="flex min-h-11 items-center gap-1.5 px-3 py-1.5 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+            >
+              <span className={`font-mono text-[10px] font-semibold ${icon.color}`}>
+                {icon.label}
+              </span>
+              <span className="max-w-[180px] truncate font-mono" aria-label={path}>{name}</span>
+            </button>
             {allowClose && (
               <button
+                type="button"
                 onClick={(e) => {
-                  e.stopPropagation();
+                  const tabList = e.currentTarget.closest('[role="toolbar"]');
                   closeTab(path);
+                  requestAnimationFrame(() => {
+                    tabList
+                      ?.querySelector<HTMLButtonElement>(
+                        '[data-editor-file][aria-pressed="true"]',
+                      )
+                      ?.focus();
+                  });
                 }}
                 title={`Close ${name}`}
                 aria-label={`Close ${name}`}
-                className={`ml-1 rounded px-1 text-[10px] leading-none transition ${
+                className={`inline-flex min-h-11 min-w-11 items-center justify-center rounded text-[10px] leading-none transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger ${
                   isActive
                     ? "text-muted hover:bg-danger/20 hover:text-danger"
                     : "text-faint hover:bg-danger/20 hover:text-danger"
@@ -89,11 +136,14 @@ export function EditorTabs({ mode = "editor" }: EditorTabsProps = {}) {
       </div>
       {walkPrompt && tutorReady && (
         <button
-          onClick={() => setPendingAsk(walkPrompt)}
+          onClick={() => {
+            requestTutorOpen();
+            setPendingAsk(walkPrompt);
+          }}
           disabled={asking}
           title={asking ? "Tutor is replying — try again in a moment." : `Walk through ${activeFile} step by step`}
           aria-label={asking ? `Walk me through ${activeFile} (tutor busy)` : `Walk me through ${activeFile}`}
-          className="mx-2 shrink-0 rounded-md border border-accent/40 bg-accent/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-accent transition hover:bg-accent/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-accent/10"
+          className="mx-2 min-h-11 shrink-0 rounded-md border border-accent/40 bg-accent/10 px-2.5 py-2 text-[10px] font-semibold uppercase tracking-wider text-accent transition hover:bg-accent/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-accent/10"
         >
           Walk me through this →
         </button>

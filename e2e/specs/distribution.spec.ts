@@ -25,10 +25,10 @@ test.describe("B4 public distribution surface", () => {
       '<meta property="og:image" content="https://codetutor.msrivas.com/lesson-og/python-fundamentals/variables.png">',
     );
     expect(html).toContain('"@type":"LearningResource"');
-    expect(html).toContain("Write and run the code");
+    expect(html).toContain("Start with lesson 1 — required first");
 
     const internal = await request.get(
-      "/lessons/_internal-python-smoke/multi-file-test/",
+      "/lessons/internal-python-smoke/multi-file-test/",
     );
     expect(internal.status()).toBe(404);
 
@@ -54,7 +54,9 @@ test.describe("B4 public distribution surface", () => {
     await expect(
       page.getByRole("heading", { name: /built to teach, not to autocomplete/i }),
     ).toBeVisible();
-    await expect(page.getByRole("link", { name: /try a four-minute lesson/i })).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: /try the first lesson — about 10 minutes/i }),
+    ).toBeVisible();
 
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -109,7 +111,9 @@ test.describe("B4 public distribution surface", () => {
     });
 
     await page.goto("/learn-to-code/");
-    await page.getByRole("link", { name: /try a four-minute lesson/i }).click();
+    await page
+      .getByRole("link", { name: /try the first lesson — about 10 minutes/i })
+      .click();
     await expect(page).toHaveURL(
       /\/try\/lesson\/python-fundamentals\/hello-world$/,
     );
@@ -123,6 +127,20 @@ test.describe("B4 public distribution surface", () => {
       },
     });
     expect(new URL(page.url()).search).toBe("");
+  });
+
+  test("public lesson skip link moves keyboard focus into the lesson", async ({
+    page,
+  }) => {
+    await page.goto("/lessons/python-fundamentals/variables/");
+    const skip = page.getByRole("link", { name: "Skip to lesson" });
+    await skip.focus();
+    await expect(skip).toBeFocused();
+
+    await page.keyboard.press("Enter");
+
+    await expect(page.locator("#main")).toBeFocused();
+    await expect(page).toHaveURL(/#main$/);
   });
 
   test("a direct first touch cannot be overwritten by a later tagged CTA", criticalTest({
@@ -145,7 +163,9 @@ test.describe("B4 public distribution surface", () => {
 
     await page.goto("/");
     await page.goto("/learn-to-code/");
-    await page.getByRole("link", { name: /try a four-minute lesson/i }).click();
+    await page
+      .getByRole("link", { name: /try the first lesson — about 10 minutes/i })
+      .click();
     await expect(page).toHaveURL(
       /\/try\/lesson\/python-fundamentals\/hello-world$/,
     );

@@ -20,10 +20,43 @@ export const RESULT_ERR_MARKER = "__CODETUTOR_RESULT_v2_ERR__";
 export interface FunctionTest {
   name: string;
   call: string;
-  expected: string;
+  expected?: string;
+  expectedError?: {
+    type: string;
+    message?: string;
+  };
+  beforeLoad?: string;
   setup?: string;
   hidden?: boolean;
   category?: string;
+}
+
+export interface SourceCheck {
+  name: string;
+  file?: string;
+  kind:
+    | "python_list_comprehension"
+    | "python_dict_comprehension"
+    | "python_set_comprehension"
+    | "python_generator_expression"
+    | "python_while_loop"
+    | "python_with_statement"
+    | "python_specific_except"
+    | "python_raise"
+    | "python_call"
+    | "python_lambda"
+    | "python_yield";
+  target?: string;
+  scope?: string;
+  minCount?: number;
+  hidden?: boolean;
+  category?: string;
+  feedback: string;
+}
+
+export interface HarnessSuite {
+  tests: FunctionTest[];
+  sourceChecks: SourceCheck[];
 }
 
 export interface TestCaseResult {
@@ -35,6 +68,8 @@ export interface TestCaseResult {
   expectedRepr: string | null;
   stdoutDuring: string;
   error: string | null;
+  feedback?: string | null;
+  evidence?: "behavior" | "source";
 }
 
 export interface TestReport {
@@ -54,7 +89,7 @@ export interface HarnessFile {
 // language-agnostic and lives in runHarness.
 export interface HarnessBackend {
   language: Language;
-  prepareFiles(tests: FunctionTest[]): HarnessFile[];
+  prepareFiles(suite: HarnessSuite): HarnessFile[];
   execCommand(): string;
 }
 

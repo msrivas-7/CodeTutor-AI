@@ -9,10 +9,40 @@ import type { FunctionTest, Lesson, TestReport } from "../types";
 import {
   buildAskTutorPrompt,
   countFailsByVisibility,
+  lessonWorkspaceContextKey,
   selectCompletionRulesForCheck,
   shouldAutoEnterPractice,
   shouldBouncePrereq,
+  shouldPersistLessonDraft,
 } from "./lessonGuards";
+
+describe("lesson workspace boundaries", () => {
+  it("uses different cache identities for anonymous and authenticated work", () => {
+    expect(lessonWorkspaceContextKey("anon", "python", "hello")).toBe(
+      "anon-lesson:python/hello",
+    );
+    expect(lessonWorkspaceContextKey("authed", "python", "hello")).toBe(
+      "lesson:python/hello",
+    );
+  });
+
+  it("never durably saves an anonymous draft even if the browser is signed in", () => {
+    expect(
+      shouldPersistLessonDraft(
+        null,
+        "anon-lesson:python/hello",
+        "anon-lesson:python/hello",
+      ),
+    ).toBe(false);
+    expect(
+      shouldPersistLessonDraft(
+        "user-1",
+        "lesson:python/hello",
+        "lesson:python/hello",
+      ),
+    ).toBe(true);
+  });
+});
 
 describe("shouldBouncePrereq", () => {
   it("does not bounce when the lesson has no prerequisites", () => {
@@ -45,26 +75,24 @@ describe("shouldBouncePrereq", () => {
     ).toBe(true);
   });
 
-  it("does NOT bounce a learner who already has in-progress state on the locked lesson", () => {
-    // Refresh after a course update re-locks the lesson must not lose their
-    // work. The plan's "prereq guard" notes this explicitly.
+  it("bounces stale in-progress state when a prerequisite is missing", () => {
     expect(
       shouldBouncePrereq({
         lessonPrerequisiteIds: ["l1", "l2"],
         completedLessonIds: ["l1"],
         existingStatus: "in_progress",
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
-  it("does NOT bounce a completed lesson even if prereqs later change", () => {
+  it("bounces stale completed state when a prerequisite is missing", () => {
     expect(
       shouldBouncePrereq({
         lessonPrerequisiteIds: ["l1"],
         completedLessonIds: [],
         existingStatus: "completed",
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 });
 

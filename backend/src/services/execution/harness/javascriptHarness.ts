@@ -2,9 +2,9 @@ import {
   TEST_SENTINEL,
   RESULT_MARKER,
   RESULT_ERR_MARKER,
-  type FunctionTest,
   type HarnessBackend,
   type HarnessFile,
+  type HarnessSuite,
 } from "./types.js";
 
 export const HARNESS_JS = "__codetutor_tests.js";
@@ -70,14 +70,16 @@ delete process.env.HARNESS_PER_TEST_TIMEOUT_MS;
 
 // --- Read tests into memory, then delete the file (hides C3) ----------
 const TESTS_PATH = ${JSON.stringify(HARNESS_JSON)};
-let TESTS = [];
+let SUITE = { tests: [], sourceChecks: [] };
 let loadErr = null;
 try {
-  TESTS = JSON.parse(fs.readFileSync(TESTS_PATH, "utf8"));
+  SUITE = JSON.parse(fs.readFileSync(TESTS_PATH, "utf8"));
   fs.unlinkSync(TESTS_PATH);
 } catch (e) {
   loadErr = "could not load test specs: " + (e && e.message ? e.message : String(e));
 }
+const TESTS = SUITE.tests || [];
+const SOURCE_CHECKS = SUITE.sourceChecks || [];
 
 // --- Driver run by each per-test subprocess ----------------------------
 // The driver reads the test spec from process.argv[1] (setup + call only —
@@ -118,6 +120,7 @@ const DRIVER = [
   'vm.createContext(ctx);',
   'let reprStr = null;',
   'try {',
+  '  if (spec.beforeLoad) vm.runInContext(spec.beforeLoad, ctx, { filename: "before-load" });',
   '  const src = fs.readFileSync("main.js", "utf8");',
   '  vm.runInContext(src, ctx, { filename: "main.js" });',
   '  if (spec.setup) vm.runInContext(spec.setup, ctx, { filename: "setup" });',
@@ -181,6 +184,8 @@ function resultShell(test) {
     expectedRepr: null,
     stdoutDuring: "",
     error: null,
+    feedback: test.feedback || null,
+    evidence: "behavior",
   };
 }
 
@@ -203,7 +208,7 @@ function probeMain() {
 function runOne(test) {
   const shell = resultShell(test);
   // Only send setup + call into the subprocess. Expected stays in parent RAM.
-  const payload = JSON.stringify({ setup: test.setup || "", call: test.call || "" });
+  const payload = JSON.stringify({ beforeLoad: test.beforeLoad || "", setup: test.setup || "", call: test.call || "" });
   let r;
   try {
     r = spawnSync(
@@ -226,11 +231,17 @@ function runOne(test) {
   const errBlob = extractBetween(childOut, RESULT_ERR_MARKER);
   shell.stdoutDuring = stripMarkers(childOut);
 
-  const expectedSrc = test.expected || "";
+  const expectedSrc = test.expected;
+  const expectedError = test.expectedError;
   if (actualRepr !== null) {
+    if (expectedError) {
+      shell.actualRepr = actualRepr;
+      shell.expectedRepr = "throws " + (expectedError.type || "an error");
+      return shell;
+    }
     let expected;
     try {
-      expected = JSON.parse(expectedSrc);
+      expected = JSON.parse(expectedSrc || "");
     } catch (e) {
       shell.error = "invalid expected (must be JSON-literal): " + expectedSrc.slice(0, 200);
       shell.actualRepr = actualRepr;
@@ -255,6 +266,22 @@ function runOne(test) {
 
   if (errBlob !== null) {
     const tail = errBlob.trim().split("\\n").filter(Boolean).pop() || "";
+    if (expectedError) {
+      const expectedType = String(expectedError.type || "");
+      const expectedMessage = expectedError.message;
+      const expectedText = expectedType + (expectedMessage ? ": " + expectedMessage : "");
+      shell.passed = expectedMessage ? tail === expectedText : tail.startsWith(expectedType + ":");
+      shell.actualRepr = tail || "no error";
+      shell.expectedRepr = "throws " + expectedText;
+      return shell;
+    }
+    try {
+      const expected = JSON.parse(expectedSrc || "");
+      shell.expectedRepr = expected === undefined ? "undefined" : JSON.stringify(expected);
+    } catch {
+      // Invalid expected literals are reported on the normal result path. If
+      // learner code throws first, retain the actionable runtime error.
+    }
     shell.error = tail || "Test raised an exception.";
     return shell;
   }
@@ -284,6 +311,13 @@ if (harnessError === null) {
     harnessError = msg;
   } else {
     cleanStdout = probe.stdout || "";
+    for (const check of SOURCE_CHECKS) {
+      results.push({
+        ...resultShell(check),
+        evidence: "source",
+        error: "Source-contract checks are not supported for JavaScript lessons.",
+      });
+    }
     for (const t of TESTS) results.push(runOne(t));
   }
 }
@@ -299,10 +333,10 @@ process.stdout.write(SENTINEL + encoded + SENTINEL + "\\n");
 
 export const javascriptHarness: HarnessBackend = {
   language: "javascript",
-  prepareFiles(tests: FunctionTest[]): HarnessFile[] {
+  prepareFiles(suite: HarnessSuite): HarnessFile[] {
     return [
       { name: HARNESS_JS, content: harnessJavaScript() },
-      { name: HARNESS_JSON, content: JSON.stringify(tests) },
+      { name: HARNESS_JSON, content: JSON.stringify(suite) },
     ];
   },
   execCommand(): string {

@@ -12,12 +12,19 @@ export class ApiError extends Error {
   readonly status: number;
   readonly body: string;
   readonly path: string;
+  readonly retryAfterSeconds: number | null;
 
-  constructor(status: number, body: string, path: string) {
+  constructor(
+    status: number,
+    body: string,
+    path: string,
+    retryAfterSeconds: number | null = null,
+  ) {
     super(friendlyMessage(status));
     this.status = status;
     this.body = body;
     this.path = path;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 }
 

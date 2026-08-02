@@ -6,6 +6,7 @@ import {
   LocalDockerBackend,
   ensureNoSymlinkInPath,
   joinHostPath,
+  resolveRunnerWorkspacePermissions,
   truncateLongLines,
   MAX_LINE_BYTES,
 } from "./localDocker.js";
@@ -72,6 +73,24 @@ describe("joinHostPath", () => {
   });
 });
 
+describe("resolveRunnerWorkspacePermissions", () => {
+  it("keeps owner-only modes when backend and bind mount preserve UID ownership", () => {
+    expect(resolveRunnerWorkspacePermissions(1100, 1100)).toEqual({
+      directoryMode: 0o700,
+      fileMode: 0o600,
+      translatedOwnership: false,
+    });
+  });
+
+  it("uses an isolated-session compatibility mode when Docker Desktop translates ownership", () => {
+    expect(resolveRunnerWorkspacePermissions(0, 1100)).toEqual({
+      directoryMode: 0o707,
+      fileMode: 0o606,
+      translatedOwnership: true,
+    });
+  });
+});
+
 // Phase 17 / C-A1: writeFiles must not be trickable into dereferencing a
 // symlink planted in the session workspace. ensureNoSymlinkInPath is the
 // walk-and-reject helper used by writeFiles before it opens the target.
@@ -85,6 +104,24 @@ describe("ensureNoSymlinkInPath", () => {
       await ensureNoSymlinkInPath(tmp, target);
       const st = await fs.lstat(target);
       expect(st.isDirectory()).toBe(true);
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves existing bind paths and applies the requested mode only to directories it creates", async () => {
+    tmp = await fs.mkdtemp(path.join(os.tmpdir(), "runner-mode-"));
+    try {
+      await fs.chmod(tmp, 0o700);
+      await fs.mkdir(path.join(tmp, "a"), { mode: 0o711 });
+      const target = path.join(tmp, "a", "b");
+      await ensureNoSymlinkInPath(tmp, target, 0o707);
+      // Existing bind-mount paths may be reported as UID 0 by Docker Desktop
+      // and reject chmod from the UID-1100 backend. Re-validating their type
+      // without mutating their mode keeps repeated snapshots idempotent.
+      expect((await fs.stat(tmp)).mode & 0o777).toBe(0o700);
+      expect((await fs.stat(path.join(tmp, "a"))).mode & 0o777).toBe(0o711);
+      expect((await fs.stat(target)).mode & 0o777).toBe(0o707);
     } finally {
       await fs.rm(tmp, { recursive: true, force: true });
     }

@@ -12,7 +12,12 @@ import { listPublicCourses, loadAllLessonMetas } from "../features/learning/cont
 import { ResumeLearningCard } from "../features/learning/components/ResumeLearningCard";
 import { StreakChip } from "../features/learning/components/StreakChip";
 import type { Course, CourseProgress, LessonMeta } from "../features/learning/types";
-import { clearAnonStash, readAnonStash, writeAnonStash } from "../features/anon/anonStash";
+import {
+  clearAnonStash,
+  clearAnonWorkspace,
+  readAnonStash,
+  writeAnonStash,
+} from "../features/anon/anonStash";
 import { PENDING_INVITE_KEY } from "../features/anon/InviteCapture";
 import { evalSamplingSubjectTokenForHandoff } from "../features/anon/evalSamplingConsent";
 import { api } from "../api/client";
@@ -228,6 +233,7 @@ export default function StartPage() {
           ]);
           if (cancelled) return;
           clearAnonStash();
+          clearAnonWorkspace();
           usePreferencesStore.setState({
             welcomeDone: flags.welcomeDone,
             workspaceCoachDone: flags.workspaceCoachDone,
@@ -305,6 +311,7 @@ export default function StartPage() {
       .then(() => {
         if (cancelled) return;
         clearAnonStash();
+        clearAnonWorkspace();
         // Patch the local preferences store BEFORE the nav so a
         // subsequent /start visit in the same session (e.g., via
         // LearningDashboardPage's ← Home) doesn't see stale
@@ -494,25 +501,27 @@ export default function StartPage() {
 
   return (
     <div className="relative flex h-full flex-col bg-bg text-ink">
-      <AmbientGlyphField />
+      <div className="hidden sm:block">
+        <AmbientGlyphField />
+      </div>
       {/* Phase 21B (iter-3): top toolbar — streak chip absolute-anchored
           to viewport centre; Feedback + UserMenu cluster anchors right.
           Identical positioning to LessonPage / CourseOverview / EditorPage
           headers so the chip lands in the exact same screen position no
           matter which page the learner is on. */}
-      <div className="pointer-events-none absolute inset-x-0 top-3 z-10">
-        <div className="absolute left-1/2 -translate-x-1/2">
+      <div className="pointer-events-none absolute inset-x-0 top-4 z-10">
+        <div className="absolute left-4 sm:left-1/2 sm:-translate-x-1/2">
           <div className="pointer-events-auto"><StreakChip /></div>
         </div>
         <div className="pointer-events-auto absolute right-4 flex items-center gap-2">
-          <FeedbackButton />
+          <span className="hidden sm:inline-flex"><FeedbackButton /></span>
           <UserMenu />
         </div>
       </div>
-      <StaggerReveal className="flex flex-1 flex-col items-center justify-center px-6">
+      <StaggerReveal className="flex flex-1 flex-col items-center justify-center px-5 pb-8 pt-20 sm:px-6 sm:pt-0">
         <StaggerItem>
           <div ref={headerRef} className="mb-10 flex flex-col items-center gap-4">
-            <Wordmark size="hero" />
+            <Wordmark size="hero" className="text-[38px] sm:text-[48px]" />
             <p className="max-w-lg text-center text-base leading-relaxed text-muted sm:text-[15px]">
               Learn to code with a tutor who has all day for you. Write real
               Python, JavaScript, or Go in your browser — run it in a sandbox,

@@ -113,6 +113,21 @@ function deleteShare(userId: string | null, token: string) {
   return fetch(`${base}/api/shares/${token}`, { method: "DELETE", headers });
 }
 
+function authedRequest(
+  userId: string,
+  path: string,
+  init: RequestInit = {},
+) {
+  return fetch(`${base}${path}`, {
+    ...init,
+    headers: {
+      "content-type": "application/json",
+      "x-test-user": userId,
+      ...(init.headers ?? {}),
+    },
+  });
+}
+
 beforeAll(async () => {
   try {
     await db()`SELECT 1`;
@@ -172,6 +187,37 @@ describe("POST /api/shares", () => {
     expect(body.shareToken).toMatch(/^[a-z2-9]{12}$/);
     expect(body.url).toBe(`/s/${body.shareToken}`);
     tokens.push(body.shareToken);
+  });
+
+  it("reuses the managed share across duplicate clicks and relogins", async () => {
+    if (!dbReachable) return;
+    const u = await mkUser();
+    await seedCompletedLesson(u, "python-fundamentals", "hello-world");
+    const first = await postCreate(u, sampleBody());
+    const firstBody = await first.json();
+    tokens.push(firstBody.shareToken);
+
+    const second = await postCreate(
+      u,
+      sampleBody({ codeSnippet: 'print("a retry must not mint a new URL")' }),
+    );
+    expect(second.status).toBe(200);
+    const secondBody = await second.json();
+    expect(secondBody).toMatchObject({
+      shareToken: firstBody.shareToken,
+      reused: true,
+    });
+
+    const lookup = await authedRequest(
+      u,
+      "/api/shares/mine?courseId=python-fundamentals&lessonId=hello-world",
+    );
+    expect(lookup.status).toBe(200);
+    expect(await lookup.json()).toMatchObject({
+      shareToken: firstBody.shareToken,
+      lessonTitle: "Hello, World!",
+      revision: 0,
+    });
   });
 
   it("rejects when lesson is not completed (403)", async () => {
@@ -256,7 +302,7 @@ describe("POST /api/shares", () => {
         t,
         ${u}::uuid,
         'python-fundamentals',
-        'hello-world',
+        'cap-lesson-' || n::text,
         'Hello, world',
         1,
         'Python Fundamentals',
@@ -267,7 +313,7 @@ describe("POST /api/shares", () => {
         'print("hi")',
         NOW() - INTERVAL '2 days',
         CASE WHEN t LIKE '%-revoked' THEN now() ELSE NULL END
-      FROM unnest(${seedTokens}::text[]) AS t
+      FROM unnest(${seedTokens}::text[]) WITH ORDINALITY AS seeded(t, n)
     `;
     tokens.push(...seedTokens);
 
@@ -323,6 +369,74 @@ describe("GET /api/shares/:token (public, anon-readable)", () => {
     expect(del.status).toBe(200);
     const r = await getPublic(shareToken);
     expect(r.status).toBe(404);
+  });
+});
+
+describe("managed share lifecycle", () => {
+  it("lists, edits, rotates, and revokes one owner-managed artifact", async () => {
+    if (!dbReachable) return;
+    const u = await mkUser();
+    await seedCompletedLesson(u, "python-fundamentals", "hello-world");
+    const create = await postCreate(u, sampleBody({ displayName: "Maya" }));
+    const created = await create.json();
+    tokens.push(created.shareToken);
+
+    const inventory = await authedRequest(u, "/api/shares/mine/all");
+    expect(inventory.status).toBe(200);
+    const inventoryBody = await inventory.json();
+    expect(inventoryBody.shares).toHaveLength(1);
+    expect(inventoryBody.shares[0]).toMatchObject({
+      shareToken: created.shareToken,
+      displayName: "Maya",
+    });
+
+    const edit = await authedRequest(u, `/api/shares/${created.shareToken}`, {
+      method: "PATCH",
+      body: JSON.stringify({ displayName: null }),
+    });
+    expect(edit.status).toBe(200);
+    const edited = await edit.json();
+    expect(edited.displayName).toBeNull();
+    expect(edited.revision).toBe(1);
+
+    const rotate = await authedRequest(
+      u,
+      `/api/shares/${created.shareToken}/rotate`,
+      { method: "POST", body: "{}" },
+    );
+    expect(rotate.status).toBe(200);
+    const rotated = await rotate.json();
+    tokens.push(rotated.shareToken);
+    expect(rotated.shareToken).not.toBe(created.shareToken);
+    expect(rotated.revision).toBe(2);
+    expect((await getPublic(created.shareToken)).status).toBe(404);
+    expect((await getPublic(rotated.shareToken)).status).toBe(200);
+
+    expect((await deleteShare(u, rotated.shareToken)).status).toBe(200);
+    expect((await getPublic(rotated.shareToken)).status).toBe(404);
+    const empty = await authedRequest(u, "/api/shares/mine/all");
+    expect((await empty.json()).shares).toEqual([]);
+  }, 30_000);
+
+  it("does not let another account manage the artifact", async () => {
+    if (!dbReachable) return;
+    const owner = await mkUser();
+    const other = await mkUser();
+    await seedCompletedLesson(owner, "python-fundamentals", "hello-world");
+    const create = await postCreate(owner, sampleBody());
+    const { shareToken } = await create.json();
+    tokens.push(shareToken);
+
+    const edit = await authedRequest(other, `/api/shares/${shareToken}`, {
+      method: "PATCH",
+      body: JSON.stringify({ displayName: "Not mine" }),
+    });
+    expect(edit.status).toBe(404);
+    const rotate = await authedRequest(other, `/api/shares/${shareToken}/rotate`, {
+      method: "POST",
+      body: "{}",
+    });
+    expect(rotate.status).toBe(404);
   });
 });
 

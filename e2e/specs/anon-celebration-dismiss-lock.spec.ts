@@ -3,6 +3,7 @@
 // "Next Lesson" action is the one route into signup / device handoff.
 
 import { expect, test, type Page } from "@playwright/test";
+import { getMonacoValue, waitForMonacoReady } from "../fixtures/monaco";
 
 const PATH = "/try/lesson/python-fundamentals/hello-world";
 
@@ -60,7 +61,37 @@ test.describe("Phase A-Q — celebration dismissal and continuation", () => {
     const reopened = await openCelebration(page);
     await reopened.getByRole("button", { name: /next lesson/i }).click();
     await expect(page.getByText(/Lesson 2 is queued up/i)).toBeVisible();
+    await page.getByRole("button", { name: /maybe later/i }).click();
+    await expect(
+      page.getByRole("dialog", { name: /lesson complete/i }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("dialog", { name: /lesson complete/i }).getByRole("button", {
+        name: /next lesson/i,
+      }),
+    ).toBeFocused();
+    await expect(
+      page.getByRole("button", { name: /start practice/i }),
+    ).toBeVisible();
+  });
+
+  test("Start Practice opens the first anonymous challenge and Exit restores the exact lesson code", async ({ page }) => {
+    const celebration = await openCelebration(page);
+    await waitForMonacoReady(page);
+    const lessonCode = await getMonacoValue(page);
+    await celebration.getByRole("button", { name: /start practice/i }).click();
     await expect(page.getByRole("dialog", { name: /lesson complete/i })).toHaveCount(0);
-    await expect(page.getByRole("dialog")).toHaveCount(1);
+    await expect(page.getByText(/Lesson 2 is queued up/i)).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: /exit practice mode and return to lesson/i }),
+    ).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Two lines" })).toBeVisible();
+    await expect.poll(() => getMonacoValue(page)).not.toBe(lessonCode);
+
+    await page.getByRole("button", { name: /exit practice mode/i }).click();
+    await expect(
+      page.getByRole("button", { name: /exit practice mode and return to lesson/i }),
+    ).toHaveCount(0);
+    await expect.poll(() => getMonacoValue(page)).toBe(lessonCode);
   });
 });

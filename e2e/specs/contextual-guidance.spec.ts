@@ -105,7 +105,7 @@ test.describe("contextual guidance internal proof", () => {
       .analyze();
     expect(accessibility.violations).toEqual([]);
 
-    await bridge.getByRole("button", { name: "View error" }).click();
+    await bridge.getByRole("button", { name: "Jump to line 1" }).click();
     await expect(
       page.getByRole("textbox", { name: /guidance targets line 1/i }),
     ).toBeFocused();
@@ -161,7 +161,7 @@ test.describe("contextual guidance internal proof", () => {
     await expect(target).toBeInViewport();
     await expect(page.getByTestId("contextual-guide-question")).toBeVisible();
 
-    for (const name of ["View error", "Dismiss current code guidance"]) {
+    for (const name of ["Jump to line 1", "Dismiss current code guidance"]) {
       const control = bridge.getByRole("button", { name });
       const box = await control.boundingBox();
       expect(box?.height, `${name} target height`).toBeGreaterThanOrEqual(44);

@@ -42,9 +42,16 @@
       "expected": "wrote 3 notes:\n1. pick up groceries\n2. call mom\n3. finish lesson"
     },
     {
-      "type": "required_file_contains",
-      "file": "main.py",
-      "pattern": "with open"
+      "type": "source_checks",
+      "checks": [
+        {
+          "name": "Use context managers for both file operations",
+          "kind": "python_with_statement",
+          "target": "open",
+          "minCount": 2,
+          "feedback": "Use with open(...) for both writing and reading so each file is closed safely."
+        }
+      ]
     },
     {
       "type": "required_file_contains",

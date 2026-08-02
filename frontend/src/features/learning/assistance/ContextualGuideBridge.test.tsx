@@ -38,7 +38,7 @@ describe("ContextualGuideBridge", () => {
 
     expect(html).toContain("Syntax error on line 3");
     expect(html).toContain(move.question);
-    expect(html).toContain("View error");
+    expect(html).toContain("Jump to line 3");
     expect(html).toContain("min-h-11");
     expect(html).toContain("h-11 w-11");
     expect(html).toContain('aria-live="polite"');

@@ -40,9 +40,8 @@ test.describe("resume-where-you-left-off banner (Phase 27 §6)", () => {
   }) => {
     await loadProfile(page, "empty");
     // Mark lesson 1 done so the dashboard derives lesson 2 (variables)
-    // as the next uncompleted lesson. seedCompletedLessons sets
-    // course-level status to "in_progress" + the completedLessonIds
-    // array, which is exactly what the banner gates on.
+    // as the next uncompleted lesson. The helper creates the trusted lesson
+    // completion row and lets the server derive course-level progress.
     await seedCompletedLessons(page, COURSE_ID, ["hello-world"]);
 
     await page.goto("/learn");

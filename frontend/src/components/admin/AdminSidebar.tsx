@@ -27,9 +27,9 @@ export function AdminSidebar() {
   return (
     <nav
       aria-label="Admin sections"
-      className="sticky top-0 flex w-[200px] shrink-0 flex-col gap-0.5 self-start p-3"
+      className="sticky top-0 z-20 flex w-full shrink-0 gap-1 self-start overflow-x-auto border-b border-border bg-panel/95 p-2 backdrop-blur md:w-[200px] md:flex-col md:overflow-visible md:border-b-0 md:bg-transparent md:p-3"
     >
-      <div className="px-2 pb-3">
+      <div className="hidden px-2 pb-3 md:block">
         <h1 className="text-[11px] font-semibold uppercase tracking-wider text-muted">
           Admin
         </h1>
@@ -39,7 +39,7 @@ export function AdminSidebar() {
           key={e.to}
           to={e.to}
           className={({ isActive }) =>
-            `flex flex-col gap-0.5 rounded-md px-3 py-2 text-[12px] font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+            `flex min-h-11 shrink-0 flex-col justify-center gap-0.5 rounded-md px-3 py-2 text-[12px] font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
               isActive
                 ? "bg-bg text-ink shadow-soft ring-1 ring-accent/40"
                 : "text-muted hover:bg-bg/50 hover:text-ink"

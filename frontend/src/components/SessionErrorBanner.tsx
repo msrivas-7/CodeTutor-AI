@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import { useSessionStore } from "../state/sessionStore";
 import { usePreferencesStore } from "../state/preferencesStore";
+import { ApiError } from "../api/ApiError";
 
 // When heartbeat fails past MAX_FAILURES or rebind throws, session.phase
 // goes to "error" and the Run button silently greys out. Without this
@@ -9,9 +10,25 @@ import { usePreferencesStore } from "../state/preferencesStore";
 // they just see a dead button. Rendered inline by EditorPage/LessonPage
 // below their headers.
 export function SessionErrorBanner() {
-  const { phase, error, setPhase, setSession, setError } = useSessionStore();
+  const {
+    phase,
+    error,
+    retryAvailableAt,
+    canResumeExisting,
+    setPhase,
+    setSession,
+    setError,
+    setRecoveryOptions,
+  } = useSessionStore();
   const accountFrozen = usePreferencesStore((s) => s.accountFrozen);
   const [retrying, setRetrying] = useState(false);
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    if (!retryAvailableAt || retryAvailableAt <= Date.now()) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 250);
+    return () => window.clearInterval(timer);
+  }, [retryAvailableAt]);
 
   if (phase === "starting") {
     return (
@@ -37,6 +54,7 @@ export function SessionErrorBanner() {
   if (accountFrozen) return null;
 
   const retry = async () => {
+    if (retryAvailableAt && retryAvailableAt > Date.now()) return;
     setRetrying(true);
     setError(null);
     setPhase("starting");
@@ -47,12 +65,44 @@ export function SessionErrorBanner() {
       // QA-C3: setError no longer flips phase; do both explicitly so the
       // banner stays up (phase==="error") instead of dropping back to
       // "starting" while the underlying session is still missing.
-      setError((err as Error).message);
+      const retrySeconds =
+        err instanceof ApiError
+          ? err.retryAfterSeconds ?? (err.status === 429 ? 5 : 0)
+          : 0;
+      setRecoveryOptions(
+        retrySeconds > 0 ? Date.now() + retrySeconds * 1_000 : null,
+        err instanceof ApiError && (err.status === 429 || err.status === 503),
+      );
+      setError(
+        err instanceof ApiError && err.status === 429
+          ? "Your account already has active runners, or a recent runner is still closing."
+          : (err as Error).message,
+      );
       setPhase("error");
     } finally {
       setRetrying(false);
     }
   };
+
+  const resume = async () => {
+    setRetrying(true);
+    setError(null);
+    setPhase("starting");
+    try {
+      const { sessionId } = await api.resumeSession();
+      setSession(sessionId);
+    } catch (err) {
+      setError((err as Error).message);
+      setRecoveryOptions(retryAvailableAt, false);
+      setPhase("error");
+    } finally {
+      setRetrying(false);
+    }
+  };
+
+  const retrySeconds = retryAvailableAt
+    ? Math.max(0, Math.ceil((retryAvailableAt - now) / 1_000))
+    : 0;
 
   return (
     <div
@@ -65,17 +115,31 @@ export function SessionErrorBanner() {
         <line x1="12" y1="16" x2="12.01" y2="16" />
       </svg>
       <div className="min-w-0 flex-1">
-        <div className="font-semibold">Session lost</div>
-        <div className="truncate text-[11px] opacity-80">
-          {error || "Couldn't reach the code runner."} Retry in a moment, or refresh if the problem persists.
+        <div className="font-semibold">
+          {canResumeExisting ? "Runner capacity reached" : "Runner unavailable"}
+        </div>
+        <div className="text-sm opacity-85">
+          {error || "Couldn't reach the code runner."}{" "}
+          {retrySeconds > 0
+            ? `You can create a new runner in ${retrySeconds}s.`
+            : "Your code is still here; retry when you're ready."}
         </div>
       </div>
+      {canResumeExisting && (
+        <button
+          onClick={resume}
+          disabled={retrying}
+          className="inline-flex min-h-11 shrink-0 items-center rounded-md border border-danger/40 px-3 py-2 text-sm font-semibold text-danger transition hover:bg-danger/10 disabled:cursor-not-allowed disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-danger"
+        >
+          Use active runner
+        </button>
+      )}
       <button
         onClick={retry}
-        disabled={retrying}
+        disabled={retrying || retrySeconds > 0}
         className="inline-flex min-h-11 shrink-0 items-center rounded-md bg-danger/20 px-3 py-2 text-sm font-semibold text-danger ring-1 ring-danger/40 transition hover:bg-danger/30 disabled:cursor-not-allowed disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-danger"
       >
-        {retrying ? "Retrying…" : "Retry"}
+        {retrying ? "Connecting…" : retrySeconds > 0 ? `Retry in ${retrySeconds}s` : "New runner"}
       </button>
     </div>
   );

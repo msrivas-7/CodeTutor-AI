@@ -654,6 +654,11 @@ export class AciExecutionBackend implements ExecutionBackend {
     return body;
   }
 
+  async cancel(handle: SessionHandle): Promise<void> {
+    const h = this.cast(handle);
+    await this.sidecarFetch(h, "POST", "/cancel", undefined, 5_000);
+  }
+
   async writeFiles(handle: SessionHandle, files: WorkspaceFile[]): Promise<void> {
     const h = this.cast(handle);
     await this.sidecarFetch(h, "POST", "/writeFiles", { files });

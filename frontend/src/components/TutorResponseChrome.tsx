@@ -108,21 +108,28 @@ export function AskErrorView({
 }) {
   const { kind, title, hint } = classifyAskError(message);
   const canRetry = onRetry && kind !== "auth";
+  const informational = kind === "canceled" || kind === "contextChanged";
   return (
     <div
-      role="alert"
-      className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-base sm:text-body"
+      role={informational ? "status" : "alert"}
+      className={`rounded-lg border px-3 py-2 text-base sm:text-body ${
+        informational
+          ? "border-border bg-elevated/60"
+          : "border-danger/40 bg-danger/10"
+      }`}
     >
       <div className="mb-1 flex items-center gap-1.5">
-        <span aria-hidden="true" className="text-danger">!</span>
-        <span className="rounded bg-danger/20 px-1.5 py-[1px] text-[10px] font-semibold uppercase tracking-wider text-danger">
+        <span aria-hidden="true" className={informational ? "text-muted" : "text-danger"}>{informational ? "■" : "!"}</span>
+        <span className={`rounded px-1.5 py-[1px] text-[10px] font-semibold uppercase tracking-wider ${informational ? "bg-elevated text-muted" : "bg-danger/20 text-danger"}`}>
           {title}
         </span>
       </div>
       {hint && <div className="mb-1.5 text-ink/90">{hint}</div>}
-      <div className="whitespace-pre-wrap break-words font-mono text-sm text-muted">
-        {message}
-      </div>
+      {!informational && (
+        <div className="whitespace-pre-wrap break-words font-mono text-sm text-muted">
+          {message}
+        </div>
+      )}
       {canRetry && (
         <button
           onClick={onRetry}
@@ -143,6 +150,16 @@ export function AskErrorView({
 
 export function classifyAskError(raw: string): { kind: string; title: string; hint?: string } {
   const m = raw.toLowerCase();
+  if (m.includes("tutor_canceled_by_user")) {
+    return {
+      kind: "canceled",
+      title: "Stopped by you",
+      hint: "The response stopped. If it had already finished processing, it may count toward today’s allowance. You can retry this same turn when you’re ready.",
+    };
+  }
+  if (m.includes("tutor_context_changed")) {
+    return { kind: "contextChanged", title: "Code changed", hint: "I stopped the old response so it couldn't give advice about an earlier version. Ask again when the current run is ready." };
+  }
   if (m.includes("failed to fetch") || m.includes("network") || m.includes("offline")) {
     return { kind: "network", title: "Connection lost", hint: "Your code is safe. Check your connection, then try the question again." };
   }

@@ -1,6 +1,6 @@
 {
   "id": "multi-file-test",
-  "courseId": "_internal-python-smoke",
+  "courseId": "internal-python-smoke",
   "title": "Multi-file smoke",
   "description": "Internal: validates metadata-declared multi-file lesson loading via Python imports.",
   "order": 1,

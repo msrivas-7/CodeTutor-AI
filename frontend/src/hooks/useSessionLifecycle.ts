@@ -3,6 +3,7 @@ import { api, API_BASE, abortSessionRequests } from "../api/client";
 import { useSessionStore } from "../state/sessionStore";
 import { useAuthStore } from "../auth/authStore";
 import { usePreferencesStore } from "../state/preferencesStore";
+import { ApiError } from "../api/ApiError";
 
 const HEARTBEAT_MS = 25_000;
 // How many consecutive heartbeat failures before we stop saying "reconnecting"
@@ -18,6 +19,7 @@ export function useSessionLifecycle() {
     setError,
     setSessionRestarted,
     setSessionReplaced,
+    setRecoveryOptions,
     clear,
   } = useSessionStore();
   // Phase 18a: don't start a session until Supabase has hydrated — the first
@@ -78,7 +80,19 @@ export function useSessionLifecycle() {
         setSession(id);
       })
       .catch((err: Error) => {
-        setError(err.message);
+        const retrySeconds =
+          err instanceof ApiError
+            ? err.retryAfterSeconds ?? (err.status === 429 ? 5 : 0)
+            : 0;
+        setRecoveryOptions(
+          retrySeconds > 0 ? Date.now() + retrySeconds * 1_000 : null,
+          err instanceof ApiError && (err.status === 429 || err.status === 503),
+        );
+        setError(
+          err instanceof ApiError && err.status === 429
+            ? "Your account already has active runners, or a recent runner is still closing."
+            : err.message,
+        );
         setPhase("error");
       });
   }, [
@@ -90,6 +104,7 @@ export function useSessionLifecycle() {
     setSession,
     setPhase,
     setError,
+    setRecoveryOptions,
   ]);
 
   useEffect(() => {

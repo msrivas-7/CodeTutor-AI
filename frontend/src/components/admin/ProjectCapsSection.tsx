@@ -1,9 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   api,
   type SystemConfigEntry,
   type SystemConfigKey,
 } from "../../api/client";
+import { Modal } from "../Modal";
+import { AdminLoadFailure } from "./AdminLoadFailure";
 
 // Phase 20-P5 / Phase 4.5 (safety guards): runtime-editable project caps.
 //
@@ -65,6 +67,16 @@ const KEY_LABEL: Record<SystemConfigKey, string> = {
 // Inline help for each row — surfaced as a one-line description so the
 // admin doesn't have to remember which kill switch does what at 2am.
 const KEY_DESCRIPTION: Partial<Record<SystemConfigKey, string>> = {
+  free_tier_enabled:
+    "Master availability switch for platform-funded tutoring. BYOK remains separate.",
+  free_tier_daily_questions:
+    "Maximum platform-funded tutor questions per signed-in learner each UTC day.",
+  free_tier_daily_usd_per_user:
+    "Per-learner daily platform-AI cost ceiling, evaluated with the question cap.",
+  free_tier_lifetime_usd_per_user:
+    "Lifetime platform-funded AI allowance for one learner.",
+  free_tier_daily_usd_cap:
+    "Global daily platform-AI budget shared across eligible signed-in learners.",
   share_public_disabled:
     "503s the public /api/shares/:token GET. Existing shares stop loading; creation still works.",
   share_create_disabled:
@@ -74,13 +86,19 @@ const KEY_DESCRIPTION: Partial<Record<SystemConfigKey, string>> = {
   share_preview_disabled:
     "Drains only the authenticated crawler/unfurl metadata route. Human share pages and public reader capacity stay available; crawlers receive safe generic metadata.",
   aci_overflow_enabled:
-    "Master gate. When off, the 15th+ concurrent session 503s instead of spilling over to ACI. Existing ACI sessions ride out their lifetimes. No new ACI cost while off.",
+    "Master gate. When off, demand beyond current local capacity is rejected instead of spilling to ACI. Existing ACI sessions ride out their lifetimes.",
   aci_daily_usd_cap:
     "Cost-cap kill switch. When today's ACI spend ≥ this value, overflow disables for the rest of the UTC day. Resets at midnight UTC. Each ACI session bills at $0.053/hr.",
   aci_max_overflow:
-    "Concurrent ACI sessions allowed past the local cap (5 on B2s, 14 on B2ms). 0 = effectively off (overflow returns 503). Higher values let an HN-spike route many sessions through ACI before the daily cap intervenes.",
+    "Concurrent ACI sessions allowed beyond current local capacity. 0 drains overflow without changing the master switch.",
   aci_warm_pool_enabled:
     "Pre-spawn 1–2 ACI containers when local capacity is close to its cap so the next overflow user gets a sub-second handoff (vs. 5–15s cold start). Off by default — turn on if cold-start latency complaints surface. Hard-capped at 2 idle containers, ~$2.54/day worst-case idle cost; cost-cap kill switch is the absolute backstop.",
+  aci_warm_high_watermark:
+    "Local-session count that starts proactive ACI warming. Must match the deployed local-capacity shape.",
+  aci_warm_low_watermark:
+    "Local-session count below which the service stops maintaining the warm pool.",
+  aci_warm_max_pool_size:
+    "Maximum idle ACI containers retained for faster overflow handoff.",
   anon_lesson_enabled:
     "Master gate for /api/anon/run, /api/anon/ai/ask/stream, and /api/anon-handoff. When off, NEW requests return 503 ANON_LESSON_DISABLED on the next request (60s system_config cache TTL after flip). In-flight tutor SSE streams continue until their 25s upstream deadline. The /try/lesson/... frontend route stays mounted but every API hit fails. Use during abuse spikes, paused-trial windows, or when triaging a platform-key issue.",
   anon_daily_usd_cap:
@@ -93,38 +111,123 @@ const KEY_DESCRIPTION: Partial<Record<SystemConfigKey, string>> = {
     "Master switch for new explicitly-consented, redacted 5% anonymous tutor samples. Existing samples still honor deletion and automatic expiry while this is off.",
 };
 
-const KEY_BOUNDS: Record<
-  SystemConfigKey,
-  { type: "number"; min: number; max: number; step: string } | { type: "boolean" }
-> = {
-  free_tier_enabled: { type: "boolean" },
-  free_tier_daily_questions: { type: "number", min: 0, max: 10000, step: "1" },
-  free_tier_daily_usd_per_user: { type: "number", min: 0, max: 10, step: "0.01" },
-  free_tier_lifetime_usd_per_user: { type: "number", min: 0, max: 100, step: "0.01" },
-  free_tier_daily_usd_cap: { type: "number", min: 0, max: 50, step: "0.01" },
-  share_public_disabled: { type: "boolean" },
-  share_create_disabled: { type: "boolean" },
-  share_render_disabled: { type: "boolean" },
-  share_preview_disabled: { type: "boolean" },
-  aci_overflow_enabled: { type: "boolean" },
-  aci_daily_usd_cap: { type: "number", min: 0, max: 100, step: "1" },
-  aci_max_overflow: { type: "number", min: 0, max: 50, step: "1" },
-  aci_warm_pool_enabled: { type: "boolean" },
-  // Phase 24B-resize: bounds tracked the local-cap default (5 on B2s,
-  // 14 on B2ms). Frontend client-side bound is for UX hint only — the
-  // load-bearing bound is server-side at admin.ts (= config.session.
-  // maxGlobal). Bump back to 14 here when resizing up to B2ms.
-  aci_warm_high_watermark: { type: "number", min: 0, max: 5, step: "1" },
-  aci_warm_low_watermark: { type: "number", min: 0, max: 5, step: "1" },
-  aci_warm_max_pool_size: { type: "number", min: 0, max: 10, step: "1" },
-  anon_lesson_enabled: { type: "boolean" },
-  anon_laptop_invite_disabled: { type: "boolean" },
-  // Phase A — A5. Client-side bounds mirror admin.ts KEY_BOUNDS (the
-  // server-side check is the load-bearing one).
-  anon_daily_usd_cap: { type: "number", min: 0, max: 50, step: "0.01" },
-  anon_daily_runs_per_ip: { type: "number", min: 0, max: 5000, step: "1" },
-  ai_eval_sampling_enabled: { type: "boolean" },
+type ConfigGroupId = "learning" | "trial" | "sharing" | "capacity";
+
+const CONFIG_GROUPS: Array<{
+  id: ConfigGroupId;
+  label: string;
+  description: string;
+}> = [
+  {
+    id: "learning",
+    label: "Learning AI",
+    description: "Availability and spend limits for signed-in tutoring.",
+  },
+  {
+    id: "trial",
+    label: "Anonymous trial",
+    description: "Public lesson access, abuse limits, handoff, and eval sampling.",
+  },
+  {
+    id: "sharing",
+    label: "Public sharing",
+    description: "Creation, viewing, rendering, and crawler-preview controls.",
+  },
+  {
+    id: "capacity",
+    label: "Runner capacity",
+    description: "Azure overflow cost, concurrency, and warm-pool behavior.",
+  },
+];
+
+const KEY_GROUP: Record<SystemConfigKey, ConfigGroupId> = {
+  free_tier_enabled: "learning",
+  free_tier_daily_questions: "learning",
+  free_tier_daily_usd_per_user: "learning",
+  free_tier_lifetime_usd_per_user: "learning",
+  free_tier_daily_usd_cap: "learning",
+  share_public_disabled: "sharing",
+  share_create_disabled: "sharing",
+  share_render_disabled: "sharing",
+  share_preview_disabled: "sharing",
+  aci_overflow_enabled: "capacity",
+  aci_daily_usd_cap: "capacity",
+  aci_max_overflow: "capacity",
+  aci_warm_pool_enabled: "capacity",
+  aci_warm_high_watermark: "capacity",
+  aci_warm_low_watermark: "capacity",
+  aci_warm_max_pool_size: "capacity",
+  anon_lesson_enabled: "trial",
+  anon_laptop_invite_disabled: "trial",
+  anon_daily_usd_cap: "trial",
+  anon_daily_runs_per_ip: "trial",
+  ai_eval_sampling_enabled: "trial",
 };
+
+const KEY_IMPACT: Record<SystemConfigKey, string> = {
+  free_tier_enabled: "Can stop or restore platform tutoring for every learner.",
+  free_tier_daily_questions: "Changes how many tutor questions each learner gets per UTC day.",
+  free_tier_daily_usd_per_user: "Changes each learner's daily platform-AI spend ceiling.",
+  free_tier_lifetime_usd_per_user: "Changes each learner's lifetime platform-AI allowance.",
+  free_tier_daily_usd_cap: "Changes the global platform-AI daily budget backstop.",
+  share_public_disabled: "Can make every existing public share unavailable.",
+  share_create_disabled: "Can stop learners from publishing new shares.",
+  share_render_disabled: "Changes whether new share images are rendered.",
+  share_preview_disabled: "Changes crawler previews without blocking human readers.",
+  aci_overflow_enabled: "Controls whether excess runner demand can use paid Azure capacity.",
+  aci_daily_usd_cap: "Changes the daily Azure overflow budget backstop.",
+  aci_max_overflow: "Changes the maximum number of simultaneous paid overflow runners.",
+  aci_warm_pool_enabled: "Can trade idle Azure cost for faster overflow startup.",
+  aci_warm_high_watermark: "Changes when proactive overflow warming begins.",
+  aci_warm_low_watermark: "Changes when proactive overflow warming winds down.",
+  aci_warm_max_pool_size: "Changes the maximum number of idle paid warm runners.",
+  anon_lesson_enabled: "Can stop or restore the anonymous first-lesson experience.",
+  anon_laptop_invite_disabled: "Can stop or restore phone-to-laptop email handoff.",
+  anon_daily_usd_cap: "Changes the anonymous tutor's global daily budget ceiling.",
+  anon_daily_runs_per_ip: "Changes how many anonymous sandboxes one IP can start per day.",
+  ai_eval_sampling_enabled: "Controls new consented, redacted evaluation sampling only.",
+};
+
+const ADMIN_CONFIG_DRAFT_KEY = "codetutor.admin.project-draft.v1";
+
+interface AdminConfigDraft {
+  key: SystemConfigKey;
+  baseValue: boolean | number;
+  draft: boolean | number;
+  reason: string;
+  phrase: string;
+}
+
+function readAdminConfigDraft(): AdminConfigDraft | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(ADMIN_CONFIG_DRAFT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<AdminConfigDraft>;
+    if (!parsed.key || !(parsed.key in KEY_LABEL)) return null;
+    if (typeof parsed.draft !== "boolean" && typeof parsed.draft !== "number") return null;
+    if (typeof parsed.baseValue !== "boolean" && typeof parsed.baseValue !== "number") return null;
+    return {
+      key: parsed.key,
+      baseValue: parsed.baseValue,
+      draft: parsed.draft,
+      reason: typeof parsed.reason === "string" ? parsed.reason : "",
+      phrase: typeof parsed.phrase === "string" ? parsed.phrase : "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeAdminConfigDraft(draft: AdminConfigDraft): void {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.setItem(ADMIN_CONFIG_DRAFT_KEY, JSON.stringify(draft));
+}
+
+function clearAdminConfigDraft(): void {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.removeItem(ADMIN_CONFIG_DRAFT_KEY);
+}
 
 const PHRASE_DISABLE = "I understand this stops free AI for everyone";
 const PHRASE_REDUCE_GLOBAL = "I understand this may exhaust free tier today";
@@ -142,7 +245,10 @@ function fmtValue(v: boolean | number): string {
 export function ProjectCapsSection() {
   const [config, setConfig] = useState<Record<SystemConfigKey, SystemConfigEntry> | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [editingKey, setEditingKey] = useState<SystemConfigKey | null>(null);
+  const [editingKey, setEditingKey] = useState<SystemConfigKey | null>(
+    () => readAdminConfigDraft()?.key ?? null,
+  );
+  const [query, setQuery] = useState("");
 
   const refresh = async () => {
     try {
@@ -158,11 +264,30 @@ export function ProjectCapsSection() {
     void refresh();
   }, []);
 
-  if (error) {
+  const visibleGroups = useMemo(() => {
+    const needle = query.trim().toLocaleLowerCase();
+    return CONFIG_GROUPS.map((group) => ({
+      ...group,
+      keys: (Object.keys(KEY_LABEL) as SystemConfigKey[]).filter((key) => {
+        if (KEY_GROUP[key] !== group.id) return false;
+        if (!needle) return true;
+        return [key, KEY_LABEL[key], KEY_DESCRIPTION[key] ?? "", KEY_IMPACT[key], group.label]
+          .join(" ")
+          .toLocaleLowerCase()
+          .includes(needle);
+      }),
+    })).filter((group) => group.keys.length > 0);
+  }, [query]);
+
+  const visibleKeySet = new Set(visibleGroups.flatMap((group) => group.keys));
+
+  if (error && !config) {
     return (
-      <div className="rounded-md border border-danger/40 bg-danger/10 p-3 text-[11px] text-danger">
-        Failed to load: {error}
-      </div>
+      <AdminLoadFailure
+        title="System configuration did not load"
+        error={error}
+        onRetry={() => void refresh()}
+      />
     );
   }
   if (!config) {
@@ -170,20 +295,80 @@ export function ProjectCapsSection() {
   }
 
   return (
-    <div className="flex flex-col gap-2">
-      {(Object.keys(KEY_LABEL) as SystemConfigKey[]).map((k) => (
-        <CapRow
-          key={k}
-          configKey={k}
-          entry={config[k]}
-          editing={editingKey === k}
-          onEdit={() => setEditingKey(k)}
-          onCancel={() => setEditingKey(null)}
-          onSaved={async () => {
-            setEditingKey(null);
-            await refresh();
-          }}
-        />
+    <div className="flex flex-col gap-5">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-ink">System configuration</h2>
+          <p className="mt-0.5 max-w-3xl text-[11px] leading-relaxed text-muted">
+            Review mode is read-only. Select Edit for one controlled mutation;
+            unfinished edits stay in this browser tab across refresh until you
+            save or explicitly discard them.
+          </p>
+        </div>
+        <label className="flex w-full max-w-sm flex-col gap-1 text-[10px] text-muted">
+          Find a control
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            className="min-h-11 rounded-md border border-border bg-bg px-3 py-2 text-xs text-ink"
+            placeholder="Search by name, impact, or key"
+          />
+        </label>
+      </div>
+
+      {error && (
+        <div role="alert" className="rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn">
+          Latest refresh failed: {error}. The last confirmed values remain visible.
+        </div>
+      )}
+
+      {editingKey && !visibleKeySet.has(editingKey) && (
+        <div role="status" className="rounded-md border border-accent/30 bg-accent/10 px-3 py-2 text-xs text-accent">
+          Your draft for <strong>{KEY_LABEL[editingKey]}</strong> is preserved but
+          hidden by this search. Clear the search to continue editing it.
+        </div>
+      )}
+
+      {visibleGroups.length === 0 ? (
+        <div className="rounded-lg border border-border bg-elevated/20 px-4 py-8 text-center text-sm text-muted">
+          No controls match “{query}”.
+        </div>
+      ) : visibleGroups.map((group) => (
+        <section key={group.id} aria-labelledby={`config-group-${group.id}`} className="space-y-2">
+          <div className="flex items-end justify-between gap-3 border-b border-border pb-2">
+            <div>
+              <h3 id={`config-group-${group.id}`} className="text-xs font-semibold text-ink">
+                {group.label}
+              </h3>
+              <p className="mt-0.5 text-[10px] text-muted">{group.description}</p>
+            </div>
+            <span className="text-[10px] text-faint">{group.keys.length} controls</span>
+          </div>
+          <div className="space-y-2">
+            {group.keys.map((key) => (
+              <CapRow
+                key={key}
+                configKey={key}
+                entry={config[key]}
+                editing={editingKey === key}
+                onEdit={() => {
+                  if (editingKey && editingKey !== key) clearAdminConfigDraft();
+                  setEditingKey(key);
+                }}
+                onCancel={() => {
+                  clearAdminConfigDraft();
+                  setEditingKey(null);
+                }}
+                onSaved={async () => {
+                  clearAdminConfigDraft();
+                  setEditingKey(null);
+                  await refresh();
+                }}
+              />
+            ))}
+          </div>
+        </section>
       ))}
     </div>
   );
@@ -199,8 +384,16 @@ interface CapRowProps {
 }
 
 function CapRow({ configKey, entry, editing, onEdit, onCancel, onSaved }: CapRowProps) {
+  const bounds = entry.bounds;
+  const currentOutsideGuard =
+    bounds.type === "number" &&
+    (typeof entry.value !== "number" || entry.value < bounds.min || entry.value > bounds.max);
   return (
-    <div className="rounded-md border border-border bg-elevated/30 p-3">
+    <div
+      role="group"
+      aria-label={`${KEY_LABEL[configKey]} configuration`}
+      className="rounded-md border border-border bg-elevated/30 p-3"
+    >
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-[12px] font-semibold text-ink">
@@ -233,12 +426,30 @@ function CapRow({ configKey, entry, editing, onEdit, onCancel, onSaved }: CapRow
               "{entry.reason}" — {entry.setAt?.slice(0, 10)}
             </div>
           )}
+          {currentOutsideGuard && (
+            <div role="alert" className="mt-2 rounded-md border border-danger/40 bg-danger/10 px-2 py-1.5 text-[10px] leading-relaxed text-danger">
+              Current value {fmtValue(entry.value)} is outside the supported
+              {bounds.type === "number" ? ` ${bounds.min}–${bounds.max}` : ""} guard.
+              Review the deployed environment before relying on this control.
+            </div>
+          )}
+          <div className="mt-2 grid gap-1.5 text-[10px] leading-relaxed sm:grid-cols-2">
+            <div className="rounded-md border border-border-soft bg-bg/40 px-2 py-1.5 text-muted">
+              <span className="font-semibold text-ink">Impact: </span>
+              {KEY_IMPACT[configKey]}
+            </div>
+            <div className="rounded-md border border-border-soft bg-bg/40 px-2 py-1.5 text-muted">
+              <span className="font-semibold text-ink">Rollback: </span>
+              Revert to the deployed environment default ({fmtValue(entry.envDefault)}).
+            </div>
+          </div>
         </div>
         {!editing && (
           <div className="flex shrink-0 gap-1">
             <button
               onClick={onEdit}
-              className="rounded-md border border-border bg-elevated px-2.5 py-1 text-[11px] font-semibold text-ink transition hover:border-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              aria-label={`Edit ${KEY_LABEL[configKey]}`}
+              className="min-h-11 rounded-md border border-border bg-elevated px-3 py-2 text-[11px] font-semibold text-ink transition hover:border-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               Edit
             </button>
@@ -270,7 +481,8 @@ function ResetButton({
     return (
       <button
         onClick={() => setConfirming(true)}
-        className="rounded-md border border-border bg-elevated px-2.5 py-1 text-[11px] text-muted transition hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        aria-label={`Revert ${KEY_LABEL[configKey]} to environment default`}
+        className="min-h-11 rounded-md border border-border bg-elevated px-3 py-2 text-[11px] text-muted transition hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         title={`Revert to env default (${fmtValue(entry.envDefault)})`}
       >
         Revert
@@ -317,13 +529,30 @@ interface EditFormProps {
 }
 
 function EditForm({ configKey, entry, onCancel, onSaved }: EditFormProps) {
-  const bounds = KEY_BOUNDS[configKey];
-  const [draft, setDraft] = useState<boolean | number>(entry.value);
-  const [reason, setReason] = useState("");
-  const [phrase, setPhrase] = useState("");
+  const bounds = entry.bounds;
+  const [initialDraft] = useState<AdminConfigDraft>(() => {
+    const saved = readAdminConfigDraft();
+    return saved?.key === configKey
+      ? saved
+      : {
+          key: configKey,
+          baseValue: entry.value,
+          draft: entry.value,
+          reason: "",
+          phrase: "",
+        };
+  });
+  const [baseValue, setBaseValue] = useState<boolean | number>(initialDraft.baseValue);
+  const [draft, setDraft] = useState<boolean | number>(initialDraft.draft);
+  const [reason, setReason] = useState(initialDraft.reason);
+  const [phrase, setPhrase] = useState(initialDraft.phrase);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    writeAdminConfigDraft({ key: configKey, baseValue, draft, reason, phrase });
+  }, [baseValue, configKey, draft, phrase, reason]);
 
   // Determine which (if any) phrase guard is required.
   const requiresDisablePhrase =
@@ -355,8 +584,9 @@ function EditForm({ configKey, entry, onCancel, onSaved }: EditFormProps) {
   const reasonOk = reason.trim().length >= 4;
   const phraseOk = !requiredPhrase || phrase === requiredPhrase;
   const valueChanged = draft !== entry.value;
+  const staleDraft = baseValue !== entry.value;
   const canSave =
-    !busy && reasonOk && !outOfBounds && phraseOk && valueChanged;
+    !busy && reasonOk && !outOfBounds && phraseOk && valueChanged && !staleDraft;
 
   const handleSave = async () => {
     if (!canSave) return;
@@ -383,6 +613,22 @@ function EditForm({ configKey, entry, onCancel, onSaved }: EditFormProps) {
 
   return (
     <div className="mt-3 flex flex-col gap-2 border-t border-border pt-3">
+      <div role="status" className="rounded-md border border-accent/25 bg-accent/10 px-2 py-1.5 text-[10px] text-accent">
+        Draft saved in this browser tab until you apply or discard it.
+      </div>
+      {staleDraft && (
+        <div role="alert" className="rounded-md border border-warn/40 bg-warn/10 px-2 py-2 text-[10px] leading-relaxed text-warn">
+          The live value changed from {fmtValue(baseValue)} to {fmtValue(entry.value)}
+          while this draft was open. Review the impact before continuing.
+          <button
+            type="button"
+            onClick={() => setBaseValue(entry.value)}
+            className="mt-2 min-h-11 rounded-md border border-warn/40 bg-panel px-3 py-2 font-semibold"
+          >
+            Use {fmtValue(entry.value)} as the new baseline
+          </button>
+        </div>
+      )}
       <div className="flex items-baseline gap-2 text-[11px]">
         <span className="text-muted">From:</span>
         <span className="font-mono text-faint line-through">
@@ -395,7 +641,7 @@ function EditForm({ configKey, entry, onCancel, onSaved }: EditFormProps) {
             value={draft ? "true" : "false"}
             onChange={(e) => setDraft(e.target.value === "true")}
             disabled={busy}
-            className="rounded border border-border bg-bg px-2 py-1 text-[11px] text-ink"
+            className="min-h-11 rounded border border-border bg-bg px-3 py-2 text-[11px] text-ink"
           >
             <option value="true">Enabled</option>
             <option value="false">Disabled</option>
@@ -409,7 +655,7 @@ function EditForm({ configKey, entry, onCancel, onSaved }: EditFormProps) {
             value={typeof draft === "number" ? draft : ""}
             onChange={(e) => setDraft(Number(e.target.value))}
             disabled={busy}
-            className={`w-24 rounded border bg-bg px-2 py-1 font-mono text-[11px] text-ink ${
+            className={`min-h-11 w-24 rounded border bg-bg px-3 py-2 font-mono text-[11px] text-ink ${
               outOfBounds ? "border-danger/60" : "border-border"
             }`}
           />
@@ -438,7 +684,7 @@ function EditForm({ configKey, entry, onCancel, onSaved }: EditFormProps) {
           onChange={(e) => setReason(e.target.value)}
           disabled={busy}
           placeholder="why are you making this change?"
-          className="rounded border border-border bg-bg px-2 py-1 text-[11px] text-ink"
+          className="min-h-11 rounded border border-border bg-bg px-3 py-2 text-[11px] text-ink"
         />
       </label>
 
@@ -456,7 +702,7 @@ function EditForm({ configKey, entry, onCancel, onSaved }: EditFormProps) {
             onChange={(e) => setPhrase(e.target.value)}
             disabled={busy}
             placeholder="type the phrase exactly"
-            className={`rounded border bg-bg px-2 py-1 font-mono text-[11px] text-ink ${
+            className={`min-h-11 rounded border bg-bg px-3 py-2 font-mono text-[11px] text-ink ${
               phrase === requiredPhrase ? "border-success/60" : "border-warn/60"
             }`}
           />
@@ -473,16 +719,16 @@ function EditForm({ configKey, entry, onCancel, onSaved }: EditFormProps) {
         <button
           onClick={() => setConfirming(true)}
           disabled={!canSave}
-          className="rounded-md bg-accent px-3 py-1 text-[11px] font-semibold text-bg transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:bg-elevated disabled:text-faint"
+          className="min-h-11 rounded-md bg-accent px-4 py-2 text-[11px] font-semibold text-bg transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:bg-elevated disabled:text-faint"
         >
           Save…
         </button>
         <button
           onClick={onCancel}
           disabled={busy}
-          className="rounded-md border border-border bg-elevated px-3 py-1 text-[11px] text-muted transition hover:text-ink"
+          className="min-h-11 rounded-md border border-border bg-elevated px-4 py-2 text-[11px] text-muted transition hover:text-ink"
         >
-          Cancel
+          Discard draft
         </button>
         {!valueChanged && (
           <span className="text-[10px] text-faint">No change.</span>
@@ -492,7 +738,7 @@ function EditForm({ configKey, entry, onCancel, onSaved }: EditFormProps) {
       {confirming && (
         <ConfirmModal
           title={`Set ${KEY_LABEL[configKey]}?`}
-          description={`This affects ALL users on the next AI call. From ${fmtValue(entry.value)} to ${fmtValue(draft)}.`}
+          description={`${KEY_IMPACT[configKey]} Change ${fmtValue(entry.value)} to ${fmtValue(draft)}. Rollback returns to ${fmtValue(entry.envDefault)}.`}
           reason={reason.trim()}
           onCancel={() => setConfirming(false)}
           onConfirm={handleSave}
@@ -519,10 +765,16 @@ function ConfirmModal({
   busy: boolean;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-      <div className="w-full max-w-md rounded-lg border border-warn/40 bg-panel p-5 shadow-xl">
-        <h3 className="text-sm font-semibold text-ink">{title}</h3>
-        <p className="mt-2 text-[12px] leading-relaxed text-muted">{description}</p>
+    <Modal
+      onClose={onCancel}
+      role="alertdialog"
+      labelledBy="admin-config-confirm-title"
+      describedBy="admin-config-confirm-description"
+      position="center"
+      panelClassName="w-full max-w-md rounded-xl border border-warn/40 bg-panel p-5 shadow-xl"
+    >
+        <h3 id="admin-config-confirm-title" className="text-sm font-semibold text-ink">{title}</h3>
+        <p id="admin-config-confirm-description" className="mt-2 text-[12px] leading-relaxed text-muted">{description}</p>
         <div className="mt-3 rounded bg-elevated/50 p-2 text-[11px]">
           <span className="text-muted">Reason: </span>
           <span className="text-ink">{reason}</span>
@@ -531,19 +783,18 @@ function ConfirmModal({
           <button
             onClick={onCancel}
             disabled={busy}
-            className="rounded-md border border-border bg-elevated px-3 py-1 text-[11px] text-muted transition hover:text-ink"
+            className="min-h-11 rounded-md border border-border bg-elevated px-4 py-2 text-[11px] text-muted transition hover:text-ink"
           >
             Cancel
           </button>
           <button
             onClick={onConfirm}
             disabled={busy}
-            className="rounded-md bg-warn px-3 py-1 text-[11px] font-semibold text-bg transition hover:bg-warn/90 disabled:opacity-50"
+            className="min-h-11 rounded-md bg-warn px-4 py-2 text-[11px] font-semibold text-bg transition hover:bg-warn/90 disabled:opacity-50"
           >
             {busy ? "Saving…" : "Yes, change it"}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

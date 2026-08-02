@@ -15,6 +15,10 @@ export function Splitter({
   onDrag,
   onDoubleClick,
   label,
+  valueNow,
+  valueMin,
+  valueMax,
+  valueText,
 }: {
   // "vertical" = the handle is vertical, user drags horizontally (resizes width)
   // "horizontal" = the handle is horizontal, user drags vertically (resizes height)
@@ -22,6 +26,10 @@ export function Splitter({
   onDrag: (delta: number) => void;
   onDoubleClick?: () => void;
   label?: string;
+  valueNow: number;
+  valueMin: number;
+  valueMax: number;
+  valueText?: string;
 }) {
   const last = useRef(0);
 
@@ -69,14 +77,10 @@ export function Splitter({
       tabIndex={0}
       aria-orientation={orientation === "vertical" ? "vertical" : "horizontal"}
       aria-label={label ?? (orientation === "vertical" ? "Resize panel width" : "Resize panel height")}
-      // WAI-ARIA: a focusable separator is a "window splitter" and requires
-      // aria-valuenow. We don't track the exact percentage (the parent owns
-      // px width), so 50 is a stable placeholder that tells assistive tech
-      // "this is a resizer, mid-range by default." Re-thread the real value
-      // if we ever expose the numeric panel size via props.
-      aria-valuenow={50}
-      aria-valuemin={0}
-      aria-valuemax={100}
+      aria-valuenow={Math.round(valueNow)}
+      aria-valuemin={Math.round(valueMin)}
+      aria-valuemax={Math.round(valueMax)}
+      aria-valuetext={valueText ?? `${Math.round(valueNow)} pixels`}
       onPointerDown={handlePointerDown}
       onKeyDown={handleKeyDown}
       onDoubleClick={onDoubleClick}

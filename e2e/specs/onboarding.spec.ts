@@ -88,6 +88,13 @@ test.describe("onboarding", () => {
 
   test("EditorCoach auto-opens after delay; Skip tour dismisses permanently", async ({ page }) => {
     await loadProfile(page, "empty", { onboarded: false });
+    // Collapse state is browser-local rather than account-scoped. Reproduce a
+    // returning-browser/new-account handoff so the tour cannot spotlight an
+    // invisible rail inherited from the previous user.
+    await page.addInitScript(() => {
+      localStorage.setItem("ui:filesCollapsed", "true");
+      localStorage.setItem("ui:tutorCollapsed", "true");
+    });
     await page.goto("/editor");
     await waitForMonacoReady(page);
 
@@ -95,6 +102,15 @@ test.describe("onboarding", () => {
     const skipTour = page.getByRole("button", { name: /^skip tour$/i });
     await expect(skipTour).toBeVisible({ timeout: AUTO_OPEN_MS + 5_000 });
     await expect(page.getByRole("button", { name: /^got it$/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /show files panel/i })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /show tutor panel/i })).toHaveCount(0);
+
+    // Advance to File Tree and prove the highlighted product control is real,
+    // visible, and clickable through the visual coach treatment.
+    await page.getByRole("button", { name: /^got it$/i }).click();
+    await expect(page.getByRole("heading", { name: "File Tree" })).toBeVisible();
+    await page.getByRole("button", { name: "stats.py" }).click();
+    await expect(page.getByRole("textbox", { name: /code editor for stats\.py/i })).toBeVisible();
 
     // Dismiss via Skip tour, then reload to confirm server-backed flag held.
     // The coach hides optimistically, so wait for the exact persistence write

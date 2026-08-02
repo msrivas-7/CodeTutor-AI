@@ -31,6 +31,74 @@ test.describe("settings panel", () => {
     await loadProfile(page, "empty");
   });
 
+  test("phone Start header and Settings controls keep safe spacing and touch targets", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 360, height: 800 });
+    await page.goto("/start");
+
+    const wordmark = page.getByText("CodeTutor AI", { exact: true });
+    const userMenu = page.getByRole("button", { name: /user menu/i });
+    const wordmarkBox = await wordmark.boundingBox();
+    const userMenuBox = await userMenu.boundingBox();
+    expect(wordmarkBox).not.toBeNull();
+    expect(userMenuBox).not.toBeNull();
+    expect(wordmarkBox!.y, "wordmark clears the utility header").toBeGreaterThanOrEqual(
+      userMenuBox!.y + userMenuBox!.height + 12,
+    );
+    await expect(page.getByTestId("ambient-glyph-field")).toBeHidden();
+
+    await userMenu.click();
+    await page.getByRole("menuitem", { name: /^settings$/i }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+
+    const buttons = dialog.getByRole("button");
+    for (let i = 0; i < await buttons.count(); i += 1) {
+      const button = buttons.nth(i);
+      if (!(await button.isVisible())) continue;
+      const name = (await button.getAttribute("aria-label")) ?? (await button.innerText());
+      await expect
+        .poll(async () => (await button.boundingBox())?.height ?? 0, {
+          message: `${name} touch target height after the entrance transition`,
+        })
+        .toBeGreaterThanOrEqual(44);
+      await expect
+        .poll(async () => (await button.boundingBox())?.width ?? 0, {
+          message: `${name} touch target width after the entrance transition`,
+        })
+        .toBeGreaterThanOrEqual(44);
+    }
+    for (const field of [
+      dialog.getByLabel("First name", { exact: true }),
+      dialog.getByLabel(/last name/i),
+    ]) {
+      await expect
+        .poll(async () => (await field.boundingBox())?.height ?? 0)
+        .toBeGreaterThanOrEqual(44);
+    }
+    expect(
+      await dialog.evaluate((element) => element.scrollWidth - element.clientWidth),
+      "settings horizontal overflow",
+    ).toBeLessThanOrEqual(1);
+  });
+
+  test("data export downloads a named JSON file and announces the exact filename", async ({
+    page,
+  }) => {
+    await page.goto("/start");
+    await openSettings(page, "account");
+
+    const [download] = await Promise.all([
+      page.waitForEvent("download"),
+      page.getByRole("button", { name: /download my data/i }).click(),
+    ]);
+    const filename = download.suggestedFilename();
+    expect(filename).toMatch(/^codetutor-export-\d{4}-\d{2}-\d{2}\.json$/);
+    await expect(page.getByRole("status")).toHaveText(`Downloaded ${filename}`);
+    expect(await download.path()).not.toBeNull();
+  });
+
   test("Theme toggle applies data-theme on <html> and persists pref", async ({ page }) => {
     await page.goto("/start");
     await openSettings(page, "profile");
@@ -248,7 +316,9 @@ test.describe("settings panel", () => {
     // Trust + cost copy is anchored under the input — a beginner reads it
     // in the same glance as the field they're filling.
     await expect(
-      page.getByText(/this is your personal openai key/i),
+      page.getByText(
+        /tutor requests use your openai account instead of codetutor's included allowance/i,
+      ),
     ).toBeVisible();
     await expect(
       page.getByText(/typical cost: a few cents per hour/i),

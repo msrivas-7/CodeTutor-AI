@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useProjectStore } from "../state/projectStore";
 import { TutorResponseView } from "./TutorResponseViews";
 import type { SavedTutorMessage } from "../api/client";
 import type { TutorSections } from "../types";
@@ -24,18 +25,41 @@ interface Props {
   messages: SavedTutorMessage[];
   loading: boolean;
   onRemove: (id: string) => void;
+  label?: string;
 }
 
-export function SavedTutorAccordion({ messages, loading, onRemove }: Props) {
+export function SavedTutorAccordion({ messages, loading, onRemove, label }: Props) {
   const [expanded, setExpanded] = useState(false);
   // Chevron defers its arrival so the accordion presence registers first.
   const [chevronReady, setChevronReady] = useState(false);
   // 600ms post-mount, the chevron fades in. Reduced-motion users skip
   // the deferral via the `motion-reduce:transition-none` rule on the
   // chevron itself (it's still rendered with opacity-1 immediately).
-  if (!chevronReady) {
-    window.setTimeout(() => setChevronReady(true), 600);
-  }
+  const [pendingRemoval, setPendingRemoval] = useState<string | null>(null);
+  const removeTimer = useRef<number | null>(null);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setChevronReady(true), 600);
+    return () => window.clearTimeout(timer);
+  }, []);
+  useEffect(() => () => {
+    if (removeTimer.current !== null) window.clearTimeout(removeTimer.current);
+  }, []);
+
+  const requestRemove = (id: string) => {
+    if (removeTimer.current !== null) window.clearTimeout(removeTimer.current);
+    setPendingRemoval(id);
+    removeTimer.current = window.setTimeout(() => {
+      onRemove(id);
+      setPendingRemoval(null);
+      removeTimer.current = null;
+    }, 5_000);
+  };
+  const undoRemove = () => {
+    if (removeTimer.current !== null) window.clearTimeout(removeTimer.current);
+    removeTimer.current = null;
+    setPendingRemoval(null);
+  };
+  const visibleMessages = messages.filter((message) => message.id !== pendingRemoval);
 
   // Empty state: render nothing. Apple does not show empty bins.
   if (messages.length === 0 && !loading) return null;
@@ -66,7 +90,7 @@ export function SavedTutorAccordion({ messages, loading, onRemove }: Props) {
           >
             <path d="M3.5 2h9a.5.5 0 0 1 .5.5v11.4a.3.3 0 0 1-.48.24L8 10.5l-4.52 3.64A.3.3 0 0 1 3 13.9V2.5a.5.5 0 0 1 .5-.5z" />
           </svg>
-          <span>Saved · {messages.length}</span>
+          <span>{label ?? (messages[0]?.courseId ? "Saved for this lesson" : "Saved in this project")} · {messages.length}</span>
         </span>
         <svg
           aria-hidden="true"
@@ -96,14 +120,20 @@ export function SavedTutorAccordion({ messages, loading, onRemove }: Props) {
           className="flex max-h-[40vh] flex-col gap-1.5 overflow-y-auto border-t border-border px-3 pb-2.5 pt-2"
           style={{ animation: `savedAccordionExpand 320ms ${HOUSE_EASE}` }}
         >
-          {messages.map((m, idx) => (
+          {visibleMessages.map((m, idx) => (
             <SavedRow
               key={m.id}
               message={m}
-              onRemove={() => onRemove(m.id)}
+              onRemove={() => requestRemove(m.id)}
               staggerMs={idx * 40}
             />
           ))}
+        </div>
+      )}
+      {pendingRemoval && (
+        <div role="status" className="flex min-h-11 items-center justify-between border-t border-border bg-panel px-3 py-2 text-xs text-muted">
+          <span>Saved message removed</span>
+          <button type="button" onClick={undoRemove} className="min-h-11 rounded-lg px-3 py-2 font-semibold text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">Undo</button>
         </div>
       )}
       <style>{`
@@ -137,6 +167,22 @@ function SavedRow({
   // Saved messages preserve the structured `sections` if present; fall
   // back to plain content rendering for older saves.
   const sections = (message.sections ?? null) as TutorSections | null;
+  const currentFiles = useProjectStore((state) => state.files);
+  const savedContext = message.sections?.__savedContext as
+    | { activeFile?: string; files?: Array<{ path: string; content: string }> }
+    | undefined;
+  const sourceChanged = !!savedContext?.files?.some(
+    (file) => currentFiles[file.path] !== file.content,
+  );
+  const displaySections = sections
+    ? {
+        ...sections,
+        citations: sourceChanged ? null : sections.citations,
+        walkthrough: sourceChanged
+          ? sections.walkthrough?.map((step) => ({ ...step, path: null, line: null }))
+          : sections.walkthrough,
+      }
+    : null;
 
   return (
     <div
@@ -172,8 +218,17 @@ function SavedRow({
           </svg>
         </span>
         <div className="min-w-0 flex-1 text-[12px] text-ink">
-          {sections ? (
-            <TutorResponseView sections={sections} />
+          <div className="mb-2 text-[10px] leading-relaxed text-muted">
+            Saved {new Date(message.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
+            {savedContext?.activeFile ? ` · ${savedContext.activeFile}` : ""}
+          </div>
+          {sourceChanged && (
+            <div role="note" className="mb-2 rounded-md border border-warn/40 bg-warn/10 px-2 py-1.5 text-[11px] leading-relaxed text-warnInk">
+              Your code has changed since this was saved. References stay disabled so they cannot jump to the wrong source.
+            </div>
+          )}
+          {displaySections ? (
+            <TutorResponseView sections={displaySections} />
           ) : (
             <div className="whitespace-pre-wrap break-words leading-relaxed">
               {message.content}
@@ -189,7 +244,7 @@ function SavedRow({
           aria-label="Remove from saved"
           className="shrink-0 rounded p-0.5 text-muted transition-opacity hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 motion-reduce:transition-none"
           style={{
-            opacity: hover ? 0.7 : 0,
+            opacity: hover ? 0.9 : 0.55,
             transitionDuration: "120ms",
             transitionTimingFunction: HOUSE_EASE,
           }}

@@ -19,6 +19,7 @@ import {
   pingSession,
   rebindSession,
   requireOwnedSession,
+  resumeMostRecentSession,
   shutdownAllSessions,
   startSession,
 } from "./sessionManager.js";
@@ -52,6 +53,7 @@ function makeFakeBackend(): ExecutionBackend {
     async exec() {
       return { stdout: "", stderr: "", exitCode: 0, timedOut: false, durationMs: 0 };
     },
+    async cancel() {},
     async writeFiles() {},
     async removeFiles() {},
     async fileExists() {
@@ -78,6 +80,19 @@ describe("sessionManager ownership", () => {
     const s = await startSession("user-a");
     expect(s.userId).toBe("user-a");
     expect(getSession(s.id)?.userId).toBe("user-a");
+  });
+
+  it("resumes the caller's most recently active runner without creating one", async () => {
+    const older = await startSession("user-a");
+    const recent = await startSession("user-a");
+    await startSession("user-b");
+    getSession(older.id)!.lastSeen = 1;
+    getSession(recent.id)!.lastSeen = 2;
+
+    const resumed = await resumeMostRecentSession("user-a");
+
+    expect(resumed?.id).toBe(recent.id);
+    expect(listSessions().filter((session) => session.userId === "user-a")).toHaveLength(2);
   });
 
   it("requireOwnedSession returns the record when userId matches", async () => {
@@ -284,6 +299,7 @@ describe("zombie session reaping (Phase 20-P3)", () => {
       async exec() {
         return { stdout: "", stderr: "", exitCode: 0, timedOut: false, durationMs: 0 };
       },
+      async cancel() {},
       async writeFiles() {},
       async removeFiles() {},
       async fileExists() {
@@ -334,6 +350,22 @@ describe("zombie session reaping (Phase 20-P3)", () => {
     await expect(startSession("heavy")).rejects.toMatchObject({ status: 429 });
     await new Promise((r) => setTimeout(r, 0));
     await expect(startSession("heavy")).rejects.toMatchObject({ status: 429 });
+  });
+
+  it("skips a dead recent runner and resumes the next live candidate", async () => {
+    const { backend, live, destroyed } = makeControlledBackend();
+    initSessionManager(backend);
+    const older = await startSession("recovering");
+    const recent = await startSession("recovering");
+    getSession(older.id)!.lastSeen = 1;
+    getSession(recent.id)!.lastSeen = 2;
+    live.delete(recent.id);
+
+    const resumed = await resumeMostRecentSession("recovering");
+
+    expect(resumed?.id).toBe(older.id);
+    expect(getSession(recent.id)).toBeUndefined();
+    expect(destroyed.has(recent.id)).toBe(true);
   });
 
   it("coalesces concurrent cap-rejections into a single in-flight reap", async () => {
@@ -435,6 +467,7 @@ describe("shutdownAllSessions timeout (S-20)", () => {
       async exec() {
         return { stdout: "", stderr: "", exitCode: 0, timedOut: false, durationMs: 0 };
       },
+      async cancel() {},
       async writeFiles() {},
       async removeFiles() {},
       async fileExists() {

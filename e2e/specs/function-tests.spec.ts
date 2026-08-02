@@ -137,7 +137,7 @@ test.describe("function tests", () => {
     // so the expected_stdout rule ("Top 3:\nthe: 5\nfox: 3\ndog: 2") matches.
     const stdinText = readLessonSolution(COURSE_ID, CAPSTONE, { file: "input.txt" });
     await S.stdinTab(page).click();
-    const stdinBox = page.locator("#output-panel-body");
+    const stdinBox = S.stdinInput(page);
     await stdinBox.click();
     await stdinBox.fill(stdinText);
     await S.outputTab(page).click();

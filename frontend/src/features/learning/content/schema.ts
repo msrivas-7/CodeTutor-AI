@@ -9,7 +9,7 @@ const kebabOrSnake = z
   .regex(/^[a-z0-9][a-z0-9_-]*$/i, "must be a simple identifier (letters, digits, -, _)");
 // Course ids additionally permit a single leading underscore, which is the
 // folder-naming convention for internal (non-shipping) courses like
-// `_internal-js-smoke`.
+// `internal-js-smoke`.
 const courseId = z
   .string()
   .min(1)
@@ -19,18 +19,30 @@ const courseId = z
 // backend/src/schema/lessonRuleSchema.ts. If you add a variant here (new
 // completionRule type, new functionTest field), add the matching variant on
 // the backend side or it will be silently dropped at the API boundary.
-export const functionTestSchema = z.object({
-  name: nonEmptyString,
-  call: nonEmptyString,
-  expected: nonEmptyString,
-  setup: z.string().optional(),
-  hidden: z.boolean().optional(),
-  category: z.string().optional(),
-});
+export const functionTestSchema = z
+  .object({
+    name: nonEmptyString,
+    call: nonEmptyString,
+    expected: nonEmptyString.optional(),
+    expectedError: z
+      .object({
+        type: nonEmptyString,
+        message: nonEmptyString.optional(),
+      })
+      .optional(),
+    beforeLoad: z.string().optional(),
+    setup: z.string().optional(),
+    hidden: z.boolean().optional(),
+    category: z.string().optional(),
+  })
+  .refine((test) => (test.expected === undefined) !== (test.expectedError === undefined), {
+    message: "exactly one of expected or expectedError is required",
+  });
 
 export const expectedStdoutRuleSchema = z.object({
   type: z.literal("expected_stdout"),
   expected: nonEmptyString,
+  match: z.enum(["contains", "exact"]).optional(),
 });
 
 // Lesson 1's `expected_stdout: "Hello, "` substring rule is lenient
@@ -55,6 +67,35 @@ export const requiredFileContainsRuleSchema = z.object({
 export const functionTestsRuleSchema = z.object({
   type: z.literal("function_tests"),
   tests: z.array(functionTestSchema).min(1),
+});
+
+export const sourceCheckSchema = z.object({
+  name: nonEmptyString,
+  file: z.string().optional(),
+  kind: z.enum([
+    "python_list_comprehension",
+    "python_dict_comprehension",
+    "python_set_comprehension",
+    "python_generator_expression",
+    "python_while_loop",
+    "python_with_statement",
+    "python_specific_except",
+    "python_raise",
+    "python_call",
+    "python_lambda",
+    "python_yield",
+  ]),
+  target: z.string().optional(),
+  scope: z.string().optional(),
+  minCount: z.number().int().positive().optional(),
+  hidden: z.boolean().optional(),
+  category: z.string().optional(),
+  feedback: nonEmptyString,
+});
+
+export const sourceChecksRuleSchema = z.object({
+  type: z.literal("source_checks"),
+  checks: z.array(sourceCheckSchema).min(1),
 });
 
 export const customValidatorRuleSchema = z.object({
@@ -99,6 +140,7 @@ export const completionRuleSchema = z.discriminatedUnion("type", [
   forbiddenInStdoutRuleSchema,
   requiredFileContainsRuleSchema,
   functionTestsRuleSchema,
+  sourceChecksRuleSchema,
   customValidatorRuleSchema,
   retrievalCheckRuleSchema,
 ]);

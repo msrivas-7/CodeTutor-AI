@@ -71,7 +71,7 @@ function tokenColor(kind: Token["kind"]): string {
 }
 
 function fmtTimeSpent(ms: number): string {
-  if (!Number.isFinite(ms) || ms <= 0) return "—";
+  if (!Number.isFinite(ms) || ms <= 0) return "";
   if (ms < 60_000) return "<1m";
   const mins = Math.round(ms / 60_000);
   if (mins < 60) return `${mins}m`;
@@ -103,7 +103,7 @@ export function ShareCardPreview(props: ShareCardPreviewProps) {
   const allLines = props.codeSnippet.split("\n");
   const lines = allLines.slice(0, MAX_LINES);
   const truncated = allLines.length > MAX_LINES;
-  const author = props.displayName ?? "A learner on CodeTutor";
+  const author = props.displayName ?? "A learner on CodeTutor AI";
 
   // The card renders at intrinsic 1200×630, then we wrap it in a
   // scaler so the dialog can show it at any width. Caller controls the
@@ -147,7 +147,7 @@ export function ShareCardPreview(props: ShareCardPreviewProps) {
               color: "rgb(230 236 245)",
             }}
           >
-            CodeTutor
+            CodeTutor AI
           </div>
           <div
             style={{
@@ -279,7 +279,9 @@ export function ShareCardPreview(props: ShareCardPreviewProps) {
               color: "rgb(100 116 139)",
             }}
           >
-            {fmtTimeSpent(props.timeSpentMs)} · {props.attemptCount}{" "}
+            {fmtTimeSpent(props.timeSpentMs)
+              ? `${fmtTimeSpent(props.timeSpentMs)} · `
+              : ""}{props.attemptCount}{" "}
             {props.attemptCount === 1 ? "attempt" : "attempts"}
           </div>
         </div>

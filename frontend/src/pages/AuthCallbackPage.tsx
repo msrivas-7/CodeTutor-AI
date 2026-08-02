@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, Navigate } from "react-router-dom";
+import { Link, Navigate, useLocation } from "react-router-dom";
 import { AuthShell } from "../auth/AuthShell";
 import { supabase } from "../auth/supabaseClient";
 import { useAuthStore } from "../auth/authStore";
 import { readAnonStash } from "../features/anon/anonStash";
 import { api } from "../api/client";
+import { authPath, consumeReturnTarget } from "../auth/returnTarget";
 
 // Landing route for Supabase's email + OAuth redirects. Our client is
 // configured with `detectSessionInUrl: true`, so `getSession()` kicks off
@@ -56,6 +57,7 @@ function friendlyAuthMessage(kind: AuthErrorKind): string {
 }
 
 export default function AuthCallbackPage() {
+  const location = useLocation();
   const user = useAuthStore((s) => s.user);
   const [err, setErr] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
@@ -68,6 +70,12 @@ export default function AuthCallbackPage() {
   // AND a fresh anon stash is present (only-when-relevant guard).
   // useRef prevents StrictMode double-mount from double-counting.
   const signupEventFiredRef = useRef(false);
+  const returnTargetRef = useRef(consumeReturnTarget(location.search));
+  const callbackError = new URLSearchParams(location.search).get("error");
+  const callbackErrorDescription = new URLSearchParams(location.search).get(
+    "error_description",
+  );
+  const oauthCancelled = callbackError === "access_denied";
 
   useEffect(() => {
     let cancelled = false;
@@ -75,6 +83,20 @@ export default function AuthCallbackPage() {
       console.error("[auth-callback]", raw);
       setErr(friendlyAuthMessage(classifyAuthError(raw)));
     };
+    if (callbackError) {
+      setErr(
+        oauthCancelled
+          ? "Sign-in was canceled. Nothing changed — you can try again whenever you're ready."
+          : "The sign-in provider couldn't finish this request. Try again or choose another sign-in method.",
+      );
+      if (callbackErrorDescription) {
+        console.info("[auth-callback] provider response", callbackErrorDescription);
+      }
+      setReady(true);
+      return () => {
+        cancelled = true;
+      };
+    }
     supabase.auth
       .getSession()
       .then(({ data, error }) => {
@@ -101,10 +123,13 @@ export default function AuthCallbackPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [callbackError, callbackErrorDescription, oauthCancelled]);
 
   // Phase 22C: in-product home is /start (/ is the public marketing page).
-  if (ready && user) return <Navigate to="/start" replace />;
+  if (ready && user) {
+    const destination = readAnonStash() !== null ? "/start" : returnTargetRef.current;
+    return <Navigate to={destination} replace />;
+  }
 
   return (
     <AuthShell
@@ -115,8 +140,8 @@ export default function AuthCallbackPage() {
       }
       footer={
         err ? (
-          <Link to="/login" className="text-accent hover:underline">
-            Back to sign in
+          <Link to={authPath("/login", returnTargetRef.current)} className="text-accent hover:underline">
+            {oauthCancelled ? "Choose another sign-in method" : "Back to sign in"}
           </Link>
         ) : undefined
       }
@@ -128,8 +153,9 @@ export default function AuthCallbackPage() {
           className="flex flex-col items-center gap-2 text-center text-xs text-muted"
         >
           <p>
-            If you came from a magic-link email, request a new link. Links
-            expire after an hour and can only be used once.
+            {oauthCancelled
+              ? "Your account and lesson are unchanged."
+              : "If you came from a magic-link email, request a new link. Links expire after an hour and can only be used once."}
           </p>
         </div>
       ) : (

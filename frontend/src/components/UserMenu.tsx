@@ -61,7 +61,17 @@ function initialsFrom(user: User): string {
   return user.id.slice(0, 2).toUpperCase() || "??";
 }
 
-export function UserMenu({ className }: { className?: string } = {}) {
+export function UserMenu({
+  className,
+  onShareChanged,
+}: {
+  className?: string;
+  onShareChanged?: (change: {
+    courseId: string;
+    lessonId: string;
+    shared: boolean;
+  }) => void;
+} = {}) {
   const user = useAuthStore((s) => s.user);
   const signOut = useAuthStore((s) => s.signOut);
   const isAdmin = useAuthStore((s) => s.isAdmin());
@@ -135,7 +145,7 @@ export function UserMenu({ className }: { className?: string } = {}) {
         aria-controls="user-menu-dropdown"
         aria-label={email ? `User menu for ${email}` : "Open user menu"}
         title={email ?? "Account"}
-        className="flex h-11 w-11 items-center justify-center rounded-full border border-border bg-elevated text-[11px] font-semibold text-ink transition hover:border-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent sm:h-7 sm:w-7"
+        className="flex h-11 w-11 items-center justify-center rounded-full border border-border bg-elevated text-sm font-semibold text-ink transition hover:border-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       >
         {initial}
       </button>
@@ -145,7 +155,7 @@ export function UserMenu({ className }: { className?: string } = {}) {
           id="user-menu-dropdown"
           role="menu"
           aria-labelledby="user-menu-trigger"
-          className="absolute right-0 top-9 z-50 w-60 rounded-md border border-border bg-panel p-2 shadow-lg"
+          className="absolute right-0 top-12 z-50 w-64 rounded-lg border border-border bg-panel p-2 shadow-lg"
         >
           <div className="flex flex-col gap-0.5 px-2 py-1.5">
             <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">
@@ -176,9 +186,21 @@ export function UserMenu({ className }: { className?: string } = {}) {
               setOpen(false);
               setShowSettings(true);
             }}
-            className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-[11px] font-semibold text-ink transition hover:bg-elevated focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="flex min-h-11 w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm font-semibold text-ink transition hover:bg-elevated focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             Settings
+          </button>
+
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              nav("/learn/saved");
+            }}
+            className="mt-0.5 flex min-h-11 w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm font-semibold text-ink transition hover:bg-elevated focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            Saved tutor notes
           </button>
 
           {isAdmin && (
@@ -189,7 +211,7 @@ export function UserMenu({ className }: { className?: string } = {}) {
                 setOpen(false);
                 nav("/admin");
               }}
-              className="mt-0.5 flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-[11px] font-semibold text-accent transition hover:bg-elevated focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              className="mt-0.5 flex min-h-11 w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm font-semibold text-accentInk transition hover:bg-elevated focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               <span>Admin console</span>
               <span className="text-[9px] uppercase tracking-wider text-accent/70">
@@ -204,7 +226,7 @@ export function UserMenu({ className }: { className?: string } = {}) {
             onClick={handleSignOut}
             disabled={signingOut}
             aria-busy={signingOut}
-            className="mt-0.5 flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-[11px] font-semibold text-ink transition hover:bg-elevated focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60"
+            className="mt-0.5 flex min-h-11 w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm font-semibold text-ink transition hover:bg-elevated focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60"
           >
             {signingOut ? "Signing out…" : "Sign out"}
           </button>
@@ -212,13 +234,16 @@ export function UserMenu({ className }: { className?: string } = {}) {
       )}
       {showSettings && (
         <SettingsModal
+          onShareChanged={onShareChanged}
           onClose={() => {
             setShowSettings(false);
             // A10: the menu item that opened Settings is no longer in the
             // DOM (dropdown closed on open), so Modal's generic focus-
-            // restore has nothing to return to. Park focus back on the
-            // trigger explicitly so keyboard users aren't stranded.
-            triggerRef.current?.focus();
+            // restore has nothing to return to. Modal defers its own restore
+            // to a microtask during unmount, so defer this explicit target one
+            // task further; otherwise that cleanup wins and leaves focus on
+            // document.body.
+            window.setTimeout(() => triggerRef.current?.focus(), 0);
           }}
         />
       )}

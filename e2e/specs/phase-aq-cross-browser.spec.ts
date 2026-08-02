@@ -225,12 +225,36 @@ test.describe(
     await expect(page.getByText(/what shows up on the screen/i)).toBeVisible();
     await expect(page.getByText(/not quite right/i)).toHaveCount(0);
     await page.getByRole("button", { name: /^Hello, World!$/i }).click();
-    await expect(
-      page.getByRole("dialog", { name: /lesson complete/i }),
-    ).toBeVisible();
+    const completion = page.getByRole("dialog", { name: /lesson complete/i });
+    await expect(completion).toBeVisible();
     await expectNoHorizontalOverflow(page);
 
-    await page.keyboard.press("Escape");
+    const completionFit = await completion.evaluate((node) => {
+      const box = node.getBoundingClientRect();
+      return {
+        clientHeight: node.clientHeight,
+        scrollHeight: node.scrollHeight,
+        left: box.left,
+        right: box.right,
+        viewportWidth: window.innerWidth,
+      };
+    });
+    expect(completionFit.scrollHeight).toBe(completionFit.clientHeight);
+    expect(completionFit.left).toBeGreaterThanOrEqual(0);
+    expect(completionFit.right).toBeLessThanOrEqual(completionFit.viewportWidth);
+
+    // Safari may apply the same Escape to a native fullscreen/viewport
+    // transition. The product dialog must still close and restore focus after
+    // that reflow instead of preserving a stale modal in the smaller layout.
+    await Promise.all([
+      page.keyboard.press("Escape"),
+      page.setViewportSize({ width: 390, height: 790 }),
+    ]);
+    await expect(completion).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: /check/i }).first(),
+    ).toBeFocused();
+    await page.setViewportSize({ width: 390, height: 844 });
     await page.getByRole("button", { name: /sign up to save/i }).click();
     const continuation = page.getByRole("dialog", { name: /sign up to save/i });
     await expect(continuation).toBeVisible();
@@ -247,6 +271,28 @@ test.describe(
     await expect
       .poll(async () => (await submit.boundingBox())?.height ?? 0)
       .toBeGreaterThanOrEqual(44);
+    await page.keyboard.press("Escape");
+    await expect(continuation).toHaveCount(0);
+  });
+
+  test("a native viewport reflow consumes Escape before the product modal", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await seedFirstRun(page, true);
+    await openLesson(page);
+    await page.getByRole("button", { name: /sign up to save/i }).click();
+    const continuation = page.getByRole("dialog", { name: /sign up to save/i });
+    await expect(continuation).toBeVisible();
+
+    await page.evaluate(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", {
+        key: "Escape",
+        bubbles: true,
+      }));
+    });
+    await page.setViewportSize({ width: 900, height: 720 });
+    await page.waitForTimeout(180);
+    await expect(continuation).toBeVisible();
+
     await page.keyboard.press("Escape");
     await expect(continuation).toHaveCount(0);
   });

@@ -3,6 +3,7 @@ import { useSessionStore } from "../state/sessionStore";
 import { useRunStore } from "../state/runStore";
 import { useAIStore } from "../state/aiStore";
 import { usePreferencesStore } from "../state/preferencesStore";
+import { useAIStatus } from "../state/useAIStatus";
 import { LANGUAGE_LABEL } from "../types";
 
 const PHASE_DOT: Record<string, string> = {
@@ -41,6 +42,8 @@ export function StatusBar() {
   const running = useRunStore((s) => s.running);
   const hasKey = usePreferencesStore((s) => s.hasOpenaiKey);
   const selectedModel = useAIStore((s) => s.selectedModel);
+  const { status: aiStatus } = useAIStatus();
+  const aiReady = hasKey || aiStatus?.source === "platform";
 
   return (
     <footer
@@ -101,7 +104,9 @@ export function StatusBar() {
 
         <div className="flex items-center gap-1.5">
           <span className="text-faint">AI</span>
-          {hasKey ? (
+          {aiStatus === null && !hasKey ? (
+            <span className="text-muted">checking…</span>
+          ) : aiReady ? (
             <span className="text-success">● ready</span>
           ) : (
             <span className="text-faint">not set</span>

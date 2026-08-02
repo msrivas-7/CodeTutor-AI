@@ -47,11 +47,11 @@ import {
 // unmount. Reduced-motion bypasses Lenis (native browser scroll).
 
 const HERO = pickHeroCopy();
-const DeferredMeshGradient = lazy(() =>
+const loadMeshGradient = () =>
   import("@paper-design/shaders-react").then(({ MeshGradient }) => ({
     default: MeshGradient,
-  })),
-);
+  }));
+const DeferredMeshGradient = lazy(loadMeshGradient);
 
 export default function MarketingPage() {
   const reduce = useReducedMotion();
@@ -96,14 +96,16 @@ export default function MarketingPage() {
       return;
     }
 
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    let cancelled = false;
     const frame = requestAnimationFrame(() => {
-      timer = setTimeout(() => setAtmosphereReady(true), 2500);
+      void loadMeshGradient().then(() => {
+        if (!cancelled) setAtmosphereReady(true);
+      });
     });
 
     return () => {
+      cancelled = true;
       cancelAnimationFrame(frame);
-      if (timer) clearTimeout(timer);
     };
   }, [staticHero]);
 
@@ -164,21 +166,28 @@ export default function MarketingPage() {
         className="pointer-events-none fixed inset-0 -z-30 bg-gradient-to-br from-[#0a0e22] via-[#1d1758] to-[#1d5b9e]"
       >
         {!staticHero && atmosphereReady && (
-          <Suspense fallback={null}>
-            <DeferredMeshGradient
-              colors={[
-                "#0a0e22", // ink-deep
-                "#1d1758", // violet-deep
-                "#5b2cb0", // violet (brand)
-                "#1d5b9e", // accent-deep
-              ]}
-              distortion={0.7}
-              swirl={0.6}
-              speed={0.22}
-              scale={1.3}
-              style={{ width: "100%", height: "100%" }}
-            />
-          </Suspense>
+          <motion.div
+            className="absolute inset-0"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 1.1, ease: HOUSE_EASE }}
+          >
+            <Suspense fallback={null}>
+              <DeferredMeshGradient
+                colors={[
+                  "#0a0e22", // ink-deep
+                  "#1d1758", // violet-deep
+                  "#5b2cb0", // violet (brand)
+                  "#1d5b9e", // accent-deep
+                ]}
+                distortion={0.7}
+                swirl={0.6}
+                speed={0.22}
+                scale={1.3}
+                style={{ width: "100%", height: "100%" }}
+              />
+            </Suspense>
+          </motion.div>
         )}
       </div>
 
@@ -228,22 +237,6 @@ export default function MarketingPage() {
           {HERO.subhead}
         </motion.p>
 
-        {/* The match-cut motion panel. Its delayed lift remains, but the
-            panel is present from first paint so the cinematic sequence
-            never creates a blank hero on a slower device. */}
-        <motion.div
-          initial={staticHero ? false : { y: 12 }}
-          animate={staticHero ? undefined : { y: 0 }}
-          transition={{
-            duration: 0.7,
-            ease: HOUSE_EASE,
-            delay: staticHero ? 0 : 1.9,
-          }}
-          className="mt-12 flex w-full justify-center md:mt-14"
-        >
-          <MatchCutHero staticMotion={staticHero} />
-        </motion.div>
-
         {/* CTA row — primary pill + secondary anchor link. */}
         <motion.div
           initial={staticHero ? false : { y: 8 }}
@@ -251,9 +244,9 @@ export default function MarketingPage() {
           transition={{
             duration: 0.5,
             ease: HOUSE_EASE,
-            delay: staticHero ? 0 : 2.4,
+            delay: staticHero ? 0 : 1.9,
           }}
-          className="mt-10 flex flex-col items-center gap-4 sm:flex-row sm:gap-6"
+          className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:gap-5"
         >
           <MarketingCta size="hero" />
           {/* The account-free product experience is the primary anonymous
@@ -287,6 +280,22 @@ export default function MarketingPage() {
           >
             How it works ↓
           </a>
+        </motion.div>
+
+        {/* The cinematic demo supports the promise after the visitor has a
+            visible way to act. This keeps the primary action above the fold
+            on common 720px laptop screens without sacrificing the demo. */}
+        <motion.div
+          initial={staticHero ? false : { y: 12 }}
+          animate={staticHero ? undefined : { y: 0 }}
+          transition={{
+            duration: 0.7,
+            ease: HOUSE_EASE,
+            delay: staticHero ? 0 : 2.2,
+          }}
+          className="mt-9 flex w-full justify-center md:mt-11"
+        >
+          <MatchCutHero staticMotion={staticHero} />
         </motion.div>
       </section>
 

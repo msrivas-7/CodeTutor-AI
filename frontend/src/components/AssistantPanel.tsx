@@ -95,6 +95,7 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
 
   const [draft, setDraft] = useState("");
   const [exhaustionDismissed, setExhaustionDismissed] = useState(false);
+  const [clearConfirm, setClearConfirm] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const keys = useShortcutLabels();
@@ -103,8 +104,9 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
   // wins over whatever ai-status last said — if the user just pasted a
   // BYOK key, we shouldn't render the free-tier pill until the status
   // refetch lands. `source === "platform"` means free tier is active.
+  const statusLoading = !hasKey && aiStatus === null;
   const effectiveSource: "byok" | "platform" | "none" =
-    hasKey ? "byok" : (aiStatus?.source ?? "byok");
+    hasKey ? "byok" : (aiStatus?.source ?? "none");
   const onPlatform = effectiveSource === "platform";
   const exhausted = effectiveSource === "none" && aiStatus?.reason === "free_exhausted";
   // Drop stale "dismissed" state whenever the counter refreshes (new day,
@@ -135,6 +137,11 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
   // backend is willing to fund us on the platform key (onPlatform — the
   // model is implicit, server-picked `gpt-4.1-nano`).
   const configured = onPlatform || (hasKey && !!selectedModel);
+
+  const prepareAnswer = (value: string) => {
+    setDraft(value);
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  };
 
   const { submitAsk, cancelAsk } = useTutorAsk({
     beforeSend: () => {
@@ -238,20 +245,44 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
           )}
         </div>
         <div className="flex items-center gap-1">
-          <button
-            onClick={clearConversation}
-            className="rounded px-2 py-0.5 text-[11px] text-muted transition hover:bg-elevated hover:text-ink disabled:opacity-40"
-            disabled={history.length === 0}
-            title="Clear conversation"
-          >
-            clear
-          </button>
+          {!clearConfirm ? (
+            <button
+              onClick={() => setClearConfirm(true)}
+              className="min-h-11 rounded-lg px-3 py-2 text-sm text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-40"
+              disabled={history.length === 0 || asking}
+              title="Clear conversation"
+              aria-label="Clear conversation"
+            >
+              Clear
+            </button>
+          ) : (
+            <div className="flex items-center gap-1" role="group" aria-label="Confirm clearing conversation">
+              <button
+                type="button"
+                onClick={() => setClearConfirm(false)}
+                className="min-h-11 rounded-lg px-2 py-2 text-sm text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              >
+                Keep
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  clearConversation();
+                  setDraft("");
+                  setClearConfirm(false);
+                }}
+                className="min-h-11 rounded-lg px-2 py-2 text-sm font-semibold text-danger transition hover:bg-danger/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger/50"
+              >
+                Clear chat
+              </button>
+            </div>
+          )}
           {onCollapse && (
             <button
               onClick={onCollapse}
               title="Collapse tutor"
               aria-label="Collapse tutor"
-              className="rounded p-1 text-muted transition hover:bg-elevated hover:text-ink"
+              className="flex h-11 w-11 items-center justify-center rounded-lg text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
                 <path d="M10.5 3.5L6 8l4.5 4.5L12 11 9 8l3-3z" />
@@ -279,7 +310,10 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
         aria-label="Tutor conversation"
         className="flex-1 space-y-3 overflow-auto p-3"
       >
-        {!configured && !exhausted && (
+        {statusLoading && (
+          <div role="status" className="rounded-lg border border-border bg-elevated/40 p-3 text-sm text-muted">Checking your tutor access…</div>
+        )}
+        {!statusLoading && !configured && !exhausted && (
           <TutorSetupWarning
             onOpenSettings={onOpenSettings}
             onDismiss={onCollapse}
@@ -321,7 +355,13 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
               void saveTutorMessage({
                 messageId,
                 content: m.content,
-                sections: (m.sections ?? null) as Record<string, unknown> | null,
+                sections: {
+                  ...(m.sections ?? {}),
+                  __savedContext: {
+                    activeFile,
+                    files: useProjectStore.getState().snapshot(),
+                  },
+                } as Record<string, unknown>,
                 model: selectedModel,
               });
             }
@@ -341,6 +381,7 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
                 <TutorResponseView
                   sections={m.sections}
                   onAsk={isLatestAssistant ? setPendingAsk : undefined}
+                  onCompose={isLatestAssistant ? prepareAnswer : undefined}
                   disabled={asking}
                   scripted={m.meta?.scripted}
                 />
@@ -405,7 +446,7 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
               const lastUser = [...history].reverse().find((m) => m.role === "user");
               if (lastUser) {
                 setAskError(null);
-                setPendingAsk(lastUser.content);
+                void submitAsk(lastUser.content, { appendUser: false });
               }
             }}
             retryDisabled={asking || !configured}
@@ -446,13 +487,15 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
           placeholder={
             activeSelection
               ? "Ask about the selection…"
+              : statusLoading
+                ? "Checking tutor access…"
               : !configured && exhausted
                 ? `Free tutor resets ${formatReset(aiStatus?.resetAtUtc ?? null)}`
                 : !configured
                   ? "Configure API key first"
                   : "Ask about your project…"
           }
-          disabled={!configured}
+          disabled={statusLoading || !configured}
           rows={3}
           aria-label="Ask the tutor"
           className="w-full resize-none rounded-md border border-border bg-elevated px-2.5 py-2 text-xs text-ink transition placeholder:text-faint focus:border-accent/60 disabled:cursor-not-allowed disabled:bg-elevated/40 disabled:opacity-50"
@@ -476,7 +519,7 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
             <button
               onClick={cancelAsk}
               title="Stop the current response"
-              className="inline-flex items-center gap-1.5 rounded-md bg-danger/15 px-3 py-1 text-[11px] font-semibold text-danger ring-1 ring-danger/30 transition hover:bg-danger/25"
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-md bg-danger/15 px-3 py-2 text-[11px] font-semibold text-danger ring-1 ring-danger/30 transition hover:bg-danger/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger"
             >
               <span className="inline-block h-2 w-2 rounded-sm bg-danger" />
               Stop
@@ -485,7 +528,7 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
             <button
               onClick={handleAsk}
               disabled={!draft.trim() || !configured}
-              className="rounded-md bg-accent px-3 py-1 text-[11px] font-semibold text-bg transition hover:bg-accentMuted disabled:cursor-not-allowed disabled:bg-elevated disabled:text-faint"
+              className="min-h-11 rounded-md bg-accent px-3 py-2 text-[11px] font-semibold text-bg transition hover:bg-accentMuted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:bg-elevated disabled:text-faint"
             >
               Ask
             </button>

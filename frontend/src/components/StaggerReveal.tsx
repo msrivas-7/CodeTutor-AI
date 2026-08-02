@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 
 // Shared stagger-reveal primitives for page content. Wrap a page's
 // main content region in <StaggerReveal> and mark each section with
-// <StaggerItem>. On mount, items fade up in sequence — no page-level
+// <StaggerItem>. On mount, items glide up in sequence — no page-level
 // motion needed; the shared `bg-bg` background bridges navigations
 // and the content-assembles-itself pattern covers the reveal.
 //
@@ -25,9 +25,12 @@ const containerVariants: Variants = {
 };
 
 const itemVariants: Variants = {
-  hidden: { opacity: 0, y: 8, scale: 0.99 },
+  // Keep text fully opaque throughout the reveal. Fading an entire section
+  // temporarily drops otherwise-valid text below WCAG contrast, especially
+  // while a nested stagger is starting. Translation + scale retain the
+  // polished assembly motion without sacrificing legibility at any frame.
+  hidden: { y: 8, scale: 0.99 },
   show: {
-    opacity: 1,
     y: 0,
     scale: 1,
     transition: { duration: 0.35, ease: [0.22, 1, 0.36, 1] as const },

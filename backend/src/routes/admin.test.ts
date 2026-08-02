@@ -16,6 +16,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { randomUUID } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
+import { config } from "../config.js";
 
 // Mock the Supabase Admin REST wrapper. Test env doesn't have the
 // service role key, and we don't need it: route logic is what we're
@@ -344,13 +345,26 @@ describe("system-config", () => {
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
-      config: Record<string, { source: string; value: unknown }>;
+      config: Record<string, {
+        source: string;
+        value: unknown;
+        bounds: { type: string; min?: number; max?: number; step?: string };
+      }>;
     };
     expect(body.config.free_tier_daily_questions.source).toBe("env");
     // Env value either matches process.env.FREE_TIER_DAILY_QUESTIONS or
     // the default 30; we don't assert the specific number to keep the
     // test independent of test-env config.
     expect(typeof body.config.free_tier_daily_questions.value).toBe("number");
+    expect(body.config.free_tier_daily_questions.bounds).toEqual({
+      type: "number",
+      min: 0,
+      max: 10000,
+      step: "1",
+    });
+    expect(body.config.aci_warm_high_watermark.bounds.max).toBe(
+      config.session.maxGlobal,
+    );
   });
 
   it("PUT sets a number cap + audit row", async () => {
@@ -363,8 +377,12 @@ describe("system-config", () => {
       body: { value: 100, reason: "admin route test — set cap" },
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { value: number };
+    const body = (await res.json()) as {
+      value: number;
+      bounds: { type: string; min: number; max: number; step: string };
+    };
     expect(body.value).toBe(100);
+    expect(body.bounds).toEqual({ type: "number", min: 0, max: 10000, step: "1" });
     const rows = await db()<Array<{ event_type: string }>>`
       SELECT event_type FROM public.admin_audit_log
        WHERE actor_id = ${admin}
@@ -550,5 +568,48 @@ describe("GET /api/admin/audit-log", () => {
       userRole: "admin",
       method: "DELETE",
     });
+  });
+
+  it("keeps routine review reads out of the default change history", async () => {
+    if (!dbReachable) return;
+    const admin = await mkUser("admin");
+    await db()`
+      INSERT INTO public.admin_audit_log (
+        actor_id, event_type, target_key, before, after, reason
+      ) VALUES
+        (${admin}, 'tab_opened', 'eval-quality', 'null'::jsonb, 'null'::jsonb, 'routine review'),
+        (${admin}, 'system_config_set', 'anon_lesson_enabled', 'true'::jsonb, 'false'::jsonb, 'incident response')
+    `;
+
+    const changesRes = await call(
+      `/api/admin/audit-log?limit=20&category=changes&query=${admin}`,
+      { userId: admin, userRole: "admin" },
+    );
+    expect(changesRes.status).toBe(200);
+    const changes = (await changesRes.json()) as {
+      entries: Array<{ eventType: string; reason: string | null }>;
+    };
+    expect(changes.entries).toContainEqual(
+      expect.objectContaining({
+        eventType: "system_config_set",
+        reason: "incident response",
+      }),
+    );
+    expect(changes.entries.some((entry) => entry.eventType === "tab_opened")).toBe(false);
+
+    const reviewsRes = await call(
+      `/api/admin/audit-log?limit=20&category=reviews&query=${admin}`,
+      { userId: admin, userRole: "admin" },
+    );
+    expect(reviewsRes.status).toBe(200);
+    const reviews = (await reviewsRes.json()) as {
+      entries: Array<{ eventType: string; reason: string | null }>;
+    };
+    expect(reviews.entries).toContainEqual(
+      expect.objectContaining({ eventType: "tab_opened", reason: "routine review" }),
+    );
+    expect(
+      reviews.entries.some((entry) => entry.eventType === "system_config_set"),
+    ).toBe(false);
   });
 });

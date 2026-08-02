@@ -51,9 +51,10 @@
       ]
     },
     {
-      "type": "required_file_contains",
-      "file": "main.py",
-      "pattern": "yield"
+      "type": "source_checks",
+      "checks": [
+        { "name": "Yield from fibonacci", "kind": "python_yield", "scope": "fibonacci", "feedback": "Produce Fibonacci values with yield inside fibonacci()." }
+      ]
     },
     {
       "type": "required_file_contains",
@@ -85,9 +86,10 @@
           ]
         },
         {
-          "type": "required_file_contains",
-          "file": "main.py",
-          "pattern": "yield"
+          "type": "source_checks",
+          "checks": [
+            { "name": "Yield from count_up_to", "kind": "python_yield", "scope": "count_up_to", "feedback": "Yield each value from inside count_up_to()." }
+          ]
         }
       ],
       "hints": [
@@ -114,9 +116,11 @@
           ]
         },
         {
-          "type": "required_file_contains",
-          "file": "main.py",
-          "pattern": "yield"
+          "type": "source_checks",
+          "checks": [
+            { "name": "Use a while loop", "kind": "python_while_loop", "scope": "squares_under", "feedback": "Use a while loop inside squares_under(), as the exercise requires." },
+            { "name": "Yield square values", "kind": "python_yield", "scope": "squares_under", "feedback": "Yield each square from inside squares_under()." }
+          ]
         }
       ],
       "hints": [

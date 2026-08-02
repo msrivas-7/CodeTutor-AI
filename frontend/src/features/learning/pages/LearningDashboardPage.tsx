@@ -12,7 +12,6 @@ import { CourseCard } from "../components/CourseCard";
 import { CurriculumMap } from "../components/CurriculumMap";
 import { CoursePrereqWarningModal } from "../components/CoursePrereqWarningModal";
 import { ProgressRing } from "../components/ProgressRing";
-import { AmbientGlyphField } from "../../../components/AmbientGlyphField";
 import { StaggerReveal, StaggerItem } from "../../../components/StaggerReveal";
 import { UserMenu } from "../../../components/UserMenu";
 import { FeedbackButton } from "../../../components/FeedbackButton";
@@ -167,7 +166,6 @@ export default function LearningDashboardPage() {
 
   return (
     <div className="relative flex h-full flex-col bg-bg text-ink">
-      <AmbientGlyphField />
       <header className="relative z-20 flex items-center gap-3 border-b border-border bg-panel/80 px-4 py-2 backdrop-blur">
         <button
           onClick={() => nav("/start")}
@@ -385,7 +383,7 @@ export default function LearningDashboardPage() {
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-xs font-semibold">{lessonTitle(lp.lessonId)}</p>
                           <p className="text-[10px] text-muted">
-                            {lp.runCount} runs · {lp.attemptCount} attempts
+                            {lp.runCount} {lp.runCount === 1 ? "run" : "runs"} · {lp.attemptCount} {lp.attemptCount === 1 ? "attempt" : "attempts"}
                             {lp.timeSpentMs && lp.timeSpentMs > 0 && (
                               <> · {formatTimeSpent(lp.timeSpentMs)}</>
                             )}

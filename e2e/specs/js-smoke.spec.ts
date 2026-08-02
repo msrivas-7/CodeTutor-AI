@@ -1,4 +1,4 @@
-// JavaScript smoke-test specs. The `_internal-js-smoke` course was added in
+// JavaScript smoke-test specs. The `internal-js-smoke` course was added in
 // Phase 10E to prove the platform's multi-language plumbing (schema → loader
 // → runner → validator) works for a non-Python language. These specs are the
 // customer-POV surface: a learner who typed the URL ends up on a functional
@@ -18,7 +18,7 @@ import { readLessonSolution } from "../fixtures/solutions";
 import * as S from "../utils/selectors";
 import { expectLessonComplete } from "../utils/assertions";
 
-const COURSE_ID = "_internal-js-smoke";
+const COURSE_ID = "internal-js-smoke";
 const LESSON_ID = "hello-print";
 
 test.describe("javascript smoke course", () => {

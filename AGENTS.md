@@ -9,7 +9,10 @@ machine-local discoveries belong in `.agent-harness/PROJECT_MEMORY.md`.
 Before every feature, fix, refactor, migration, or review-driven change:
 
 1. Confirm the Git root and inspect the worktree. Preserve unrelated changes.
-2. Run `node scripts/agent-harness.mjs start --feature "<short name>" --scope <scope>`.
+2. Classify browser impact before editing. Browser-observable work is the default:
+   `node scripts/agent-harness.mjs start --feature "<short name>" --scope <scope> --findings <UX-ids>`.
+   Use `--browser-impact none --browser-bypass "<concrete reason>"` only when
+   no user-visible browser flow can be affected. UX findings may never bypass.
 3. Read the scoped harness output and the relevant source-of-truth docs below.
 4. Establish the smallest useful baseline check before editing.
 5. Work on one coherent slice at a time; do not declare a larger phase complete
@@ -48,15 +51,36 @@ promotion rules, lifecycle, and research behind this loop.
 
 Before a phase commit, push, pull request update, or handoff:
 
-1. Run the relevant deterministic checks and user-visible browser checks.
-2. Inspect the final diff and confirm no unrelated or generated secrets entered.
-3. Resolve or explicitly classify every pending harness incident.
-4. Record only verified, reusable discoveries; avoid diary-style notes.
-5. Run `node scripts/agent-harness.mjs doctor`.
-6. Finish the session with
+1. After fixing each named finding, use the actual Browser/Chrome control skill
+   and record a passing finding-level audit with
+   `node scripts/agent-harness.mjs browser-audit ... --level finding`. Scripted
+   Playwright is supporting evidence and cannot replace this interaction.
+2. Test the complete phase together in the live browser against the final code,
+   including its entry point, happy path, failure/recovery, every adversarial
+   interaction relevant to its state and risk surface, viewport/theme coverage,
+   focus result, and screenshots. This is not a one-case quota: test repeats,
+   interruption, collision, boundary, stale-state, and misuse paths wherever
+   they can exist. Record
+   it with `node scripts/agent-harness.mjs browser-audit ... --level phase`.
+3. Run the relevant deterministic checks. Resolve or explicitly classify every
+   failed command or failed browser audit.
+4. Inspect the final diff, stage exactly the intended phase files, and confirm
+   no unrelated work, generated cache, or secret entered the staged change.
+5. Record only verified, reusable discoveries; avoid diary-style notes.
+6. Run `node scripts/agent-harness.mjs doctor`.
+7. Finish the session with
    `node scripts/agent-harness.mjs finish --session <id> --summary "..." --tests "..."`.
-7. Leave the worktree in a state another engineer can understand from Git,
+   Finish refuses stale/missing browser evidence and fingerprints the staged
+   phase. The tracked pre-commit hook reruns `agent-harness.mjs pre-commit` and
+   rejects any different or unfinished staged change.
+8. Update the long-running PR description with the phase, findings, live-browser
+   evidence, checks, deployment state, and review resolution. A phase is not
+   complete until CI is green and every actionable PR comment is resolved.
+9. Leave the worktree in a state another engineer can understand from Git,
    tracked docs, and the harness handoff without conversation history.
+
+The copyable evidence contract is in
+[browser UX audit evidence](docs/templates/BROWSER_UX_AUDIT_EVIDENCE.md).
 
 ## Source-of-truth map
 

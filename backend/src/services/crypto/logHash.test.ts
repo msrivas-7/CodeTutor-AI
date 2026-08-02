@@ -34,10 +34,11 @@ describe("hashUserId", () => {
   });
 
   it("never echoes the raw userId string in its output", () => {
-    const userId = "00000000-0000-0000-0000-000000000001";
+    const userId = "raw-user-id@example.test";
     const hash = hashUserId(userId);
+
+    expect(hash).toMatch(/^[0-9a-f]{12}$/);
     expect(hash).not.toContain(userId);
-    // Nor any recognizable UUID fragment
-    expect(hash).not.toContain("0000");
+    expect(hash).not.toContain("raw-user-id");
   });
 });

@@ -89,13 +89,13 @@ const PHRASE_DISABLE_ANON_LESSON =
 // Bounds per cap key. Out-of-range values rejected with 400.
 const KEY_BOUNDS: Record<
   SystemConfigKey,
-  { type: "number"; min: number; max: number } | { type: "boolean" }
+  { type: "number"; min: number; max: number; step: string } | { type: "boolean" }
 > = {
   free_tier_enabled: { type: "boolean" },
-  free_tier_daily_questions: { type: "number", min: 0, max: 10000 },
-  free_tier_daily_usd_per_user: { type: "number", min: 0, max: 10 },
-  free_tier_lifetime_usd_per_user: { type: "number", min: 0, max: 100 },
-  free_tier_daily_usd_cap: { type: "number", min: 0, max: 50 },
+  free_tier_daily_questions: { type: "number", min: 0, max: 10000, step: "1" },
+  free_tier_daily_usd_per_user: { type: "number", min: 0, max: 10, step: "0.01" },
+  free_tier_lifetime_usd_per_user: { type: "number", min: 0, max: 100, step: "0.01" },
+  free_tier_daily_usd_cap: { type: "number", min: 0, max: 50, step: "0.01" },
   share_public_disabled: { type: "boolean" },
   share_create_disabled: { type: "boolean" },
   share_render_disabled: { type: "boolean" },
@@ -116,8 +116,8 @@ const KEY_BOUNDS: Record<
   //   which already brushes the daily envelope. A higher value would
   //   only mask a misconfigured cost cap.
   aci_overflow_enabled: { type: "boolean" },
-  aci_daily_usd_cap: { type: "number", min: 0, max: 100 },
-  aci_max_overflow: { type: "number", min: 0, max: 50 },
+  aci_daily_usd_cap: { type: "number", min: 0, max: 100, step: "1" },
+  aci_max_overflow: { type: "number", min: 0, max: 50, step: "1" },
   // Slice 8: warm-pool toggle. Boolean; the high/low watermarks +
   // pool size live in env (config.aci.*) since they're operational-
   // tuning values that don't need 2am admin access.
@@ -131,9 +131,9 @@ const KEY_BOUNDS: Record<
   // hit it). Phase 24B-resize: was 14 (B2ms-era constant); now scales
   // with the actual local cap so a B2s deploy doesn't accept 14 then
   // silently no-op.
-  aci_warm_high_watermark: { type: "number", min: 0, max: config.session.maxGlobal },
-  aci_warm_low_watermark: { type: "number", min: 0, max: config.session.maxGlobal },
-  aci_warm_max_pool_size: { type: "number", min: 0, max: 10 },
+  aci_warm_high_watermark: { type: "number", min: 0, max: config.session.maxGlobal, step: "1" },
+  aci_warm_low_watermark: { type: "number", min: 0, max: config.session.maxGlobal, step: "1" },
+  aci_warm_max_pool_size: { type: "number", min: 0, max: 10, step: "1" },
   // Phase 27-v2.2 Fix 7c — anon trial path kill switch. False
   // disables /api/anon/* (returns 503 ANON_LESSON_DISABLED) without
   // a redeploy. Boolean; env (ENABLE_ANON_LESSON) is the boot-time
@@ -155,8 +155,8 @@ const KEY_BOUNDS: Record<
   //   /api/anon/run. Bound 0–5000: 0 = drain the run surface without
   //   killing the whole trial path; 5000 ≈ the per-minute limiter's
   //   ceiling anyway, so higher values would only mask a misconfig.
-  anon_daily_usd_cap: { type: "number", min: 0, max: 50 },
-  anon_daily_runs_per_ip: { type: "number", min: 0, max: 5000 },
+  anon_daily_usd_cap: { type: "number", min: 0, max: 50, step: "0.01" },
+  anon_daily_runs_per_ip: { type: "number", min: 0, max: 5000, step: "1" },
   ai_eval_sampling_enabled: { type: "boolean" },
 };
 
@@ -427,6 +427,9 @@ adminRouter.get("/system-config", async (_req, res, next) => {
             setBy: row?.setBy ?? null,
             setAt: row?.setAt ?? null,
             reason: row?.reason ?? null,
+            // Publish the same guard the mutation endpoint enforces so the
+            // operator UI cannot drift from deployment-specific limits.
+            bounds: KEY_BOUNDS[k],
           },
         ];
       }),
@@ -677,6 +680,7 @@ adminRouter.put("/system-config/:key", async (req, res, next) => {
       setBy: after?.setBy ?? null,
       setAt: after?.setAt ?? null,
       reason: after?.reason ?? null,
+      bounds: KEY_BOUNDS[typedKey],
     });
   } catch (err) {
     next(err);
@@ -785,6 +789,8 @@ const auditLogQuery = z.object({
   // Phase 25: optional event_type filter for the redesigned audit-log
   // section. Validated against the literal union in db/adminAuditLog.ts.
   eventType: z.string().optional(),
+  category: z.enum(["changes", "reviews", "all"]).default("changes"),
+  query: z.string().trim().max(200).optional(),
 });
 
 adminRouter.get("/audit-log", async (req, res, next) => {
@@ -793,11 +799,13 @@ adminRouter.get("/audit-log", async (req, res, next) => {
     if (!parsed.success) {
       return res.status(400).json({ error: parsed.error.message });
     }
-    const { cursor, limit, eventType } = parsed.data;
+    const { cursor, limit, eventType, category, query } = parsed.data;
     const result = await listAdminAuditLog({
       cursor: cursor ?? null,
       limit,
       eventType: eventType ?? null,
+      category,
+      query: query || null,
     });
     res.json(result);
   } catch (err) {

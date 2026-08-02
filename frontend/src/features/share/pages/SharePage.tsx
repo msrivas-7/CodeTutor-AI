@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { motion, useReducedMotion } from "framer-motion";
 import { api } from "../../../api/client";
 import type { SharedLessonCompletion } from "../../../api/client";
@@ -8,6 +8,8 @@ import { CinematicLighting } from "../../../components/cinema/CinematicLighting"
 import { FilmGrain } from "../../../components/cinema/FilmGrain";
 import { CodeTypewriter } from "../components/CodeTypewriter";
 import { masteryLabel } from "../components/MasteryRing";
+import { FIRST_LESSON_CONTRACT } from "../../../productContract";
+import { Wordmark } from "../../../components/Wordmark";
 
 // Phase 21C: cinematic share page at /s/:token. Public route — no auth
 // required. Renders a slow, choreographed reveal of the learner's
@@ -28,7 +30,7 @@ const TIER_COLOR: Record<SharedLessonCompletion["mastery"], string> = {
 };
 
 function fmtTimeSpent(ms: number): string {
-  if (!Number.isFinite(ms) || ms <= 0) return "—";
+  if (!Number.isFinite(ms) || ms <= 0) return "";
   if (ms < 60_000) return "<1m";
   const mins = Math.round(ms / 60_000);
   if (mins < 60) return `${mins}m`;
@@ -43,11 +45,100 @@ function fmtViewCount(n: number): string {
   return `${Math.round(n / 1000)}k`;
 }
 
+interface ShareRecoveryProps {
+  eyebrow: string;
+  title: string;
+  message: string;
+  primary:
+    | { label: string; href: string; onClick?: never }
+    | { label: string; onClick: () => void; href?: never };
+}
+
+function ShareRecovery({
+  eyebrow,
+  title,
+  message,
+  primary,
+}: ShareRecoveryProps) {
+  const headingRef = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    const previousTitle = document.title;
+    document.title = `${title} · CodeTutor AI`;
+    headingRef.current?.focus();
+    return () => {
+      document.title = previousTitle;
+    };
+  }, [title]);
+
+  const primaryClasses =
+    "inline-flex min-h-11 items-center justify-center rounded-full bg-gradient-to-r from-violet to-accent px-5 py-2.5 text-sm font-bold text-bg shadow-glow transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg";
+
+  return (
+    <div className="relative min-h-screen overflow-hidden bg-bg text-ink">
+      <CinematicLighting
+        variant="three-point"
+        fadeInMs={300}
+        keyColor="accent"
+        intensity="soft"
+      />
+      <FilmGrain intensity="hero" fadeInMs={300} />
+      <header className="relative mx-auto max-w-5xl px-5 pt-7 sm:px-10 sm:pt-10">
+        <a
+          href="/"
+          aria-label="CodeTutor AI home"
+          className="inline-flex rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-4 focus-visible:ring-offset-bg"
+        >
+          <Wordmark size="md" />
+        </a>
+      </header>
+      <main className="relative mx-auto flex min-h-[calc(100vh-5rem)] max-w-5xl items-center px-5 py-12 sm:px-10 sm:py-16">
+        <section className="w-full max-w-2xl">
+          <div className="font-mono text-xs font-semibold uppercase tracking-[0.2em] text-accent">
+            {eyebrow}
+          </div>
+          <h1
+            ref={headingRef}
+            tabIndex={-1}
+            className="mt-4 font-display text-4xl font-semibold leading-tight tracking-tight text-ink outline-none sm:text-5xl"
+          >
+            {title}
+          </h1>
+          <p className="mt-5 max-w-xl text-base leading-7 text-muted sm:text-lg sm:leading-8">
+            {message}
+          </p>
+          <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+            {primary.href ? (
+              <a href={primary.href} className={primaryClasses}>
+                {primary.label}
+              </a>
+            ) : (
+              <button
+                type="button"
+                onClick={primary.onClick}
+                className={primaryClasses}
+              >
+                {primary.label}
+              </button>
+            )}
+            <a
+              href="/"
+              className="inline-flex min-h-11 items-center justify-center rounded-full border border-borderSoft bg-panel/80 px-5 py-2.5 text-sm font-medium text-ink transition hover:border-accent/40 hover:bg-accent/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+            >
+              Go to CodeTutor AI home
+            </a>
+          </div>
+        </section>
+      </main>
+    </div>
+  );
+}
+
 export default function SharePage() {
   const { token } = useParams<{ token: string }>();
-  const nav = useNavigate();
   const [share, setShare] = useState<SharedLessonCompletion | null>(null);
   const [error, setError] = useState<"not_found" | "load_failed" | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   // Fetch the share row. The route is public — no auth headers needed,
   // but the api.getShare wrapper attaches the bearer token if a session
@@ -58,6 +149,8 @@ export default function SharePage() {
       return;
     }
     let cancelled = false;
+    setShare(null);
+    setError(null);
     void (async () => {
       try {
         const res = await api.getShare(token);
@@ -75,7 +168,7 @@ export default function SharePage() {
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, [token, loadAttempt]);
 
   // Keep the live document metadata correct for browser navigation and
   // client-side transitions. Public copy/share URLs use the managed
@@ -89,11 +182,12 @@ export default function SharePage() {
     document.title = docTitle;
 
     const url = `${window.location.origin}/s/${share.shareToken}`;
-    const description = `${masteryLabel(share.mastery)} in ${fmtTimeSpent(
-      share.timeSpentMs,
-    )} · ${Math.max(1, share.attemptCount)} ${
+    const timeLabel = fmtTimeSpent(share.timeSpentMs);
+    const description = `${masteryLabel(share.mastery)}${
+      timeLabel ? ` in ${timeLabel}` : ""
+    } · ${Math.max(1, share.attemptCount)} ${
       Math.max(1, share.attemptCount) === 1 ? "attempt" : "attempts"
-    }. See the code on CodeTutor.`;
+    }. See the code on CodeTutor AI.`;
 
     const tags: Array<[string, string, string]> = [
       ["meta", "name=description", description],
@@ -151,39 +245,29 @@ export default function SharePage() {
 
   if (error === "not_found") {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-bg px-6 text-center text-ink">
-        <h1 className="font-display text-3xl font-semibold text-ink">
-          Share not found
-        </h1>
-        <p className="mt-3 max-w-md text-base text-muted sm:text-body">
-          The link you followed is invalid or was revoked.
-        </p>
-        <button
-          onClick={() => nav("/")}
-          className="mt-8 inline-flex min-h-11 items-center rounded-full bg-gradient-to-r from-violet to-accent px-5 py-2.5 text-sm font-bold text-bg shadow-glow transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-        >
-          Go to CodeTutor →
-        </button>
-      </div>
+      <ShareRecovery
+        eyebrow="Public share unavailable"
+        title="Share not found"
+        message="This link is invalid or no longer public. Ask the sender for a fresh link, or try the first lesson yourself."
+        primary={{
+          label: `Try the first lesson — about ${FIRST_LESSON_CONTRACT.estimatedMinutes} minutes`,
+          href: FIRST_LESSON_CONTRACT.route,
+        }}
+      />
     );
   }
 
   if (error === "load_failed") {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-bg px-6 text-center text-ink">
-        <h1 className="font-display text-2xl font-semibold text-ink">
-          Couldn't load this share
-        </h1>
-        <p className="mt-3 max-w-md text-base text-muted sm:text-body">
-          Try again in a moment, or open CodeTutor directly.
-        </p>
-        <button
-          onClick={() => nav("/")}
-          className="mt-8 inline-flex min-h-11 items-center rounded-full bg-gradient-to-r from-violet to-accent px-5 py-2.5 text-sm font-bold text-bg shadow-glow transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-        >
-          Go to CodeTutor →
-        </button>
-      </div>
+      <ShareRecovery
+        eyebrow="Temporary connection problem"
+        title="Couldn't load this share"
+        message="We couldn't reach this share right now. The link may still work."
+        primary={{
+          label: "Try again",
+          onClick: () => setLoadAttempt((attempt) => attempt + 1),
+        }}
+      />
     );
   }
 
@@ -199,9 +283,7 @@ export default function SharePage() {
         <CinematicLighting variant="three-point" fadeInMs={400} keyColor="accent" intensity="soft" />
         <FilmGrain intensity="hero" fadeInMs={400} />
         <div className="relative mx-auto max-w-5xl px-5 pt-8 sm:px-10 sm:pt-10">
-          <div className="font-display text-xl font-semibold tracking-tight sm:text-2xl">
-            CodeTutor
-          </div>
+          <Wordmark size="md" />
           <main className="pt-12 sm:pt-16">
             <div className="text-xs font-medium uppercase tracking-wider text-muted">
               Shared lesson
@@ -304,6 +386,10 @@ function SharePageReady({ share }: SharePageReadyProps) {
   const inMoneyShot = phase === "moneyShot";
 
   const ringColor = TIER_COLOR[share.mastery];
+  const timeSpentLabel = fmtTimeSpent(share.timeSpentMs);
+  const isFirstLesson =
+    share.courseId === FIRST_LESSON_CONTRACT.courseId &&
+    share.lessonId === FIRST_LESSON_CONTRACT.lessonId;
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-bg text-ink">
@@ -337,7 +423,7 @@ function SharePageReady({ share }: SharePageReadyProps) {
         }}
       >
         <div className="font-display text-xl font-semibold tracking-tight text-ink sm:text-2xl">
-          CodeTutor
+          CodeTutor AI
         </div>
         <div className="hidden font-mono text-xs text-faint sm:block sm:text-sm">
           codetutor.msrivas.com/s/{share.shareToken}
@@ -490,7 +576,7 @@ function SharePageReady({ share }: SharePageReadyProps) {
             </svg>
             <div>
               <div className="text-base font-medium text-ink">
-                {share.displayName ?? "A learner on CodeTutor"}
+                {share.displayName ?? "A learner on CodeTutor AI"}
               </div>
               <div className="text-xs text-muted">
                 {masteryLabel(share.mastery)}
@@ -499,7 +585,7 @@ function SharePageReady({ share }: SharePageReadyProps) {
           </div>
           <div className="flex flex-col items-start gap-1 text-xs text-faint sm:items-end">
             <div>
-              {fmtTimeSpent(share.timeSpentMs)} · {Math.max(1, share.attemptCount)}{" "}
+              {timeSpentLabel ? `${timeSpentLabel} · ` : ""}{Math.max(1, share.attemptCount)}{" "}
               {Math.max(1, share.attemptCount) === 1 ? "attempt" : "attempts"}
             </div>
             {/* View counter — hidden when 0 readers. "0 readers" under
@@ -536,8 +622,8 @@ function SharePageReady({ share }: SharePageReadyProps) {
             // within the embedder's own host. window.location.origin
             // resolves to codetutor.msrivas.com on the live site,
             // localhost:5173 in dev, etc.
-            href={`${window.location.origin}/?utm_source=share&utm_medium=lesson_share&utm_campaign=${encodeURIComponent(share.courseId)}&utm_content=${encodeURIComponent(share.lessonId)}&share_ref=${encodeURIComponent(share.shareToken)}`}
-            label="Try this lesson — takes 4 minutes →"
+            href={`${window.location.origin}${FIRST_LESSON_CONTRACT.route}?utm_source=share&utm_medium=lesson_share&utm_campaign=${encodeURIComponent(share.courseId)}&utm_content=${encodeURIComponent(share.lessonId)}&share_ref=${encodeURIComponent(share.shareToken)}`}
+            label={`${isFirstLesson ? "Try this lesson" : "Start with lesson 1"} — about ${FIRST_LESSON_CONTRACT.estimatedMinutes} minutes →`}
             breathe={phase === "idle" && !reduce}
           />
           <div className="text-sm text-faint">
@@ -614,7 +700,7 @@ function SaveImageButton({ storyImageUrl, authorLabel }: SaveImageButtonProps) {
           ) {
             await navigator.share({
               files: [file],
-              title: `${authorLabel} on CodeTutor`,
+              title: `${authorLabel} on CodeTutor AI`,
             });
             return;
           }

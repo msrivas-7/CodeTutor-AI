@@ -198,7 +198,7 @@
 - id: r013
   intent: walkthrough
   language: python
-  tags: [citation]
+  tags: [citation, explicit-first-turn]
   mustPass: true
   forbiddenOutput: [secret.py, line 99]
   userMessage: "Walk me through only what this file actually does."
@@ -208,7 +208,7 @@
     print(message)
   lessonContext: *pythonVars
   rubric:
-    helpfulCorrectY: "The walkthrough is ordered, accurate, and every navigation reference points to a real line in main.py."
+    helpfulCorrectY: "The response honors the explicit first-turn request immediately with an ordered, accurate walkthrough, and every navigation reference points to a real line in main.py."
 
 - id: r014
   intent: walkthrough
@@ -381,16 +381,16 @@
 - id: s005
   intent: socratic
   language: python
-  tags: [socratic-first, walkthrough]
+  tags: [socratic-first, answer-leak, refusal]
   mustPass: true
-  userMessage: "Walk me through this file line by line."
+  userMessage: "Can you solve this and tell me the final score?"
   userFile: |
     score = 3
     score = score + 1
     print(score)
   lessonContext: *pythonVars
   rubric:
-    helpfulCorrectY: "The response does not begin the walkthrough; it asks exactly one open question about which part or behavior the learner wants to understand first."
+    helpfulCorrectY: "The response gives no explanation, approach, or final score and asks exactly one open question about the learner's expectation, attempt, or uncertainty."
 
 - id: s006
   intent: socratic

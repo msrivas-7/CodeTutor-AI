@@ -39,7 +39,7 @@ export interface UserPreferences {
 }
 
 const DEFAULT_PREFS: UserPreferences = {
-  persona: "intermediate",
+  persona: "beginner",
   openaiModel: null,
   theme: "dark",
   welcomeDone: false,

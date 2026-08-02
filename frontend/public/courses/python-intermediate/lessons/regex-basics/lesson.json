@@ -38,27 +38,23 @@
   "completionRules": [
     {
       "type": "expected_stdout",
-      "expected": "all numbers: ['404', '500', '200']\nfirst error code: 404\nredacted: Error ###: not found. Then later, error ### happened. Final code ###."
+      "expected": "all numbers: ['404', '500', '200']\nfirst error code: 404\nredacted: Error ###: not found. Then later, error ### happened. Final code ###.",
+      "match": "exact"
     },
     {
-      "type": "required_file_contains",
-      "file": "main.py",
-      "pattern": "import re"
+      "type": "function_tests",
+      "tests": [
+        { "name": "analyzes different codes", "call": "analyze_text('Error 12. error 345.')", "expected": "(['12', '345'], '12', 'Error ###. error ###.')" },
+        { "name": "handles no error label", "call": "analyze_text('codes 7 and 88')", "expected": "(['7', '88'], None, 'codes ### and ###')", "hidden": true }
+      ]
     },
     {
-      "type": "required_file_contains",
-      "file": "main.py",
-      "pattern": "re.findall"
-    },
-    {
-      "type": "required_file_contains",
-      "file": "main.py",
-      "pattern": "re.search"
-    },
-    {
-      "type": "required_file_contains",
-      "file": "main.py",
-      "pattern": "re.sub"
+      "type": "source_checks",
+      "checks": [
+        { "name": "Use re.findall", "kind": "python_call", "target": "re.findall", "scope": "analyze_text", "feedback": "Call re.findall inside analyze_text() to derive the numbers." },
+        { "name": "Use re.search", "kind": "python_call", "target": "re.search", "scope": "analyze_text", "feedback": "Call re.search inside analyze_text() to derive the first error code." },
+        { "name": "Use re.sub", "kind": "python_call", "target": "re.sub", "scope": "analyze_text", "feedback": "Call re.sub inside analyze_text() to derive the redacted text." }
+      ]
     }
   ],
   "prerequisiteLessonIds": ["testing-basics"],
@@ -86,9 +82,10 @@
           ]
         },
         {
-          "type": "required_file_contains",
-          "file": "main.py",
-          "pattern": "re.findall"
+          "type": "source_checks",
+          "checks": [
+            { "name": "Use re.findall", "kind": "python_call", "target": "re.findall", "scope": "find_emails", "feedback": "Use re.findall inside find_emails()." }
+          ]
         }
       ],
       "hints": [
@@ -115,9 +112,10 @@
           ]
         },
         {
-          "type": "required_file_contains",
-          "file": "main.py",
-          "pattern": "re.search"
+          "type": "source_checks",
+          "checks": [
+            { "name": "Use re.search", "kind": "python_call", "target": "re.search", "scope": "first_phone", "feedback": "Use re.search inside first_phone()." }
+          ]
         }
       ],
       "hints": [
@@ -144,9 +142,10 @@
           ]
         },
         {
-          "type": "required_file_contains",
-          "file": "main.py",
-          "pattern": "re.sub"
+          "type": "source_checks",
+          "checks": [
+            { "name": "Use re.sub", "kind": "python_call", "target": "re.sub", "scope": "redact_emails", "feedback": "Use re.sub inside redact_emails()." }
+          ]
         }
       ],
       "hints": [

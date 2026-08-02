@@ -7,6 +7,7 @@ import { PasswordField } from "../auth/PasswordField";
 import { ResendEmailButton } from "../auth/ResendEmailButton";
 import { isValidEmail } from "../auth/emailValidation";
 import { useAuthStore } from "../auth/authStore";
+import { authPath, authReturnTarget } from "../auth/returnTarget";
 
 type Mode = "password" | "magic-link" | "magic-link-sent" | "unverified-email";
 
@@ -19,6 +20,7 @@ export default function LoginPage() {
   const signInWithMagicLink = useAuthStore((s) => s.signInWithMagicLink);
   const resendSignupConfirmation = useAuthStore((s) => s.resendSignupConfirmation);
   const clearError = useAuthStore((s) => s.clearError);
+  const returnTo = authReturnTarget(location.search, location.state);
 
 
   const [mode, setMode] = useState<Mode>("password");
@@ -34,9 +36,7 @@ export default function LoginPage() {
   // `/start`. After login the user expects to land inside the product,
   // not back on the marketing surface they just opted in from.
   if (!loading && user) {
-    const to =
-      (location.state as { from?: { pathname: string } } | null)?.from?.pathname ?? "/start";
-    return <Navigate to={to} replace />;
+    return <Navigate to={returnTo} replace />;
   }
 
   const emailValid = email === "" || isValidEmail(email);
@@ -51,9 +51,7 @@ export default function LoginPage() {
     try {
       await signInWithPassword(email.trim(), password);
       // Phase 22C: default to /start (in-product home), not / (marketing).
-      const to =
-        (location.state as { from?: { pathname: string } } | null)?.from?.pathname ?? "/start";
-      nav(to, { replace: true });
+      nav(returnTo, { replace: true });
     } catch (e) {
       // GoTrue returns `email_not_confirmed` when a user who signed up via
       // email/password tries to sign in before clicking the verification
@@ -77,7 +75,7 @@ export default function LoginPage() {
     clearError();
     setSubmitting(true);
     try {
-      await signInWithMagicLink(email.trim());
+      await signInWithMagicLink(email.trim(), returnTo);
       setMode("magic-link-sent");
     } catch (e) {
       setErr((e as Error).message);
@@ -109,7 +107,7 @@ export default function LoginPage() {
         </p>
         <div className="mt-3 flex justify-center">
           <ResendEmailButton
-            onResend={() => resendSignupConfirmation(email.trim())}
+            onResend={() => resendSignupConfirmation(email.trim(), returnTo)}
             label="confirmation email"
           />
         </div>
@@ -141,7 +139,7 @@ export default function LoginPage() {
         </p>
         <div className="mt-3 flex justify-center">
           <ResendEmailButton
-            onResend={() => signInWithMagicLink(email.trim())}
+            onResend={() => signInWithMagicLink(email.trim(), returnTo)}
             label="sign-in link"
           />
         </div>
@@ -156,7 +154,7 @@ export default function LoginPage() {
       footer={
         <>
           Don't have an account?{" "}
-          <Link to="/signup" className="text-accent hover:underline">
+          <Link to={authPath("/signup", returnTo)} className="text-accent hover:underline">
             Create one
           </Link>
         </>
@@ -165,7 +163,7 @@ export default function LoginPage() {
       {/* Phase 20-P1: OAuth is the happy path now that verified email is
           off the free SMTP tier — show providers above the email form with a
           divider, so first-time visitors don't scan past the 2-click option. */}
-      <OAuthButtons disabled={submitting} />
+      <OAuthButtons disabled={submitting} returnTo={returnTo} />
 
       <div className="my-4 flex items-center gap-2 text-[10px] text-faint">
         <div className="h-px flex-1 bg-border" />
@@ -191,7 +189,7 @@ export default function LoginPage() {
             autoComplete="email"
             aria-invalid={!emailValid}
             disabled={submitting}
-            className="rounded-md border border-border bg-elevated px-2.5 py-1.5 text-xs text-ink transition placeholder:text-faint focus:border-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60 aria-[invalid=true]:border-danger/60"
+            className="min-h-11 rounded-lg border border-border bg-elevated px-3 py-2 text-sm text-ink transition placeholder:text-faint focus:border-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60 aria-[invalid=true]:border-danger/60"
           />
           {!emailValid && (
             <span className="text-[10px] text-danger">
@@ -224,7 +222,7 @@ export default function LoginPage() {
           type="submit"
           disabled={mode === "password" ? !canSubmitPassword : !canSubmitMagic}
           aria-busy={submitting}
-          className="rounded-md bg-accent px-3 py-1.5 text-[11px] font-semibold text-bg transition hover:bg-accentMuted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:bg-elevated disabled:text-faint"
+          className="min-h-11 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-bg transition hover:bg-accentMuted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:bg-elevated disabled:text-faint"
         >
           {submitting
             ? mode === "password"
@@ -235,21 +233,21 @@ export default function LoginPage() {
               : "Send magic link"}
         </button>
 
-        <div className="flex items-center justify-between text-[10px]">
+        <div className="flex flex-col gap-1 text-sm sm:flex-row sm:items-center sm:justify-between">
           <button
             type="button"
             onClick={() => {
               setMode(mode === "password" ? "magic-link" : "password");
               setErr(null);
             }}
-            className="text-accent hover:underline"
+            className="inline-flex min-h-11 items-center rounded-lg px-2 text-accent hover:bg-accent/5 hover:underline"
           >
             {mode === "password"
               ? "Prefer not to use a password?"
               : "Use a password instead"}
           </button>
           {mode === "password" && (
-            <Link to="/reset-password" className="text-muted hover:text-ink">
+            <Link to="/reset-password" className="inline-flex min-h-11 items-center rounded-lg px-2 text-muted hover:bg-elevated hover:text-ink">
               Forgot password?
             </Link>
           )}
