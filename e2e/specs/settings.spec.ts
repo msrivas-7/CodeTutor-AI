@@ -506,33 +506,48 @@ test.describe("settings panel", () => {
     expect(stillInsideBack).toBe(true);
   });
 
-  test("'Show intro again' resets onboarding flags, closes modal, and replays the first-run cinematic", async ({ page }) => {
-    // Post-first-run-cinematic: Settings → Account → Guided tour lets a
-    // re-visiting user replay the opening credits. Clicking the button
-    // PATCHes welcomeDone back to false and navigates to / — where
-    // StartPage now redirects to /welcome (the cinematic route) instead
-    // of remounting the old 3-step spotlight overlay.
+  test("'Watch the moment again' preserves onboarding state and replays the cinematic", async ({ page }) => {
+    // Replay is deliberately read-only. It uses an explicit query route
+    // instead of resetting welcomeDone and entering the destructive true
+    // first-run handoff.
+    const destructivePreferenceWrites: unknown[] = [];
+    page.on("request", (request) => {
+      if (
+        request.method() !== "PATCH" ||
+        !request.url().includes("/api/user/preferences")
+      ) return;
+      try {
+        const body = request.postDataJSON() as { welcomeDone?: unknown };
+        if (body.welcomeDone === false) destructivePreferenceWrites.push(body);
+      } catch {
+        // A non-JSON request cannot be the preferences contract under test.
+      }
+    });
+
     await page.goto("/learn");
     await openSettings(page, "account");
     await page.getByRole("button", { name: /^watch the moment again$/i }).click();
 
-    // Modal closes; redirect chain ends at /welcome with the cinematic
-    // rendering. The Skip link is the stable assertion point — the
-    // typewriter text is mid-animation and locator-unfriendly.
+    // Modal closes and the explicit replay route renders the cinematic. The
+    // Skip control is stable while the typewriter text is mid-animation.
     await expect(page.locator('[role="dialog"]')).toHaveCount(0);
-    await expect(page).toHaveURL(/\/welcome$/);
+    await expect(page).toHaveURL(/\/welcome\?replay=1$/);
     await expect(
       page.getByRole("button", { name: /skip introduction/i }),
     ).toBeVisible({ timeout: 5_000 });
+    expect(destructivePreferenceWrites).toHaveLength(0);
 
-    // Server-side persistence: reload and the cinematic is still the
-    // first thing the user sees — proves the PATCH actually landed on
-    // the server, not just an optimistic client flip.
+    // Reload remains an explicit replay, and Skip returns the existing
+    // learner to Start instead of seeding lesson-one first-run state.
     await page.reload();
-    await expect(page).toHaveURL(/\/welcome$/);
-    await expect(
-      page.getByRole("button", { name: /skip introduction/i }),
-    ).toBeVisible({ timeout: 5_000 });
+    await expect(page).toHaveURL(/\/welcome\?replay=1$/);
+    const skipIntroduction = page.getByRole("button", {
+      name: /skip introduction/i,
+    });
+    await expect(skipIntroduction).toBeVisible({ timeout: 5_000 });
+    await skipIntroduction.click();
+    await expect(page).toHaveURL(/\/start$/);
+    expect(destructivePreferenceWrites).toHaveLength(0);
   });
 
   test("Escape closes the settings modal cleanly", async ({ page }) => {
