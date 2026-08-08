@@ -562,9 +562,16 @@ export default function LessonPage({
   const instructionsRestoreRef = useRef<HTMLButtonElement>(null);
   const tutorRestoreRef = useRef<HTMLButtonElement>(null);
   const tutorOpenNonce = useAIStore((s) => s.tutorOpenNonce);
+  const handledTutorOpenNonceRef = useRef(0);
   const resetInteractionRef = useRef(false);
   useEffect(() => {
-    if (tutorOpenNonce > 0) layout.setTutorCollapsed(false);
+    // Treat requestTutorOpen as an edge-triggered signal. The layout setter's
+    // identity changes when its captured collapse state changes, so checking
+    // only `tutorOpenNonce > 0` replays an old request after a learner presses
+    // Collapse and immediately opens the panel again.
+    if (tutorOpenNonce <= handledTutorOpenNonceRef.current) return;
+    handledTutorOpenNonceRef.current = tutorOpenNonce;
+    layout.setTutorCollapsed(false);
   }, [tutorOpenNonce, layout.setTutorCollapsed]);
   useEffect(() => {
     // A stale device-level layout preference must not hide the surface that

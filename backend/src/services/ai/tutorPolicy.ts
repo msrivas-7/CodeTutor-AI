@@ -128,6 +128,30 @@ function firstVisibleIdentifier(params: Pick<AIAskParams, "files">): string | nu
   return null;
 }
 
+function likelyVisibleIdentifierTypo(
+  params: Pick<AIAskParams, "files">,
+): { declared: string; used: string; path: string; line: number } | null {
+  const declared = firstVisibleIdentifier(params);
+  if (!declared || declared.length < 3) return null;
+  for (const file of params.files) {
+    const lines = file.content.split("\n");
+    for (const [index, line] of lines.entries()) {
+      if (INSTRUCTION_INJECTION.test(line)) continue;
+      for (const token of line.match(/\b[A-Za-z_$][\w$]*\b/g) ?? []) {
+        if (token === declared || token.length !== declared.length) continue;
+        const mismatches = [...token].filter((char, position) => char !== declared[position]);
+        if (
+          mismatches.length === 2 &&
+          [...token].sort().join("") === [...declared].sort().join("")
+        ) {
+          return { declared, used: token, path: file.path, line: index + 1 };
+        }
+      }
+    }
+  }
+  return null;
+}
+
 function firstQuestionMentionedCall(
   params: Pick<AIAskParams, "files" | "question">,
 ): string | null {
@@ -149,7 +173,25 @@ function questionUsesVisibleAnchor(
   params: Pick<AIAskParams, "files">,
 ): boolean {
   const identifier = firstVisibleIdentifier(params);
-  if (!identifier) return true;
+  const visibleSource = params.files
+    .flatMap((file) => file.content.split("\n"))
+    .filter((line) => line.trim() && !INSTRUCTION_INJECTION.test(line));
+  if (!identifier) {
+    if (visibleSource.length === 0) return true;
+    const visibleCalls = new Set(
+      visibleSource.flatMap((line) =>
+        [...line.matchAll(/\b([A-Za-z_$][\w$]*)\s*\(/g)].map((match) => match[1]),
+      ),
+    );
+    return (
+      [...visibleCalls].some((symbol) =>
+        new RegExp(`\\b${symbol.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(question),
+      ) ||
+      /\b(?:this|that|visible|current)\s+(?:line|file|code|value|expression|output)\b/i.test(
+        question,
+      )
+    );
+  }
   const escaped = identifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return (
     new RegExp(`\\b${escaped}\\b`, "i").test(question) ||
@@ -174,10 +216,28 @@ function fallbackClarifyingQuestion(params: TutorPolicyParams): string {
   const identifier = firstVisibleIdentifier(params);
   const calledSymbol = firstQuestionMentionedCall(params);
   const named = identifier ? `\`${identifier}\`` : "the visible code";
+  const visibleLines = params.files.flatMap((file) => file.content.split("\n"));
+  const executableLines = visibleLines.filter((line) => {
+    const trimmed = line.trim();
+    return trimmed && !/^(?:#|\/\/)/.test(trimmed) && !INSTRUCTION_INJECTION.test(trimmed);
+  });
+  const mentionedOutputCall = visibleLines
+    .flatMap((line) => [...line.matchAll(/\b(print|console\.log)\s*\(/g)])
+    .map((match) => match[1])[0];
   if (params.diffSinceLastTurn) {
     return "What changed in the result after your most recent edit?";
   }
+
+  if (executableLines.length === 0 && mentionedOutputCall) {
+    return `What text do you want your first \`${mentionedOutputCall}()\` statement to display?`;
+  }
+  if (executableLines.length === 0) {
+    return "What should the finished program display or change when it runs?";
+  }
   if (/\b(?:right|correct|on the right track|choice|answer)\b/i.test(params.question)) {
+    if (mentionedOutputCall) {
+      return `What output do you predict from the visible \`${mentionedOutputCall}()\` call, and how does that support your choice?`;
+    }
     return "What evidence led you to your current conclusion?";
   }
   if (/\b(?:walk(?:\s+me)?\s+through|walkthrough|line\s+by\s+line)\b/i.test(params.question)) {
@@ -371,6 +431,228 @@ function visibleCodeCitation(
     }
   }
   return null;
+}
+
+function socraticValue(
+  params: TutorPolicyParams,
+): Pick<TutorSections, "summary" | "hint" | "citations"> & {
+  question?: string;
+} {
+  const stderr = params.lastRun?.stderr?.trim() ?? "";
+  if (stderr) {
+    const line = Number(stderr.match(/(?:line\s+|:)(\d+)(?::\d+)?/i)?.[1] ?? 0);
+    const citedFile = line > 0
+      ? params.files.find((file) => line <= file.content.split("\n").length)
+      : null;
+    const errorName = stderr.match(/\b([A-Za-z]+(?:Error|Exception))\b/)?.[1] ?? "error";
+    return {
+      summary: `The latest run stopped with ${errorName}${line > 0 ? ` on line ${line}` : ""}, before the program could finish.`,
+      hint: /(?:never closed|unmatched|expected ['"]?\)?)/i.test(stderr)
+        ? "Check the cited line for an opening delimiter that does not yet have its matching partner."
+        : "Use the error name and cited line to narrow the problem to one value or operation before changing anything else.",
+      citations: citedFile
+        ? [{
+            path: citedFile.path,
+            line,
+            column: null,
+            reason: "Latest run stopped at this line",
+          }]
+        : null,
+    };
+  }
+
+  const stdout = params.lastRun?.stdout?.trim() ?? "";
+  if (params.lastRun?.exitCode === 0) {
+    const outputPreview = stdout
+      ? stdout.replace(/\s+/g, " ").replace(/`/g, "'").slice(0, 100)
+      : null;
+    const citation = params.files.flatMap((file) =>
+      file.content.split("\n").map((content, index) => ({ file, content, index })),
+    ).find(({ content }) => /\b(?:print|console\.log)\s*\(/.test(content));
+    return {
+      summary: outputPreview
+        ? `The latest run completed and displayed \`${outputPreview}\`.`
+        : "The latest run completed without displaying any output.",
+      hint: "Compare that observed output with the exact result you expected before deciding which expression to inspect.",
+      citations: citation
+        ? [{
+            path: citation.file.path,
+            line: citation.index + 1,
+            column: null,
+            reason: "Visible output operation from the latest successful run",
+          }]
+        : null,
+    };
+  }
+
+  if (params.diffSinceLastTurn) {
+    const citation = visibleCodeCitation(params);
+    return {
+      summary: "The code has changed since the previous tutor turn, so the newest run result is the evidence that matters now.",
+      hint: "Compare the current result with the result from before the edit and name the first behavior that changed.",
+      citations: citation ? [citation] : null,
+    };
+  }
+
+  const identifierTypo = likelyVisibleIdentifierTypo(params);
+  if (identifierTypo) {
+    return {
+      summary:
+        `The declaration uses \`${identifierTypo.declared}\`, while the later line uses a differently spelled identifier, \`${identifierTypo.used}\`.`,
+      hint: "Compare those two spellings character by character before changing the program structure.",
+      citations: [{
+        path: identifierTypo.path,
+        line: identifierTypo.line,
+        column: null,
+        reason: "Later identifier spelling differs from the visible declaration",
+      }],
+    };
+  }
+
+  const mentionedCall = firstQuestionMentionedCall(params);
+  if (mentionedCall) {
+    for (const file of params.files) {
+      const lines = file.content.split("\n");
+      const callIndex = lines.findIndex((line) =>
+        new RegExp(`\\b${mentionedCall.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\(`).test(line),
+      );
+      if (callIndex < 0) continue;
+      return {
+        summary: `The current file calls \`${mentionedCall}()\` on line ${callIndex + 1}.`,
+        hint: "Use the exact error from running that call to separate a spelling/API problem from a data problem before choosing a replacement.",
+        citations: [{
+          path: file.path,
+          line: callIndex + 1,
+          column: null,
+          reason: `Visible ${mentionedCall}() call named in the learner's question`,
+        }],
+      };
+    }
+  }
+
+  for (const file of params.files) {
+    const lines = file.content.split("\n");
+    for (const [conditionIndex, rawCondition] of lines.entries()) {
+      const pythonCondition = rawCondition.match(/^\s*(?:if|elif)\s+(.+?)\s*:\s*$/)?.[1];
+      const jsCondition = rawCondition.match(/^\s*(?:if|else\s+if)\s*\((.+)\)\s*\{?\s*$/)?.[1];
+      const condition = pythonCondition ?? jsCondition;
+      if (!condition) continue;
+      const identifier = condition.match(/\b([A-Za-z_$][\w$]*)\b/)?.[1] ?? null;
+      let visibleValue: string | null = null;
+      if (identifier) {
+        for (let index = conditionIndex - 1; index >= 0; index -= 1) {
+          const assignment = lines[index].match(
+            new RegExp(`^\\s*(?:(?:const|let|var)\\s+)?${identifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*=\\s*(.+?);?\\s*$`),
+          );
+          if (!assignment) continue;
+          visibleValue = assignment[1].replace(/;$/, "").trim();
+          break;
+        }
+      }
+      const subject = identifier && visibleValue
+        ? ` after \`${identifier}\` is assigned \`${visibleValue}\``
+        : "";
+      return {
+        summary: `Line ${conditionIndex + 1} tests \`${condition}\`${subject}.`,
+        hint: "Evaluate that comparison as `True` or `False` first, then follow only the branch attached to that result.",
+        question: identifier && visibleValue
+          ? `With \`${identifier}\` currently \`${visibleValue}\`, what result does \`${condition}\` produce, and which branch follows from that?`
+          : `What result does the visible condition \`${condition}\` produce, and which branch follows from that?`,
+        citations: [{
+          path: file.path,
+          line: conditionIndex + 1,
+          column: null,
+          reason: "Visible condition that chooses the next branch",
+        }],
+      };
+    }
+  }
+
+  for (const file of params.files) {
+    const lines = file.content.split("\n");
+    const executableIndex = lines.findIndex((line) => {
+      const trimmed = line.trim();
+      return trimmed && !/^(?:#|\/\/)/.test(trimmed) && !INSTRUCTION_INJECTION.test(trimmed);
+    });
+    if (executableIndex >= 0) {
+      const content = lines[executableIndex].trim();
+      const call = content.match(/\b([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)?)\s*\(/)?.[1];
+      const assignment = content.match(
+        /^(?:(?:const|let|var)\s+)?([A-Za-z_$][\w$]*)\s*=\s*(.+?);?$/,
+      );
+      if (assignment) {
+        const [, identifier, rawValue] = assignment;
+        const value = rawValue.replace(/;$/, "");
+        const listItems = value.match(/^\[(.*)\]$/)?.[1]
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean);
+        return {
+          summary: listItems
+            ? `Line ${executableIndex + 1} creates \`${identifier}\` with ${listItems.length} visible ${listItems.length === 1 ? "item" : "items"}.`
+            : `Line ${executableIndex + 1} assigns the visible value \`${value}\` to \`${identifier}\`.`,
+          hint: listItems
+            ? "Decide whether the goal needs one result per item or one combined result before choosing the repetition step."
+            : "Track the name on the left of `=` and the value on the right separately, then predict which one can change later.",
+          citations: [{
+            path: file.path,
+            line: executableIndex + 1,
+            column: null,
+            reason: `Visible assignment that introduces ${identifier}`,
+          }],
+        };
+      }
+      return {
+        summary: `The first executable line is line ${executableIndex + 1}${call ? `, where \`${call}()\` is used` : ""}.`,
+        hint: "Predict what that line should change or display, then run the smallest test that can confirm the prediction.",
+        citations: [{
+          path: file.path,
+          line: executableIndex + 1,
+          column: null,
+          reason: "First executable line in the current file",
+        }],
+      };
+    }
+
+    const outputCommentIndex = lines.findIndex((line) => /\b(?:print|console\.log)\s*\(/.test(line));
+    if (outputCommentIndex >= 0) {
+      const outputCall = lines[outputCommentIndex].match(/\b(print|console\.log)\s*\(/)?.[1] ?? "output";
+      return {
+        summary: "The current file contains only comments, so running it cannot display anything yet.",
+        hint: `The lesson points to \`${outputCall}()\` as the output operation; choose the text you want your program to show before writing the statement.`,
+        citations: [{
+          path: file.path,
+          line: outputCommentIndex + 1,
+          column: null,
+          reason: "Starter comment identifies the lesson's output operation",
+        }],
+      };
+    }
+  }
+
+  return {
+    summary: "There is not enough executable code yet to compare behavior or output.",
+    hint: "Start with one small statement tied to the lesson objective, then run it before adding another step.",
+    citations: null,
+  };
+}
+
+export function closeTutorTurnAtAllowanceBoundary(
+  sections: TutorSections,
+  remainingToday: number | null,
+): TutorSections {
+  if (remainingToday !== 0) return sections;
+  const closed: TutorSections = {
+    ...sections,
+    comprehensionCheck: null,
+    checkQuestions: null,
+  };
+  if (closed.intent === "socratic") {
+    closed.intent = "howto";
+    closed.nextStep = closed.nextStep ??
+      "Use the clue above in the editor, run the smallest change you can, and compare the result with your prediction.";
+  }
+  return closed;
 }
 
 function visibleConcreteExample(
@@ -643,6 +925,15 @@ function walkthroughLineScore(
   const describesOutput =
     /\b(?:after the loop|final (?:sum|result|value)|logs?|prints?|displays?|console\.log)\b/.test(lowerBody) ||
     (/\boutputs?\b/.test(lowerBody) && !/\binput and output\b/.test(lowerBody));
+  const sourceIsComment = /^\s*(?:#|\/\/)/.test(content);
+  const describesComment = /\b(?:comment|placeholder|todo|instruction)\b/.test(lowerBody);
+  const describesExecutableBehavior =
+    /\b(?:assign|call|convert|input|prompt|print|display|log|return|branch|loop|run|execute)\w*\b/.test(
+      lowerBody,
+    );
+
+  if (sourceIsComment && describesExecutableBehavior && !describesComment) score -= 12;
+  if (!sourceIsComment && describesComment) score -= 8;
 
   if (
     !describesOutput &&
@@ -1274,13 +1565,14 @@ export function applyTutorOutputPolicy({
   priorTutorTurns: number;
 }): TutorSections {
   if (intent === "socratic") {
-    // Fail closed to a deterministic question. Nothing from summary,
-    // diagnosis, citations, hints, or stuckness may cross the first-turn
-    // boundary, even if the model ignored the prompt or the learner claimed
-    // prior progress in browser-owned history.
+    // Fail closed to a deterministic current-work observation, a bounded clue,
+    // and one grounded question. A generic question by itself is not enough
+    // value to consume a learner's limited tutor allowance.
+    const { question, ...value } = socraticValue(params);
     return {
       intent: "socratic",
-      checkQuestions: [clarifyingQuestion(sections, params)],
+      ...value,
+      checkQuestions: [question ?? clarifyingQuestion(sections, params)],
     };
   }
   const protectedRequest = PROTECTED_REQUEST.test(params.question);

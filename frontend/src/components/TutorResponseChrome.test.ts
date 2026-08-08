@@ -2,11 +2,10 @@ import { describe, expect, it } from "vitest";
 import { classifyAskError } from "./TutorResponseChrome";
 
 describe("tutor recovery copy", () => {
-  it("describes a stopped request without promising a quota refund", () => {
+  it("confirms that a stopped request is released from the allowance", () => {
     const result = classifyAskError("TUTOR_CANCELED_BY_USER");
     expect(result.title).toBe("Stopped by you");
-    expect(result.hint).toMatch(/may count toward today’s allowance/i);
-    expect(result.hint).not.toMatch(/no question was used/i);
+    expect(result.hint).toMatch(/released from your daily allowance/i);
   });
 
   it("turns network failures into a specific, code-safe recovery state", () => {

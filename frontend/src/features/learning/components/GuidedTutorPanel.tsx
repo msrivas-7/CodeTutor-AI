@@ -228,6 +228,11 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
           }
         : undefined,
     onAnonTrialPaused,
+    onAllowanceUpdate: (remainingToday) => {
+      if (mode === "anon" && remainingToday === 0) {
+        setAnonQuotaExhausted(true);
+      }
+    },
     onAskComplete: ({ ok }) => {
       if (pendingHintRef.current) {
         pendingHintRef.current = false;
@@ -569,6 +574,14 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
           />
         ) : (
           <>
+            {mode === "anon" && anonQuotaExhausted && (
+              <div
+                role="status"
+                className="mb-2 rounded-lg border border-border bg-elevated/60 px-3 py-2 text-sm leading-relaxed text-muted"
+              >
+                Free tutor questions used today. Keep coding with the final clue above, or create an account whenever you want more help.
+              </div>
+            )}
             {mode === "anon" && !anonQuotaExhausted && <EvalSamplingConsentControl />}
             {activeSelection && (
               <SelectionPreview

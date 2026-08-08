@@ -37,6 +37,7 @@ import {
 import { hashUserId } from "../services/crypto/logHash.js";
 import { updateUserStreak } from "../db/userStreak.js";
 import {
+  cancelAIRequest,
   finalizeAIRequest,
   fingerprintAIRequest,
   releaseAIRequest,
@@ -45,6 +46,7 @@ import {
   type FinalizeAIRequestInput,
   type ReserveAIRequestResult,
 } from "../db/aiReservations.js";
+import { closeTutorTurnAtAllowanceBoundary } from "../services/ai/tutorPolicy.js";
 import {
   getEffectiveDailyQuestionsCap,
   getEffectiveDailyUsdCap,
@@ -435,6 +437,27 @@ const summarizeBody = z.object({
   history: historySchema,
 });
 
+const cancelAskBody = z.object({ requestId: z.string().uuid() }).strict();
+
+aiRouter.post("/ask/cancel", async (req, res) => {
+  const parsed = cancelAskBody.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues.map((issue) => issue.message).join("; ") });
+  }
+  try {
+    const state = await cancelAIRequest(parsed.data.requestId, {
+      actorKind: "user",
+      userId: req.userId!,
+    });
+    if (!state) return res.status(404).json({ error: "AI_REQUEST_NOT_FOUND" });
+    invalidateUsageCaches(req.userId!);
+    return res.status(204).end();
+  } catch (err) {
+    console.error(`[ai] cancellation failed user=${hashUserId(req.userId!)}:`, err);
+    return res.status(503).json({ error: "AI_CANCELLATION_UNAVAILABLE" });
+  }
+});
+
 aiRouter.post("/ask", async (req, res, next) => {
   const userId = req.userId!;
   const cred = await resolveCredentialOrRespond(req, res, "ask");
@@ -565,8 +588,17 @@ aiRouter.post("/ask", async (req, res, next) => {
       language: parsed.data.language === "javascript" ? "javascript" : "python",
       route: "ask",
     });
+    const visibleSections = closeTutorTurnAtAllowanceBoundary(
+      result.sections,
+      reservation.remainingToday,
+    );
     res.json({
       ...result,
+      raw: visibleSections === result.sections
+        ? result.raw
+        : JSON.stringify(visibleSections),
+      sections: visibleSections,
+      remainingToday: reservation.remainingToday,
       tutorProgressToken: mintTutorProgressToken(progressIdentity),
     });
   } catch (err) {
@@ -786,11 +818,18 @@ aiRouter.post("/ask/stream", async (req, res) => {
             route: "ask_stream",
           });
           if (closed) return;
+          const visibleSections = closeTutorTurnAtAllowanceBoundary(
+            sections,
+            reservation.remainingToday,
+          );
           send({
             done: true,
-            raw,
-            sections,
+            raw: visibleSections === sections
+              ? raw
+              : JSON.stringify(visibleSections),
+            sections: visibleSections,
             usage,
+            remainingToday: reservation.remainingToday,
             tutorProgressToken: mintTutorProgressToken(progressIdentity),
           });
           done();

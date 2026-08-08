@@ -68,6 +68,7 @@ vi.mock("../services/ai/credential.js", () => ({
   markPlatformAuthFailed: vi.fn(),
 }));
 vi.mock("../db/aiReservations.js", () => ({
+  cancelAIRequest: vi.fn(async () => "reserved"),
   fingerprintAIRequest: vi.fn(() => "fingerprint"),
   reserveAIRequest: vi.fn(async () => ({ ok: true, remainingToday: 7 })),
   finalizeAIRequest: vi.fn(async () => "finalized"),
@@ -98,7 +99,8 @@ vi.mock("../services/ai/openaiProvider.js", () => ({
 
 const { createAnonRouter } = await import("./anon.js");
 const { openaiProvider } = await import("../services/ai/openaiProvider.js");
-const { reserveAIRequest, finalizeAIRequest } = await import("../db/aiReservations.js");
+const { cancelAIRequest, reserveAIRequest, finalizeAIRequest } = await import("../db/aiReservations.js");
+const { hashClientIp } = await import("../services/ai/ipHash.js");
 const { flagSuspectApis } = await import("../services/ai/suspectApi.js");
 const {
   insertEvalSample,
@@ -138,6 +140,14 @@ async function post(body: Record<string, unknown>) {
   });
 }
 
+async function cancel(requestId: string) {
+  return fetch(`${baseUrl}/api/anon/ai/ask/cancel`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ requestId }),
+  });
+}
+
 async function deleteSamples(subjectToken: string) {
   return fetch(`${baseUrl}/api/anon/eval-samples`, {
     method: "DELETE",
@@ -163,6 +173,8 @@ afterAll(async () => {
 
 beforeEach(() => {
   vi.mocked(openaiProvider.askStream).mockReset();
+  vi.mocked(cancelAIRequest).mockReset();
+  vi.mocked(cancelAIRequest).mockResolvedValue("reserved");
   vi.mocked(reserveAIRequest).mockClear();
   vi.mocked(finalizeAIRequest).mockClear();
   vi.mocked(flagSuspectApis).mockReset();
@@ -180,6 +192,29 @@ beforeEach(() => {
       );
     },
   );
+});
+
+describe("POST /api/anon/ai/ask/cancel", () => {
+  it("refunds only the accepted request owned by the caller IP", async () => {
+    const response = await cancel("00000000-0000-4000-8000-000000000031");
+
+    expect(response.status).toBe(204);
+    expect(vi.mocked(cancelAIRequest)).toHaveBeenCalledWith(
+      "00000000-0000-4000-8000-000000000031",
+      {
+        actorKind: "anonymous",
+        ipHash: hashClientIp("127.0.0.1"),
+      },
+    );
+  });
+
+  it("does not disclose a request that is not owned by the caller", async () => {
+    vi.mocked(cancelAIRequest).mockResolvedValueOnce(null);
+
+    const response = await cancel("00000000-0000-4000-8000-000000000031");
+
+    expect(response.status).toBe(404);
+  });
 });
 
 describe("B8 governed anonymous eval sampling", () => {
@@ -320,5 +355,52 @@ describe("POST /api/anon/ai/ask/stream — B3 model routing", () => {
     expect(vi.mocked(finalizeAIRequest).mock.calls[1][0]).toEqual(
       expect.objectContaining({ costUsd: 0.000012, ledgerStatus: "finish" }),
     );
+  });
+
+  it("delivers useful final guidance without inviting an impossible reply", async () => {
+    vi.mocked(reserveAIRequest).mockResolvedValueOnce({ ok: true, remainingToday: 0 });
+    vi.mocked(openaiProvider.askStream).mockImplementationOnce(async (_params, handlers) => {
+      await handlers.onDone(
+        "{\"intent\":\"socratic\"}",
+        {
+          intent: "socratic",
+          summary: "The file currently contains only comments.",
+          hint: "Use the lesson's output operation as your starting point.",
+          checkQuestions: ["What do you want to display?"],
+          comprehensionCheck: "Can you explain your choice?",
+        },
+        { inputTokens: 10, outputTokens: 5 },
+      );
+    });
+
+    const response = await post(validBody());
+    const text = await response.text();
+    const done = JSON.parse(
+      text.split("\n").find((line) => line.startsWith("data: "))!.slice(6),
+    ) as {
+      raw: string;
+      remainingToday: number;
+      sections: {
+        intent: string;
+        checkQuestions: null;
+        comprehensionCheck: null;
+        hint: string;
+        nextStep: string;
+      };
+    };
+
+    expect(done.remainingToday).toBe(0);
+    expect(done.sections).toMatchObject({
+      intent: "howto",
+      checkQuestions: null,
+      comprehensionCheck: null,
+      hint: "Use the lesson's output operation as your starting point.",
+      nextStep: expect.stringContaining("run the smallest change"),
+    });
+    expect(JSON.parse(done.raw)).toMatchObject({
+      intent: "howto",
+      checkQuestions: null,
+      comprehensionCheck: null,
+    });
   });
 });

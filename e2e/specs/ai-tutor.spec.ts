@@ -497,7 +497,14 @@ test.describe("AI tutor", () => {
 
     // Install a slow-streaming mock so Stop is clickable before the stream
     // finishes. 800ms delay lets the user click.
+    let acceptedRequestId: string | null = null;
+    let canceledRequestId: string | null = null;
+    await page.route("**/api/ai/ask/cancel", async (route) => {
+      canceledRequestId = (route.request().postDataJSON() as { requestId: string }).requestId;
+      await route.fulfill({ status: 204, body: "" });
+    });
     await page.route("**/api/ai/ask/stream", async (route) => {
+      acceptedRequestId = (route.request().postDataJSON() as { requestId: string }).requestId;
       const slowBody = [
         'data: {"delta":"thinking..."}\n\n',
         'data: {"delta":" still thinking..."}\n\n',
@@ -526,7 +533,8 @@ test.describe("AI tutor", () => {
     // bubble rather than appending a duplicate.
     await expect(page.getByRole("button", { name: /^ask$/i })).toBeVisible({ timeout: 5_000 });
     await expect(page.getByText("Stopped by you")).toBeVisible();
-    await expect(page.getByText(/may count toward today’s allowance/i)).toBeVisible();
+    await expect(page.getByText(/released from your daily allowance/i)).toBeVisible();
+    await expect.poll(() => canceledRequestId).toBe(acceptedRequestId);
     await expect(page.getByText(/signal is aborted/i)).toHaveCount(0);
     await expect(page.getByText("Long answer please.", { exact: true })).toHaveCount(1);
     await page.getByRole("button", { name: /retry the last question/i }).click();
@@ -626,6 +634,22 @@ test.describe("AI tutor", () => {
     await expect(page.getByRole("button", { name: "Show tutor panel" })).toHaveCount(0);
     await expect(page.getByText("Walk me through main.py, one step at a time.")).toHaveCount(1);
     await expect(page.getByText(/a function groups reusable steps/i).first()).toBeVisible();
+  });
+
+  test("lesson tutor remains collapsed after a walkthrough has opened it", async ({ page }) => {
+    await loadProfile(page, "empty");
+    await seedApiKey(page, { key: "sk-test-e2e-padding-12345", model: "gpt-4o-mini" });
+    await mockTutorResponse(page, "first-turn-concept");
+    await page.goto(`/learn/course/${COURSE_ID}/lesson/hello-world`);
+    await waitForMonacoReady(page);
+    await configureTutorKey(page, "sk-test-e2e-padding-12345");
+
+    await page.getByRole("button", { name: /walk me through main\.py/i }).click();
+    await expect(page.getByText("Walk me through main.py, one step at a time.")).toHaveCount(1);
+
+    await page.getByRole("button", { name: "Collapse tutor" }).click();
+    await expect(page.getByRole("button", { name: "Show tutor panel" })).toBeFocused();
+    await expect(S.tutorInput(page)).toHaveCount(0);
   });
 
   test("phone lesson walkthrough brings the tutor response into view", async ({ page }) => {

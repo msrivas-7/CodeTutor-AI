@@ -172,8 +172,19 @@ describe("structured stream safety", () => {
     expect(onDone).toHaveBeenCalledOnce();
     const [safeRaw, sections] = onDone.mock.calls[0];
     expect(sections.intent).toBe("socratic");
+    expect(sections.summary).toContain("line 1");
+    expect(sections.hint).toBeTruthy();
+    expect(sections.citations).toEqual([
+      expect.objectContaining({ path: "main.py", line: 1 }),
+    ]);
     expect(sections.checkQuestions).toHaveLength(1);
-    expect(Object.keys(sections).sort()).toEqual(["checkQuestions", "intent"]);
+    expect(Object.keys(sections).sort()).toEqual([
+      "checkQuestions",
+      "citations",
+      "hint",
+      "intent",
+      "summary",
+    ]);
     expect(safeRaw).not.toMatch(/B is right|Select B|prints hi/);
   });
 

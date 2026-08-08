@@ -147,7 +147,13 @@ describe("AI action identity", () => {
 });
 
 describe("AI tutor progression stream", () => {
-  it("forwards the server-signed progression proof from the terminal frame", async () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    getSession.mockReset();
+    getSession.mockResolvedValue({ data: { session: null } });
+  });
+
+  it("forwards progression proof and the authoritative allowance from the terminal frame", async () => {
     const terminal = {
       done: true,
       raw: "{\"intent\":\"socratic\"}",
@@ -156,6 +162,7 @@ describe("AI tutor progression stream", () => {
         checkQuestions: ["What did you expect?"],
       },
       tutorProgressToken: "signed-proof",
+      remainingToday: 0,
     };
     vi.stubGlobal(
       "fetch",
@@ -180,7 +187,30 @@ describe("AI tutor progression stream", () => {
       terminal.sections,
       undefined,
       "signed-proof",
+      0,
     );
+  });
+
+  it("cancels the exact accepted request through the supplied actor endpoint", async () => {
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Response(null, { status: 204 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.cancelAIAsk(
+      "00000000-0000-4000-8000-000000000009",
+      "/api/anon/ai/ask/cancel",
+    );
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/anon/ai/ask/cancel");
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+      method: "POST",
+      body: JSON.stringify({
+        requestId: "00000000-0000-4000-8000-000000000009",
+      }),
+    });
   });
 });
 

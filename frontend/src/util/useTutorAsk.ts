@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { api, type AskStreamRequest } from "../api/client";
 import { evalSamplingConsentForRequest } from "../features/anon/evalSamplingConsent";
@@ -45,6 +45,7 @@ export interface UseTutorAskOpts {
   // — e.g. the guided panel's hint counter only commits on success, so the
   // student doesn't burn a hint on a 500 they never saw.
   onAskComplete?: (outcome: { ok: boolean }) => void;
+  onAllowanceUpdate?: (remainingToday: number | null) => void;
   /**
    * Phase 27-v2.1 — endpoint override for anon mode. Defaults to the
    * authed `/api/ai/ask/stream`; anon callers pass
@@ -144,6 +145,20 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
   const isAnon = opts.mode === "anon";
   const { status: aiStatus } = useAIStatus({ skip: isAnon });
   const abortRef = useRef<AbortController | null>(null);
+  const activeRequestIdRef = useRef<string | null>(null);
+
+  const refundDiscardedRequest = useCallback((requestId: string): void => {
+    const endpoint = isAnon
+      ? "/api/anon/ai/ask/cancel"
+      : "/api/ai/ask/cancel";
+    void api.cancelAIAsk(requestId, endpoint).catch(() => {
+      // The abort still stops rendering stale work. A failed refund is
+      // reconciled by the next authoritative status fetch and surfaced in
+      // server logs rather than replacing the learner's Stop explanation.
+    }).finally(() => {
+      if (!isAnon && aiStatus?.source === "platform") invalidateAIStatus();
+    });
+  }, [aiStatus?.source, isAnon]);
 
   // An edit or context switch makes every in-flight tutor chunk stale. Abort
   // promptly to avoid spending tokens on a response that is no longer allowed
@@ -152,8 +167,19 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
   useEffect(() => {
     if (!abortRef.current) return;
     setAskError("TUTOR_CONTEXT_CHANGED");
+    const requestId = activeRequestIdRef.current;
+    activeRequestIdRef.current = null;
+    if (requestId) refundDiscardedRequest(requestId);
     abortRef.current.abort();
-  }, [projectRevision, projectContext, chatContext, inputRevision, conversationRevision]);
+  }, [
+    projectRevision,
+    projectContext,
+    chatContext,
+    inputRevision,
+    conversationRevision,
+    refundDiscardedRequest,
+    setAskError,
+  ]);
 
   // Platform (free-tier) users have no BYOK key and no selectedModel — the
   // backend picks `gpt-4.1-nano` for them. Mirror the panel-level gate here
@@ -251,6 +277,8 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
       // Release 0D: the server uses this as the idempotency key for the
       // accepted action. A retry button is a new user action and therefore
       // calls submitAsk again with a fresh UUID.
+      const requestId = crypto.randomUUID();
+      activeRequestIdRef.current = requestId;
       const body: AskStreamRequest = {
         ...opts.buildBody({
           question: trimmed,
@@ -259,7 +287,7 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
           historyForSend,
           selection: selectionForTurn,
         }),
-        requestId: crypto.randomUUID(),
+        requestId,
         tutorProgressToken: tutorProgressToken ?? undefined,
         evalSamplingConsent: isAnon
           ? evalSamplingConsentForRequest()
@@ -276,9 +304,16 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
             raw += chunk;
             scheduleParse();
           },
-          onDone: (finalRaw, sections, usage, nextTutorProgressToken) => {
+          onDone: (
+            finalRaw,
+            sections,
+            usage,
+            nextTutorProgressToken,
+            remainingToday,
+          ) => {
             cancelPending();
             if (!operationIsCurrent()) return;
+            activeRequestIdRef.current = null;
             pushAssistant(finalRaw || raw, sections, usage);
             if (nextTutorProgressToken) {
               setTutorProgressToken(nextTutorProgressToken);
@@ -292,10 +327,14 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
             // and the L_anon ledger is per-IP server-side.
             if (!isAnon && aiStatus?.source === "platform")
               notePlatformQuestionConsumed();
+            if (remainingToday !== undefined) {
+              opts.onAllowanceUpdate?.(remainingToday);
+            }
           },
           onError: (message) => {
             cancelPending();
             if (!operationIsCurrent()) return;
+            activeRequestIdRef.current = null;
             // The transport can report its own AbortError after the learner
             // presses Stop (or after a context change). The action that
             // initiated the abort already installed the useful explanation;
@@ -379,6 +418,7 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
     } finally {
       cancelPending();
       if (abortRef.current === controller) {
+        activeRequestIdRef.current = null;
         notifyCompletion(false);
         // Same conversation but edited source: clear the now-orphaned stream.
         // A context switch already loaded its own clean stream state.
@@ -394,14 +434,10 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
   const cancelAsk = (): void => {
     if (!abortRef.current) return;
     setAskError("TUTOR_CANCELED_BY_USER");
+    const requestId = activeRequestIdRef.current;
+    activeRequestIdRef.current = null;
+    if (requestId) refundDiscardedRequest(requestId);
     abortRef.current?.abort();
-    // A Stop can race a provider completion by a few milliseconds. The
-    // server does not count a confirmed abort, but a completion that already
-    // won the race legitimately counts. Reconcile after finalization instead
-    // of leaving the optimistic counter stale until the next navigation.
-    if (!isAnon && aiStatus?.source === "platform") {
-      setTimeout(invalidateAIStatus, 1_000);
-    }
   };
 
   return { submitAsk, cancelAsk };

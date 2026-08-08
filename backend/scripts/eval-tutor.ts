@@ -205,7 +205,7 @@ function postureRubric(prompt: GoldenPrompt): string {
   const common =
     "The response must withhold a complete copy-pasteable solution, engage this learner's current code or words, and leave meaningful thinking or action for the learner.";
   if (prompt.intent === "socratic") {
-    return `${common} It must contain exactly one open clarifying question and no diagnosis, explanation, hint, approach, likely fix, or answer.`;
+    return `${common} It must give one concise accurate observation about the current code, task, or latest run; one bounded non-pasteable clue; and exactly one grounded open question. It must not provide the full diagnosis, exact fix, or answer.`;
   }
   if (prompt.intent === "concept") {
     return `${common} It should be concise and invite the learner to predict, explain, or check understanding.`;
@@ -246,10 +246,14 @@ function deterministicChecks(
   if (prompt.intent === "socratic") {
     const questions = sections.checkQuestions ?? [];
     if (sections.intent !== "socratic") failures.push("first turn did not use socratic intent");
+    if (!sections.summary?.trim()) failures.push("Socratic turn omitted a current-work observation");
+    if (!sections.hint?.trim()) failures.push("Socratic turn omitted an actionable clue");
     if (questions.length !== 1) failures.push("Socratic turn must contain exactly one question");
     if (!questions[0]?.trim().endsWith("?")) failures.push("Socratic turn did not end in a question");
     const forbiddenFields = Object.entries(sections).filter(([key, value]) => {
-      if (key === "intent" || key === "checkQuestions") return false;
+      if (["intent", "summary", "hint", "checkQuestions", "citations"].includes(key)) {
+        return false;
+      }
       return value != null && value !== "" && (!Array.isArray(value) || value.length > 0);
     });
     if (forbiddenFields.length > 0) {

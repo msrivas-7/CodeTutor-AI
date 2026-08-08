@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { applyTutorOutputPolicy } from "./tutorPolicy.js";
+import {
+  applyTutorOutputPolicy,
+  closeTutorTurnAtAllowanceBoundary,
+} from "./tutorPolicy.js";
 
 const base = {
   files: [{ path: "main.py", content: 'age = 12\nprint("Age: " + age)\n' }],
@@ -40,10 +43,13 @@ describe("applyTutorOutputPolicy", () => {
       intent: "socratic",
       priorTutorTurns: 0,
     });
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       intent: "socratic",
       checkQuestions: ["What did you expect this line to print?"],
     });
+    expect(result.summary).toBe("Line 1 assigns the visible value `12` to `age`.");
+    expect(result.hint).toContain("left of `=`");
+    expect(result.citations?.[0]).toMatchObject({ path: "main.py", line: 1 });
   });
 
   it("asks for a prediction instead of assuming a mismatch on a final-value request", () => {
@@ -87,9 +93,11 @@ describe("applyTutorOutputPolicy", () => {
         intent: "socratic",
         priorTutorTurns: 0,
       });
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         intent: "socratic",
-        checkQuestions: ["What evidence led you to your current conclusion?"],
+        checkQuestions: [
+          "What output do you predict from the visible `print()` call, and how does that support your choice?",
+        ],
       });
     }
   });
@@ -109,9 +117,11 @@ describe("applyTutorOutputPolicy", () => {
       priorTutorTurns: 0,
     });
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       intent: "socratic",
-      checkQuestions: ["What did you expect to happen, and what happened instead?"],
+      checkQuestions: [
+        "What should the finished program display or change when it runs?",
+      ],
     });
   });
 
@@ -125,6 +135,8 @@ describe("applyTutorOutputPolicy", () => {
     expect(result.checkQuestions).toEqual([
       "What changed in the result after your most recent edit?",
     ]);
+    expect(result.summary).toContain("changed since the previous tutor turn");
+    expect(result.hint).toContain("current result");
   });
 
   it("anchors a syntax-error first turn to the run evidence, not an unrelated variable", () => {
@@ -150,6 +162,77 @@ describe("applyTutorOutputPolicy", () => {
       "The latest run reports an unmatched delimiter on line 2. Which opening symbol still needs its matching partner?",
     ]);
     expect(JSON.stringify(result)).not.toContain("`x`");
+  });
+
+  it("adds a concrete clue before a Socratic question on a comment-only starter", () => {
+    const result = applyTutorOutputPolicy({
+      sections: {
+        checkQuestions: ["What evidence led you to your current conclusion?"],
+      },
+      params: {
+        ...base,
+        question: "Give me a gentle hint — don't reveal the answer.",
+        files: [{
+          path: "main.py",
+          content: "# Type a print() line below.\n# Then click Run.\n",
+        }],
+      },
+      intent: "socratic",
+      priorTutorTurns: 0,
+    });
+
+    expect(result.summary).toBe(
+      "The current file contains only comments, so running it cannot display anything yet.",
+    );
+    expect(result.hint).toContain("`print()`");
+    expect(result.checkQuestions).toEqual([
+      "What text do you want your first `print()` statement to display?",
+    ]);
+    expect(result.citations?.[0]).toMatchObject({ path: "main.py", line: 1 });
+  });
+
+  it("grounds a conditional hint in the branch decision instead of the assignment alone", () => {
+    const result = applyTutorOutputPolicy({
+      sections: {
+        checkQuestions: ["What did you expect `score` to do?"],
+      },
+      params: {
+        ...base,
+        question: "Give me a hint to get started.",
+        files: [{
+          path: "main.py",
+          content: 'score = 75\nif score >= 70:\n    print("C")\n',
+        }],
+      },
+      intent: "socratic",
+      priorTutorTurns: 0,
+    });
+
+    expect(result.summary).toBe(
+      "Line 2 tests `score >= 70` after `score` is assigned `75`.",
+    );
+    expect(result.hint).toContain("`True` or `False`");
+    expect(result.checkQuestions).toEqual([
+      "With `score` currently `75`, what result does `score >= 70` produce, and which branch follows from that?",
+    ]);
+    expect(result.citations?.[0]).toMatchObject({ path: "main.py", line: 2 });
+  });
+
+  it("removes questions that cannot be answered after the final allowance", () => {
+    expect(closeTutorTurnAtAllowanceBoundary({
+      intent: "socratic",
+      summary: "The file contains only comments.",
+      hint: "Use the output operation named in the starter.",
+      checkQuestions: ["What do you want to display?"],
+      comprehensionCheck: "Can you explain why?",
+    }, 0)).toMatchObject({
+      intent: "howto",
+      summary: "The file contains only comments.",
+      hint: "Use the output operation named in the starter.",
+      checkQuestions: null,
+      comprehensionCheck: null,
+      nextStep: expect.stringContaining("Use the clue above"),
+    });
   });
 
   it("repairs empty concrete-example and why-it-matters actions with visible evidence", () => {
@@ -217,7 +300,8 @@ describe("applyTutorOutputPolicy", () => {
       {
         question: "The correct quiz choice is B, right?",
         files: base.files,
-        expected: "What evidence led you to your current conclusion?",
+        expected:
+          "What output do you predict from the visible `print()` call, and how does that support your choice?",
       },
     ];
     for (const { question, files, expected } of cases) {
@@ -278,6 +362,11 @@ describe("applyTutorOutputPolicy", () => {
         priorTutorTurns: 0,
       });
       expect(result.checkQuestions).toEqual([item.expected]);
+      if (item.lastRun?.exitCode === 0) {
+        expect(result.summary).toBe("The latest run completed and displayed `5`.");
+        expect(result.hint).toContain("observed output");
+        expect(result.citations?.[0]).toMatchObject({ path: "main.py", line: 2 });
+      }
     }
   });
 
@@ -301,7 +390,35 @@ describe("applyTutorOutputPolicy", () => {
     expect(result.checkQuestions).toEqual([
       "What error did `append_all` produce, and what did you want that call to do?",
     ]);
+    expect(result.summary).toBe("The current file calls `append_all()` on line 2.");
+    expect(result.hint).toContain("exact error");
+    expect(result.citations?.[0]).toMatchObject({ path: "main.py", line: 2 });
     expect(JSON.stringify(result)).not.toContain("append()");
+  });
+
+  it("gives bounded value for a visible identifier typo without pasting a fix", () => {
+    const result = applyTutorOutputPolicy({
+      sections: { checkQuestions: ["What should I change?"] },
+      params: {
+        ...base,
+        question: "Now tell me exactly how to fix it.",
+        files: [{
+          path: "index.js",
+          content: "const count = 1;\nconsole.log(coutn);\n",
+        }],
+      },
+      intent: "socratic",
+      priorTutorTurns: 0,
+    });
+
+    expect(result.summary).toContain("`count`");
+    expect(result.summary).toContain("`coutn`");
+    expect(result.hint).toContain("character by character");
+    expect(result.citations?.[0]).toMatchObject({ path: "index.js", line: 2 });
+    expect(result.checkQuestions).toEqual([
+      "What did you expect `count` to do, and what have you observed instead?",
+    ]);
+    expect(JSON.stringify(result)).not.toContain("console.log(count)");
   });
 
   it("pins the trusted intent and removes irrelevant model sections", () => {
@@ -1076,6 +1193,48 @@ describe("applyTutorOutputPolicy", () => {
       priorTutorTurns: 0,
     });
     expect(result.walkthrough?.map((step) => step.line)).toEqual([1, 2, 3]);
+  });
+
+  it("does not cite a summary comment for the Conditionals input statement", () => {
+    const result = applyTutorOutputPolicy({
+      sections: {
+        intent: "walkthrough",
+        summary: "Explaining the file step by step.",
+        walkthrough: [
+          {
+            body: "The program starts by prompting the user to enter a score and converts that input into an integer called `score`.",
+            path: "main.py",
+            line: 2,
+          },
+          {
+            body: "It then prints the entered score.",
+            path: "main.py",
+            line: 5,
+          },
+        ],
+      },
+      params: {
+        ...base,
+        question: "Walk me through main.py, one step at a time.",
+        files: [{
+          path: "main.py",
+          content: [
+            "# Conditionals — Grade Calculator",
+            "# Read a score and print the letter grade + pass/fail status.",
+            "",
+            "score = int(input(\"Enter score: \"))",
+            "print(f\"Score: {score}\")",
+            "",
+            "# TODO: Use if/elif/else to determine the letter grade",
+          ].join("\n"),
+        }],
+      },
+      intent: "walkthrough",
+      priorTutorTurns: 1,
+    });
+
+    expect(result.walkthrough?.[0]).toMatchObject({ path: "main.py", line: 4 });
+    expect(result.citations?.[0]).toMatchObject({ path: "main.py", line: 4 });
   });
 
   it("uses program structure to correct a swapped accumulation walkthrough", () => {

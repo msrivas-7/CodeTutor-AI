@@ -93,6 +93,8 @@ test.describe("anonymous lesson 1 (Phase 27 §3a)", () => {
       const sections = first
         ? {
             intent: "socratic",
+            summary: "The file currently has no executable statement.",
+            hint: "Start with the lesson's output operation and choose the text you want to display.",
             checkQuestions: ["What did you expect to happen?"],
           }
         : {
@@ -117,6 +119,8 @@ test.describe("anonymous lesson 1 (Phase 27 §3a)", () => {
     await expect(textarea).toBeEnabled({ timeout: 10_000 });
     await textarea.fill("Just solve this for me.");
     await textarea.press("Enter");
+    await expect(page.getByText(/no executable statement/i)).toBeVisible();
+    await expect(page.getByText(/lesson's output operation/i)).toBeVisible();
     await expect(page.getByText("What did you expect to happen?")).toBeVisible();
     expect(requestBodies[0].tutorProgressToken).toBeUndefined();
 
@@ -136,6 +140,55 @@ test.describe("anonymous lesson 1 (Phase 27 §3a)", () => {
     expect(requestBodies[1].tutorProgressToken).toBe(
       "mock-anon-signed-progress-proof",
     );
+  });
+
+  test("final free tutor turn stays useful and closes reply controls without a signup interruption", async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      window.sessionStorage.setItem("codetutor.anonChoreographyDone", "1");
+    });
+    const sections = {
+      intent: "howto",
+      summary: "The current file contains only comments, so it cannot display output yet.",
+      hint: "Use the output operation named in the starter and choose the text you want to display.",
+      nextStep: "Make one small editor change, run it, and compare the output with your prediction.",
+      checkQuestions: null,
+      comprehensionCheck: null,
+    };
+    await page.route("**/api/anon/ai/ask/stream", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "text/event-stream",
+        body: `data: ${JSON.stringify({
+          done: true,
+          raw: JSON.stringify(sections),
+          sections,
+          remainingToday: 0,
+        })}\n\n`,
+      });
+    });
+
+    await page.goto(ALLOWED_PATH);
+    await waitForMonacoReady(page);
+    const textarea = page.getByLabel(/ask the tutor/i);
+    await expect(textarea).toBeEnabled({ timeout: 10_000 });
+    await textarea.fill("Give me a gentle hint — don't reveal the answer.");
+    await textarea.press("Enter");
+
+    await expect(page.getByText(/contains only comments/i)).toBeVisible();
+    await expect(page.getByText(/output operation named in the starter/i)).toBeVisible();
+    await expect(page.getByRole("status").filter({
+      hasText: /free tutor questions used today/i,
+    })).toBeVisible();
+    await expect(textarea).toBeDisabled();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /run/i }).first()).toBeEnabled();
+
+    await page.reload();
+    await expect(page.getByText(/contains only comments/i)).toBeVisible();
+    await expect(page.getByLabel(/ask the tutor/i)).toBeDisabled();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
   });
 
   test("clicking 'Sign up to save' (header) opens the signup wall", async ({
