@@ -39,11 +39,15 @@ export function ResumeLearningCard({
   const pastHalf = pct > 0.5;
 
   const frameClass = pastHalf
-    ? "border-success/40 bg-success/5 shadow-[0_0_24px_-8px_rgb(var(--color-success)/0.3)]"
-    : "border-accent/30 bg-accent/5";
+    ? "border-success/40 shadow-[0_0_24px_-8px_rgb(var(--color-success)/0.3)]"
+    : "border-accent/30";
 
   return (
-    <div className={`relative overflow-hidden rounded-xl border p-4 ${frameClass}`}>
+    <div className={`relative overflow-hidden rounded-xl border bg-panel p-4 ${frameClass}`}>
+      <div
+        aria-hidden="true"
+        className={`pointer-events-none absolute inset-0 ${pastHalf ? "bg-success/5" : "bg-accent/5"}`}
+      />
       <FilmGrain intensity="ambient" />
       <div className="relative z-10 flex items-center gap-4">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-accent/15 text-accent">

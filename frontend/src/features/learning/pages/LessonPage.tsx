@@ -1,4 +1,13 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { LessonInstructionsPanel } from "../components/LessonInstructionsPanel";
 import { PracticeInstructionsView } from "../components/PracticeInstructionsView";
@@ -37,7 +46,12 @@ import { useRunStore } from "../../../state/runStore";
 import { isRetrievalPending, pickFirstFailure } from "../utils/validator";
 import { computeMastery, formatTimeSpent } from "../utils/mastery";
 import { useShortcutLabels } from "../../../util/platform";
-import { clamp, clampSide, usePhoneFormFactor } from "../../../util/layoutPrefs";
+import {
+  clamp,
+  clampSide,
+  useNarrowViewport,
+  usePhoneFormFactor,
+} from "../../../util/layoutPrefs";
 import {
   LESSON_LAYOUT_BOUNDS,
   LESSON_LAYOUT_DEFAULTS,
@@ -56,6 +70,7 @@ import { FirstRunHandoffReveal } from "../../firstRun/FirstRunHandoffReveal";
 import {
   extractNameFromCode,
   hasChoreographyDoneAnon,
+  readAnonTutorState,
   writeAnonWorkspace,
   type AnonWorkspaceV1,
 } from "../../anon/anonStash";
@@ -71,6 +86,8 @@ import { api } from "../../../api/client";
 function formatCount(count: number, singular: string, plural = `${singular}s`) {
   return `${count} ${count === 1 ? singular : plural}`;
 }
+
+type WorkspaceFocusSurface = "instructions" | "editor" | "output" | "tutor";
 
 function PracticePersistenceBanner({
   saving,
@@ -306,6 +323,11 @@ export default function LessonPage({
   const [practiceMode, setPracticeMode] = useState(false);
   const [practiceIndex, setPracticeIndex] = useState(0);
   const [resolvingDraftConflict, setResolvingDraftConflict] = useState(false);
+  const [editorFocusRequest, setEditorFocusRequest] = useState<{
+    path: string;
+    ticket: number;
+  } | null>(null);
+  const editorFocusTicket = useRef(0);
   const savedLessonCode = useRef<Record<string, string> | null>(null);
 
   const isFirstRun = searchParams.get("firstRun") === "1";
@@ -469,9 +491,24 @@ export default function LessonPage({
   }, [courseId, lessonId, practiceMode, practiceIndex, loader.lesson?.practiceExercises, lessonWorkspaceContextKey]);
 
   const switchChatContext = useAIStore((s) => s.switchChatContext);
+  const initialAnonTutorStateRef = useRef(
+    mode === "anon" ? readAnonTutorState() : null,
+  );
   useEffect(() => {
-    if (chatCtxKey) switchChatContext(chatCtxKey);
-  }, [chatCtxKey, switchChatContext]);
+    if (!chatCtxKey) return;
+    switchChatContext(chatCtxKey);
+    if (mode === "anon" && initialAnonTutorStateRef.current) {
+      const saved = initialAnonTutorStateRef.current;
+      useAIStore.setState({
+        history: saved.history,
+        asking: false,
+        askError: null,
+        pending: null,
+        pendingScripted: false,
+        pendingAsk: null,
+      });
+    }
+  }, [chatCtxKey, mode, switchChatContext]);
 
   const switchRunContext = useRunStore((s) => s.switchRunContext);
   useEffect(() => {
@@ -536,8 +573,16 @@ export default function LessonPage({
   const instructionsRestoreRef = useRef<HTMLButtonElement>(null);
   const tutorRestoreRef = useRef<HTMLButtonElement>(null);
   const tutorOpenNonce = useAIStore((s) => s.tutorOpenNonce);
+  const handledTutorOpenNonceRef = useRef(0);
+  const resetInteractionRef = useRef(false);
   useEffect(() => {
-    if (tutorOpenNonce > 0) layout.setTutorCollapsed(false);
+    // Treat requestTutorOpen as an edge-triggered signal. The layout setter's
+    // identity changes when its captured collapse state changes, so checking
+    // only `tutorOpenNonce > 0` replays an old request after a learner presses
+    // Collapse and immediately opens the panel again.
+    if (tutorOpenNonce <= handledTutorOpenNonceRef.current) return;
+    handledTutorOpenNonceRef.current = tutorOpenNonce;
+    layout.setTutorCollapsed(false);
   }, [tutorOpenNonce, layout.setTutorCollapsed]);
   useEffect(() => {
     // A stale device-level layout preference must not hide the surface that
@@ -568,7 +613,23 @@ export default function LessonPage({
     setTutorCollapsed: layout.setTutorCollapsed,
     mode,
     interactionBlocked: runButtonLocked,
+    interactionBlockedRef: resetInteractionRef,
   });
+  const persistAnonProgress = useCallback((progress: {
+    completed: boolean;
+    practiceCompletedIds: string[];
+  }) => {
+    if (mode !== "anon") return;
+    writeAnonWorkspace({
+      courseId: "python-fundamentals",
+      lessonId: "hello-world",
+      files: useProjectStore.getState().files,
+      stdin: useRunStore.getState().stdin,
+      result: useRunStore.getState().result,
+      runError: useRunStore.getState().error,
+      ...progress,
+    });
+  }, [mode]);
   const validator = useLessonValidator({
     lesson: loader.lesson,
     courseId,
@@ -593,9 +654,74 @@ export default function LessonPage({
       runner.setHasEdited(true);
       runner.setHasRun(hadRun);
     },
+    resetInteractionRef,
     mode,
     retrievalAnswered,
+    onAnonProgressCommitted: mode === "anon" ? persistAnonProgress : undefined,
   });
+  const runInteractionLocked = runButtonLocked || validator.resettingCode;
+  const checkInteractionLocked = checkButtonLocked || validator.resettingCode;
+  const editorInteractionLocked = editorLocked || validator.resettingCode;
+
+  const handleExitPractice = () => {
+    validator.handleExitPractice();
+    requestAnimationFrame(() => {
+      if (layout.instrCollapsed) {
+        instructionsRestoreRef.current?.focus({ preventScroll: true });
+        return;
+      }
+      const root: ParentNode = layout.instrRef.current ?? document;
+      root
+        .querySelector<HTMLElement>("[data-lesson-title]")
+        ?.focus({ preventScroll: true });
+    });
+  };
+
+  const handleUseRemoteDraft = () => {
+    if (!courseId || !lessonId) return;
+    const remote = useProgressStore
+      .getState()
+      .acceptRemoteDraft(courseId, lessonId);
+    if (!remote) return;
+    const order = Object.keys(remote);
+    useProjectStore.getState().replaceProject({
+      files: remote,
+      order,
+      activeFile: order[0] ?? null,
+      openTabs: order[0] ? [order[0]] : [],
+    });
+    const activeFile = useProjectStore.getState().activeFile;
+    if (activeFile) {
+      editorFocusTicket.current += 1;
+      setEditorFocusRequest({
+        path: activeFile,
+        ticket: editorFocusTicket.current,
+      });
+    }
+  };
+
+  const handleKeepLocalDraft = async () => {
+    if (!courseId || !lessonId) return;
+    setResolvingDraftConflict(true);
+    const resolved = await useProgressStore
+      .getState()
+      .keepLocalDraft(courseId, lessonId);
+    setResolvingDraftConflict(false);
+    const activeFile = useProjectStore.getState().activeFile;
+    if (resolved && activeFile) {
+      editorFocusTicket.current += 1;
+      setEditorFocusRequest({
+        path: activeFile,
+        ticket: editorFocusTicket.current,
+      });
+    }
+  };
+
+  const handleEditorFocusRequestSettled = (ticket: number) => {
+    setEditorFocusRequest((request) =>
+      request?.ticket === ticket ? null : request,
+    );
+  };
 
   const anonWorkspaceHydratedRef = useRef(false);
   useEffect(() => {
@@ -619,6 +745,9 @@ export default function LessonPage({
           stdin: anonResumeSnapshot.stdin,
         });
         if (anonResumeSnapshot.completed) validator.restoreCompleted();
+        validator.restoreAnonPracticeCompleted(
+          anonResumeSnapshot.practiceCompletedIds ?? [],
+        );
       }
       return;
     }
@@ -629,7 +758,8 @@ export default function LessonPage({
       stdin: runStdin,
       result: runResult,
       runError,
-      completed: Boolean(validator.validation?.passed),
+      completed: validator.localLessonCompleted,
+      practiceCompletedIds: validator.localPracticeCompletedIds,
     });
   }, [
     mode,
@@ -644,21 +774,106 @@ export default function LessonPage({
     anonResumeSnapshot,
     lessonWorkspaceContextKey,
     loader.initializedForRef,
-    validator.validation?.passed,
+    validator.localLessonCompleted,
+    validator.localPracticeCompletedIds,
     validator.restoreCompleted,
+    validator.restoreAnonPracticeCompleted,
   ]);
 
-  // Phone lessons are a 390px-native single-column screen, NOT a responsive
-  // squeeze of the desktop three-panel splitter layout. This applies to both
-  // anonymous and authenticated learners: an account/session change must not
-  // push the editor, output, and tutor off the physical viewport. All state machinery
-  // (loader / runner / validator / choreography / overlays) is shared
-  // with the desktop branch — only the workspace JSX arrangement
-  // differs, so the audited funnel behavior can't drift between form
-  // factors.
+  // Compact lessons are a native single-column workspace, not a squeezed
+  // desktop splitter layout. The former phone-only cutoff left 768–900px
+  // tablet and embedded-browser windows with a tutor rail that could reduce
+  // the editor to a sliver. Keep the coding surface primary through 900px;
+  // all state machinery remains shared with the desktop branch.
   const phoneFormFactor = usePhoneFormFactor();
-  const isPhoneNative = phoneFormFactor;
+  const compactWorkspace = useNarrowViewport(900);
+  const isPhoneNative = phoneFormFactor || compactWorkspace;
   const handledPhoneTutorOpenNonceRef = useRef(tutorOpenNonce);
+  const previousPhoneNativeRef = useRef(isPhoneNative);
+  const responsiveFocusSurfaceRef = useRef<WorkspaceFocusSurface | null>(null);
+
+  useEffect(() => {
+    const rememberWorkspaceFocus = (target: EventTarget | null) => {
+      if (!(target instanceof HTMLElement)) return;
+
+      if (
+        target === instructionsRestoreRef.current ||
+        layout.instrRef.current?.contains(target)
+      ) {
+        responsiveFocusSurfaceRef.current = "instructions";
+      } else if (layout.outputRef.current?.contains(target)) {
+        responsiveFocusSurfaceRef.current = "output";
+      } else if (layout.editorRef.current?.contains(target)) {
+        responsiveFocusSurfaceRef.current = "editor";
+      } else if (
+        target === tutorRestoreRef.current ||
+        layout.tutorRef.current?.contains(target)
+      ) {
+        responsiveFocusSurfaceRef.current = "tutor";
+      } else {
+        responsiveFocusSurfaceRef.current = null;
+      }
+    };
+    const onFocusIn = (event: FocusEvent) => rememberWorkspaceFocus(event.target);
+
+    rememberWorkspaceFocus(document.activeElement);
+    document.addEventListener("focusin", onFocusIn, true);
+    return () => document.removeEventListener("focusin", onFocusIn, true);
+    // Layout refs are stable for the lifetime of useLessonLayout.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // The compact and desktop workspaces intentionally use different DOM
+  // branches. When a tablet rotates or an embedded browser crosses the
+  // breakpoint, the focused pane control can therefore unmount even though
+  // the same learner surface remains present. The focusin listener above
+  // keeps a semantic owner that survives ref reassignment; hand that focus to
+  // the equivalent surface after the replacement branch mounts. Do nothing
+  // when focus lives outside the workspace so a Settings/feedback dialog is
+  // never interrupted by a background viewport change.
+  useLayoutEffect(() => {
+    const modeChanged = previousPhoneNativeRef.current !== isPhoneNative;
+    previousPhoneNativeRef.current = isPhoneNative;
+
+    if (modeChanged) {
+      const surface = responsiveFocusSurfaceRef.current;
+      responsiveFocusSurfaceRef.current = null;
+      let target: HTMLElement | null = null;
+
+      if (surface === "instructions") {
+        if (isPhoneNative) {
+          target = layout.instrRef.current;
+        } else if (layout.instrRef.current?.getAttribute("aria-hidden") === "true") {
+          target = instructionsRestoreRef.current;
+        } else {
+          target =
+            layout.instrRef.current?.querySelector<HTMLElement>(
+              '[title="Collapse instructions"], [aria-label="Collapse practice instructions"]',
+            ) ?? layout.instrRef.current;
+        }
+      } else if (surface === "editor") {
+        target = layout.editorRef.current;
+      } else if (surface === "output") {
+        target = layout.outputRef.current;
+      } else if (surface === "tutor") {
+        if (isPhoneNative) {
+          target = layout.tutorRef.current;
+        } else if (layout.tutorRef.current?.getAttribute("aria-hidden") === "true") {
+          target = tutorRestoreRef.current;
+        } else {
+          target =
+            layout.tutorRef.current?.querySelector<HTMLElement>(
+              '[aria-label="Collapse tutor"]',
+            ) ?? layout.tutorRef.current;
+        }
+      }
+
+      if (target && document.contains(target)) target.focus({ preventScroll: true });
+    }
+    // Layout refs are stable for the lifetime of useLessonLayout. The mode is
+    // deliberately the only trigger; other pane updates must not steal focus.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPhoneNative]);
 
   useEffect(() => {
     if (tutorOpenNonce <= handledPhoneTutorOpenNonceRef.current) return;
@@ -906,13 +1121,18 @@ export default function LessonPage({
   const lp = mode === "authed"
     ? lessonProgressMap[`${courseId}/${lessonId}`]
     : undefined;
-  const lessonStatus = validator.validation?.passed
+  const lessonStatus = (mode === "anon"
+    ? validator.localLessonCompleted
+    : validator.validation?.passed)
     ? "completed"
     : lp?.status ?? (mode === "anon" ? "in_progress" : undefined);
   const practiceTotal = lesson?.practiceExercises?.length ?? 0;
+  const completedPracticeIds = mode === "anon"
+    ? validator.localPracticeCompletedIds
+    : lp?.practiceCompletedIds ?? [];
   const practiceDone =
     practiceTotal > 0
-      ? (lp?.practiceCompletedIds ?? []).filter((id) =>
+      ? completedPracticeIds.filter((id) =>
           lesson!.practiceExercises!.some((exercise) => exercise.id === id),
         ).length
       : 0;
@@ -923,9 +1143,12 @@ export default function LessonPage({
     hasError: runner.hasStderr,
     hasChecked: validator.hasChecked,
     checkPassed:
-      !!validator.validation?.passed || isRetrievalPending(validator.validation),
+      (mode === "anon" ? validator.localLessonCompleted : !!validator.validation?.passed) ||
+      isRetrievalPending(validator.validation),
     failedCheckCount: validator.failedCheckCount,
-    lessonComplete: lp?.status === "completed" || !!validator.validation?.passed,
+    lessonComplete:
+      lp?.status === "completed" ||
+      (mode === "anon" ? validator.localLessonCompleted : !!validator.validation?.passed),
     tutorConfigured,
     hasFunctionTests: validator.functionTests.length > 0,
     failedVisibleTests: validator.failedVisibleTests,
@@ -942,7 +1165,8 @@ export default function LessonPage({
       : null;
   })();
   const showNext =
-    (validator.validation?.passed || lp?.status === "completed") &&
+    ((mode === "anon" ? validator.localLessonCompleted : validator.validation?.passed) ||
+      lp?.status === "completed") &&
     !validator.completionPresentationPending &&
     !validator.showComplete &&
     nextLessonId;
@@ -960,7 +1184,9 @@ export default function LessonPage({
       // initial/animate only run on MOUNT — re-renders within a
       // mounted lesson don't re-fire.
       initial={
-        inHandoff && (isFirstRun || mode === "anon")
+        openingBlocked ||
+        compactWorkspace ||
+        (inHandoff && (isFirstRun || mode === "anon"))
           ? false
           : { opacity: 0, y: 8 }
       }
@@ -1083,9 +1309,9 @@ export default function LessonPage({
           {lessonStatus && (() => {
             const practiceAllDone = practiceTotal > 0 && practiceDone === practiceTotal;
             return (
-              <div className="hidden items-center overflow-hidden rounded-full sm:flex">
+              <div className="hidden h-11 items-stretch overflow-hidden rounded-full sm:flex">
                 <span
-                  className={`px-2.5 py-0.5 text-[10px] font-medium ${
+                  className={`inline-flex h-11 items-center px-2.5 text-[10px] font-medium ${
                     lessonStatus === "completed"
                       ? "bg-success/20 text-success"
                       : lessonStatus === "in_progress"
@@ -1104,7 +1330,7 @@ export default function LessonPage({
                   lessonStatus === "completed" && (
                     <button
                       onClick={validator.handleEnterPractice}
-                      className={`border-l border-bg/40 px-2.5 py-0.5 text-[10px] font-semibold transition ${
+                      className={`inline-flex h-11 items-center border-l border-bg/40 px-2.5 text-[10px] font-semibold transition ${
                         practiceAllDone
                           ? "bg-success/20 text-success hover:bg-success/30"
                           : "bg-violet/20 text-violet hover:bg-violet/30"
@@ -1139,7 +1365,7 @@ export default function LessonPage({
                   !!lp?.lastCode?.[LANGUAGE_ENTRYPOINT[lesson.language]]?.trim() && (
                     <button
                       onClick={(event) => openShareDialog(event.currentTarget)}
-                      className={`border-l border-bg/40 px-2.5 py-0.5 text-[10px] font-semibold transition ${
+                      className={`inline-flex h-11 items-center border-l border-bg/40 px-2.5 text-[10px] font-semibold transition ${
                         hasExistingShare
                           ? "bg-success/15 text-success hover:bg-success/25"
                           : "bg-accent/15 text-accent hover:bg-accent/25"
@@ -1279,19 +1505,7 @@ export default function LessonPage({
             <button
               type="button"
               disabled={resolvingDraftConflict}
-              onClick={() => {
-                const remote = useProgressStore
-                  .getState()
-                  .acceptRemoteDraft(courseId, lessonId);
-                if (!remote) return;
-                const order = Object.keys(remote);
-                useProjectStore.getState().replaceProject({
-                  files: remote,
-                  order,
-                  activeFile: order[0] ?? null,
-                  openTabs: order[0] ? [order[0]] : [],
-                });
-              }}
+              onClick={handleUseRemoteDraft}
               className="min-h-11 rounded-lg border border-border bg-panel px-3 py-2 text-xs font-semibold text-muted transition hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-60"
             >
               Use newer saved version
@@ -1299,13 +1513,7 @@ export default function LessonPage({
             <button
               type="button"
               disabled={resolvingDraftConflict}
-              onClick={() => {
-                setResolvingDraftConflict(true);
-                void useProgressStore
-                  .getState()
-                  .keepLocalDraft(courseId, lessonId)
-                  .finally(() => setResolvingDraftConflict(false));
-              }}
+              onClick={() => void handleKeepLocalDraft()}
               className="min-h-11 rounded-lg bg-warn/20 px-3 py-2 text-xs font-semibold text-warn ring-1 ring-warn/40 transition hover:bg-warn/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn disabled:opacity-60"
             >
               {resolvingDraftConflict ? "Saving…" : "Keep this version"}
@@ -1332,7 +1540,28 @@ export default function LessonPage({
           </button>
         </div>
       )}
-      {validator.resetUndo && (
+      {validator.resettingCode && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex min-h-11 items-center gap-3 border-b border-accent/30 bg-accent/10 px-4 py-2 text-sm text-ink"
+        >
+          <span
+            aria-hidden="true"
+            className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-accent/30 border-t-accent"
+          />
+          <span>Resetting code… The editor will unlock when the starter is ready.</span>
+        </div>
+      )}
+      {validator.resetCodeError && !validator.confirmResetCode && !validator.resettingCode && (
+        <div
+          role="alert"
+          className="flex min-h-11 items-center border-b border-warn/40 bg-warn/10 px-4 py-2 text-sm text-warn"
+        >
+          {validator.resetCodeError}
+        </div>
+      )}
+      {validator.resetUndo && !validator.resettingCode && (
         <div
           role="status"
           className="flex min-h-11 items-center gap-3 border-b border-accent/30 bg-accent/10 px-4 py-2 text-sm"
@@ -1437,19 +1666,21 @@ export default function LessonPage({
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
             {/* 1 — Mission. Natural reading order starts with WHY. */}
             <section
+              ref={layout.instrRef as React.RefObject<HTMLElement>}
               aria-label="Lesson instructions"
+              tabIndex={-1}
               className="h-[38vh] min-h-[200px] border-b border-border"
             >
               {practiceMode && lesson.practiceExercises ? (
                 <PracticeInstructionsView
                   exercises={lesson.practiceExercises}
                   currentIndex={practiceIndex}
-                  completedIds={lp?.practiceCompletedIds ?? []}
+                  completedIds={completedPracticeIds}
                   validation={validator.practiceValidation}
                   testReport={validator.practiceTestReport}
                   saveError={validator.practiceSaveError}
                   onSelectExercise={validator.handleSelectPracticeExercise}
-                  onExitPractice={validator.handleExitPractice}
+                  onExitPractice={handleExitPractice}
                   onNextExercise={validator.handleNextPracticeExercise}
                   onResetPractice={validator.handleResetPracticeProgress}
                   onHintReveal={validator.handlePracticeHintReveal}
@@ -1480,7 +1711,9 @@ export default function LessonPage({
             {/* 2 — Code. The active step is TYPING; the editor gets the
                 tallest stable band. */}
             <section
+              ref={layout.editorRef as React.RefObject<HTMLElement>}
               aria-label="Code editor"
+              tabIndex={-1}
               className="flex h-[34vh] min-h-[200px] flex-col border-b border-border"
             >
               {loader.resumed && !practiceMode && (
@@ -1495,13 +1728,22 @@ export default function LessonPage({
                     <div className="p-4 text-sm text-muted">Loading editor…</div>
                   }
                 >
-                  <MonacoPane attentionTarget={contextualGuide.target} readOnly={editorLocked} />
+                  <MonacoPane
+                    attentionTarget={contextualGuide.target}
+                    focusRequest={editorFocusRequest}
+                    onFocusRequestSettled={handleEditorFocusRequestSettled}
+                    contentCommitRequest={validator.resetContentCommit}
+                    onContentCommitSettled={validator.settleCodeResetContent}
+                    readOnly={editorInteractionLocked}
+                  />
                 </Suspense>
               </div>
             </section>
             {/* 3 — Output. The payoff lands directly under the code. */}
             <section
+              ref={layout.outputRef as React.RefObject<HTMLElement>}
               aria-label="Program output"
+              tabIndex={-1}
               className="h-[20vh] min-h-[110px] border-b border-border"
             >
               <OutputPanel suppressErrorEncouragement={contextualGuideVisible} />
@@ -1541,6 +1783,7 @@ export default function LessonPage({
                 onAnonExhausted={onAnonExhausted}
                 onAnonTrialPaused={onAnonTrialPaused}
                 onAnonSaveRequested={onAnonSave}
+                initialAnonTutorState={initialAnonTutorStateRef.current}
               />
             </section>
           </div>
@@ -1596,11 +1839,11 @@ export default function LessonPage({
                   duration: CINEMA_DURATIONS.tactileTap / 1000,
                   ease: MATERIAL_EASE,
                 }}
-                disabled={runner.stopping || (!runner.running && (!runner.canRun || runButtonLocked))}
+                disabled={runner.stopping || (!runner.running && (!runner.canRun || runInteractionLocked))}
                 className={`flex h-11 flex-1 items-center justify-center gap-1.5 rounded-xl text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
                   runner.running && !runner.stopping
                     ? "bg-danger/15 text-danger ring-1 ring-danger/40 active:bg-danger/25"
-                    : runner.canRun && !runButtonLocked
+                    : runner.canRun && !runInteractionLocked
                       ? "bg-accent text-bg active:bg-accent/90"
                     : "bg-elevated text-muted"
                 }`}
@@ -1625,9 +1868,9 @@ export default function LessonPage({
                 onClick={() => {
                   void validator.handleCheck();
                 }}
-                disabled={runner.running || validator.runningTests || validator.completionSaving || checkButtonLocked}
+                disabled={runner.running || validator.runningTests || validator.completionSaving || checkInteractionLocked}
                 className={`flex h-11 flex-1 items-center justify-center gap-1.5 rounded-xl text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-violet ${
-                  !runner.running && !validator.runningTests && !validator.completionSaving && !checkButtonLocked
+                  !runner.running && !validator.runningTests && !validator.completionSaving && !checkInteractionLocked
                     ? "bg-violet/20 text-violet active:bg-violet/30"
                     : "bg-elevated text-muted"
                 }`}
@@ -1645,7 +1888,7 @@ export default function LessonPage({
                 <button
                   type="button"
                   onClick={() => {
-                    if (practiceMode) validator.handleExitPractice();
+                    if (practiceMode) handleExitPractice();
                     else validator.handleEnterPractice();
                   }}
                   disabled={runner.running || validator.runningTests || validator.completionSaving}
@@ -1666,8 +1909,8 @@ export default function LessonPage({
               <button
                 type="button"
                 onClick={validator.handleReset}
-                disabled={runner.running}
-                title="Reset code to starter"
+                disabled={runner.running || validator.resettingCode}
+                title={validator.resettingCode ? "Resetting code…" : "Reset code to starter"}
                 aria-label="Reset code to starter"
                 className="flex h-11 w-11 items-center justify-center rounded-xl text-base text-muted transition active:bg-elevated disabled:opacity-40"
               >
@@ -1722,7 +1965,8 @@ export default function LessonPage({
             </button>
           )}
           <motion.div
-            ref={layout.instrRef}
+            ref={layout.instrRef as React.RefObject<HTMLDivElement>}
+            tabIndex={-1}
             initial={false}
             animate={{ width: layout.instrCollapsed ? 0 : layout.instrW }}
             transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
@@ -1740,12 +1984,12 @@ export default function LessonPage({
               <PracticeInstructionsView
                 exercises={lesson.practiceExercises}
                 currentIndex={practiceIndex}
-                completedIds={lp?.practiceCompletedIds ?? []}
+                completedIds={completedPracticeIds}
                 validation={validator.practiceValidation}
                 testReport={validator.practiceTestReport}
                 saveError={validator.practiceSaveError}
                 onSelectExercise={validator.handleSelectPracticeExercise}
-                onExitPractice={validator.handleExitPractice}
+                onExitPractice={handleExitPractice}
                 onNextExercise={validator.handleNextPracticeExercise}
                 onResetPractice={validator.handleResetPracticeProgress}
                 onHintReveal={validator.handlePracticeHintReveal}
@@ -1798,6 +2042,8 @@ export default function LessonPage({
           {/* Editor + Output */}
           <section
             ref={layout.editorRef as React.RefObject<HTMLElement>}
+            aria-label="Code editor"
+            tabIndex={-1}
             className="flex min-w-0 flex-1 flex-col overflow-hidden"
           >
             {loader.resumed && !practiceMode && (
@@ -1825,7 +2071,14 @@ export default function LessonPage({
             <EditorTabs mode="lesson" />
             <div className="min-h-0 flex-1">
               <Suspense fallback={<div className="p-4 text-sm text-muted">Loading editor…</div>}>
-                <MonacoPane attentionTarget={contextualGuide.target} readOnly={editorLocked} />
+                <MonacoPane
+                  attentionTarget={contextualGuide.target}
+                  focusRequest={editorFocusRequest}
+                  onFocusRequestSettled={handleEditorFocusRequestSettled}
+                  contentCommitRequest={validator.resetContentCommit}
+                  onContentCommitSettled={validator.settleCodeResetContent}
+                  readOnly={editorInteractionLocked}
+                />
               </Suspense>
             </div>
             <Splitter
@@ -1840,7 +2093,10 @@ export default function LessonPage({
               onDoubleClick={() => layout.setOutputH(LESSON_LAYOUT_DEFAULTS.out)}
             />
             <div
-              ref={layout.outputRef}
+              ref={layout.outputRef as React.RefObject<HTMLDivElement>}
+              role="region"
+              aria-label="Program output"
+              tabIndex={-1}
               style={{ height: layout.outputH }}
               className="min-h-0 shrink-0"
             >
@@ -1884,20 +2140,22 @@ export default function LessonPage({
                       duration: CINEMA_DURATIONS.tactileTap / 1000,
                       ease: MATERIAL_EASE,
                     }}
-                    disabled={runner.stopping || (!runner.running && (!runner.canRun || runButtonLocked))}
+                    disabled={runner.stopping || (!runner.running && (!runner.canRun || runInteractionLocked))}
                     className={`flex min-h-11 items-center gap-1.5 whitespace-nowrap rounded-lg px-4 py-2 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
                       runner.running && !runner.stopping
                         ? "bg-danger/15 text-danger ring-1 ring-danger/40 hover:bg-danger/25"
-                        : runner.canRun && !runButtonLocked
+                        : runner.canRun && !runInteractionLocked
                           ? "bg-accent text-bg hover:bg-accent/90"
                         : "bg-elevated text-muted cursor-not-allowed"
                     }`}
                     title={
-                      runButtonLocked
-                        ? "The tutor will tell you when to run"
+                      validator.resettingCode
+                        ? "Resetting code…"
+                        : runInteractionLocked
+                          ? "The tutor will tell you when to run"
                         : runner.running
                           ? "Stop the running program"
-                          : runner.canRun
+                        : runner.canRun
                           ? `Run your code (${keys.run})`
                           : runner.sessionPhase !== "active"
                             ? "Waiting for session to start…"
@@ -1938,8 +2196,8 @@ export default function LessonPage({
                 <button
                   type="button"
                   onClick={validator.handleReset}
-                  disabled={runner.running}
-                  title="Reset code to starter"
+                  disabled={runner.running || validator.resettingCode}
+                  title={validator.resettingCode ? "Resetting code…" : "Reset code to starter"}
                   aria-label="Reset code to starter"
                   className="flex min-h-11 items-center gap-1 whitespace-nowrap rounded-lg px-3 py-2 text-sm text-muted transition hover:bg-elevated hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-40"
                 >
@@ -1959,15 +2217,17 @@ export default function LessonPage({
                       // mis-type as the override object.
                       void validator.handleCheck();
                     }}
-                    disabled={runner.running || validator.runningTests || validator.completionSaving || checkButtonLocked}
+                    disabled={runner.running || validator.runningTests || validator.completionSaving || checkInteractionLocked}
                     className={`flex min-h-11 items-center gap-1.5 whitespace-nowrap rounded-lg px-4 py-2 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-violet ${
-                      !runner.running && !validator.runningTests && !validator.completionSaving && !checkButtonLocked
+                      !runner.running && !validator.runningTests && !validator.completionSaving && !checkInteractionLocked
                         ? "bg-violet/20 text-violet hover:bg-violet/30"
                         : "bg-elevated text-muted cursor-not-allowed"
                     }`}
                     title={
-                      checkButtonLocked
-                        ? "The tutor will tell you when to check"
+                      validator.resettingCode
+                        ? "Resetting code…"
+                        : checkInteractionLocked
+                          ? "The tutor will tell you when to check"
                         : "Verify your solution against the lesson's checks"
                     }
                     aria-label="Check my work against lesson requirements"
@@ -2037,7 +2297,7 @@ export default function LessonPage({
                       Practice Mode
                     </span>
                     <button
-                      onClick={validator.handleExitPractice}
+                      onClick={handleExitPractice}
                       className="min-h-11 border-l-2 border-violet/40 bg-violet/25 px-3 py-2 text-sm font-semibold text-violet transition hover:bg-violet/40 hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-violet"
                       title="Exit practice and return to the lesson"
                       aria-label="Exit practice mode and return to lesson"
@@ -2219,6 +2479,7 @@ export default function LessonPage({
           )}
           <motion.aside
             ref={layout.tutorRef as React.RefObject<HTMLElement>}
+            tabIndex={-1}
             initial={false}
             animate={{ width: layout.tutorCollapsed ? 0 : layout.tutorW }}
             transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
@@ -2257,6 +2518,7 @@ export default function LessonPage({
               onAnonExhausted={onAnonExhausted}
               onAnonTrialPaused={onAnonTrialPaused}
               onAnonSaveRequested={onAnonSave}
+              initialAnonTutorState={initialAnonTutorStateRef.current}
             />
           </motion.aside>
         </motion.main>
@@ -2334,7 +2596,7 @@ export default function LessonPage({
         <LessonCompletePanel
           lesson={lesson}
           mode={mode}
-          completedPracticeIds={lp?.practiceCompletedIds ?? []}
+          completedPracticeIds={completedPracticeIds}
           mastery={computeMastery(lp, lesson)?.level ?? null}
           timeSpentMs={lp?.timeSpentMs}
           nextLessonTitle={loader.nextLessonTitle}

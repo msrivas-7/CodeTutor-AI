@@ -67,6 +67,7 @@ export function SettingsPanel({
   }) => void;
 }) {
   const [tab, setTab] = useState<Tab>("profile");
+  const activeTabRef = useRef<HTMLButtonElement>(null);
   const visibleTabs = Object.keys(TAB_LABEL) as Tab[];
 
   return (
@@ -85,7 +86,7 @@ export function SettingsPanel({
         )}
       </div>
 
-      <PaidInterestBanner />
+      <PaidInterestBanner onDismissed={() => activeTabRef.current?.focus()} />
 
       <div className="flex min-h-0 flex-1 flex-col gap-4 sm:flex-row">
         <nav
@@ -97,6 +98,7 @@ export function SettingsPanel({
             return (
               <button
                 key={t}
+                ref={active ? activeTabRef : undefined}
                 type="button"
                 onClick={() => setTab(t)}
                 aria-current={active ? "page" : undefined}
@@ -143,19 +145,52 @@ export function SettingsPanel({
 
 // Phase 24A: paid-plan banner — single surface for both acquisition and
 // recovery. Pre-click: "Interested?" CTA + dismiss × that hides the banner
-// for the current open of the settings modal. Post-click: "Interest
+// for the current signed-in browser session. Post-click: "Interest
 // recorded. Clicked by mistake?" + Remove link.
 //
-// The dismissal is intentionally modal-scoped (not sessionStorage). Each
-// time the user opens Settings, SettingsModal mounts fresh + the banner
-// re-appears — a user who dismissed earlier still has another chance to
-// engage. Less aggressive than every-render, less leaky than localStorage.
-function PaidInterestBanner() {
+// "For now" means this browser session, not one modal mount. Keying the
+// sessionStorage entry by the authenticated user prevents one account's
+// choice from suppressing the banner for a different account in the same
+// tab. Storage failures stay non-fatal (private-mode Safari can reject it).
+const PAID_INTEREST_DISMISS_KEY = "codetutor.paid-interest-dismissed";
+
+function paidInterestDismissKey(userId: string): string {
+  return `${PAID_INTEREST_DISMISS_KEY}:${userId}`;
+}
+
+function readPaidInterestDismissal(userId: string | null): boolean {
+  if (!userId || typeof window === "undefined") return false;
+  try {
+    return window.sessionStorage.getItem(paidInterestDismissKey(userId)) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writePaidInterestDismissal(userId: string | null, dismissed: boolean): void {
+  if (!userId || typeof window === "undefined") return;
+  try {
+    const key = paidInterestDismissKey(userId);
+    if (dismissed) window.sessionStorage.setItem(key, "1");
+    else window.sessionStorage.removeItem(key);
+  } catch {
+    // The in-memory state still respects dismissal for this mount.
+  }
+}
+
+function PaidInterestBanner({ onDismissed }: { onDismissed?: () => void }) {
   const { status, refetch } = useAIStatus();
+  const userId = useAuthStore((s) => s.user?.id ?? null);
   const [submitting, setSubmitting] = useState(false);
   const [withdrawing, setWithdrawing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [dismissed, setDismissed] = useState(false);
+  const [dismissed, setDismissed] = useState(() =>
+    readPaidInterestDismissal(userId),
+  );
+
+  useEffect(() => {
+    setDismissed(readPaidInterestDismissal(userId));
+  }, [userId]);
 
   const hasShown = status?.hasShownPaidInterest === true;
   if (!hasShown && dismissed) return null;
@@ -184,6 +219,7 @@ function PaidInterestBanner() {
       // Reset dismissal so a user who removed by mistake immediately sees
       // the acquisition CTA again, no modal-reopen required.
       setDismissed(false);
+      writePaidInterestDismissal(userId, false);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -231,7 +267,14 @@ function PaidInterestBanner() {
             </button>
             <button
               type="button"
-              onClick={() => setDismissed(true)}
+              onClick={() => {
+                // Move focus to a stable control before this focused button is
+                // removed. Deferring by one frame can race React's commit and
+                // leave focus on the document body in slower browsers.
+                onDismissed?.();
+                setDismissed(true);
+                writePaidInterestDismissal(userId, true);
+              }}
               aria-label="Dismiss for now"
               className="flex min-h-11 min-w-11 items-center justify-center rounded text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
@@ -906,35 +949,19 @@ function AccountTab({
     shared: boolean;
   }) => void;
 }) {
-  const patchPreferences = usePreferencesStore((s) => s.patch);
   const nav = useNavigate();
 
   const [showDelete, setShowDelete] = useState(false);
   const [replaying, setReplaying] = useState(false);
-  const [replayErr, setReplayErr] = useState<string | null>(null);
 
-  const handleReplayIntro = async () => {
-    // Order matters. StartPage contains a synchronous `<Navigate to="/welcome">`
-    // that fires the instant welcomeDone flips to false (optimistic update from
-    // patchPreferences). If we awaited the patch first while on StartPage, that
-    // Navigate would unmount StartPage — and the SettingsModal mounted inside
-    // it — mid-handler. Fix: close the modal and nav to /welcome FIRST, THEN
-    // await the patch.
-    setReplayErr(null);
+  const handleReplayIntro = () => {
+    // Replay is presentation-only. Resetting welcome/coach preferences here
+    // made an innocent "watch again" action enter the destructive first-run
+    // lesson path and overwrite real work. The explicit replay route returns
+    // to Start without changing any learner state.
     setReplaying(true);
     onClose?.();
-    nav("/welcome");
-    try {
-      await patchPreferences({
-        welcomeDone: false,
-        workspaceCoachDone: false,
-        editorCoachDone: false,
-      });
-    } catch (e) {
-      console.error("[settings] replay-intro patch failed:", (e as Error).message);
-    } finally {
-      setReplaying(false);
-    }
+    nav("/welcome?replay=1");
   };
 
   return (
@@ -953,14 +980,6 @@ function AccountTab({
 
       <section className="flex flex-col gap-2">
         <h3 className="text-xs font-semibold text-ink">Replay the intro</h3>
-        {replayErr && (
-          <div
-            role="alert"
-            className="rounded-md border border-danger/40 bg-danger/10 px-2 py-1 text-[11px] text-danger"
-          >
-            {replayErr}
-          </div>
-        )}
         <button
           type="button"
           onClick={handleReplayIntro}
@@ -968,10 +987,10 @@ function AccountTab({
           aria-busy={replaying}
           className="self-start rounded-md border border-border bg-elevated px-3 py-1 text-[11px] font-semibold text-ink transition hover:border-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {replaying ? "Resetting…" : "Watch the moment again"}
+          {replaying ? "Opening…" : "Watch the moment again"}
         </button>
         <p className="text-[10px] leading-relaxed text-faint">
-          Replay the cinematic opening and the lesson handoff.
+          Replay the cinematic opening without changing your lessons or progress.
         </p>
       </section>
 
@@ -1138,10 +1157,10 @@ function PublicSharesSection({
             return (
               <li
                 key={share.shareToken}
-                className="rounded-md border border-border bg-elevated/30 p-2.5"
+                className="rounded-md border border-border bg-elevated/30 p-2"
               >
-                <div className="flex min-w-0 items-start justify-between gap-3">
-                  <div className="min-w-0">
+                <div className="flex min-w-0 items-center gap-2">
+                  <div className="min-w-0 flex-1">
                     <div className="truncate text-xs font-semibold text-ink">
                       {share.lessonTitle}
                     </div>
@@ -1153,13 +1172,26 @@ function PublicSharesSection({
                     href={share.url}
                     target="_blank"
                     rel="noreferrer"
-                    className="shrink-0 rounded-md border border-border bg-bg px-2.5 py-1.5 text-xs font-semibold text-muted transition hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    className="inline-flex min-h-11 shrink-0 items-center rounded-md border border-border bg-bg px-2.5 py-1.5 text-xs font-semibold text-muted transition hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                   >
                     View
                   </a>
+                  {!confirmingThis && (
+                    <button
+                      ref={(node) => {
+                        if (node) stopButtonRefs.current.set(share.shareToken, node);
+                        else stopButtonRefs.current.delete(share.shareToken);
+                      }}
+                      type="button"
+                      onClick={() => setConfirming(share.shareToken)}
+                      className="inline-flex min-h-11 shrink-0 items-center rounded-md px-2.5 text-xs font-semibold text-danger transition hover:bg-danger/10 hover:text-danger/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-danger"
+                    >
+                      Stop sharing
+                    </button>
+                  )}
                 </div>
 
-                {confirmingThis ? (
+                {confirmingThis && (
                   <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-danger/30 bg-danger/5 p-2">
                     <span className="mr-auto text-xs leading-relaxed text-danger">
                       The current public link will stop working.
@@ -1169,7 +1201,7 @@ function PublicSharesSection({
                       type="button"
                       onClick={() => void revoke(share)}
                       disabled={revoking === share.shareToken}
-                      className="rounded-md bg-danger px-2.5 py-1.5 text-xs font-semibold text-bg disabled:opacity-60"
+                      className="inline-flex min-h-11 items-center rounded-md bg-danger px-2.5 py-1.5 text-xs font-semibold text-bg disabled:opacity-60"
                     >
                       {revoking === share.shareToken ? "Stopping…" : "Stop sharing"}
                     </button>
@@ -1177,23 +1209,11 @@ function PublicSharesSection({
                       type="button"
                       onClick={cancelConfirmation}
                       disabled={revoking === share.shareToken}
-                      className="rounded-md border border-border bg-bg px-2.5 py-1.5 text-xs text-muted disabled:opacity-60"
+                      className="inline-flex min-h-11 items-center rounded-md border border-border bg-bg px-2.5 py-1.5 text-xs text-muted disabled:opacity-60"
                     >
                       Keep public
                     </button>
                   </div>
-                ) : (
-                  <button
-                    ref={(node) => {
-                      if (node) stopButtonRefs.current.set(share.shareToken, node);
-                      else stopButtonRefs.current.delete(share.shareToken);
-                    }}
-                    type="button"
-                    onClick={() => setConfirming(share.shareToken)}
-                    className="mt-2 text-xs font-semibold text-danger transition hover:text-danger/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-danger"
-                  >
-                    Stop sharing
-                  </button>
                 )}
               </li>
             );
@@ -1211,6 +1231,7 @@ function PublicSharesSection({
 // back on PATCH failure.
 function NotificationsSection() {
   const optIn = useEmailOptIn();
+  const streaksHidden = useDisableStreaks();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1232,9 +1253,13 @@ function NotificationsSection() {
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1">
           <div className="text-[12px] font-medium text-ink">Streak nudges</div>
-          <p className="mt-0.5 text-[10px] leading-relaxed text-faint">
-            One short email when you skip a day, so your streak doesn't quietly
-            slip away. We'll never send more than one per day.
+          <p
+            id="streak-nudge-description"
+            className="mt-0.5 text-[10px] leading-relaxed text-faint"
+          >
+            {streaksHidden
+              ? "Off while streaks are hidden. Show streaks again to choose whether you want email nudges."
+              : "One short email when you skip a day, so your streak doesn't quietly slip away. We'll never send more than one per day."}
           </p>
         </div>
         <button
@@ -1242,19 +1267,24 @@ function NotificationsSection() {
           role="switch"
           aria-checked={optIn}
           aria-label="Toggle streak nudge emails"
+          aria-describedby="streak-nudge-description"
           aria-busy={busy}
-          disabled={busy}
+          disabled={busy || streaksHidden}
           onClick={onToggle}
-          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60 ${
-            optIn ? "border-accent/60 bg-accent/80" : "border-border bg-elevated"
-          }`}
+          className="relative inline-flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center rounded-lg transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60"
         >
           <span
             aria-hidden="true"
-            className={`inline-block h-3.5 w-3.5 transform rounded-full bg-bg shadow transition ${
-              optIn ? "translate-x-[18px]" : "translate-x-[3px]"
+            className={`relative inline-flex h-5 w-9 items-center rounded-full border transition ${
+              optIn ? "border-accent/60 bg-accent/80" : "border-border bg-elevated"
             }`}
-          />
+          >
+            <span
+              className={`inline-block h-3.5 w-3.5 transform rounded-full bg-bg shadow transition ${
+                optIn ? "translate-x-[18px]" : "translate-x-[3px]"
+              }`}
+            />
+          </span>
         </button>
       </div>
       {error && (
@@ -1314,16 +1344,20 @@ function StreakDisplaySection() {
           aria-busy={busy}
           disabled={busy}
           onClick={onToggle}
-          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60 ${
-            disabled ? "border-accent/60 bg-accent/80" : "border-border bg-elevated"
-          }`}
+          className="relative inline-flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center rounded-lg transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60"
         >
           <span
             aria-hidden="true"
-            className={`inline-block h-3.5 w-3.5 transform rounded-full bg-bg shadow transition ${
-              disabled ? "translate-x-[18px]" : "translate-x-[3px]"
+            className={`relative inline-flex h-5 w-9 items-center rounded-full border transition ${
+              disabled ? "border-accent/60 bg-accent/80" : "border-border bg-elevated"
             }`}
-          />
+          >
+            <span
+              className={`inline-block h-3.5 w-3.5 transform rounded-full bg-bg shadow transition ${
+                disabled ? "translate-x-[18px]" : "translate-x-[3px]"
+              }`}
+            />
+          </span>
         </button>
       </div>
       {error && (

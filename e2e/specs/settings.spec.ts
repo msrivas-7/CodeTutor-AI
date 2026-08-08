@@ -34,6 +34,24 @@ test.describe("settings panel", () => {
   test("phone Start header and Settings controls keep safe spacing and touch targets", async ({
     page,
   }) => {
+    await page.route("**/api/user/streak", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          current: 3,
+          longest: 5,
+          lastActiveDate: "2026-08-08",
+          lastFreezeUsed: null,
+          isActiveToday: true,
+          isAtRisk: false,
+          resetAtUtc: "2026-08-09T00:00:00.000Z",
+          freezeActive: false,
+          wasFirstToday: false,
+          freezeUsedToday: false,
+        }),
+      });
+    });
     await page.setViewportSize({ width: 360, height: 800 });
     await page.goto("/start");
 
@@ -47,6 +65,55 @@ test.describe("settings panel", () => {
       userMenuBox!.y + userMenuBox!.height + 12,
     );
     await expect(page.getByTestId("ambient-glyph-field")).toBeHidden();
+
+    // UX-130: a short phone viewport must scroll to every existing Start
+    // action and the footer instead of clipping them inside a fixed-height,
+    // overflow-hidden shell.
+    const playground = page.getByRole("button", { name: /open the playground/i });
+    const footer = page.getByRole("contentinfo");
+    await playground.scrollIntoViewIfNeeded();
+    await expect(playground).toBeVisible();
+    await footer.scrollIntoViewIfNeeded();
+    await expect(footer).toBeVisible();
+    const startScroll = await page.getByTestId("start-page").evaluate((element) => ({
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+      scrollTop: element.scrollTop,
+    }));
+    expect(
+      startScroll.scrollHeight,
+      "Start content extends naturally beyond the phone viewport",
+    ).toBeGreaterThan(startScroll.clientHeight);
+    expect(startScroll.scrollTop, "lower content required a real vertical scroll").toBeGreaterThan(0);
+
+    // The desktop Start layout uses the same absolute utility band, but the
+    // centered hero must still reserve its vertical space. UX-115 originally
+    // reproduced at this common laptop viewport even after the phone header
+    // had enough separation.
+    await page.setViewportSize({ width: 1280, height: 720 });
+    const desktopWordmarkBox = await wordmark.boundingBox();
+    const streakBox = await page
+      .getByRole("button", { name: /day streak/i })
+      .boundingBox();
+    expect(desktopWordmarkBox).not.toBeNull();
+    expect(streakBox).not.toBeNull();
+    expect(
+      desktopWordmarkBox!.y,
+      "desktop wordmark clears the centered streak control",
+    ).toBeGreaterThanOrEqual(streakBox!.y + streakBox!.height + 12);
+
+    // Native Safari may leave `window.resize` silent when application
+    // fullscreen exits via Escape, while visualViewport still reports the
+    // reflow. The anchored portal must close on that browser-owned resize.
+    const streakControl = page.getByRole("button", { name: /day streak/i });
+    await streakControl.click();
+    await expect(page.getByRole("dialog", { name: "Streak details" })).toBeVisible();
+    await page.evaluate(() => {
+      window.visualViewport?.dispatchEvent(new Event("resize"));
+    });
+    await expect(page.getByRole("dialog", { name: "Streak details" })).toHaveCount(0);
+
+    await page.setViewportSize({ width: 360, height: 800 });
 
     await userMenu.click();
     await page.getByRole("menuitem", { name: /^settings$/i }).click();
@@ -81,6 +148,27 @@ test.describe("settings panel", () => {
       await dialog.evaluate((element) => element.scrollWidth - element.clientWidth),
       "settings horizontal overflow",
     ).toBeLessThanOrEqual(1);
+
+    await dialog.getByRole("button", { name: "Account" }).click();
+    const switches = dialog.getByRole("switch");
+    await expect(switches).toHaveCount(2);
+    const dialogBox = await dialog.boundingBox();
+    expect(dialogBox).not.toBeNull();
+    for (let i = 0; i < await switches.count(); i += 1) {
+      const control = switches.nth(i);
+      const name = await control.getAttribute("aria-label");
+      const box = await control.boundingBox();
+      expect(box, `${name} geometry`).not.toBeNull();
+      expect(box!.height, `${name} touch target height`).toBeGreaterThanOrEqual(44);
+      expect(box!.width, `${name} touch target width`).toBeGreaterThanOrEqual(44);
+      expect(box!.x + box!.width, `${name} stays inside Settings`).toBeLessThanOrEqual(
+        dialogBox!.x + dialogBox!.width,
+      );
+    }
+    expect(
+      await dialog.evaluate((element) => element.scrollWidth - element.clientWidth),
+      "Account settings horizontal overflow",
+    ).toBeLessThanOrEqual(1);
   });
 
   test("data export downloads a named JSON file and announces the exact filename", async ({
@@ -99,9 +187,173 @@ test.describe("settings panel", () => {
     expect(await download.path()).not.toBeNull();
   });
 
+  test("public-share inventory stays compact until confirmation needs room", async ({
+    page,
+  }) => {
+    const shares = [
+      {
+        shareToken: "aaaaaaaaaaaa",
+        courseId: "python-fundamentals",
+        lessonId: "hello-world",
+        lessonTitle: "Hello, World!",
+        courseTitle: "Python Fundamentals",
+        displayName: null,
+        codeSnippet: 'print("Hello")',
+        mastery: "strong",
+        timeSpentMs: 60_000,
+        attemptCount: 1,
+        viewCount: 0,
+        url: "/s/aaaaaaaaaaaa",
+        ogImageUrl: null,
+        ogStoryImageUrl: null,
+        createdAt: "2026-08-01T08:13:32.000Z",
+        updatedAt: "2026-08-01T08:13:32.000Z",
+        rotatedAt: null,
+        revision: 1,
+      },
+      {
+        shareToken: "bbbbbbbbbbbb",
+        courseId: "python-fundamentals",
+        lessonId: "lists",
+        lessonTitle: "A deliberately long lesson title that must truncate cleanly",
+        courseTitle: "A deliberately long course title for containment",
+        displayName: null,
+        codeSnippet: "print([])",
+        mastery: "strong",
+        timeSpentMs: 120_000,
+        attemptCount: 2,
+        viewCount: 0,
+        url: "/s/bbbbbbbbbbbb",
+        ogImageUrl: null,
+        ogStoryImageUrl: null,
+        createdAt: "2026-08-01T08:13:32.000Z",
+        updatedAt: "2026-08-01T08:13:32.000Z",
+        rotatedAt: null,
+        revision: 1,
+      },
+    ];
+    await page.route("**/api/shares/mine/all", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ shares }),
+      });
+    });
+
+    await page.setViewportSize({ width: 537, height: 800 });
+    await page.goto("/start");
+    await openSettings(page, "account");
+
+    const list = page.getByRole("list", { name: "Public lesson shares" });
+    const rows = list.getByRole("listitem");
+    await expect(rows).toHaveCount(2);
+    await page.waitForTimeout(250);
+
+    for (let index = 0; index < 2; index += 1) {
+      const row = rows.nth(index);
+      const view = row.getByRole("link", { name: "View", exact: true });
+      const stop = row.getByRole("button", { name: "Stop sharing", exact: true });
+      const rowBox = await row.boundingBox();
+      const viewBox = await view.boundingBox();
+      const stopBox = await stop.boundingBox();
+      expect(rowBox?.height ?? Infinity, `share row ${index} compact height`).toBeLessThanOrEqual(
+        64,
+      );
+      expect(viewBox?.height ?? 0, `share row ${index} View target`).toBeGreaterThanOrEqual(44);
+      expect(stopBox?.height ?? 0, `share row ${index} Stop target`).toBeGreaterThanOrEqual(44);
+      expect(
+        await row.evaluate((element) => element.scrollWidth - element.clientWidth),
+        `share row ${index} horizontal overflow`,
+      ).toBeLessThanOrEqual(1);
+    }
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect
+      .poll(async () => (await rows.first().boundingBox())?.height ?? Infinity)
+      .toBeLessThanOrEqual(64);
+    expect(
+      await list.evaluate((element) => element.scrollWidth - element.clientWidth),
+      "compact public-share list horizontal overflow",
+    ).toBeLessThanOrEqual(1);
+
+    const firstRow = rows.first();
+    const inventoryStop = firstRow.getByRole("button", {
+      name: "Stop sharing",
+      exact: true,
+    });
+    await inventoryStop.click();
+    const confirmStop = firstRow.getByRole("button", {
+      name: "Stop sharing",
+      exact: true,
+    });
+    await expect(confirmStop).toBeFocused();
+    expect((await firstRow.boundingBox())?.height ?? 0).toBeGreaterThan(64);
+
+    await firstRow.getByRole("button", { name: "Keep public", exact: true }).click();
+    await expect(inventoryStop).toBeFocused();
+    await expect
+      .poll(async () => (await firstRow.boundingBox())?.height ?? Infinity)
+      .toBeLessThanOrEqual(64);
+  });
+
+  test("paid-plan dismissal survives Settings reopen and reload for this session", async ({
+    page,
+  }) => {
+    await page.goto("/start");
+    await openSettings(page, "account");
+
+    const paidInterest = page.getByRole("region", { name: "Paid plan interest" });
+    const accountTab = page.getByRole("button", {
+      name: "Account",
+      exact: true,
+    });
+    await expect(paidInterest).toBeVisible();
+    await page.getByRole("button", { name: "Dismiss for now" }).click();
+    await expect(paidInterest).toHaveCount(0);
+    await expect(accountTab).toBeFocused();
+
+    await page.keyboard.press("Escape");
+    await openSettings(page, "account");
+    await expect(paidInterest).toHaveCount(0);
+
+    await page.keyboard.press("Escape");
+    await page.reload();
+    await openSettings(page, "account");
+    await expect(paidInterest).toHaveCount(0);
+  });
+
+  test("hiding streaks turns email nudges off without silently restoring them", async ({
+    page,
+  }) => {
+    await page.goto("/start");
+    await openSettings(page, "account");
+
+    const nudgeSwitch = page.getByRole("switch", {
+      name: "Toggle streak nudge emails",
+    });
+    const hideSwitch = page.getByRole("switch", { name: "Toggle hide streaks" });
+    await expect(nudgeSwitch).toBeChecked();
+    await expect(hideSwitch).not.toBeChecked();
+
+    await hideSwitch.click();
+    await expect(hideSwitch).toBeChecked();
+    await expect(nudgeSwitch).not.toBeChecked();
+    await expect(nudgeSwitch).toBeDisabled();
+    await expect(page.getByText(/off while streaks are hidden/i)).toBeVisible();
+
+    await hideSwitch.click();
+    await expect(hideSwitch).not.toBeChecked();
+    await expect(nudgeSwitch).toBeEnabled();
+    await expect(nudgeSwitch).not.toBeChecked();
+  });
+
   test("Theme toggle applies data-theme on <html> and persists pref", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto("/start");
     await openSettings(page, "profile");
+
+    const glyphField = page.getByTestId("ambient-glyph-field");
+    const glyphs = glyphField.locator("[data-floating-glyph]");
 
     // Light — Phase 18b: theme persists through `preferences.theme` on the
     // server; the only user-visible effect we can assert here without racing
@@ -109,14 +361,47 @@ test.describe("settings panel", () => {
     // case is covered by cross-device.spec.ts.
     await page.getByRole("button", { name: /^light$/i }).click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+    await expect(glyphField).toBeVisible();
+    await expect(glyphs).toHaveCount(7);
+    expect(await glyphField.evaluate((element) => getComputedStyle(element).mixBlendMode)).toBe(
+      "multiply",
+    );
 
     // Dark
     await page.getByRole("button", { name: /^dark$/i }).click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+    await expect(glyphField).toBeVisible();
+    await expect(glyphs).toHaveCount(7);
+    expect(await glyphField.evaluate((element) => getComputedStyle(element).mixBlendMode)).toBe(
+      "screen",
+    );
+    for (let i = 0; i < await glyphs.count(); i += 1) {
+      expect((await glyphs.nth(i).innerText()).trim()).toHaveLength(1);
+    }
 
     // Close + reopen settings on Appearance — selected button should remain
     // aria-pressed=true.
     await page.keyboard.press("Escape");
+    expect(await glyphField.evaluate((element) => getComputedStyle(element).zIndex)).toBe("0");
+    expect(await glyphField.evaluate((element) => getComputedStyle(element).pointerEvents)).toBe(
+      "none",
+    );
+    expect(
+      await page.locator(".ambient-content-occluder").evaluateAll((elements) =>
+        elements.every((element) => {
+          const background = getComputedStyle(element, "::before").backgroundColor;
+          return background !== "transparent" && background !== "rgba(0, 0, 0, 0)";
+        }),
+      ),
+      "Start headings and utility controls paint above the moving field",
+    ).toBe(true);
+
+    await page.setViewportSize({ width: 900, height: 720 });
+    await expect(glyphField).toBeVisible();
+    await expect(glyphs).toHaveCount(7);
+    await page.setViewportSize({ width: 390, height: 720 });
+    await expect(glyphField).toBeHidden();
+    await page.setViewportSize({ width: 1280, height: 720 });
     await openSettings(page, "profile");
     await expect(page.getByRole("button", { name: /^dark$/i })).toHaveAttribute(
       "aria-pressed",
@@ -506,33 +791,48 @@ test.describe("settings panel", () => {
     expect(stillInsideBack).toBe(true);
   });
 
-  test("'Show intro again' resets onboarding flags, closes modal, and replays the first-run cinematic", async ({ page }) => {
-    // Post-first-run-cinematic: Settings → Account → Guided tour lets a
-    // re-visiting user replay the opening credits. Clicking the button
-    // PATCHes welcomeDone back to false and navigates to / — where
-    // StartPage now redirects to /welcome (the cinematic route) instead
-    // of remounting the old 3-step spotlight overlay.
+  test("'Watch the moment again' preserves onboarding state and replays the cinematic", async ({ page }) => {
+    // Replay is deliberately read-only. It uses an explicit query route
+    // instead of resetting welcomeDone and entering the destructive true
+    // first-run handoff.
+    const destructivePreferenceWrites: unknown[] = [];
+    page.on("request", (request) => {
+      if (
+        request.method() !== "PATCH" ||
+        !request.url().includes("/api/user/preferences")
+      ) return;
+      try {
+        const body = request.postDataJSON() as { welcomeDone?: unknown };
+        if (body.welcomeDone === false) destructivePreferenceWrites.push(body);
+      } catch {
+        // A non-JSON request cannot be the preferences contract under test.
+      }
+    });
+
     await page.goto("/learn");
     await openSettings(page, "account");
     await page.getByRole("button", { name: /^watch the moment again$/i }).click();
 
-    // Modal closes; redirect chain ends at /welcome with the cinematic
-    // rendering. The Skip link is the stable assertion point — the
-    // typewriter text is mid-animation and locator-unfriendly.
+    // Modal closes and the explicit replay route renders the cinematic. The
+    // Skip control is stable while the typewriter text is mid-animation.
     await expect(page.locator('[role="dialog"]')).toHaveCount(0);
-    await expect(page).toHaveURL(/\/welcome$/);
+    await expect(page).toHaveURL(/\/welcome\?replay=1$/);
     await expect(
       page.getByRole("button", { name: /skip introduction/i }),
     ).toBeVisible({ timeout: 5_000 });
+    expect(destructivePreferenceWrites).toHaveLength(0);
 
-    // Server-side persistence: reload and the cinematic is still the
-    // first thing the user sees — proves the PATCH actually landed on
-    // the server, not just an optimistic client flip.
+    // Reload remains an explicit replay, and Skip returns the existing
+    // learner to Start instead of seeding lesson-one first-run state.
     await page.reload();
-    await expect(page).toHaveURL(/\/welcome$/);
-    await expect(
-      page.getByRole("button", { name: /skip introduction/i }),
-    ).toBeVisible({ timeout: 5_000 });
+    await expect(page).toHaveURL(/\/welcome\?replay=1$/);
+    const skipIntroduction = page.getByRole("button", {
+      name: /skip introduction/i,
+    });
+    await expect(skipIntroduction).toBeVisible({ timeout: 5_000 });
+    await skipIntroduction.click();
+    await expect(page).toHaveURL(/\/start$/);
+    expect(destructivePreferenceWrites).toHaveLength(0);
   });
 
   test("Escape closes the settings modal cleanly", async ({ page }) => {

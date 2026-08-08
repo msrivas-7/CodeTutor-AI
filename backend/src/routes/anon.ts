@@ -77,11 +77,13 @@ import {
   aiPlatformAbuseSignals,
 } from "../services/metrics.js";
 import {
+  cancelAIRequest,
   finalizeAIRequest,
   fingerprintAIRequest,
   reserveAIRequest,
   type FinalizeAIRequestInput,
 } from "../db/aiReservations.js";
+import { closeTutorTurnAtAllowanceBoundary } from "../services/ai/tutorPolicy.js";
 import { resolveCanonicalAnonTutorContext } from "../services/ai/canonicalTutorContext.js";
 import { isContextualTutorModel } from "../services/ai/modelRegistry.js";
 import { routeTutorModel } from "../services/ai/modelRouting.js";
@@ -210,6 +212,8 @@ const askStreamBody = z.object({
   }).optional(),
 });
 
+const cancelAskBody = z.object({ requestId: z.string().uuid() }).strict();
+
 const deleteEvalSamplesBody = z.object({
   subjectToken: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
 }).strict();
@@ -236,6 +240,17 @@ async function safeFinalizeAnonUsage(
       (err as Error).message,
     );
   }
+}
+
+async function visibleAnonRemainingAfterTutorTurn(
+  ipHash: string,
+  reservedRemaining: number | null,
+  countsTowardQuota: boolean,
+): Promise<number | null> {
+  if (countsTowardQuota) return reservedRemaining;
+  const refreshed = await resolveAnonAICredential(ipHash);
+  if (refreshed.source === "platform") return refreshed.remainingToday;
+  return reservedRemaining == null ? null : reservedRemaining + 1;
 }
 
 function reservationTtlMs(): number {
@@ -466,6 +481,30 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
         if (handle.__kind === "aci") anonAciActive -= 1;
         else anonLocalActive -= 1;
       }
+    }
+  });
+
+  router.post("/ai/ask/cancel", async (req, res) => {
+    const parsed = cancelAskBody.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: parsed.error.issues.map((issue) => issue.message).join("; "),
+      });
+    }
+    if (!req.ip) {
+      return res.status(503).json({ error: "CLIENT_IDENTITY_UNKNOWN" });
+    }
+    try {
+      const state = await cancelAIRequest(parsed.data.requestId, {
+        actorKind: "anonymous",
+        ipHash: hashClientIp(req.ip),
+      });
+      if (!state) return res.status(404).json({ error: "AI_REQUEST_NOT_FOUND" });
+      invalidateAnonUsageCaches();
+      return res.status(204).end();
+    } catch (err) {
+      console.error("[anon] cancellation failed:", err);
+      return res.status(503).json({ error: "AI_CANCELLATION_UNAVAILABLE" });
     }
   });
 
@@ -731,8 +770,10 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
             if (closed) return;
             send({ delta: chunk });
           },
-          onDone: async (raw, sections, usage) => {
+          onDone: async (raw, sections, usage, providerHasTeachingValue) => {
             terminalFired = true;
+            const hasTeachingValue = providerHasTeachingValue !== false;
+            const countsTowardQuota = hasTeachingValue;
             const usageKnown = usage !== undefined;
             const inTok = usage?.inputTokens ?? estimate.reservedInputTokens;
             const outTok = usage?.outputTokens ?? estimate.reservedOutputTokens;
@@ -743,7 +784,7 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
             );
             await safeFinalizeAnonUsage({
               requestId: parsed.data.requestId,
-              countsTowardQuota: true,
+              countsTowardQuota,
               inputTokens: inTok,
               outputTokens: outTok,
               costUsd,
@@ -761,12 +802,27 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
               route: "anon_ask_stream",
             });
             if (closed) return;
+            const remainingToday = await visibleAnonRemainingAfterTutorTurn(
+              ipHash,
+              reservation.remainingToday,
+              countsTowardQuota,
+            );
+            const visibleSections = closeTutorTurnAtAllowanceBoundary(
+              sections,
+              remainingToday,
+            );
             send({
               done: true,
-              raw,
-              sections,
+              raw: visibleSections === sections
+                ? raw
+                : JSON.stringify(visibleSections),
+              sections: visibleSections,
               usage,
-              tutorProgressToken: mintTutorProgressToken(progressIdentity),
+              remainingToday,
+              countsTowardQuota,
+              tutorProgressToken: hasTeachingValue
+                ? mintTutorProgressToken(progressIdentity)
+                : parsed.data.tutorProgressToken ?? null,
             });
             finish();
             if (evalSamplingEnabled && parsed.data.evalSamplingConsent) {
@@ -786,7 +842,7 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
                 files: parsed.data.files,
                 history: parsed.data.history,
                 lastRun: parsed.data.lastRun ?? null,
-                sections,
+                sections: visibleSections,
               });
             }
           },

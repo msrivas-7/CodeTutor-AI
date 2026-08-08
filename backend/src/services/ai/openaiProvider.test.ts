@@ -172,8 +172,19 @@ describe("structured stream safety", () => {
     expect(onDone).toHaveBeenCalledOnce();
     const [safeRaw, sections] = onDone.mock.calls[0];
     expect(sections.intent).toBe("socratic");
+    expect(sections.summary).toContain("line 1");
+    expect(sections.hint).toBeTruthy();
+    expect(sections.citations).toEqual([
+      expect.objectContaining({ path: "main.py", line: 1 }),
+    ]);
     expect(sections.checkQuestions).toHaveLength(1);
-    expect(Object.keys(sections).sort()).toEqual(["checkQuestions", "intent"]);
+    expect(Object.keys(sections).sort()).toEqual([
+      "checkQuestions",
+      "citations",
+      "hint",
+      "intent",
+      "summary",
+    ]);
     expect(safeRaw).not.toMatch(/B is right|Select B|prints hi/);
   });
 
@@ -340,6 +351,27 @@ describe("structured response recovery", () => {
     expect(result.sections.intent).toBe("debug");
     expect(result.sections.nextStep).toContain("print()");
     expect(() => JSON.parse(result.raw)).not.toThrow();
+  });
+
+  it("returns an actionable no-value recovery and marks it outside visible quota", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({
+        output_text: JSON.stringify({ intent: "concept", summary: "Think about it." }),
+        usage: { input_tokens: 8, output_tokens: 3 },
+      }), { status: 200, headers: { "Content-Type": "application/json" } }),
+    );
+
+    const result = await openaiProvider.ask(minimalParams({
+      question: "Give me a gentle hint.",
+      files: [],
+      history: [{ role: "assistant", content: "What are you trying?" }],
+      tutorStage: "approach",
+    }));
+
+    expect(result.hasTeachingValue).toBe(false);
+    expect(result.sections.summary).toContain("don't have enough current-work evidence");
+    expect(result.sections.nextStep).toContain("run it once");
+    expect(JSON.parse(result.raw)).toEqual(result.sections);
   });
 });
 

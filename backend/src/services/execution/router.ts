@@ -23,6 +23,24 @@ export interface RunOptions {
   stdin?: string;
 }
 
+// Docker Desktop's bind-mounted workspace can briefly expose a freshly
+// replaced source file before its readable mode has propagated into the
+// runner. Go reports that host/runtime race as a learner-looking compile
+// error (`open /workspace/main.go: permission denied`). A single bounded
+// retry keeps that infrastructure transient inside the same visible Run
+// operation; real compiler errors are never retried.
+const WORKSPACE_PERMISSION_RETRY_DELAY_MS = 75;
+
+export function isTransientWorkspacePermissionError(stderr: string): boolean {
+  return /(?:open|read|stat)\s+\/workspace\/[^\n]*:\s*permission denied/i.test(stderr);
+}
+
+async function waitForWorkspacePermissionPropagation(): Promise<void> {
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, WORKSPACE_PERMISSION_RETRY_DELAY_MS);
+  });
+}
+
 export async function runProject(
   backend: ExecutionBackend,
   opts: RunOptions,
@@ -43,7 +61,15 @@ export async function runProject(
   }
 
   if (cmd.compile) {
-    const compile = await backend.exec(handle, cmd.compile.shell, timeoutMs);
+    let compile = await backend.exec(handle, cmd.compile.shell, timeoutMs);
+    if (
+      !compile.timedOut &&
+      compile.exitCode !== 0 &&
+      isTransientWorkspacePermissionError(compile.stderr)
+    ) {
+      await waitForWorkspacePermissionPropagation();
+      compile = await backend.exec(handle, cmd.compile.shell, timeoutMs);
+    }
     if (compile.timedOut) {
       return {
         stdout: compile.stdout,
@@ -55,13 +81,17 @@ export async function runProject(
       };
     }
     if (compile.exitCode !== 0) {
+      const workspacePermissionFailure =
+        isTransientWorkspacePermissionError(compile.stderr);
       return {
         stdout: compile.stdout,
-        stderr: compile.stderr,
+        stderr: workspacePermissionFailure
+          ? "The runner couldn't read the project files after retrying. Your code is still safe; run it again."
+          : compile.stderr,
         exitCode: compile.exitCode,
-        errorType: "compile",
+        errorType: workspacePermissionFailure ? "system" : "compile",
         durationMs: compile.durationMs,
-        stage: "compile",
+        stage: workspacePermissionFailure ? "setup" : "compile",
       };
     }
   }

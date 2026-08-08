@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { db, closeDb } from "./client.js";
 import {
+  cancelAIRequest,
   finalizeAIRequest,
   fingerprintAIRequest,
   reconcileExpiredAIRequests,
@@ -42,12 +43,14 @@ function reservation(
 
 integrationDescribe("AI request reservations (real Postgres)", () => {
   beforeEach(async () => {
+    await db()`DELETE FROM public.ai_request_cancellation_intents WHERE ip_hash IN (${ipHash}, ${otherIpHash})`;
     await db()`DELETE FROM public.ai_request_reservations WHERE ip_hash IN (${ipHash}, ${otherIpHash})`;
     await db()`DELETE FROM public.ai_anon_usage_ledger WHERE ip_hash IN (${ipHash}, ${otherIpHash})`;
   });
 
   afterAll(async () => {
     if (!enabled) return;
+    await db()`DELETE FROM public.ai_request_cancellation_intents WHERE ip_hash IN (${ipHash}, ${otherIpHash})`;
     await db()`DELETE FROM public.ai_request_reservations WHERE ip_hash IN (${ipHash}, ${otherIpHash})`;
     await db()`DELETE FROM public.ai_anon_usage_ledger WHERE ip_hash IN (${ipHash}, ${otherIpHash})`;
     await closeDb();
@@ -121,6 +124,95 @@ integrationDescribe("AI request reservations (real Postgres)", () => {
        WHERE request_id = ${requestId}
     `;
     expect(rows[0]?.count).toBe(1);
+  });
+
+  it("refunds quota when cancellation wins the finalization race", async () => {
+    const requestId = randomUUID();
+    expect(await reserveAIRequest(reservation(requestId))).toMatchObject({ ok: true });
+    expect(await cancelAIRequest(requestId, { actorKind: "anonymous", ipHash })).toBe("reserved");
+    await finalizeAIRequest({
+      requestId,
+      inputTokens: 800,
+      outputTokens: 200,
+      costUsd: 0.001,
+      ledgerStatus: "finish",
+      countsTowardQuota: true,
+    });
+    const rows = await db()<Array<{ counts_toward_quota: boolean; cost_usd: string }>>`
+      SELECT counts_toward_quota, cost_usd::text
+        FROM public.ai_anon_usage_ledger
+       WHERE request_id = ${requestId}
+    `;
+    expect(rows[0]).toEqual({ counts_toward_quota: false, cost_usd: "0.001000" });
+  });
+
+  it("prevents admission when cancellation arrives before the reservation", async () => {
+    const requestId = randomUUID();
+    expect(
+      await cancelAIRequest(requestId, { actorKind: "anonymous", ipHash }),
+    ).toBe("pending");
+    expect(await reserveAIRequest(reservation(requestId))).toEqual({
+      ok: false,
+      kind: "duplicate",
+      state: "released",
+    });
+    const rows = await db()<Array<{
+      state: string;
+      counts_toward_quota: boolean;
+      ledger_count: number;
+      intent_count: number;
+    }>>`
+      SELECT r.state,
+             r.counts_toward_quota,
+             (SELECT COUNT(*)::int
+                FROM public.ai_anon_usage_ledger l
+               WHERE l.request_id = r.request_id::text) AS ledger_count,
+             (SELECT COUNT(*)::int
+                FROM public.ai_request_cancellation_intents c
+               WHERE c.request_id = r.request_id) AS intent_count
+        FROM public.ai_request_reservations r
+       WHERE r.request_id = ${requestId}
+    `;
+    expect(rows[0]).toEqual({
+      state: "released",
+      counts_toward_quota: false,
+      ledger_count: 0,
+      intent_count: 0,
+    });
+  });
+
+  it("keeps a pre-admission cancellation bound to its anonymous actor", async () => {
+    const requestId = randomUUID();
+    expect(
+      await cancelAIRequest(requestId, {
+        actorKind: "anonymous",
+        ipHash: otherIpHash,
+      }),
+    ).toBe("pending");
+    expect(await reserveAIRequest(reservation(requestId))).toEqual({
+      ok: false,
+      kind: "conflict",
+    });
+  });
+
+  it("refunds quota when provider finalization wins the cancellation race", async () => {
+    const requestId = randomUUID();
+    expect(await reserveAIRequest(reservation(requestId))).toMatchObject({ ok: true });
+    await finalizeAIRequest({
+      requestId,
+      inputTokens: 800,
+      outputTokens: 200,
+      costUsd: 0.001,
+      ledgerStatus: "finish",
+      countsTowardQuota: true,
+    });
+    expect(await cancelAIRequest(requestId, { actorKind: "anonymous", ipHash })).toBe("finalized");
+    const rows = await db()<Array<{ counts_toward_quota: boolean; cost_usd: string }>>`
+      SELECT counts_toward_quota, cost_usd::text
+        FROM public.ai_anon_usage_ledger
+       WHERE request_id = ${requestId}
+    `;
+    expect(rows[0]).toEqual({ counts_toward_quota: false, cost_usd: "0.001000" });
   });
 
   it("conservatively charges and expires an abandoned reservation", async () => {

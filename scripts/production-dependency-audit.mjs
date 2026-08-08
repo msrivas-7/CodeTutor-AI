@@ -122,7 +122,9 @@ export function main() {
   }
 
   console.log(`Production dependency audit passed for ${WORKSPACES.join(' and ')}.`);
-  console.log('High/critical findings: 0 unreviewed; 1 exact-version, time-bounded RSC-only exception.');
+  console.log(
+    `High/critical findings: 0 unreviewed; ${exceptions.length} exact-version, time-bounded exception${exceptions.length === 1 ? '' : 's'}.`,
+  );
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

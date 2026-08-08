@@ -2,13 +2,16 @@
 // overview, and the resume toast (saved code restoration). Each test exercises
 // a narrow surface that's easy to regress during UI refactors.
 
-import { expect, test } from "../fixtures/auth";
+import { randomUUID } from "node:crypto";
 
 import { mockAllAI } from "../fixtures/aiMocks";
+import { expect, getWorkerUser, test } from "../fixtures/auth";
 import { setMonacoValue, waitForMonacoReady } from "../fixtures/monaco";
 import {
+  BACKEND,
   loadProfile,
   markOnboardingDone,
+  newBackendContext,
   seedCompletedLessons,
   seedLessonProgress,
 } from "../fixtures/profiles";
@@ -68,6 +71,73 @@ test.describe("lesson edge cases", () => {
     });
   });
 
+  test("accepting a conflicting lesson draft focuses the newly mounted editor", async (
+    { page },
+    testInfo,
+  ) => {
+    await loadProfile(page, "empty");
+    await seedCompletedLessons(page, COURSE_ID, ["hello-world"]);
+    await page.goto(`/learn/course/${COURSE_ID}/lesson/hello-world`);
+    await waitForMonacoReady(page);
+
+    const user = await getWorkerUser(testInfo.workerIndex);
+    const backend = await newBackendContext();
+    const headers = {
+      "X-Requested-With": "codetutor",
+      Authorization: `Bearer ${user.session.access_token}`,
+      "Content-Type": "application/json",
+    };
+    try {
+      const lessonsResponse = await backend.get(
+        `${BACKEND}/api/user/lessons?courseId=${COURSE_ID}`,
+        { headers },
+      );
+      expect(lessonsResponse.ok(), await lessonsResponse.text()).toBeTruthy();
+      const lessons = (await lessonsResponse.json()) as {
+        lessons: Array<{ lessonId: string; draftRevision: number }>;
+      };
+      const current = lessons.lessons.find((lesson) => lesson.lessonId === "hello-world");
+      expect(current).toBeDefined();
+
+      const remoteSave = await backend.put(
+        `${BACKEND}/api/user/lessons/${COURSE_ID}/hello-world/draft`,
+        {
+          headers,
+          data: {
+            code: { "remote-focus.py": "# accepted remote draft\n" },
+            expectedRevision: current?.draftRevision ?? 0,
+            writerId: randomUUID(),
+          },
+        },
+      );
+      expect(remoteSave.ok(), await remoteSave.text()).toBeTruthy();
+
+      await setMonacoValue(page, "# stale local draft\n");
+      const useNewer = page.getByRole("button", { name: "Use newer saved version" });
+      await expect(useNewer).toBeVisible({ timeout: 15_000 });
+      await useNewer.click();
+
+      await expect(
+        page.getByRole("button", { name: "Active file remote-focus.py" }),
+      ).toBeVisible();
+      await expect
+        .poll(() =>
+          page.evaluate(() => document.activeElement?.getAttribute("aria-label") ?? null),
+        )
+        .toBe("Code editor for remote-focus.py");
+
+      // The conflict request is one-shot. A later Monaco remount must not
+      // steal focus from another interaction's explicit recovery target.
+      await page.getByRole("button", { name: /Practice 0 of 3/i }).click();
+      await page.getByText(/Back to lesson/i).click();
+      await expect(
+        page.getByRole("heading", { level: 1, name: /Hello, World!/i }),
+      ).toBeFocused();
+    } finally {
+      await backend.dispose();
+    }
+  });
+
   test("missing lesson gives a responsive recovery path without header collisions", async ({
     page,
   }) => {
@@ -75,9 +145,12 @@ test.describe("lesson edge cases", () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`/learn/course/${COURSE_ID}/lesson/not-a-real-lesson`);
 
-    await expect(
-      page.getByRole("heading", { name: "Lesson unavailable", exact: true }),
-    ).toBeVisible();
+    const unavailableHeading = page.getByRole("heading", {
+      name: "Lesson unavailable",
+      exact: true,
+    });
+    await expect(unavailableHeading).toBeVisible();
+    await expect(unavailableHeading).toBeFocused();
     await expect(page.getByText("CodeTutor AI", { exact: true })).toBeHidden();
 
     const headerCollisions = await page.locator("header").evaluate((header) => {
@@ -119,6 +192,19 @@ test.describe("lesson edge cases", () => {
 
     await browse.click();
     await expect(page.getByRole("heading", { name: "Guided Learning" })).toBeVisible();
+  });
+
+  test("missing course announces its recovery heading on arrival", async ({ page }) => {
+    await loadProfile(page, "empty");
+    await page.goto("/learn/course/not-a-real-course");
+
+    const heading = page.getByRole("heading", {
+      name: "Course unavailable",
+      exact: true,
+    });
+    await expect(heading).toBeVisible();
+    await expect(heading).toBeFocused();
+    await expect(page.getByRole("link", { name: "Browse guided learning" })).toBeVisible();
   });
 
   test("locked lesson: prerequisite-blocked lesson renders disabled in LessonList", async ({

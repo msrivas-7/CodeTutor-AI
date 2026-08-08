@@ -163,14 +163,26 @@ export default function MarketingPage() {
           like the room is breathing, not a screensaver. */}
       <div
         aria-hidden="true"
-        className="pointer-events-none fixed inset-0 -z-30 bg-gradient-to-br from-[#0a0e22] via-[#1d1758] to-[#1d5b9e]"
+        className="pointer-events-none fixed inset-0 -z-30"
+        style={{
+          backgroundColor: "#0a0e22",
+          // Match the shader's settled color masses closely enough that the
+          // lazy WebGL upgrade adds texture and motion instead of repainting
+          // the room behind an already-settled hero.
+          backgroundImage: [
+            "radial-gradient(ellipse at 72% 32%, rgba(91,44,176,.72) 0%, rgba(91,44,176,.22) 34%, transparent 62%)",
+            "radial-gradient(ellipse at 18% 72%, rgba(29,91,158,.78) 0%, rgba(29,91,158,.2) 38%, transparent 66%)",
+            "radial-gradient(ellipse at 34% 18%, rgba(31,108,96,.42) 0%, transparent 50%)",
+            "linear-gradient(135deg, #0a0e22 0%, #1d1758 52%, #142f62 100%)",
+          ].join(","),
+        }}
       >
         {!staticHero && atmosphereReady && (
           <motion.div
             className="absolute inset-0"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            transition={{ duration: 1.1, ease: HOUSE_EASE }}
+            transition={{ duration: 1.4, ease: HOUSE_EASE }}
           >
             <Suspense fallback={null}>
               <DeferredMeshGradient

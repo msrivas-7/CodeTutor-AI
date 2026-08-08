@@ -13,10 +13,20 @@ Before every feature, fix, refactor, migration, or review-driven change:
    `node scripts/agent-harness.mjs start --feature "<short name>" --scope <scope> --findings <UX-ids>`.
    Use `--browser-impact none --browser-bypass "<concrete reason>"` only when
    no user-visible browser flow can be affected. UX findings may never bypass.
-3. Read the scoped harness output and the relevant source-of-truth docs below.
-4. Establish the smallest useful baseline check before editing.
-5. Work on one coherent slice at a time; do not declare a larger phase complete
+3. Classify design impact before editing. A defect report is not permission to
+   redesign. Preserve the approved product language unless the user explicitly
+   approves a material change to visual style, layout model, motion language,
+   interaction pattern, information architecture, or product narrative. Start
+   those changes with `--design-impact major --design-approval "<approved direction>"`;
+   if approval arrives after session start, record it with `approve-design`
+   before editing. Agents may never infer or self-author this approval.
+4. Read the scoped harness output and the relevant source-of-truth docs below.
+5. Establish the smallest useful baseline check before editing.
+6. Work on one coherent slice at a time; do not declare a larger phase complete
    from a partial or filtered test run.
+   If adversarial browser work discovers a new UX finding inside the active
+   slice, add it immediately with `agent-harness.mjs add-findings`; the final
+   finding and phase browser gates must cover it too.
 
 Scopes are `frontend`, `backend`, `database`, `e2e`, `infra`, `content`,
 `ai-evals`, `release`, or `all`. Use a comma-separated list when needed.

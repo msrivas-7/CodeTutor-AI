@@ -22,6 +22,7 @@ vi.mock("../db/preferences.js", () => ({
 }));
 
 vi.mock("../db/aiReservations.js", () => ({
+  cancelAIRequest: vi.fn(async () => "reserved"),
   fingerprintAIRequest: vi.fn(() => "fingerprint"),
   reserveAIRequest: vi.fn(async () => ({ ok: true, remainingToday: null })),
   finalizeAIRequest: vi.fn(async () => "finalized"),
@@ -118,7 +119,7 @@ vi.mock("../services/ai/suspectApi.js", () => ({ flagSuspectApis: vi.fn() }));
 const { aiRouter } = await import("./ai.js");
 const { getOpenAIKey } = await import("../db/preferences.js");
 const { openaiProvider } = await import("../services/ai/openaiProvider.js");
-const { reserveAIRequest, finalizeAIRequest } = await import("../db/aiReservations.js");
+const { cancelAIRequest, reserveAIRequest, finalizeAIRequest } = await import("../db/aiReservations.js");
 const { resolveAICredential } = await import("../services/ai/credential.js");
 const { flagSuspectApis } = await import("../services/ai/suspectApi.js");
 const { errorHandler } = await import("../middleware/errorHandler.js");
@@ -207,6 +208,8 @@ beforeEach(() => {
   vi.mocked(reserveAIRequest).mockResolvedValue({ ok: true, remainingToday: null });
   vi.mocked(finalizeAIRequest).mockReset();
   vi.mocked(finalizeAIRequest).mockResolvedValue("finalized");
+  vi.mocked(cancelAIRequest).mockReset();
+  vi.mocked(cancelAIRequest).mockResolvedValue("reserved");
   vi.mocked(flagSuspectApis).mockReset();
 });
 
@@ -356,6 +359,38 @@ describe("POST /api/ai/ask — schema validation", () => {
       language: "python",
       route: "ask",
     });
+  });
+
+  it("does not spend visible quota or advance progression for a no-value tutor payload", async () => {
+    vi.mocked(resolveAICredential).mockResolvedValue(platformCredential);
+    vi.mocked(reserveAIRequest).mockResolvedValueOnce({ ok: true, remainingToday: 29 });
+    vi.mocked(openaiProvider.ask).mockResolvedValueOnce({
+      sections: {
+        intent: "concept",
+        summary: "The file contains a print statement.",
+      },
+      raw: "{\"intent\":\"concept\"}",
+      hasTeachingValue: false,
+    });
+
+    const res = await req("u-1", "/api/ai/ask", {
+      method: "POST",
+      body: JSON.stringify(validAskBody({ model: "gpt-4.1-nano" })),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      countsTowardQuota: boolean;
+      remainingToday: number;
+      tutorProgressToken: null;
+    };
+    expect(body).toMatchObject({
+      countsTowardQuota: false,
+      remainingToday: 30,
+      tutorProgressToken: null,
+    });
+    expect(vi.mocked(finalizeAIRequest)).toHaveBeenCalledWith(
+      expect.objectContaining({ countsTowardQuota: false }),
+    );
   });
 
   it("unlocks an approach only with valid same-user, same-task server proof", async () => {
@@ -595,6 +630,74 @@ describe("POST /api/ai/ask/stream — tutor progression", () => {
     expect(vi.mocked(reserveAIRequest).mock.calls[1][0]).toEqual(
       expect.objectContaining({ model: "gpt-4.1-mini", priceVersion: 2 }),
     );
+  });
+
+  it("closes an unanswerable reflection at the final allowance boundary", async () => {
+    vi.mocked(resolveAICredential).mockResolvedValueOnce(platformCredential);
+    vi.mocked(reserveAIRequest).mockResolvedValueOnce({ ok: true, remainingToday: 0 });
+    vi.mocked(openaiProvider.askStream).mockImplementationOnce(
+      async (_params, handlers) => {
+        await handlers.onDone(
+          "{\"intent\":\"socratic\"}",
+          {
+            intent: "socratic",
+            summary: "The file currently contains only comments.",
+            hint: "Use the lesson's output operation as your starting point.",
+            checkQuestions: ["What do you want to display?"],
+            comprehensionCheck: "Can you explain your choice?",
+          },
+          { inputTokens: 10, outputTokens: 5 },
+        );
+      },
+    );
+
+    const res = await req("u-1", "/api/ai/ask/stream", {
+      method: "POST",
+      body: JSON.stringify(validAskBody({ model: "gpt-4.1-nano" })),
+    });
+    const text = await res.text();
+    const done = JSON.parse(
+      text.split("\n").find((line) => line.startsWith("data: "))!.slice(6),
+    ) as {
+      raw: string;
+      remainingToday: number;
+      sections: { intent: string; checkQuestions: null; comprehensionCheck: null; hint: string };
+    };
+    expect(done.remainingToday).toBe(0);
+    expect(done.sections).toMatchObject({
+      intent: "howto",
+      checkQuestions: null,
+      comprehensionCheck: null,
+      hint: "Use the lesson's output operation as your starting point.",
+    });
+    expect(JSON.parse(done.raw)).toMatchObject({
+      intent: "howto",
+      checkQuestions: null,
+      comprehensionCheck: null,
+    });
+  });
+});
+
+describe("POST /api/ai/ask/cancel", () => {
+  it("refunds only the signed-in learner's accepted request", async () => {
+    const res = await req("u-1", "/api/ai/ask/cancel", {
+      method: "POST",
+      body: JSON.stringify({ requestId: "00000000-0000-4000-8000-000000000001" }),
+    });
+    expect(res.status).toBe(204);
+    expect(vi.mocked(cancelAIRequest)).toHaveBeenCalledWith(
+      "00000000-0000-4000-8000-000000000001",
+      { actorKind: "user", userId: "u-1" },
+    );
+  });
+
+  it("does not disclose another learner's request", async () => {
+    vi.mocked(cancelAIRequest).mockResolvedValueOnce(null);
+    const res = await req("u-2", "/api/ai/ask/cancel", {
+      method: "POST",
+      body: JSON.stringify({ requestId: "00000000-0000-4000-8000-000000000001" }),
+    });
+    expect(res.status).toBe(404);
   });
 });
 

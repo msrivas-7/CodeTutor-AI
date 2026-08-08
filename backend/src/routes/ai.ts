@@ -37,6 +37,7 @@ import {
 import { hashUserId } from "../services/crypto/logHash.js";
 import { updateUserStreak } from "../db/userStreak.js";
 import {
+  cancelAIRequest,
   finalizeAIRequest,
   fingerprintAIRequest,
   releaseAIRequest,
@@ -45,6 +46,7 @@ import {
   type FinalizeAIRequestInput,
   type ReserveAIRequestResult,
 } from "../db/aiReservations.js";
+import { closeTutorTurnAtAllowanceBoundary } from "../services/ai/tutorPolicy.js";
 import {
   getEffectiveDailyQuestionsCap,
   getEffectiveDailyUsdCap,
@@ -252,6 +254,28 @@ async function safeFinalizeUsage(
   }
 }
 
+async function visibleRemainingAfterTutorTurn({
+  userId,
+  credential,
+  reservedRemaining,
+  countsTowardQuota,
+}: {
+  userId: string;
+  credential: Exclude<AICredential, { source: "none" }>;
+  reservedRemaining: number | null;
+  countsTowardQuota: boolean;
+}): Promise<number | null> {
+  if (credential.source !== "platform" || countsTowardQuota) {
+    return reservedRemaining;
+  }
+  const refreshed = await resolveAICredential(userId);
+  if (refreshed.source === "platform") return refreshed.remainingToday;
+  // A simultaneous request or a non-question cap can change credential state
+  // between finalization and refresh. Preserve the no-charge invariant for
+  // this turn without pretending to resolve that separate entitlement here.
+  return reservedRemaining == null ? null : reservedRemaining + 1;
+}
+
 function reservationTtlMs(): number {
   return Math.min(config.aiRequestTimeoutMs, 60_000);
 }
@@ -435,6 +459,27 @@ const summarizeBody = z.object({
   history: historySchema,
 });
 
+const cancelAskBody = z.object({ requestId: z.string().uuid() }).strict();
+
+aiRouter.post("/ask/cancel", async (req, res) => {
+  const parsed = cancelAskBody.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues.map((issue) => issue.message).join("; ") });
+  }
+  try {
+    const state = await cancelAIRequest(parsed.data.requestId, {
+      actorKind: "user",
+      userId: req.userId!,
+    });
+    if (!state) return res.status(404).json({ error: "AI_REQUEST_NOT_FOUND" });
+    invalidateUsageCaches(req.userId!);
+    return res.status(204).end();
+  } catch (err) {
+    console.error(`[ai] cancellation failed user=${hashUserId(req.userId!)}:`, err);
+    return res.status(503).json({ error: "AI_CANCELLATION_UNAVAILABLE" });
+  }
+});
+
 aiRouter.post("/ask", async (req, res, next) => {
   const userId = req.userId!;
   const cred = await resolveCredentialOrRespond(req, res, "ask");
@@ -536,6 +581,8 @@ aiRouter.post("/ask", async (req, res, next) => {
   try {
     providerStarted = true;
     const result = await openaiProvider.ask({ ...providerParams, signal: abort.signal });
+    const hasTeachingValue = result.hasTeachingValue !== false;
+    const countsTowardQuota = cred.source === "platform" && hasTeachingValue;
     // Successful provider payloads normally include exact usage. If that
     // metadata is absent, charge the admission ceiling rather than turning a
     // telemetry omission into an unmetered platform call.
@@ -550,7 +597,7 @@ aiRouter.post("/ask", async (req, res, next) => {
     );
     await safeFinalizeUsage(userId, "ask", {
       requestId: parsed.data.requestId,
-      countsTowardQuota: cred.source === "platform",
+      countsTowardQuota,
       inputTokens: inTok,
       outputTokens: outTok,
       costUsd,
@@ -565,9 +612,27 @@ aiRouter.post("/ask", async (req, res, next) => {
       language: parsed.data.language === "javascript" ? "javascript" : "python",
       route: "ask",
     });
+    const remainingToday = await visibleRemainingAfterTutorTurn({
+      userId,
+      credential: cred,
+      reservedRemaining: reservation.remainingToday,
+      countsTowardQuota,
+    });
+    const visibleSections = closeTutorTurnAtAllowanceBoundary(
+      result.sections,
+      remainingToday,
+    );
     res.json({
       ...result,
-      tutorProgressToken: mintTutorProgressToken(progressIdentity),
+      raw: visibleSections === result.sections
+        ? result.raw
+        : JSON.stringify(visibleSections),
+      sections: visibleSections,
+      remainingToday,
+      countsTowardQuota,
+      tutorProgressToken: hasTeachingValue
+        ? mintTutorProgressToken(progressIdentity)
+        : parsed.data.tutorProgressToken ?? null,
     });
   } catch (err) {
     // S-3: if OpenAI 401s on the platform key, trip the kill flag so every
@@ -756,8 +821,10 @@ aiRouter.post("/ask/stream", async (req, res) => {
           if (closed) return;
           send({ delta: chunk });
         },
-        onDone: async (raw, sections, usage) => {
+        onDone: async (raw, sections, usage, providerHasTeachingValue) => {
           terminalFired = true;
+          const hasTeachingValue = providerHasTeachingValue !== false;
+          const countsTowardQuota = cred.source === "platform" && hasTeachingValue;
           const usageKnown = usage !== undefined;
           const inTok = usage?.inputTokens ?? estimate.reservedInputTokens;
           const outTok = usage?.outputTokens ?? estimate.reservedOutputTokens;
@@ -769,7 +836,7 @@ aiRouter.post("/ask/stream", async (req, res) => {
           );
           await safeFinalizeUsage(userId, "ask_stream", {
             requestId: parsed.data.requestId,
-            countsTowardQuota: cred.source === "platform",
+            countsTowardQuota,
             inputTokens: inTok,
             outputTokens: outTok,
             costUsd,
@@ -786,12 +853,28 @@ aiRouter.post("/ask/stream", async (req, res) => {
             route: "ask_stream",
           });
           if (closed) return;
+          const remainingToday = await visibleRemainingAfterTutorTurn({
+            userId,
+            credential: cred,
+            reservedRemaining: reservation.remainingToday,
+            countsTowardQuota,
+          });
+          const visibleSections = closeTutorTurnAtAllowanceBoundary(
+            sections,
+            remainingToday,
+          );
           send({
             done: true,
-            raw,
-            sections,
+            raw: visibleSections === sections
+              ? raw
+              : JSON.stringify(visibleSections),
+            sections: visibleSections,
             usage,
-            tutorProgressToken: mintTutorProgressToken(progressIdentity),
+            remainingToday,
+            countsTowardQuota,
+            tutorProgressToken: hasTeachingValue
+              ? mintTutorProgressToken(progressIdentity)
+              : parsed.data.tutorProgressToken ?? null,
           });
           done();
         },

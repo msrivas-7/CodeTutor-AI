@@ -497,6 +497,8 @@ export interface AskStreamHandlers {
     sections: TutorSections,
     usage?: TokenUsage,
     tutorProgressToken?: string,
+    remainingToday?: number | null,
+    countsTowardQuota?: boolean,
   ): void;
   onError(message: string): void;
   signal?: AbortSignal;
@@ -1407,6 +1409,17 @@ export const api = {
       requestId: crypto.randomUUID(),
     }),
   listOpenAIModels: () => get<{ models: AIModel[] }>("/api/ai/models"),
+  cancelAIAsk: async (
+    requestId: string,
+    endpoint = "/api/ai/ask/cancel",
+  ): Promise<void> => {
+    const res = await authenticatedFetch(endpoint, {
+      method: "POST",
+      headers: { ...JSON_HEADERS, ...CSRF_HEADER },
+      body: JSON.stringify({ requestId }),
+    });
+    if (!res.ok) await throwApiError(res, endpoint);
+  },
 
   // Phase 20-P1: global feedback channel. Body-or-mood is required (backend
   // refine()); diagnostics is opt-in and passed through verbatim. Returns
@@ -1588,6 +1601,8 @@ export const api = {
             sections?: TutorSections;
             usage?: TokenUsage;
             tutorProgressToken?: string;
+            remainingToday?: number | null;
+            countsTowardQuota?: boolean;
           };
           try {
             evt = JSON.parse(data);
@@ -1611,6 +1626,8 @@ export const api = {
               evt.sections ?? {},
               evt.usage,
               evt.tutorProgressToken,
+              evt.remainingToday,
+              evt.countsTowardQuota,
             );
             return;
           }

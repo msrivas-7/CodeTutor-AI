@@ -325,6 +325,61 @@ export async function reserveAIRequest(
     // instead of a stable duplicate result.
     await tx`SELECT pg_advisory_xact_lock(hashtext(${input.requestId})::bigint)`;
 
+    await tx`
+      DELETE FROM public.ai_request_cancellation_intents
+       WHERE request_id = ${input.requestId} AND expires_at <= now()
+    `;
+    const cancellationIntents = await tx<Array<{
+      actor_kind: "user" | "anonymous";
+      user_id: string | null;
+      ip_hash: string | null;
+    }>>`
+      SELECT actor_kind, user_id, ip_hash
+        FROM public.ai_request_cancellation_intents
+       WHERE request_id = ${input.requestId}
+       FOR UPDATE
+    `;
+    const cancellationIntent = cancellationIntents[0];
+    if (cancellationIntent) {
+      const sameActor =
+        cancellationIntent.actor_kind === input.actorKind &&
+        (input.actorKind === "user"
+          ? cancellationIntent.user_id === input.userId
+          : cancellationIntent.ip_hash === input.ipHash);
+      if (!sameActor) {
+        return { ok: false, kind: "conflict" } as const;
+      }
+      await tx`
+        INSERT INTO public.ai_request_reservations (
+          request_id, actor_kind, user_id, ip_hash, funding_source, model,
+          route, request_fingerprint, counts_toward_quota,
+          reserved_input_tokens, reserved_output_tokens, reserved_cost_usd,
+          price_version, state, expires_at, finalized_at,
+          final_input_tokens, final_output_tokens, final_cost_usd,
+          ledger_status, provider_outcome_uncertain
+        ) VALUES (
+          ${input.requestId}, ${input.actorKind},
+          ${input.actorKind === "user" ? input.userId : null},
+          ${input.actorKind === "anonymous" ? input.ipHash : null},
+          ${input.fundingSource}, ${input.model}, ${input.route},
+          ${input.requestFingerprint}, false,
+          ${input.reservedInputTokens}, ${input.reservedOutputTokens},
+          ${input.reservedCostUsd}, ${input.priceVersion}, 'released',
+          now() + (${input.expiresInMs} * interval '1 millisecond'), now(),
+          0, 0, 0, NULL, false
+        )
+      `;
+      await tx`
+        DELETE FROM public.ai_request_cancellation_intents
+         WHERE request_id = ${input.requestId}
+      `;
+      return {
+        ok: false,
+        kind: "duplicate",
+        state: "released",
+      } as const;
+    }
+
     const existing = await tx<ReservationRow[]>`
       SELECT request_id, actor_kind, user_id, ip_hash, funding_source, model,
              route, request_fingerprint, counts_toward_quota,
@@ -491,7 +546,7 @@ export async function finalizeAIRequest(
       input.outputTokens,
       input.costUsd,
       input.ledgerStatus,
-      input.countsTowardQuota,
+      input.countsTowardQuota && row.counts_toward_quota,
     );
     const terminalState = input.terminalState ?? "finalized";
     await tx`
@@ -507,6 +562,104 @@ export async function finalizeAIRequest(
     `;
     return terminalState;
   })) as AIReservationState;
+}
+
+export type CancelAIRequestActor =
+  | { actorKind: "user"; userId: string }
+  | { actorKind: "anonymous"; ipHash: string };
+
+export type CancelAIRequestState = AIReservationState | "pending";
+
+/**
+ * Marks a learner-discarded request as non-counting without erasing its cost.
+ * The reservation row is locked so cancellation and provider finalization are
+ * race-safe in either order: a pending finalizer observes the non-counting
+ * flag, while a late cancellation refunds an already-written ledger row.
+ */
+export async function cancelAIRequest(
+  requestId: string,
+  actor: CancelAIRequestActor,
+): Promise<CancelAIRequestState | null> {
+  const sql = db();
+  return (await sql.begin(async (tx) => {
+    // The matching reservation path takes the same request-id lock. This
+    // closes the pre-admission race in both directions without holding a
+    // transaction open while the provider runs.
+    await tx`SELECT pg_advisory_xact_lock(hashtext(${requestId})::bigint)`;
+    const rows = await tx<ReservationRow[]>`
+      SELECT request_id, actor_kind, user_id, ip_hash, funding_source, model,
+             route, request_fingerprint, counts_toward_quota,
+             reserved_input_tokens, reserved_output_tokens,
+             reserved_cost_usd::text, price_version, state, expires_at
+        FROM public.ai_request_reservations
+       WHERE request_id = ${requestId}
+       FOR UPDATE
+    `;
+    const row = rows[0];
+    if (!row) {
+      await tx`
+        DELETE FROM public.ai_request_cancellation_intents
+         WHERE request_id = ${requestId} AND expires_at <= now()
+      `;
+      const intents = await tx<Array<{
+        actor_kind: "user" | "anonymous";
+        user_id: string | null;
+        ip_hash: string | null;
+      }>>`
+        SELECT actor_kind, user_id, ip_hash
+          FROM public.ai_request_cancellation_intents
+         WHERE request_id = ${requestId}
+         FOR UPDATE
+      `;
+      const intent = intents[0];
+      if (intent) {
+        const ownsIntent =
+          intent.actor_kind === actor.actorKind &&
+          (actor.actorKind === "user"
+            ? intent.user_id === actor.userId
+            : intent.ip_hash === actor.ipHash);
+        return ownsIntent ? "pending" : null;
+      }
+      await tx`
+        INSERT INTO public.ai_request_cancellation_intents (
+          request_id, actor_kind, user_id, ip_hash
+        ) VALUES (
+          ${requestId}, ${actor.actorKind},
+          ${actor.actorKind === "user" ? actor.userId : null},
+          ${actor.actorKind === "anonymous" ? actor.ipHash : null}
+        )
+      `;
+      return "pending";
+    }
+    const ownsRequest =
+      row.actor_kind === actor.actorKind &&
+      (actor.actorKind === "user"
+        ? row.user_id === actor.userId
+        : row.ip_hash === actor.ipHash);
+    if (!ownsRequest) return null;
+
+    await tx`
+      UPDATE public.ai_request_reservations
+         SET counts_toward_quota = false
+       WHERE request_id = ${requestId}
+    `;
+    if (row.actor_kind === "user") {
+      await tx`
+        UPDATE public.ai_usage_ledger
+           SET counts_toward_quota = false
+         WHERE request_id = ${requestId}
+           AND user_id = ${row.user_id}
+      `;
+    } else {
+      await tx`
+        UPDATE public.ai_anon_usage_ledger
+           SET counts_toward_quota = false
+         WHERE request_id = ${requestId}
+           AND ip_hash = ${row.ip_hash}
+      `;
+    }
+    return row.state;
+  })) as CancelAIRequestState | null;
 }
 
 /** Releases only a reservation known not to have reached the provider. */

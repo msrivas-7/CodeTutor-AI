@@ -31,13 +31,14 @@ function PracticeTestsMiniList({ exercise }: { exercise: PracticeExercise }) {
       </h3>
       <ul className="space-y-1">
         {visible.map((t, i) => (
-          <li key={i} className="grid min-w-0 grid-cols-1 gap-1 text-xs leading-relaxed sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:items-baseline sm:gap-2">
-            <code className="min-w-0 overflow-x-auto rounded bg-bg px-2 py-1 font-mono text-xs text-accent">
+          <li key={i} className="min-w-0 space-y-1 text-xs leading-relaxed">
+            <code className="block min-w-0 whitespace-pre-wrap break-words rounded bg-bg px-2 py-1 font-mono text-xs text-accent [overflow-wrap:anywhere]">
               {t.call}
             </code>
-            <span className="hidden text-muted sm:inline" aria-hidden="true">→</span>
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted sm:hidden">Expected</span>
-            <code className="min-w-0 overflow-x-auto rounded bg-bg px-2 py-1 font-mono text-xs text-ink/80">
+            <span className="block text-[10px] font-semibold uppercase tracking-wider text-muted">
+              Expected
+            </span>
+            <code className="block min-w-0 whitespace-pre-wrap break-words rounded bg-bg px-2 py-1 font-mono text-xs text-ink/80 [overflow-wrap:anywhere]">
               {expectedTestOutcome(t)}
             </code>
           </li>

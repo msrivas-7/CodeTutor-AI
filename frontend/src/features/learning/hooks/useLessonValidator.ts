@@ -22,6 +22,7 @@ import {
   buildAskTutorPrompt,
   countFailsByVisibility,
   lessonWorkspaceContextKey,
+  selectPracticeWorkspaceFiles,
   selectCompletionRulesForCheck,
   shouldAutoEnterPractice,
   shouldBouncePrereq,
@@ -110,6 +111,7 @@ export interface UseLessonValidatorArgs {
   // hasEdited alongside the validator-owned counters.
   onResetRunnerFlags?: () => void;
   onRestoreRunnerFlags?: (hadRun: boolean) => void;
+  resetInteractionRef?: MutableRefObject<boolean>;
   /**
    * Phase 27-v2.1 audit pass 2 P2 #5: when "anon", `handleRunExamples`
    * early-returns. The path runs `api.snapshotProject` + `api.executeTests`
@@ -129,6 +131,15 @@ export interface UseLessonValidatorArgs {
    * value and the lesson can complete. Defaults to false.
    */
   retrievalAnswered?: boolean;
+  /**
+   * Anonymous progress must reach sessionStorage in the same interaction
+   * that earns it. A later React effect is useful for general workspace
+   * autosave, but an immediate reload can interrupt that effect.
+   */
+  onAnonProgressCommitted?: (progress: {
+    completed: boolean;
+    practiceCompletedIds: string[];
+  }) => void;
 }
 
 export function useLessonValidator({
@@ -149,8 +160,10 @@ export function useLessonValidator({
   setTutorCollapsed,
   onResetRunnerFlags,
   onRestoreRunnerFlags,
+  resetInteractionRef,
   mode = "authed",
   retrievalAnswered = false,
+  onAnonProgressCommitted,
 }: UseLessonValidatorArgs) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [validation, setValidation] = useState<ValidationResult | null>(null);
@@ -163,6 +176,9 @@ export function useLessonValidator({
   const [failedVisibleTests, setFailedVisibleTests] = useState(0);
   const [failedHiddenTests, setFailedHiddenTests] = useState(0);
   const [practiceValidation, setPracticeValidation] = useState<ValidationResult | null>(null);
+  const [localLessonCompleted, setLocalLessonCompleted] = useState(false);
+  const [localPracticeCompletedIds, setLocalPracticeCompletedIds] = useState<string[]>([]);
+  const localPracticeCompletedIdsRef = useRef<string[]>([]);
   const [practiceSaveError, setPracticeSaveError] = useState<string | null>(null);
   const [practiceSaving, setPracticeSaving] = useState(false);
   const [practiceRetryAt, setPracticeRetryAt] = useState<number | null>(null);
@@ -188,7 +204,15 @@ export function useLessonValidator({
   const [confirmResetCode, setConfirmResetCode] = useState(false);
   const [resetCodeError, setResetCodeError] = useState<string | null>(null);
   const [resetUndo, setResetUndo] = useState<ResetUndoSnapshot | null>(null);
+  const [resettingCode, setResettingCode] = useState(false);
+  const [resetContentCommit, setResetContentCommit] = useState<{
+    ticket: number;
+    path: string;
+    content: string;
+  } | null>(null);
   const resetUndoRevisionRef = useRef<number | null>(null);
+  const resetCommitTicketRef = useRef(0);
+  const pendingResetUndoRef = useRef<ResetUndoSnapshot | null>(null);
   const autoEnteredPractice = useRef(false);
   const practiceEvidence = useRef(new Map<string, PracticeEvidenceSession>());
 
@@ -197,6 +221,7 @@ export function useLessonValidator({
   const resetLessonProgress = useProgressStore((s) => s.resetLessonProgress);
   const resetPracticeProgress = useProgressStore((s) => s.resetPracticeProgress);
   const saveCode = useProgressStore((s) => s.saveCode);
+  const savePracticeCode = useProgressStore((s) => s.savePracticeCode);
   const startLesson = useProgressStore((s) => s.startLesson);
   const setPendingAsk = useAIStore((s) => s.setPendingAsk);
   const projectRevision = useProjectStore((s) => s.revision);
@@ -235,6 +260,9 @@ export function useLessonValidator({
     setPracticeMode(false);
     setPracticeIndex(0);
     setPracticeValidation(null);
+    setLocalLessonCompleted(false);
+    setLocalPracticeCompletedIds([]);
+    localPracticeCompletedIdsRef.current = [];
     setPracticeSaveError(null);
     setPracticeSaving(false);
     setPracticeRetryAt(null);
@@ -245,11 +273,18 @@ export function useLessonValidator({
     setConfirmResetCode(false);
     setResetCodeError(null);
     setResetUndo(null);
+    setResettingCode(false);
+    setResetContentCommit(null);
+    if (resetInteractionRef) resetInteractionRef.current = false;
     resetUndoRevisionRef.current = null;
+    pendingResetUndoRef.current = null;
     savedLessonCode.current = null;
     practiceEvidence.current.clear();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [courseId, lessonId]);
+    return () => {
+      if (resetInteractionRef) resetInteractionRef.current = false;
+    };
+  }, [courseId, lessonId, resetInteractionRef]);
 
   useEffect(() => {
     if (!resetUndo || resetUndoRevisionRef.current === null) return;
@@ -359,7 +394,7 @@ export function useLessonValidator({
   }, [sessionId, sessionPhase, runningTests, courseId, lessonId, lesson, functionTests, sourceChecks, mode]);
 
   const handleCheck = useCallback(async (overrides?: { retrievalAnswered?: boolean }) => {
-    if (completionSaving) return;
+    if (completionSaving || resetInteractionRef?.current) return;
     // Phase A — A1: callers (specifically the RetrievalCheckPanel
     // correct-answer callback) need to re-run validation with a value
     // they JUST set, before React has re-rendered. The hook closure
@@ -438,8 +473,24 @@ export function useLessonValidator({
       if (!v.passed) setPracticeValidation(v);
       if (v.passed) {
         const current = useProgressStore.getState().lessonProgress[`${courseId}/${lessonId}`];
-        const alreadyDone = (current?.practiceCompletedIds ?? []).includes(exercise.id);
+        const alreadyDone = (learnerId === null
+          ? localPracticeCompletedIdsRef.current
+          : current?.practiceCompletedIds ?? []
+        ).includes(exercise.id);
         if (!alreadyDone) {
+          if (learnerId === null) {
+            const next = [...localPracticeCompletedIdsRef.current, exercise.id];
+            localPracticeCompletedIdsRef.current = next;
+            setLocalPracticeCompletedIds(next);
+            onAnonProgressCommitted?.({
+              completed: localLessonCompleted,
+              practiceCompletedIds: next,
+            });
+            setPracticeValidation(v);
+            setPracticeSaveError(null);
+            celebrate({ particleCount: 80, spread: 55, origin: { y: 0.7 } });
+            return;
+          }
           if (practiceRetryAt !== null && Date.now() < practiceRetryAt) {
             const seconds = Math.max(1, Math.ceil((practiceRetryAt - Date.now()) / 1000));
             setPracticeSaveError(`Your solution is safe here. Retry saving in ${seconds}s.`);
@@ -544,6 +595,13 @@ export function useLessonValidator({
     // until signup handoff, so it can render immediately.
     if (!v.passed || learnerId === null) setValidation(v);
     else if (!validation?.passed) setValidation(null);
+    if (v.passed && learnerId === null) {
+      setLocalLessonCompleted(true);
+      onAnonProgressCommitted?.({
+        completed: true,
+        practiceCompletedIds: localPracticeCompletedIdsRef.current,
+      });
+    }
     setHasChecked(true);
     if (!v.passed && !isRetrievalPending(v)) {
       // QA-H5: a harness error (docker exec hiccup, network timeout) surfaces
@@ -659,7 +717,7 @@ export function useLessonValidator({
         setShowComplete(true);
       }, CINEMA_DURATIONS.sonarHold);
     }
-  }, [lesson, courseId, lessonId, completeLesson, learnerId, totalLessons, validation, practiceMode, practiceIndex, completePracticeExercise, sessionId, functionTests, sourceChecks, testReport, lastFailedName, retrievalAnswered, runningTests, practiceRetryAt, completionSaving, completionSaveError]);
+  }, [lesson, courseId, lessonId, completeLesson, learnerId, totalLessons, validation, practiceMode, practiceIndex, completePracticeExercise, sessionId, functionTests, sourceChecks, testReport, lastFailedName, retrievalAnswered, runningTests, practiceRetryAt, completionSaving, completionSaveError, localLessonCompleted, onAnonProgressCommitted]);
 
   const applyPracticeStarter = useCallback((exerciseIndex: number, forceDefaults = false) => {
     if (!lesson?.practiceExercises || !courseId || !lessonId) return;
@@ -680,9 +738,12 @@ export function useLessonValidator({
     // practice reset (which clears the persisted map).
     const lp = useProgressStore.getState().lessonProgress[`${courseId}/${lessonId}`];
     const persisted = lp?.practiceExerciseCode?.[exercise.id];
-    const files = persisted && Object.keys(persisted).length > 0
-      ? persisted
-      : { [entry]: exercise.starterCode ?? "# Write your code here\n" };
+    const files = selectPracticeWorkspaceFiles(
+      entry,
+      exercise.starterCode,
+      persisted,
+      forceDefaults,
+    );
     const order = Object.keys(files);
     useProjectStore.getState().switchProjectContext(
       `practice:${courseId}/${lessonId}/${exercise.id}`,
@@ -727,7 +788,11 @@ export function useLessonValidator({
     const current = courseId && lessonId
       ? useProgressStore.getState().lessonProgress[`${courseId}/${lessonId}`]
       : null;
-    const completed = new Set(current?.practiceCompletedIds ?? []);
+    const completed = new Set(
+      learnerId === null
+        ? localPracticeCompletedIdsRef.current
+        : current?.practiceCompletedIds ?? [],
+    );
     const resumeIndex = lesson.practiceExercises.findIndex((exercise) => !completed.has(exercise.id));
     const targetIndex = resumeIndex >= 0 ? resumeIndex : 0;
     setPracticeMode(true);
@@ -735,7 +800,7 @@ export function useLessonValidator({
     setShowComplete(false);
     setCompletionPresentationPending(false);
     applyPracticeStarter(targetIndex);
-  }, [lesson, courseId, lessonId, applyPracticeStarter]);
+  }, [lesson, courseId, lessonId, learnerId, applyPracticeStarter]);
 
   // Auto-enter practice mode when navigated with ?mode=practice. Fires once
   // per lesson load, only if the lesson is actually completed + has
@@ -762,6 +827,10 @@ export function useLessonValidator({
   }, [lesson, courseId, lessonId, searchParams, setSearchParams, handleEnterPractice]);
 
   const handleExitPractice = useCallback(() => {
+    // Clear the route intent in the same action as the UI state. Otherwise an
+    // immediate exit can race the initial ?mode=practice auto-entry effect and
+    // make the prominent Back to lesson control appear to do nothing.
+    setSearchParams({}, { replace: true });
     setPracticeMode(false);
     setPracticeValidation(null);
     setPracticeTestReport(null);
@@ -770,8 +839,26 @@ export function useLessonValidator({
       useProjectStore.getState().switchProjectContext(lessonContext);
       useRunStore.getState().switchRunContext(lessonContext);
     }
+    if (learnerId === null) {
+      // React state intentionally lags this click by one render after a
+      // successful anonymous check. Persist from the synchronous ref at the
+      // exit boundary so an immediate reload cannot lose the earned exercise.
+      onAnonProgressCommitted?.({
+        completed: localLessonCompleted,
+        practiceCompletedIds: localPracticeCompletedIdsRef.current,
+      });
+    }
     savedLessonCode.current = null;
-  }, [courseId, lessonId, mode, savedLessonCode]);
+  }, [
+    courseId,
+    lessonId,
+    learnerId,
+    localLessonCompleted,
+    mode,
+    onAnonProgressCommitted,
+    savedLessonCode,
+    setSearchParams,
+  ]);
 
   const handleSelectPracticeExercise = useCallback(
     (index: number) => {
@@ -799,6 +886,18 @@ export function useLessonValidator({
   const handleResetPracticeProgress = useCallback(async () => {
     if (!courseId || !lessonId) return false;
     setPracticeSaveError(null);
+    if (learnerId === null) {
+      localPracticeCompletedIdsRef.current = [];
+      setLocalPracticeCompletedIds([]);
+      practiceEvidence.current.clear();
+      setPracticeValidation(null);
+      applyPracticeStarter(practiceIndex, true);
+      onAnonProgressCommitted?.({
+        completed: localLessonCompleted,
+        practiceCompletedIds: [],
+      });
+      return true;
+    }
     try {
       await resetPracticeProgress(courseId, lessonId);
       practiceEvidence.current.clear();
@@ -811,7 +910,16 @@ export function useLessonValidator({
       );
       return false;
     }
-  }, [courseId, lessonId, resetPracticeProgress, practiceIndex, applyPracticeStarter]);
+  }, [
+    courseId,
+    lessonId,
+    learnerId,
+    localLessonCompleted,
+    onAnonProgressCommitted,
+    resetPracticeProgress,
+    practiceIndex,
+    applyPracticeStarter,
+  ]);
 
   const resetFilesForCurrentTask = useCallback(() => {
     if (!lesson || !courseId || !lessonId) return;
@@ -844,6 +952,7 @@ export function useLessonValidator({
   }, [lesson, courseId, lessonId, practiceMode, practiceIndex]);
 
   const handleReset = useCallback(() => {
+    if (resetInteractionRef?.current) return;
     const starter = resetFilesForCurrentTask();
     if (!starter) return;
     const project = useProjectStore.getState();
@@ -860,9 +969,10 @@ export function useLessonValidator({
     }
     setResetCodeError(null);
     setConfirmResetCode(true);
-  }, [resetFilesForCurrentTask, courseId, lessonId]);
+  }, [resetFilesForCurrentTask, courseId, lessonId, resetInteractionRef]);
 
   const confirmCodeReset = useCallback(() => {
+    if (resetInteractionRef?.current) return;
     const starter = resetFilesForCurrentTask();
     if (!starter || !courseId || !lessonId) return;
     if (useProgressStore.getState().draftConflicts[`${courseId}/${lessonId}`]) {
@@ -874,7 +984,7 @@ export function useLessonValidator({
     const project = useProjectStore.getState();
     const run = useRunStore.getState();
     const tutor = useAIStore.getState();
-    setResetUndo({
+    const undoSnapshot: ResetUndoSnapshot = {
       files: { ...project.files },
       order: [...project.order],
       activeFile: project.activeFile,
@@ -895,14 +1005,35 @@ export function useLessonValidator({
         runsSinceLastTurn: tutor.runsSinceLastTurn,
         editsSinceLastTurn: tutor.editsSinceLastTurn,
       },
-    });
+    };
+    pendingResetUndoRef.current = undoSnapshot;
+    setResetUndo(null);
+    setResettingCode(true);
+    if (resetInteractionRef) resetInteractionRef.current = true;
     if (practiceMode) {
       applyPracticeStarter(practiceIndex, true);
+      const exercise = lesson?.practiceExercises?.[practiceIndex];
+      if (exercise) {
+        savePracticeCode(courseId, lessonId, exercise.id, starter.files);
+      }
     } else {
       useProjectStore.getState().replaceProject(starter);
       void saveCode(courseId, lessonId, starter.files);
     }
-    resetUndoRevisionRef.current = useProjectStore.getState().revision;
+    const activePath = starter.activeFile ?? starter.order[0] ?? null;
+    if (activePath) {
+      resetCommitTicketRef.current += 1;
+      setResetContentCommit({
+        ticket: resetCommitTicketRef.current,
+        path: activePath,
+        content: starter.files[activePath] ?? "",
+      });
+    } else {
+      pendingResetUndoRef.current = null;
+      setResettingCode(false);
+      if (resetInteractionRef) resetInteractionRef.current = false;
+      setResetCodeError("The starter could not be opened. Your previous code is still available through browser history.");
+    }
     useRunStore.getState().invalidateEvidence();
     useAIStore.getState().clearConversation();
     setValidation(null);
@@ -911,52 +1042,83 @@ export function useLessonValidator({
     setShowComplete(false);
     setHasChecked(false);
     setConfirmResetCode(false);
-    setResetCodeError(null);
+    if (activePath) setResetCodeError(null);
     onResetRunnerFlags?.();
-  }, [resetFilesForCurrentTask, courseId, lessonId, validation, practiceValidation, practiceMode, practiceIndex, applyPracticeStarter, saveCode, onResetRunnerFlags]);
+  }, [resetFilesForCurrentTask, resetInteractionRef, courseId, lessonId, validation, practiceValidation, practiceMode, practiceIndex, lesson, applyPracticeStarter, savePracticeCode, saveCode, onResetRunnerFlags]);
 
-  const undoCodeReset = useCallback(() => {
-    if (!resetUndo || !courseId || !lessonId) return;
-    resetUndoRevisionRef.current = null;
+  const restoreResetSnapshot = useCallback((snapshot: ResetUndoSnapshot) => {
     useProjectStore.getState().replaceProject({
-      files: resetUndo.files,
-      order: resetUndo.order,
-      activeFile: resetUndo.activeFile,
-      openTabs: resetUndo.openTabs,
+      files: snapshot.files,
+      order: snapshot.order,
+      activeFile: snapshot.activeFile,
+      openTabs: snapshot.openTabs,
     });
     useRunStore.setState({
       running: false,
       activeRunId: null,
-      result: resetUndo.result,
-      error: resetUndo.error,
-      stdin: resetUndo.stdin,
+      result: snapshot.result,
+      error: snapshot.error,
+      stdin: snapshot.stdin,
     });
-    setValidation(resetUndo.validation);
-    setPracticeValidation(resetUndo.practiceValidation);
-    setHasChecked(Boolean(resetUndo.validation || resetUndo.practiceValidation));
+    setValidation(snapshot.validation);
+    setPracticeValidation(snapshot.practiceValidation);
+    setHasChecked(Boolean(snapshot.validation || snapshot.practiceValidation));
     useAIStore.setState({
-      history: resetUndo.tutor.history,
+      history: snapshot.tutor.history,
       asking: false,
       askError: null,
       pending: null,
       pendingScripted: false,
       pendingAsk: null,
-      conversationSummary: resetUndo.tutor.conversationSummary,
-      summarizedThrough: resetUndo.tutor.summarizedThrough,
+      conversationSummary: snapshot.tutor.conversationSummary,
+      summarizedThrough: snapshot.tutor.summarizedThrough,
       summarizing: false,
       activeSelection: null,
-      sessionUsage: resetUndo.tutor.sessionUsage,
-      tutorProgressToken: resetUndo.tutor.tutorProgressToken,
-      lastTurnFiles: resetUndo.tutor.lastTurnFiles,
-      runsSinceLastTurn: resetUndo.tutor.runsSinceLastTurn,
-      editsSinceLastTurn: resetUndo.tutor.editsSinceLastTurn,
+      sessionUsage: snapshot.tutor.sessionUsage,
+      tutorProgressToken: snapshot.tutor.tutorProgressToken,
+      lastTurnFiles: snapshot.tutor.lastTurnFiles,
+      runsSinceLastTurn: snapshot.tutor.runsSinceLastTurn,
+      editsSinceLastTurn: snapshot.tutor.editsSinceLastTurn,
     });
-    if (!practiceMode) void saveCode(courseId, lessonId, resetUndo.files);
-    onRestoreRunnerFlags?.(resetUndo.hadRun);
+    if (practiceMode) {
+      const exercise = lesson?.practiceExercises?.[practiceIndex];
+      if (exercise && courseId && lessonId) {
+        savePracticeCode(courseId, lessonId, exercise.id, snapshot.files);
+      }
+    } else if (courseId && lessonId) {
+      void saveCode(courseId, lessonId, snapshot.files);
+    }
+    onRestoreRunnerFlags?.(snapshot.hadRun);
+  }, [practiceMode, practiceIndex, lesson, courseId, lessonId, savePracticeCode, saveCode, onRestoreRunnerFlags]);
+
+  const settleCodeResetContent = useCallback((ticket: number, matched: boolean) => {
+    if (resetContentCommit?.ticket !== ticket) return;
+    const undoSnapshot = pendingResetUndoRef.current;
+    pendingResetUndoRef.current = null;
+    setResetContentCommit(null);
+    setResettingCode(false);
+    if (resetInteractionRef) resetInteractionRef.current = false;
+    if (!matched || !undoSnapshot) {
+      if (undoSnapshot) restoreResetSnapshot(undoSnapshot);
+      setResetCodeError(
+        "The editor did not finish restoring the starter, so your previous code was restored. Try Reset again.",
+      );
+      return;
+    }
+    resetUndoRevisionRef.current = useProjectStore.getState().revision;
+    setResetUndo(undoSnapshot);
+    setResetCodeError(null);
+  }, [resetContentCommit, resetInteractionRef, restoreResetSnapshot]);
+
+  const undoCodeReset = useCallback(() => {
+    if (!resetUndo || !courseId || !lessonId) return;
+    resetUndoRevisionRef.current = null;
+    restoreResetSnapshot(resetUndo);
     setResetUndo(null);
-  }, [resetUndo, courseId, lessonId, practiceMode, saveCode, onRestoreRunnerFlags]);
+  }, [resetUndo, courseId, lessonId, restoreResetSnapshot]);
 
   const restoreCompleted = useCallback(() => {
+    setLocalLessonCompleted(true);
     setValidation({
       passed: true,
       passedExceptRetrieval: true,
@@ -964,6 +1126,12 @@ export function useLessonValidator({
     });
     setHasChecked(true);
     setShowComplete(false);
+  }, []);
+
+  const restoreAnonPracticeCompleted = useCallback((ids: string[]) => {
+    const safe = [...new Set(ids.filter((id) => typeof id === "string"))];
+    localPracticeCompletedIdsRef.current = safe;
+    setLocalPracticeCompletedIds(safe);
   }, []);
 
   const handleResetLessonProgress = useCallback(async () => {
@@ -1002,6 +1170,9 @@ export function useLessonValidator({
       openTabs: [order[0]],
     });
     setValidation(null);
+    setLocalLessonCompleted(false);
+    localPracticeCompletedIdsRef.current = [];
+    setLocalPracticeCompletedIds([]);
     setShowComplete(false);
     setConfirmResetLesson(false);
     setResetNonce((n) => n + 1);
@@ -1013,9 +1184,23 @@ export function useLessonValidator({
     // Phase 27-v2.1: skip startLesson PATCH on anon.
     if (learnerId !== null) {
       startLesson(learnerId, courseId, lessonId);
+    } else {
+      onAnonProgressCommitted?.({
+        completed: false,
+        practiceCompletedIds: [],
+      });
     }
     setResettingLesson(false);
-  }, [lesson, courseId, lessonId, learnerId, resetLessonProgress, startLesson, onResetRunnerFlags]);
+  }, [
+    lesson,
+    courseId,
+    lessonId,
+    learnerId,
+    onAnonProgressCommitted,
+    resetLessonProgress,
+    startLesson,
+    onResetRunnerFlags,
+  ]);
 
   // "Ask tutor why" from the FailedTestCallout. For visible tests we can
   // share call + expected + got so the tutor coaches concretely; for hidden
@@ -1035,6 +1220,8 @@ export function useLessonValidator({
 
   return {
     validation,
+    localLessonCompleted,
+    localPracticeCompletedIds,
     completionSaving,
     completionSaveError,
     practiceValidation,
@@ -1063,6 +1250,8 @@ export function useLessonValidator({
     resetCodeError,
     resetUndo,
     setResetUndo,
+    resettingCode,
+    resetContentCommit,
     functionTests,
     sourceChecks,
     passedVisibleTests,
@@ -1071,8 +1260,10 @@ export function useLessonValidator({
     handleRunExamples,
     handleReset,
     confirmCodeReset,
+    settleCodeResetContent,
     undoCodeReset,
     restoreCompleted,
+    restoreAnonPracticeCompleted,
     handleResetLessonProgress,
     handleEnterPractice,
     handleExitPractice,

@@ -154,7 +154,7 @@ export function classifyAskError(raw: string): { kind: string; title: string; hi
     return {
       kind: "canceled",
       title: "Stopped by you",
-      hint: "The response stopped. If it had already finished processing, it may count toward today’s allowance. You can retry this same turn when you’re ready.",
+      hint: "The response stopped, and this turn is released from your daily allowance. You can retry the same question when you’re ready.",
     };
   }
   if (m.includes("tutor_context_changed")) {

@@ -37,6 +37,74 @@ async function expectNoHorizontalOverflow(page: Page) {
 }
 
 test.describe("Phase A-Q — visual viewport matrix", () => {
+  test("auth glyph atmosphere moves behind content and becomes still for reduced motion", async ({
+    page,
+  }) => {
+    await page.emulateMedia({ colorScheme: "dark", reducedMotion: "no-preference" });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/login");
+
+    const field = page.getByTestId("ambient-glyph-field");
+    const glyphs = field.locator("[data-floating-glyph]");
+    await expect(field).toBeVisible();
+    await expect(glyphs).toHaveCount(7);
+    await expect(field).toHaveClass(/ambient-glyph-field--center-safe/);
+
+    const sample = () =>
+      glyphs.evaluateAll((elements) =>
+        elements.map((element) => {
+          const style = getComputedStyle(element);
+          return `${style.transform}|${style.opacity}`;
+        }),
+      );
+    const initialMotion = await sample();
+    await expect
+      .poll(async () => JSON.stringify(await sample()), { timeout: 2_000 })
+      .not.toBe(JSON.stringify(initialMotion));
+
+    const contentLayer = page
+      .locator("div.relative.z-10")
+      .filter({ has: page.getByRole("heading", { name: "Sign in", exact: true }) })
+      .first();
+    await expect(contentLayer).toBeVisible();
+    expect(await field.evaluate((element) => getComputedStyle(element).zIndex)).toBe("0");
+    expect(await contentLayer.evaluate((element) => getComputedStyle(element).zIndex)).toBe(
+      "10",
+    );
+    expect(await field.evaluate((element) => getComputedStyle(element).pointerEvents)).toBe(
+      "none",
+    );
+
+    await page.evaluate(() => {
+      document.documentElement.dataset.theme = "light";
+      document.documentElement.style.colorScheme = "light";
+    });
+    await expect(field).toBeVisible();
+    expect(await field.evaluate((element) => getComputedStyle(element).mixBlendMode)).toBe(
+      "multiply",
+    );
+    const lightGlyphColor = await glyphs.first().evaluate(
+      (element) => getComputedStyle(element).color,
+    );
+    expect(lightGlyphColor).toMatch(/rgba?\(2, 132, 199(?:, 0\.38)?\)/);
+    const centerMask = await field.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return style.maskImage || style.webkitMaskImage;
+    });
+    expect(centerMask).toMatch(/transparent|rgba\(0, 0, 0, 0\)/);
+    const lightMotion = await sample();
+    await expect
+      .poll(async () => JSON.stringify(await sample()), { timeout: 2_000 })
+      .not.toBe(JSON.stringify(lightMotion));
+
+    await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
+    await page.reload();
+    await expect(field).toBeVisible();
+    const stillStart = await sample();
+    await page.waitForTimeout(400);
+    expect(await sample()).toEqual(stillStart);
+  });
+
   test("phone auth and recovery controls keep a 44px interaction floor", async ({
     page,
   }) => {
@@ -144,7 +212,24 @@ test.describe("Phase A-Q — visual viewport matrix", () => {
     });
   }
 
-  for (const width of [781, 900, 1366]) {
+  for (const width of [781, 900]) {
+    test(`${width}px uses the complete single-column lesson flow`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 720 });
+      await openStableLesson(page);
+
+      await expect(page.getByRole("region", { name: "Lesson instructions" })).toBeVisible();
+      await expect(page.getByRole("region", { name: "Code editor" })).toBeVisible();
+      await expect(page.getByRole("region", { name: "Program output" })).toBeVisible();
+      await expect(page.getByRole("region", { name: "AI tutor" })).toBeVisible();
+      await expect(page.getByRole("button", { name: /^run code/i }).first()).toBeVisible();
+      await expect(page.getByRole("button", { name: /check my work/i }).first()).toBeVisible();
+      await expect(page.getByRole("button", { name: /show instructions panel/i })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: /show tutor panel/i })).toHaveCount(0);
+      await expectNoHorizontalOverflow(page);
+    });
+  }
+
+  for (const width of [1366]) {
     test(`${width}px keeps instructions and tutor mutually exclusive`, async ({ page }) => {
       await page.setViewportSize({ width, height: 720 });
       await openStableLesson(page);
@@ -193,6 +278,65 @@ test.describe("Phase A-Q — visual viewport matrix", () => {
       await expectNoHorizontalOverflow(page);
     });
   }
+
+  test("responsive workspace mode changes preserve the focused pane", async ({ page }) => {
+    await page.setViewportSize({ width: 901, height: 863 });
+    await openStableLesson(page);
+
+    const showInstructions = page.getByRole("button", {
+      name: "Show instructions panel",
+      exact: true,
+    });
+    await showInstructions.click();
+    const collapseInstructions = page.getByRole("button", {
+      name: "Collapse instructions",
+      exact: true,
+    });
+    await expect(collapseInstructions).toBeFocused();
+
+    await page.setViewportSize({ width: 781, height: 863 });
+    await expect(page.getByRole("region", { name: "Lesson instructions" })).toBeFocused();
+    await expectNoHorizontalOverflow(page);
+
+    await page.setViewportSize({ width: 901, height: 863 });
+    await expect(collapseInstructions).toBeFocused();
+
+    const showTutor = page.getByRole("button", {
+      name: "Show tutor panel",
+      exact: true,
+    });
+    await showTutor.click();
+    const collapseTutor = page.getByRole("button", {
+      name: "Collapse tutor",
+      exact: true,
+    });
+    await expect(collapseTutor).toBeFocused();
+
+    await page.setViewportSize({ width: 781, height: 863 });
+    await expect(page.getByRole("region", { name: "AI tutor" })).toBeFocused();
+    await expectNoHorizontalOverflow(page);
+
+    await page.setViewportSize({ width: 901, height: 863 });
+    await expect(collapseTutor).toBeFocused();
+    await expectNoHorizontalOverflow(page);
+
+    // Monaco's hidden native edit-context sits beneath its rendered text
+    // layer, so clicking that semantic node directly is not a real pointer
+    // path. Click the visible editor canvas, then verify the responsive
+    // handoff from the edit context it focuses.
+    await page.locator(".monaco-editor").click({ position: { x: 160, y: 80 } });
+    await page.setViewportSize({ width: 781, height: 863 });
+    await expect(page.getByRole("region", { name: "Code editor" })).toBeFocused();
+    await page.setViewportSize({ width: 901, height: 863 });
+    await expect(page.getByRole("region", { name: "Code editor" })).toBeFocused();
+
+    await page.getByRole("tab", { name: "stdout", exact: true }).click();
+    await page.setViewportSize({ width: 781, height: 863 });
+    await expect(page.getByRole("region", { name: "Program output" })).toBeFocused();
+    await page.setViewportSize({ width: 901, height: 863 });
+    await expect(page.getByRole("region", { name: "Program output" })).toBeFocused();
+    await expectNoHorizontalOverflow(page);
+  });
 
   test("light theme preserves hierarchy and contrast", async ({ page }) => {
     await page.emulateMedia({ colorScheme: "light", reducedMotion: "reduce" });
@@ -251,13 +395,16 @@ test.describe("Phase A-Q — visual viewport matrix", () => {
         ) as [number, number, number];
       const panel = token("--color-panel");
       const success = token("--color-success");
+      const danger = token("--color-danger");
       return {
         accentOnPanel: ratio(token("--color-accent-ink"), panel),
         successOnTint: ratio(success, blend(success, panel, 0.15)),
+        dangerOnTint: ratio(danger, blend(danger, panel, 0.1)),
       };
     });
     expect(contrast.accentOnPanel).toBeGreaterThanOrEqual(4.5);
     expect(contrast.successOnTint).toBeGreaterThanOrEqual(4.5);
+    expect(contrast.dangerOnTint).toBeGreaterThanOrEqual(4.5);
     await expect(page).toHaveScreenshot("phone-390x844-light-reduced-motion.png", {
       animations: "disabled",
       caret: "hide",

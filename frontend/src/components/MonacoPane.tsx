@@ -112,11 +112,19 @@ export interface EditorAttentionTarget {
 
 interface MonacoPaneProps {
   attentionTarget?: EditorAttentionTarget | null;
+  focusRequest?: { path: string; ticket: number } | null;
+  onFocusRequestSettled?: (ticket: number) => void;
+  contentCommitRequest?: { ticket: number; path: string; content: string } | null;
+  onContentCommitSettled?: (ticket: number, matched: boolean) => void;
   readOnly?: boolean;
 }
 
 export function MonacoPane({
   attentionTarget = null,
+  focusRequest = null,
+  onFocusRequestSettled,
+  contentCommitRequest = null,
+  onContentCommitSettled,
   readOnly = false,
 }: MonacoPaneProps = {}) {
   // P-C1: scoped selectors — a no-arg `useProjectStore()` re-renders on every
@@ -132,6 +140,11 @@ export function MonacoPane({
   const bumpFocusComposer = useAIStore((s) => s.bumpFocusComposer);
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
   const attentionDecorationsRef = useRef<MonacoEditor.IEditorDecorationsCollection | null>(null);
+  const lastFocusRequest = useRef(0);
+  const scheduledFocusRequest = useRef(0);
+  const focusRequestRaf = useRef<number | null>(null);
+  const contentCommitRaf = useRef<number | null>(null);
+  const settledContentCommit = useRef(0);
   const theme = useEffectiveTheme();
 
   // A14: track the last-applied reveal ticket so activeFile-driven re-runs of
@@ -187,8 +200,102 @@ export function MonacoPane({
     syncAttentionDecoration();
   }, [attentionTarget?.path, attentionTarget?.line, activeFile]);
 
+  const applyFocusRequest = () => {
+    if (
+      !focusRequest ||
+      focusRequest.path !== activeFile ||
+      focusRequest.ticket <= lastFocusRequest.current ||
+      focusRequest.ticket <= scheduledFocusRequest.current
+    ) {
+      return;
+    }
+    const request = focusRequest;
+    scheduledFocusRequest.current = request.ticket;
+    if (focusRequestRaf.current !== null) cancelAnimationFrame(focusRequestRaf.current);
+    let attempts = 0;
+    const focusWhenReady = () => {
+      focusRequestRaf.current = null;
+      if (useProjectStore.getState().activeFile !== request.path) {
+        scheduledFocusRequest.current = lastFocusRequest.current;
+        return;
+      }
+
+      const editor = editorRef.current;
+      editor?.focus();
+      const expectedLabel = `Code editor for ${request.path}`;
+      const activeLabel = document.activeElement?.getAttribute("aria-label");
+      if (!activeLabel?.startsWith(expectedLabel)) {
+        [...document.querySelectorAll<HTMLElement>("[role=\"textbox\"]")]
+          .find((target) => target.getAttribute("aria-label")?.startsWith(expectedLabel))
+          ?.focus({ preventScroll: true });
+      }
+      if (document.activeElement?.getAttribute("aria-label")?.startsWith(expectedLabel)) {
+        lastFocusRequest.current = request.ticket;
+        scheduledFocusRequest.current = request.ticket;
+        onFocusRequestSettled?.(request.ticket);
+        return;
+      }
+
+      // Monaco can expose onMount before the browser-native edit context is
+      // inserted. Keep the high-consequence recovery request alive until that
+      // exact file is focusable instead of silently settling on BODY.
+      attempts += 1;
+      if (attempts < 120) {
+        focusRequestRaf.current = requestAnimationFrame(focusWhenReady);
+      } else {
+        lastFocusRequest.current = request.ticket;
+        scheduledFocusRequest.current = request.ticket;
+        onFocusRequestSettled?.(request.ticket);
+      }
+    };
+    focusRequestRaf.current = requestAnimationFrame(focusWhenReady);
+  };
+
+  const applyContentCommitRequest = () => {
+    if (
+      !contentCommitRequest ||
+      contentCommitRequest.ticket <= settledContentCommit.current
+    ) {
+      return;
+    }
+    const request = contentCommitRequest;
+    if (contentCommitRaf.current !== null) cancelAnimationFrame(contentCommitRaf.current);
+    let attempts = 0;
+    const confirmWhenRendered = () => {
+      contentCommitRaf.current = null;
+      const editor = editorRef.current;
+      const model = editor?.getModel();
+      if (
+        useProjectStore.getState().activeFile === request.path &&
+        model?.getValue() === request.content
+      ) {
+        settledContentCommit.current = request.ticket;
+        onContentCommitSettled?.(request.ticket, true);
+        return;
+      }
+      attempts += 1;
+      if (attempts < 120) {
+        contentCommitRaf.current = requestAnimationFrame(confirmWhenRendered);
+        return;
+      }
+      settledContentCommit.current = request.ticket;
+      onContentCommitSettled?.(request.ticket, false);
+    };
+    contentCommitRaf.current = requestAnimationFrame(confirmWhenRendered);
+  };
+
+  useEffect(() => {
+    applyFocusRequest();
+  }, [focusRequest?.path, focusRequest?.ticket, activeFile]);
+
+  useEffect(() => {
+    applyContentCommitRequest();
+  }, [contentCommitRequest?.ticket, contentCommitRequest?.path, contentCommitRequest?.content, activeFile]);
+
   useEffect(
     () => () => {
+      if (focusRequestRaf.current !== null) cancelAnimationFrame(focusRequestRaf.current);
+      if (contentCommitRaf.current !== null) cancelAnimationFrame(contentCommitRaf.current);
       attentionDecorationsRef.current?.clear();
       attentionDecorationsRef.current = null;
     },
@@ -199,6 +306,12 @@ export function MonacoPane({
     editorRef.current = editor;
     attentionDecorationsRef.current = editor.createDecorationsCollection();
     syncAttentionDecoration();
+    // A conflict decision can replace the active file and remount Monaco.
+    // Apply the pending request from the editor instance itself so focus is
+    // not lost between the old textarea unmounting and the new one becoming
+    // ready.
+    applyFocusRequest();
+    applyContentCommitRequest();
     // Apply any pending reveal recorded before this editor instance existed —
     // typical when clicking a ref that switches the active file, which
     // remounts the Editor (we key on activeFile). Fresh reveals still focus
@@ -288,7 +401,11 @@ export function MonacoPane({
       beforeMount={defineThemes}
       options={{
         readOnly,
-        readOnlyMessage: { value: "Finish or skip the welcome to start editing." },
+        readOnlyMessage: {
+          value: contentCommitRequest
+            ? "Resetting code. The editor will unlock when the starter is ready."
+            : "Finish or skip the welcome to start editing.",
+        },
         fontSize: 13,
         fontFamily: "'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace",
         fontLigatures: true,

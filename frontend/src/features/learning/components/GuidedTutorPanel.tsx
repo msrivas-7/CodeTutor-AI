@@ -26,6 +26,10 @@ import { useSavedTutorMessages } from "../hooks/useSavedTutorMessages";
 import { useProgressStore } from "../stores/progressStore";
 import type { LessonMeta, PracticeExercise } from "../types";
 import { EvalSamplingConsentControl } from "../../anon/EvalSamplingConsentControl";
+import {
+  type AnonTutorStateV1,
+  writeAnonTutorState,
+} from "../../anon/anonStash";
 
 interface GuidedTutorPanelProps {
   lessonMeta: LessonMeta;
@@ -78,9 +82,11 @@ interface GuidedTutorPanelProps {
   onAnonSaveRequested?: (trigger?: HTMLElement | null) => void;
   /** Explicit escape hatch for the scripted first-run tutor sequence. */
   onSkipWelcome?: () => void;
+  /** Same-tab anonymous continuity, hydrated before the composer is enabled. */
+  initialAnonTutorState?: AnonTutorStateV1 | null;
 }
 
-export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, priorConcepts, activePracticeExercise, onCollapse, onOpenSettings, resetNonce, inputLocked, clearHidden, mode = "authed", onAnonExhausted, onAnonTrialPaused, onAnonSaveRequested, onSkipWelcome }: GuidedTutorPanelProps) {
+export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, priorConcepts, activePracticeExercise, onCollapse, onOpenSettings, resetNonce, inputLocked, clearHidden, mode = "authed", onAnonExhausted, onAnonTrialPaused, onAnonSaveRequested, onSkipWelcome, initialAnonTutorState }: GuidedTutorPanelProps) {
   const incrementHint = useProgressStore((s) => s.incrementHint);
   // Derive the hint cap from the DB-backed hint_count (not local component
   // state) so the limit survives navigation + reload. Local state rewinds on
@@ -140,7 +146,10 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
   // that result for the lifetime of this mounted lesson so dismissing the
   // signup wall cannot re-enable a dead composer and generate duplicate
   // questions, quota messages, or conversion dialogs.
-  const [anonQuotaExhausted, setAnonQuotaExhausted] = useState(false);
+  const [anonQuotaExhausted, setAnonQuotaExhausted] = useState(
+    () => mode === "anon" && Boolean(initialAnonTutorState?.exhausted),
+  );
+  const skipInitialAnonPersistRef = useRef(Boolean(initialAnonTutorState));
   const [clearConfirm, setClearConfirm] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -194,6 +203,15 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
     textareaRef.current?.focus();
   }, [focusComposerNonce]);
 
+  useEffect(() => {
+    if (mode !== "anon") return;
+    if (skipInitialAnonPersistRef.current) {
+      skipInitialAnonPersistRef.current = false;
+      return;
+    }
+    writeAnonTutorState({ history, exhausted: anonQuotaExhausted });
+  }, [mode, history, anonQuotaExhausted]);
+
   const { submitAsk, cancelAsk } = useTutorAsk({
     // Phase 27-v2.1 — anon mode routes the AI stream to the unauthed
     // /api/anon/ai/ask/stream surface (subject to L_anon per-IP cap),
@@ -210,6 +228,11 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
           }
         : undefined,
     onAnonTrialPaused,
+    onAllowanceUpdate: (remainingToday) => {
+      if (mode === "anon" && remainingToday === 0) {
+        setAnonQuotaExhausted(true);
+      }
+    },
     onAskComplete: ({ ok }) => {
       if (pendingHintRef.current) {
         pendingHintRef.current = false;
@@ -551,6 +574,14 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
           />
         ) : (
           <>
+            {mode === "anon" && anonQuotaExhausted && (
+              <div
+                role="status"
+                className="mb-2 rounded-lg border border-border bg-elevated/60 px-3 py-2 text-sm leading-relaxed text-muted"
+              >
+                Free tutor questions used today. Keep coding with the final clue above, or create an account whenever you want more help.
+              </div>
+            )}
             {mode === "anon" && !anonQuotaExhausted && <EvalSamplingConsentControl />}
             {activeSelection && (
               <SelectionPreview

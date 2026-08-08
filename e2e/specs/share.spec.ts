@@ -315,6 +315,7 @@ test.describe("Phase 21C: cinematic share", () => {
   test("completed lesson page shows persistent Share affordance in header", async ({
     page,
   }) => {
+    await page.setViewportSize({ width: 1366, height: 720 });
     await loadProfile(page, "empty");
     await seedLessonProgress(page, COURSE_ID, LESSON_ID, {
       status: "completed",
@@ -326,11 +327,16 @@ test.describe("Phase 21C: cinematic share", () => {
     // appears alongside it. Aria-label flips between "Open share
     // dialog…" (no existing share) and "View existing share…" (the
     // pre-fetch found one). Either reading proves the chip mounted.
-    await expect(
-      page.getByRole("button", {
-        name: /(Open share dialog|View existing share) for( | this )lesson/i,
-      }),
-    ).toBeVisible({ timeout: 10_000 });
+    const shareButton = page.getByRole("button", {
+      name: /(Open share dialog|View existing share) for( | this )lesson/i,
+    });
+    await expect(shareButton).toBeVisible({ timeout: 10_000 });
+    await expect
+      .poll(async () => (await shareButton.boundingBox())?.height ?? 0)
+      .toBeGreaterThanOrEqual(44);
+    await expect
+      .poll(async () => (await shareButton.boundingBox())?.width ?? 0)
+      .toBeGreaterThanOrEqual(44);
   });
 
   test("Story-format image is generated and downloadable", async ({

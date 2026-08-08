@@ -193,7 +193,7 @@ export function AuthLoader({
         duration: exiting ? EXIT_DURATION_MS / 1000 : 0.35,
         ease: [0.22, 1, 0.36, 1],
       }}
-      className="relative flex h-full min-h-[320px] items-center justify-center overflow-hidden bg-bg text-ink"
+      className="relative isolate flex h-full min-h-[320px] items-center justify-center overflow-hidden bg-bg text-ink"
       role="status"
       aria-live="polite"
       aria-busy={!done}
@@ -220,7 +220,7 @@ export function AuthLoader({
           reveal moment (content pages use /12). Framer fades the parent
           motion.div's opacity on exit, which dims these along with it
           — no separate exit animation needed. */}
-      <AmbientGlyphField density="hero" opacityClass="text-accent/25" />
+      <AmbientGlyphField density="hero" opacityClass="text-accent/25" occludeCenter />
 
       {/* Big-bang ring — one-shot expansion from dead center on mount.
           Cheap dramatic punctuation for the reveal, fires once. */}

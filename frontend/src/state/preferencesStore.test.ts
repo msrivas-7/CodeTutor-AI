@@ -36,7 +36,13 @@ vi.mock("../auth/hasAuthSession", () => ({
   hasAuthSession: () => true,
 }));
 
-import { usePreferencesStore, setTheme, setPersona, setUiLayoutValue } from "./preferencesStore";
+import {
+  setDisableStreaks,
+  setPersona,
+  setTheme,
+  setUiLayoutValue,
+  usePreferencesStore,
+} from "./preferencesStore";
 
 function defaultServer(): UserPreferences {
   return {
@@ -103,6 +109,21 @@ describe("preferencesStore.hydrate", () => {
     expect(s.theme).toBe("light");
     expect(s.welcomeDone).toBe(true);
     expect(s.uiLayout).toEqual({ "ui:leftW": 320 });
+  });
+
+  it("never hydrates the legacy contradictory hidden-streak email state", async () => {
+    getPreferences.mockResolvedValueOnce({
+      ...defaultServer(),
+      disableStreaks: true,
+      emailOptIn: true,
+    });
+
+    await usePreferencesStore.getState().hydrate();
+
+    expect(usePreferencesStore.getState()).toMatchObject({
+      disableStreaks: true,
+      emailOptIn: false,
+    });
   });
 
   it("leaves hydrated=false and exposes hydrateError on fetch failure", async () => {
@@ -235,6 +256,45 @@ describe("preferencesStore helper setters", () => {
     patchPreferences.mockResolvedValue({ ...defaultServer(), persona: "beginner" });
     await setPersona("beginner");
     expect(patchPreferences).toHaveBeenCalledWith({ persona: "beginner" });
+  });
+
+  it("turns streak email nudges off atomically when streaks are hidden", async () => {
+    patchPreferences.mockResolvedValue({
+      ...defaultServer(),
+      disableStreaks: true,
+      emailOptIn: false,
+    });
+
+    await setDisableStreaks(true);
+
+    expect(patchPreferences).toHaveBeenCalledWith({
+      disableStreaks: true,
+      emailOptIn: false,
+    });
+    expect(usePreferencesStore.getState()).toMatchObject({
+      disableStreaks: true,
+      emailOptIn: false,
+    });
+  });
+
+  it("does not silently re-enable email nudges when streaks are shown again", async () => {
+    usePreferencesStore.setState({ disableStreaks: true, emailOptIn: false });
+    patchPreferences.mockResolvedValue({
+      ...defaultServer(),
+      disableStreaks: false,
+      emailOptIn: false,
+    });
+
+    await setDisableStreaks(false);
+
+    expect(patchPreferences).toHaveBeenCalledWith({
+      disableStreaks: false,
+      emailOptIn: false,
+    });
+    expect(usePreferencesStore.getState()).toMatchObject({
+      disableStreaks: false,
+      emailOptIn: false,
+    });
   });
 
   it("setUiLayoutValue updates the store immediately and flushes once on the debounce", async () => {

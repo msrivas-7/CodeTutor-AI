@@ -14,6 +14,7 @@
 // browsers exactly as Maya would see it from a TikTok link.
 
 import { expect, test } from "@playwright/test";
+import { setMonacoValue, waitForMonacoReady } from "../fixtures/monaco";
 
 const ALLOWED_PATH = "/try/lesson/python-fundamentals/hello-world";
 
@@ -92,6 +93,8 @@ test.describe("anonymous lesson 1 (Phase 27 §3a)", () => {
       const sections = first
         ? {
             intent: "socratic",
+            summary: "The file currently has no executable statement.",
+            hint: "Start with the lesson's output operation and choose the text you want to display.",
             checkQuestions: ["What did you expect to happen?"],
           }
         : {
@@ -116,6 +119,8 @@ test.describe("anonymous lesson 1 (Phase 27 §3a)", () => {
     await expect(textarea).toBeEnabled({ timeout: 10_000 });
     await textarea.fill("Just solve this for me.");
     await textarea.press("Enter");
+    await expect(page.getByText(/no executable statement/i)).toBeVisible();
+    await expect(page.getByText(/lesson's output operation/i)).toBeVisible();
     await expect(page.getByText("What did you expect to happen?")).toBeVisible();
     expect(requestBodies[0].tutorProgressToken).toBeUndefined();
 
@@ -135,6 +140,55 @@ test.describe("anonymous lesson 1 (Phase 27 §3a)", () => {
     expect(requestBodies[1].tutorProgressToken).toBe(
       "mock-anon-signed-progress-proof",
     );
+  });
+
+  test("final free tutor turn stays useful and closes reply controls without a signup interruption", async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      window.sessionStorage.setItem("codetutor.anonChoreographyDone", "1");
+    });
+    const sections = {
+      intent: "howto",
+      summary: "The current file contains only comments, so it cannot display output yet.",
+      hint: "Use the output operation named in the starter and choose the text you want to display.",
+      nextStep: "Make one small editor change, run it, and compare the output with your prediction.",
+      checkQuestions: null,
+      comprehensionCheck: null,
+    };
+    await page.route("**/api/anon/ai/ask/stream", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "text/event-stream",
+        body: `data: ${JSON.stringify({
+          done: true,
+          raw: JSON.stringify(sections),
+          sections,
+          remainingToday: 0,
+        })}\n\n`,
+      });
+    });
+
+    await page.goto(ALLOWED_PATH);
+    await waitForMonacoReady(page);
+    const textarea = page.getByLabel(/ask the tutor/i);
+    await expect(textarea).toBeEnabled({ timeout: 10_000 });
+    await textarea.fill("Give me a gentle hint — don't reveal the answer.");
+    await textarea.press("Enter");
+
+    await expect(page.getByText(/contains only comments/i)).toBeVisible();
+    await expect(page.getByText(/output operation named in the starter/i)).toBeVisible();
+    await expect(page.getByRole("status").filter({
+      hasText: /free tutor questions used today/i,
+    })).toBeVisible();
+    await expect(textarea).toBeDisabled();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /run/i }).first()).toBeEnabled();
+
+    await page.reload();
+    await expect(page.getByText(/contains only comments/i)).toBeVisible();
+    await expect(page.getByLabel(/ask the tutor/i)).toBeDisabled();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
   });
 
   test("clicking 'Sign up to save' (header) opens the signup wall", async ({
@@ -186,7 +240,11 @@ test.describe("anonymous lesson 1 (Phase 27 §3a)", () => {
     // Any other pair stays outside LessonPage and gets a clear recovery
     // surface. The backend allowlist remains the second enforcement layer.
     await page.goto("/try/lesson/python-fundamentals/variables");
-    await expect(page.getByRole("heading", { name: /variables comes after lesson 1/i })).toBeVisible();
+    const blockedHeading = page.getByRole("heading", {
+      name: /variables comes after lesson 1/i,
+    });
+    await expect(blockedHeading).toBeVisible();
+    await expect(blockedHeading).toBeFocused();
     await expect(page.getByRole("link", { name: /start lesson 1/i })).toHaveAttribute(
       "href",
       "/try/lesson/python-fundamentals/hello-world",
@@ -318,8 +376,102 @@ test.describe("first-run cinematic on /try/ (Phase 27-v2 Day 2)", () => {
     const skipWelcome = page.getByRole("button", { name: /skip welcome/i });
     await expect(skipWelcome).toBeVisible();
     await skipWelcome.click();
+    await expect(page.getByText(
+      "You're in control—run the starter when you're ready, or ask me anything.",
+      { exact: true },
+    )).toBeVisible();
+    await expect(page.getByText(/^Hey .*good$/)).toHaveCount(0);
     await expect(page.getByRole("button", { name: /run/i }).first()).toBeEnabled();
     await expect(page.getByRole("button", { name: /check/i }).first()).toBeEnabled();
+  });
+
+  test("anonymous practice completion survives exit and reload", async ({ page }) => {
+    await page.addInitScript(() => {
+      window.sessionStorage.setItem("codetutor.anonCinematicSeen", "1");
+      window.sessionStorage.setItem("codetutor.anonCoachSeen", "1");
+      window.sessionStorage.setItem("codetutor.anonChoreographyDone", "1");
+      if (window.sessionStorage.getItem("codetutor.anonWorkspace")) return;
+      window.sessionStorage.setItem("codetutor.anonWorkspace", JSON.stringify({
+        v: 1,
+        courseId: "python-fundamentals",
+        lessonId: "hello-world",
+        files: { "main.py": "print(\"Hello, World!\")\n" },
+        stdin: "",
+        result: {
+          stdout: "Hello, World!\n",
+          stderr: "",
+          exitCode: 0,
+          errorType: "none",
+          durationMs: 8,
+          stage: "run",
+        },
+        runError: null,
+        completed: true,
+        practiceCompletedIds: [],
+        updatedAt: new Date().toISOString(),
+      }));
+    });
+    await page.route("**/api/anon/run", (route) => route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        stdout: "Hello\nWorld\n",
+        stderr: "",
+        exitCode: 0,
+        errorType: "none",
+        durationMs: 8,
+        stage: "run",
+      }),
+    }));
+
+    await page.goto(ALLOWED_PATH);
+    await waitForMonacoReady(page);
+    await page.getByRole("button", { name: /practice 0 of 3/i }).click();
+    await expect(page.getByRole("heading", { name: /two lines/i })).toBeVisible();
+    await setMonacoValue(page, 'print("Hello")\nprint("World")\n');
+    await page.getByRole("button", { name: /^run code/i }).first().click();
+    await page.getByRole("button", { name: /check my work/i }).first().click();
+    await expect(page.getByText(/1\/3 done/).first()).toBeVisible();
+
+    await page.getByRole("button", { name: /exit practice mode/i }).click();
+    await expect(page.getByRole("button", { name: /practice 1 of 3/i })).toBeVisible();
+    await expect.poll(() => page.evaluate(() => {
+      const raw = window.sessionStorage.getItem("codetutor.anonWorkspace");
+      if (!raw) return [];
+      return (JSON.parse(raw) as { practiceCompletedIds?: string[] }).practiceCompletedIds ?? [];
+    })).toEqual(["two-lines"]);
+    await page.reload();
+    await waitForMonacoReady(page);
+    await expect(page.getByRole("button", { name: /practice 1 of 3/i })).toBeVisible();
+    await page.getByRole("button", { name: /practice 1 of 3/i }).click();
+    await expect(page.getByRole("heading", { name: /quotes inside a sentence/i })).toBeVisible();
+  });
+
+  test("anonymous tutor history and exhausted state survive navigation", async ({ page }) => {
+    await page.addInitScript(() => {
+      window.sessionStorage.setItem("codetutor.anonCinematicSeen", "1");
+      window.sessionStorage.setItem("codetutor.anonCoachSeen", "1");
+      window.sessionStorage.setItem("codetutor.anonChoreographyDone", "1");
+      window.sessionStorage.setItem("codetutor.anonTutor", JSON.stringify({
+        v: 1,
+        history: [
+          { id: "anon-user", role: "user", content: "Why did this print twice?" },
+          { id: "anon-assistant", role: "assistant", content: "Which print call produced each line?" },
+        ],
+        exhausted: true,
+        quotaDateUtc: new Date().toISOString().slice(0, 10),
+        updatedAt: new Date().toISOString(),
+      }));
+    });
+
+    await page.goto(ALLOWED_PATH);
+    await expect(page.getByText("Which print call produced each line?", { exact: true })).toBeVisible();
+    await expect(page.getByLabel(/ask the tutor/i)).toBeDisabled();
+    await page.getByRole("button", { name: "Back to course" }).click();
+    await expect(page).toHaveURL(/\/learn-to-code\/python-fundamentals\/$/);
+    await page.goto(ALLOWED_PATH);
+    await expect(page.getByText("Which print call produced each line?", { exact: true })).toBeVisible();
+    await expect(page.getByLabel(/ask the tutor/i)).toBeDisabled();
   });
 
   test("no workspace tour appears on 390x844", async ({

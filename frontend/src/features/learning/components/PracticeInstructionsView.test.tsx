@@ -90,4 +90,38 @@ describe("PracticeInstructionsView completion state", () => {
 
     expect(html).toContain("throws ValueError(&quot;must be positive&quot;)");
   });
+
+  it("stacks and wraps long practice examples for a narrow resizable pane", () => {
+    const longExercise: PracticeExercise = {
+      id: "long-example",
+      title: "Long example",
+      goal: "Keep the full contract readable.",
+      prompt: "Return the expected values.",
+      completionRules: [{
+        type: "function_tests",
+        tests: [{
+          name: "long call",
+          call: "parse_or_default(['alpha', 'not-a-number', 'omega'], default=-100)",
+          expected: "[100, -100, 900]",
+        }],
+      }],
+    };
+    const html = renderToStaticMarkup(
+      <PracticeInstructionsView
+        exercises={[longExercise]}
+        currentIndex={0}
+        completedIds={[]}
+        validation={null}
+        onSelectExercise={vi.fn()}
+        onExitPractice={vi.fn()}
+        onNextExercise={vi.fn()}
+        onResetPractice={vi.fn(async () => true)}
+      />,
+    );
+
+    expect(html).toContain("overflow-wrap:anywhere");
+    expect(html).toContain("Expected");
+    expect(html).not.toContain("sm:grid-cols-");
+    expect(html).not.toContain("overflow-x-auto");
+  });
 });

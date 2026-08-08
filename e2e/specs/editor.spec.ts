@@ -144,7 +144,7 @@ test.describe("editor", () => {
     await expect(collapseTutor).toHaveCount(0);
     for (const control of [
       page.getByRole("button", { name: "New file", exact: true }),
-      page.getByRole("button", { name: /file tree help/i }),
+      page.getByRole("button", { name: /show keyboard shortcuts/i }),
       page.getByRole("button", { name: "main.py", exact: true }),
       collapseFiles,
     ]) {
@@ -234,6 +234,124 @@ test.describe("editor", () => {
       exact: true,
     }).click();
     await expect(renamedTab).toBeFocused();
+  });
+
+  test("an empty file can be deleted, persists, and restores file-tree focus", async ({
+    page,
+  }) => {
+    await page.goto("/editor");
+    await waitForMonacoReady(page);
+
+    const newFile = page.getByRole("button", { name: "New file", exact: true });
+    await newFile.click();
+    const createName = page.getByRole("textbox", { name: "file.py", exact: true });
+    await createName.fill("delete-empty.py");
+    await createName.press("Enter");
+
+    const emptyFile = page.getByRole("button", { name: "delete-empty.py", exact: true });
+    await expect(emptyFile).toBeVisible();
+    await emptyFile.focus();
+    await page.getByRole("button", { name: "Delete delete-empty.py" }).click();
+
+    const confirm = page.getByRole("alertdialog", { name: "Delete file?" });
+    await expect(confirm).toBeVisible();
+    const saved = page.waitForResponse(
+      (response) => {
+        if (
+          !response.url().includes("/api/user/editor-project") ||
+          response.request().method() !== "PUT" ||
+          !response.ok()
+        ) {
+          return false;
+        }
+        const payload = response.request().postDataJSON() as {
+          files?: Record<string, string>;
+        };
+        return !Object.prototype.hasOwnProperty.call(
+          payload.files ?? {},
+          "delete-empty.py",
+        );
+      },
+    );
+    await confirm.getByRole("button", { name: "Delete", exact: true }).click();
+
+    await expect(emptyFile).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "main.py", exact: true })).toBeFocused();
+    await saved;
+    await page.reload();
+    await waitForMonacoReady(page);
+    await expect(page.getByRole("button", { name: "delete-empty.py", exact: true })).toHaveCount(0);
+  });
+
+  test("both cross-tab conflict choices return focus to the code editor", async ({
+    page,
+    context,
+  }) => {
+    await page.goto("/editor");
+    await waitForMonacoReady(page);
+
+    const peer = await context.newPage();
+    await peer.goto("/editor");
+    await waitForMonacoReady(peer);
+
+    const saveFrom = (candidate: typeof page) =>
+      candidate.waitForResponse(
+        (response) =>
+          response.url().includes("/api/user/editor-project") &&
+          response.request().method() === "PUT" &&
+          response.ok(),
+        { timeout: 15_000 },
+      );
+
+    const firstRemoteSave = saveFrom(page);
+    await setMonacoValue(page, "// newer saved version\n");
+    await firstRemoteSave;
+
+    await setMonacoValue(peer, "// stale local version\n");
+    const useNewer = peer.getByRole("button", { name: "Use newer saved version" });
+    await expect(useNewer).toBeVisible({ timeout: 15_000 });
+    await useNewer.click();
+    await expect
+      .poll(() => getMonacoValue(peer))
+      .toBe("// newer saved version\n");
+    await expect(peer.getByRole("textbox", { name: /code editor for main\.py/i })).toBeFocused();
+
+    const secondRemoteSave = saveFrom(page);
+    await setMonacoValue(page, "// second newer version\n");
+    await secondRemoteSave;
+
+    await setMonacoValue(peer, "// version I chose to keep\n");
+    const keepLocal = peer.getByRole("button", { name: "Keep this version" });
+    await expect(keepLocal).toBeVisible({ timeout: 15_000 });
+    const keptSave = saveFrom(peer);
+    await keepLocal.click();
+    await keptSave;
+    await expect
+      .poll(() => getMonacoValue(peer))
+      .toBe("// version I chose to keep\n");
+    await expect(peer.getByRole("textbox", { name: /code editor for main\.py/i })).toBeFocused();
+
+    // Reload both tabs and repeat the remote-choice path. Monaco remounts for
+    // the accepted active file; a one-frame focus attempt can otherwise land
+    // on the stale textarea just before it unmounts.
+    await page.reload();
+    await waitForMonacoReady(page);
+    await peer.reload();
+    await waitForMonacoReady(peer);
+
+    const thirdRemoteSave = saveFrom(page);
+    await setMonacoValue(page, "// newer version after reload\n");
+    await thirdRemoteSave;
+
+    await setMonacoValue(peer, "// stale version after reload\n");
+    await expect(useNewer).toBeVisible({ timeout: 15_000 });
+    await useNewer.click();
+    await expect
+      .poll(() => getMonacoValue(peer))
+      .toBe("// newer version after reload\n");
+    await expect(peer.getByRole("textbox", { name: /code editor for main\.py/i })).toBeFocused();
+
+    await peer.close();
   });
 
   test("run default starter produces stdout + duration badge", async ({ page }) => {

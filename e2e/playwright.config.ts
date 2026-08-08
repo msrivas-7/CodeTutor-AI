@@ -21,6 +21,7 @@ const BASE_URL = process.env.E2E_BASE_URL ?? "http://localhost:5173";
 const API_URL = process.env.E2E_API_URL ?? "http://localhost:4000";
 const IS_CI = !!process.env.CI;
 const CROSS_BROWSER = process.env.E2E_CROSS_BROWSER === "1";
+const RECORD_VIDEO = IS_CI || process.env.E2E_VIDEO === "1";
 // GitHub-hosted Ubuntu and Playwright's official Linux container ship
 // different native fallback-font sets. Both are valid release renderers, but
 // their glyph metrics differ enough on phone layouts that one shared "linux"
@@ -91,7 +92,13 @@ export default defineConfig({
   use: {
     baseURL: BASE_URL,
     trace: "on-first-retry",
-    video: "retain-on-failure",
+    // CI keeps failure videos for artifact-based diagnosis. Local recording is
+    // opt-in because Playwright captures from test start even in
+    // `retain-on-failure` mode; on a busy developer Mac that encoder can delay
+    // Vite's module graph long enough to create false Monaco/Suspense timeouts.
+    // Screenshots remain enabled locally, and `--trace on` is the preferred
+    // focused diagnostic. Set E2E_VIDEO=1 when a local motion recording helps.
+    video: RECORD_VIDEO ? "retain-on-failure" : "off",
     screenshot: "only-on-failure",
     actionTimeout: 15_000,
     navigationTimeout: 30_000,

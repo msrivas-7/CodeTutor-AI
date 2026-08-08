@@ -666,14 +666,30 @@ function QueuesTile({ snap }: { snap: AdminDashboardSnapshot }) {
     waiting?: number;
   }) {
     const tone = waiting && waiting > 0 ? "text-warn" : "text-ink";
+    const queueLabel =
+      typeof waiting === "number"
+        ? `${value} active, ${waiting} waiting`
+        : `${value} active`;
     return (
       <div className="flex items-baseline justify-between text-[11px]">
         <span className="text-muted">{label}</span>
-        <span className={tone}>
-          {value}
+        <span
+          aria-label={queueLabel}
+          className={`inline-flex items-baseline gap-1.5 ${tone}`}
+        >
+          <span aria-hidden="true" className="inline-flex items-baseline gap-1">
+            <strong className="font-mono text-xs font-semibold tabular-nums">
+              {value}
+            </strong>
+            <span className="text-[10px]">active</span>
+          </span>
           {typeof waiting === "number" && (
-            <span className="ml-1 text-[10px] text-muted">
-              ({waiting} waiting)
+            <span aria-hidden="true" className="inline-flex items-baseline gap-1 text-muted">
+              <span>·</span>
+              <strong className="font-mono text-[11px] font-medium tabular-nums">
+                {waiting}
+              </strong>
+              <span className="text-[10px]">waiting</span>
             </span>
           )}
         </span>

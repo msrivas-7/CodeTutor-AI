@@ -91,3 +91,35 @@ describe("isTypingTarget", () => {
     expect(isTypingTarget(el as unknown as EventTarget)).toBe(true);
   });
 });
+
+describe("openKeyboardShortcuts", () => {
+  it("dispatches the shared dialog-open event for visible help controls", async () => {
+    const dispatched: string[] = [];
+    Object.defineProperty(globalThis, "window", {
+      value: {
+        CustomEvent: class {
+          type: string;
+          detail: unknown;
+
+          constructor(type: string, init?: { detail?: unknown }) {
+            this.type = type;
+            this.detail = init?.detail;
+          }
+        },
+        dispatchEvent(event: Event) {
+          dispatched.push(event.type);
+          return true;
+        },
+      },
+      configurable: true,
+    });
+    try {
+      const { OPEN_KEYBOARD_SHORTCUTS_EVENT, openKeyboardShortcuts } =
+        await import("./GlobalShortcuts");
+      openKeyboardShortcuts();
+      expect(dispatched).toEqual([OPEN_KEYBOARD_SHORTCUTS_EVENT]);
+    } finally {
+      delete (globalThis as { window?: unknown }).window;
+    }
+  });
+});

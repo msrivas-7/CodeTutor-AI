@@ -78,20 +78,28 @@ describe("pushScriptedAssistant", () => {
     await handle.done;
   });
 
-  it("cancel() commits the partial content and clears pending", async () => {
+  it("cancel() discards partial content and clears pending", async () => {
     const handle = pushScriptedAssistant("abcdefghij", { charIntervalMs: 20 });
     await vi.advanceTimersByTimeAsync(45); // ~2 chars in
     handle.cancel();
-    await vi.advanceTimersByTimeAsync(25); // next tick notices cancelled
     await handle.done;
-    const history = useAIStore.getState().history;
-    expect(history).toHaveLength(1);
-    const committed = history[0].content;
-    expect(committed.length).toBeGreaterThan(0);
-    expect(committed.length).toBeLessThan(10);
-    expect("abcdefghij".startsWith(committed)).toBe(true);
-    expect(history[0].meta?.scripted).toBe(true);
+    expect(useAIStore.getState().history).toHaveLength(0);
     expect(useAIStore.getState().pending).toBeNull();
     expect(useAIStore.getState().pendingScripted).toBe(false);
+  });
+
+  it("atomically replaces an interrupted fragment with a complete handoff", async () => {
+    const handle = pushScriptedAssistant("abcdefghij", { charIntervalMs: 20 });
+    await vi.advanceTimersByTimeAsync(45);
+    handle.cancel("You're in control—run the starter when you're ready.");
+    await handle.done;
+    expect(useAIStore.getState().history).toMatchObject([
+      {
+        role: "assistant",
+        content: "You're in control—run the starter when you're ready.",
+        meta: { scripted: true },
+      },
+    ]);
+    expect(useAIStore.getState().pending).toBeNull();
   });
 });

@@ -248,6 +248,15 @@ test.describe("lesson-end feedback chip", () => {
       await page.setViewportSize(viewport);
       await page.evaluate(() => document.fonts.ready);
 
+      // Modal enters at scale 0.96. Wait for the unchanged 44px control to
+      // reach its settled geometry so this keeps enforcing the real touch
+      // floor instead of sampling an intermediate animation frame.
+      await expect
+        .poll(async () => (await practice.boundingBox())?.height ?? 0, {
+          message: `${viewport.width}x${viewport.height} completion actions settle at the 44px touch floor`,
+        })
+        .toBeGreaterThanOrEqual(44);
+
       const geometry = await dialog.evaluate((panel) => {
         const bounds = panel.getBoundingClientRect();
         const actions = Array.from(panel.querySelectorAll<HTMLButtonElement>("button"))

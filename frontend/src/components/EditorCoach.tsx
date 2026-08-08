@@ -75,7 +75,7 @@ export interface EditorCoachRefs {
 
 interface EditorCoachProps {
   refs: EditorCoachRefs;
-  onComplete: () => void;
+  onComplete: (outcome: "completed" | "skipped") => void;
 }
 
 export function EditorCoach({ refs, onComplete }: EditorCoachProps) {
@@ -102,7 +102,7 @@ export function EditorCoach({ refs, onComplete }: EditorCoachProps) {
       // step's coords for a frame during the cascade.
       setTargetRect(null);
       if (step < STEPS.length - 1) setStep((s) => s + 1);
-      else { markDone(); onComplete(); }
+      else { markDone(); onComplete("completed"); }
       return;
     }
     let rafId = 0;
@@ -117,7 +117,7 @@ export function EditorCoach({ refs, onComplete }: EditorCoachProps) {
         if (r.width <= 0 || r.height <= 0) {
           setTargetRect(null);
           if (step < STEPS.length - 1) setStep((s) => s + 1);
-          else { markDone(); onComplete(); }
+          else { markDone(); onComplete("completed"); }
           return;
         }
         setTargetRect(r);
@@ -139,7 +139,7 @@ export function EditorCoach({ refs, onComplete }: EditorCoachProps) {
   const advance = useCallback(() => {
     if (step >= STEPS.length - 1) {
       markDone();
-      onComplete();
+      onComplete("completed");
     } else {
       setStep((s) => s + 1);
     }
@@ -147,7 +147,7 @@ export function EditorCoach({ refs, onComplete }: EditorCoachProps) {
 
   const dismiss = useCallback(() => {
     markDone();
-    onComplete();
+    onComplete("skipped");
   }, [onComplete]);
 
   if (!targetRect || !currentStep) return null;

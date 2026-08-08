@@ -59,6 +59,8 @@ describe("B4 discovery build", () => {
             : "Start with lesson 1 — required first",
         );
         expect(html).toContain('<main id="main" tabindex="-1">');
+        expect(html).toContain("event.preventDefault();history.replaceState(null,'','#main')");
+        expect(html).toContain("main.focus({preventScroll:true})");
         expect(html).not.toContain(
           `<article class="prose" aria-label="Lesson walkthrough"><h2>${lesson.title}</h2>`,
         );

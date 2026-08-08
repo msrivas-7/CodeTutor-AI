@@ -1,8 +1,24 @@
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuthStore } from "../../auth/authStore";
-import { markFirstRunComplete } from "../../state/preferencesStore";
+import {
+  markFirstRunComplete,
+  usePreferencesStore,
+} from "../../state/preferencesStore";
 import { resolveFirstName } from "./resolveFirstName";
 import { CinematicGreeting } from "./CinematicGreeting";
+
+export function resolveWelcomeHandoff(
+  explicitReplay: boolean,
+  welcomeDone: boolean,
+): { replay: boolean; target: string } {
+  const replay = explicitReplay || welcomeDone;
+  return {
+    replay,
+    target: replay
+      ? "/start"
+      : "/learn/course/python-fundamentals/lesson/hello-world?firstRun=1",
+  };
+}
 
 // The first-run moment. Mounts from /welcome, plays the full 5.2 s
 // cinematic, then navigates into the learner's first lesson (if truly
@@ -20,20 +36,22 @@ import { CinematicGreeting } from "./CinematicGreeting";
 
 export function FirstRunGreeting() {
   const nav = useNavigate();
+  const [searchParams] = useSearchParams();
   const user = useAuthStore((s) => s.user);
+  const welcomeDone = usePreferencesStore((s) => s.welcomeDone);
 
   const firstName = resolveFirstName(user);
 
-  // The cinematic always hands off to the first lesson with
-  // `firstRun=1` — even for replay users who already have progress.
-  // The whole point of the cinematic is to demo the product by
-  // running through lesson 1; dumping the learner on the dashboard
-  // right after "Starting your first lesson…" is a promise-break.
-  // If a replay learner already completed hello-world, the scripted
-  // choreography still reads as a guided re-walk of the same lesson;
-  // they can dismiss and navigate away the moment they want to.
-  const target =
-    "/learn/course/python-fundamentals/lesson/hello-world?firstRun=1";
+  // A replay is a read-only cinematic. It must never reuse the destructive
+  // first-lesson onboarding route, because that route intentionally seeds a
+  // starter and first-run state for brand-new learners. Existing learners go
+  // back to Start with every draft, completion, share, and coach preference
+  // untouched. Direct /welcome visits after onboarding are treated as replay
+  // too, even without the explicit query flag.
+  const { replay, target } = resolveWelcomeHandoff(
+    searchParams.get("replay") === "1",
+    welcomeDone,
+  );
 
   // Intentionally no `welcomeDone` guard — the earlier version
   // redirected to `/` when welcomeDone flipped true mid-cinematic,
@@ -60,18 +78,17 @@ export function FirstRunGreeting() {
     ]);
 
   const handleComplete = async () => {
-    // The cinematic has finished its own dissolve; flip welcomeDone
-    // now so a user who rode the whole arc doesn't get re-greeted on
-    // the next StartPage visit, and nav to the lesson handoff.
-    await persistOrTimeout();
+    // Brand-new learners stamp welcomeDone before entering lesson 1. Replay
+    // is read-only and returns existing learners to Start without preference
+    // or progress writes.
+    if (!replay) await persistOrTimeout();
     nav(target, { replace: true });
   };
 
   const handleSkip = async () => {
-    await persistOrTimeout();
-    // Skip changes the duration, not the promised destination. The support
-    // line says the first lesson is starting, so both terminal paths land on
-    // that lesson and hand the learner immediate control.
+    if (!replay) await persistOrTimeout();
+    // Skip changes only the duration: new learners still enter lesson 1,
+    // while replay learners return to their existing Start destination.
     nav(target, { replace: true });
   };
 
@@ -95,11 +112,11 @@ export function FirstRunGreeting() {
       firstName={firstName}
       heroLine={`Hello, ${firstName}!`}
       subtitle="Every lesson works like this. Write code, watch it answer."
-      // Support line is the same for everyone — replay path gets the
-      // same copy as the first-run path. The tiny incoherence for
-      // replay users (who land on /, not a lesson) is fine; the
-      // cinematic is the experience, not a status update.
-      supportLine="Starting your first lesson…"
+      supportLine={
+        replay
+          ? "Taking you back to where you left off…"
+          : "Starting your first lesson…"
+      }
       onComplete={handleComplete}
       onSkip={handleSkip}
     />

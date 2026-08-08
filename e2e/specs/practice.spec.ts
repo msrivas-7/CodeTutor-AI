@@ -9,7 +9,7 @@
 import { expect, test } from "../fixtures/auth";
 
 import { mockAllAI } from "../fixtures/aiMocks";
-import { getMonacoValue, setMonacoValue, waitForMonacoReady } from "../fixtures/monaco";
+import { focusMonaco, getMonacoValue, setMonacoValue, waitForMonacoReady } from "../fixtures/monaco";
 import { loadProfile, markOnboardingDone, seedApiKey } from "../fixtures/profiles";
 import { readLessonSolution, readPracticeSolution } from "../fixtures/solutions";
 import * as S from "../utils/selectors";
@@ -106,6 +106,53 @@ test.describe("practice mode", () => {
     expect(await getMonacoValue(page)).toContain("def greet");
   });
 
+  test("rate-limited completion keeps the solution and gates retry to Retry-After", async ({ page }) => {
+    await loadProfile(page, "capstones-pending");
+    let blockedOnce = false;
+    await page.route(
+      `**/api/user/lessons/${COURSE_ID}/${LESSON_ID}`,
+      async (route) => {
+        const request = route.request();
+        const body = request.method() === "PATCH"
+          ? (request.postDataJSON() as Record<string, unknown>)
+          : {};
+        if (!blockedOnce && body.practiceEvidence) {
+          blockedOnce = true;
+          await route.fulfill({
+            status: 429,
+            contentType: "application/json",
+            headers: { "Retry-After": "2" },
+            body: JSON.stringify({ error: "Too many requests" }),
+          });
+          return;
+        }
+        await route.fallback();
+      },
+    );
+    await page.goto(`/learn/course/${COURSE_ID}/lesson/${LESSON_ID}?mode=practice`);
+    await waitForMonacoReady(page);
+
+    const solution = readPracticeSolution(COURSE_ID, LESSON_ID, EX1);
+    await setMonacoValue(page, solution);
+    await S.lessonRunButton(page).click();
+    await S.checkMyWorkButton(page).click();
+
+    await expect(page.getByRole("alert").filter({ hasText: /practice result not saved/i })).toBeVisible({
+      timeout: 30_000,
+    });
+    const countdown = page.getByRole("button", { name: /retry in \d+s/i });
+    await expect(countdown).toBeVisible();
+    await expect(countdown).toBeDisabled();
+    expect(await getMonacoValue(page)).toBe(solution);
+    await expect(page.getByText(/0\/3 done/).first()).toBeVisible();
+
+    const retry = page.getByRole("button", { name: /^retry saving$/i });
+    await expect(retry).toBeEnabled({ timeout: 5_000 });
+    await retry.click();
+    await expect(page.getByText(/nice work/i).first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/1\/3 done/).first()).toBeVisible();
+  });
+
   test("authenticated phone practice keeps every workspace surface inside the viewport", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await loadProfile(page, "capstones-pending");
@@ -143,6 +190,47 @@ test.describe("practice mode", () => {
     expect(layout.codeBlocks.length).toBeGreaterThan(0);
     expect(layout.codeBlocks.every(({ clientWidth, scrollWidth }) => scrollWidth <= clientWidth)).toBe(true);
     expect(layout.practiceButtons.every(({ width, height }) => width >= 44 && height >= 44)).toBe(true);
+  });
+
+  test("minimum-width desktop practice keeps complete calls and expected values readable", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await loadProfile(page, "capstones-pending");
+    await page.goto(`/learn/course/${COURSE_ID}/lesson/${LESSON_ID}?mode=practice`);
+    await waitForMonacoReady(page);
+    await page.getByRole("button", { name: /^exercise 2:/i }).click();
+
+    const splitter = page.getByRole("separator", { name: "Resize panel width" }).first();
+    for (let i = 0; i < 8; i += 1) await splitter.press("Shift+ArrowLeft");
+    await expect(splitter).toHaveAttribute("aria-valuenow", "240");
+
+    const layout = await page.evaluate(() => {
+      const panel = document.querySelector<HTMLElement>(
+        'section[aria-labelledby^="practice-tests-"]',
+      );
+      const panelRight = panel?.getBoundingClientRect().right ?? 0;
+      const code = Array.from(panel?.querySelectorAll<HTMLElement>("code") ?? []);
+      return {
+        panelOverflow: panel ? panel.scrollWidth - panel.clientWidth : -1,
+        code: code.map((node) => ({
+          text: node.textContent?.trim(),
+          clientWidth: node.clientWidth,
+          scrollWidth: node.scrollWidth,
+          right: node.getBoundingClientRect().right,
+          whiteSpace: getComputedStyle(node).whiteSpace,
+          overflowWrap: getComputedStyle(node).overflowWrap,
+        })),
+        panelRight,
+      };
+    });
+    expect(layout.panelOverflow).toBe(0);
+    expect(layout.code.length).toBeGreaterThanOrEqual(6);
+    expect(layout.code.every(({ text }) => Boolean(text))).toBe(true);
+    expect(layout.code.every(({ clientWidth, scrollWidth }) => scrollWidth <= clientWidth)).toBe(true);
+    expect(layout.code.every(({ right }) => right <= layout.panelRight)).toBe(true);
+    expect(layout.code.every(({ whiteSpace }) => whiteSpace === "pre-wrap")).toBe(true);
+    expect(layout.code.every(({ overflowWrap }) => overflowWrap === "anywhere")).toBe(true);
   });
 
   test("completing all 3 exercises swaps Next for 'All practice done'", async ({ page }) => {
@@ -214,6 +302,44 @@ test.describe("practice mode", () => {
     await expect(page.getByText(/0\/3 done/).first()).toBeVisible({ timeout: 5_000 });
   });
 
+  test("completed practice code resets to the authored starter before the editor unlocks", async ({ page }) => {
+    await loadProfile(page, "capstones-pending");
+    await page.goto(`/learn/course/${COURSE_ID}/lesson/${LESSON_ID}?mode=practice`);
+    await waitForMonacoReady(page);
+
+    const authoredStarter = await getMonacoValue(page);
+    const solved = readPracticeSolution(COURSE_ID, LESSON_ID, EX1);
+    await setMonacoValue(page, solved);
+    await S.lessonRunButton(page).click();
+    await S.checkMyWorkButton(page).click();
+    await expect(page.getByText(/nice work/i).first()).toBeVisible({ timeout: 30_000 });
+    // Let the ordinary debounced practice draft persist so Reset is forced to
+    // choose between a real saved solution and the immutable authored starter.
+    await page.waitForTimeout(2_300);
+
+    const resetAndWaitForCommit = async () => {
+      await S.resetCodeButton(page).click();
+      const confirm = page.getByRole("alertdialog", { name: /reset this code/i });
+      await expect(confirm).toBeVisible();
+      await confirm.getByRole("button", { name: /^reset code$/i }).click();
+      await expect(
+        page.getByRole("status").filter({ hasText: /code reset\. output, checks, and tutor context/i }),
+      ).toBeVisible({ timeout: 5_000 });
+      expect(await getMonacoValue(page)).toBe(authoredStarter);
+    };
+
+    await resetAndWaitForCommit();
+    await page.getByRole("button", { name: /undo reset/i }).click();
+    await expect.poll(() => getMonacoValue(page)).toBe(solved);
+
+    await resetAndWaitForCommit();
+    await focusMonaco(page);
+    await page.keyboard.press(process.platform === "darwin" ? "Meta+End" : "Control+End");
+    await page.keyboard.type("\n# RESET_SENTINEL_AFTER_COMMIT");
+    await page.waitForTimeout(2_300);
+    expect(await getMonacoValue(page)).toContain("RESET_SENTINEL_AFTER_COMMIT");
+  });
+
   test("Show hints toggles the hints list", async ({ page }) => {
     await loadProfile(page, "capstones-pending");
     await page.goto(`/learn/course/${COURSE_ID}/lesson/${LESSON_ID}?mode=practice`);
@@ -237,11 +363,34 @@ test.describe("practice mode", () => {
 
     // Back in instructions view — the lesson's h1 title (renders in
     // LessonInstructionsPanel, not the practice header).
-    await expect(page.getByRole("heading", { level: 1, name: /^functions$/i })).toBeVisible({
+    const lessonHeading = page.getByRole("heading", { level: 1, name: /^functions$/i });
+    await expect(lessonHeading).toBeVisible({
       timeout: 5_000,
     });
+    await expect(lessonHeading).toBeFocused();
+    await expect(page).not.toHaveURL(/mode=practice/);
     // And the Practice "X of Y" header chip is gone.
     await expect(page.getByText(/\d+ of 3/)).toHaveCount(0);
+  });
+
+  test("collapsed practice exit focuses the visible instructions restore control", async ({
+    page,
+  }) => {
+    await loadProfile(page, "capstones-pending");
+    await page.goto(`/learn/course/${COURSE_ID}/lesson/${LESSON_ID}?mode=practice`);
+    await waitForMonacoReady(page);
+
+    await page.getByRole("button", { name: "Collapse practice instructions" }).click();
+    const restoreInstructions = page.getByRole("button", {
+      name: "Show instructions panel",
+    });
+    await expect(restoreInstructions).toBeVisible();
+
+    await page
+      .getByRole("button", { name: "Exit practice mode and return to lesson" })
+      .click();
+    await expect(page.getByText("Practice Mode", { exact: true })).toHaveCount(0);
+    await expect(restoreInstructions).toBeFocused();
   });
 
   test("AI tutor sends the active exercise identity for server-resolved context", async ({ page }) => {

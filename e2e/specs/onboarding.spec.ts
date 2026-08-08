@@ -13,7 +13,7 @@ import { expect, test } from "../fixtures/auth";
 
 import { mockAllAI } from "../fixtures/aiMocks";
 import { waitForMonacoReady } from "../fixtures/monaco";
-import { loadProfile } from "../fixtures/profiles";
+import { loadProfile, seedApiKey } from "../fixtures/profiles";
 import * as S from "../utils/selectors";
 
 const COURSE_ID = "python-fundamentals";
@@ -143,6 +143,35 @@ test.describe("onboarding", () => {
     await waitForMonacoReady(page);
     await page.waitForTimeout(AUTO_OPEN_MS + 500);
     await expect(page.getByRole("button", { name: /^skip tour$/i })).toHaveCount(0);
+  });
+
+  test("finishing EditorCoach hands focus to the tutor composer", async ({ page }) => {
+    await loadProfile(page, "empty", { onboarded: false });
+    await seedApiKey(page, { key: "sk-test-e2e-padding-12345", model: "gpt-4o-mini" });
+    await page.goto("/editor");
+    await waitForMonacoReady(page);
+
+    const gotIt = page.getByRole("button", { name: /^got it$/i });
+    await expect(gotIt).toBeVisible({ timeout: AUTO_OPEN_MS + 5_000 });
+    for (let step = 0; step < 6; step += 1) {
+      await gotIt.click();
+    }
+
+    await expect(page.getByRole("button", { name: /^skip tour$/i })).toHaveCount(0);
+    await expect(page.getByRole("textbox", { name: /ask the tutor/i })).toBeFocused();
+  });
+
+  test("skipping EditorCoach hands focus to the editor heading", async ({ page }) => {
+    await loadProfile(page, "empty", { onboarded: false });
+    await page.goto("/editor");
+    await waitForMonacoReady(page);
+
+    const skipTour = page.getByRole("button", { name: /^skip tour$/i });
+    await expect(skipTour).toBeVisible({ timeout: AUTO_OPEN_MS + 5_000 });
+    await skipTour.click();
+
+    await expect(skipTour).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Editor", exact: true })).toBeFocused();
   });
 
   test("first lesson opens without a stacked workspace tour or locked actions", async ({ page }) => {

@@ -37,6 +37,9 @@ npx playwright test specs/editor.spec.ts --debug
 # Single spec
 npx playwright test specs/learning.spec.ts
 
+# Opt into a local failure video when motion/timing is the thing under review
+E2E_VIDEO=1 npx playwright test specs/learning.spec.ts
+
 # Advisory no-retry critical lane (the full suite is still the release gate)
 npx playwright test --grep @lane:critical --project=chromium --retries=0
 
@@ -95,8 +98,9 @@ npm run test:real
 
 1. `npx playwright show-report` — HTML report includes trace viewer.
 2. `npx playwright test --trace on` — forces trace on every test (heavier, keep off by default).
-3. `--repeat-each=10` for a single spec to stress-test flakiness.
-4. Common culprits: Monaco not ready on first click (use `waitForMonacoReady`), SSE mock missing (check `page.route` was called before the action), seed JSON out of shape (inspect `fixtures/seeds/<id>.json`; `loadProfile` logs the PATCH failures).
+3. `E2E_VIDEO=1 npx playwright test ...` — records local failure video when motion or timing needs visual diagnosis. CI always retains failure videos; local runs keep video opt-in so capture overhead cannot create false app-readiness failures.
+4. `--repeat-each=10` for a single spec to stress-test flakiness.
+5. Common culprits: Monaco not ready on first click (use `waitForMonacoReady`), SSE mock missing (check `page.route` was called before the action), seed JSON out of shape (inspect `fixtures/seeds/<id>.json`; `loadProfile` logs the PATCH failures).
 
 ## CI
 
