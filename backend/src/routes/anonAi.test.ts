@@ -403,4 +403,33 @@ describe("POST /api/anon/ai/ask/stream — B3 model routing", () => {
       comprehensionCheck: null,
     });
   });
+
+  it("refunds the anonymous allowance and keeps progression closed for a no-value payload", async () => {
+    vi.mocked(openaiProvider.askStream).mockImplementationOnce(async (_params, handlers) => {
+      await handlers.onDone(
+        "{\"intent\":\"concept\"}",
+        { intent: "concept", summary: "The file contains a print statement." },
+        { inputTokens: 10, outputTokens: 5 },
+        false,
+      );
+    });
+
+    const response = await post(validBody());
+    const text = await response.text();
+    const done = JSON.parse(
+      text.split("\n").find((line) => line.startsWith("data: "))!.slice(6),
+    ) as {
+      countsTowardQuota: boolean;
+      remainingToday: number;
+      tutorProgressToken: null;
+    };
+    expect(done).toMatchObject({
+      countsTowardQuota: false,
+      remainingToday: 8,
+      tutorProgressToken: null,
+    });
+    expect(vi.mocked(finalizeAIRequest)).toHaveBeenCalledWith(
+      expect.objectContaining({ countsTowardQuota: false }),
+    );
+  });
 });

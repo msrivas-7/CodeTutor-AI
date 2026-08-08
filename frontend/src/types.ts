@@ -151,6 +151,7 @@ export interface AIAskResult {
   sections: TutorSections;
   raw: string;
   tutorProgressToken?: string;
+  countsTowardQuota?: boolean;
 }
 
 export function monacoLangFor(path: string): string {

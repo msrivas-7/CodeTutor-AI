@@ -242,6 +242,17 @@ async function safeFinalizeAnonUsage(
   }
 }
 
+async function visibleAnonRemainingAfterTutorTurn(
+  ipHash: string,
+  reservedRemaining: number | null,
+  countsTowardQuota: boolean,
+): Promise<number | null> {
+  if (countsTowardQuota) return reservedRemaining;
+  const refreshed = await resolveAnonAICredential(ipHash);
+  if (refreshed.source === "platform") return refreshed.remainingToday;
+  return reservedRemaining == null ? null : reservedRemaining + 1;
+}
+
 function reservationTtlMs(): number {
   return Math.min(config.aiRequestTimeoutMs, 60_000);
 }
@@ -759,8 +770,10 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
             if (closed) return;
             send({ delta: chunk });
           },
-          onDone: async (raw, sections, usage) => {
+          onDone: async (raw, sections, usage, providerHasTeachingValue) => {
             terminalFired = true;
+            const hasTeachingValue = providerHasTeachingValue !== false;
+            const countsTowardQuota = hasTeachingValue;
             const usageKnown = usage !== undefined;
             const inTok = usage?.inputTokens ?? estimate.reservedInputTokens;
             const outTok = usage?.outputTokens ?? estimate.reservedOutputTokens;
@@ -771,7 +784,7 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
             );
             await safeFinalizeAnonUsage({
               requestId: parsed.data.requestId,
-              countsTowardQuota: true,
+              countsTowardQuota,
               inputTokens: inTok,
               outputTokens: outTok,
               costUsd,
@@ -789,9 +802,14 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
               route: "anon_ask_stream",
             });
             if (closed) return;
+            const remainingToday = await visibleAnonRemainingAfterTutorTurn(
+              ipHash,
+              reservation.remainingToday,
+              countsTowardQuota,
+            );
             const visibleSections = closeTutorTurnAtAllowanceBoundary(
               sections,
-              reservation.remainingToday,
+              remainingToday,
             );
             send({
               done: true,
@@ -800,8 +818,11 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
                 : JSON.stringify(visibleSections),
               sections: visibleSections,
               usage,
-              remainingToday: reservation.remainingToday,
-              tutorProgressToken: mintTutorProgressToken(progressIdentity),
+              remainingToday,
+              countsTowardQuota,
+              tutorProgressToken: hasTeachingValue
+                ? mintTutorProgressToken(progressIdentity)
+                : parsed.data.tutorProgressToken ?? null,
             });
             finish();
             if (evalSamplingEnabled && parsed.data.evalSamplingConsent) {

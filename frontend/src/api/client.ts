@@ -498,6 +498,7 @@ export interface AskStreamHandlers {
     usage?: TokenUsage,
     tutorProgressToken?: string,
     remainingToday?: number | null,
+    countsTowardQuota?: boolean,
   ): void;
   onError(message: string): void;
   signal?: AbortSignal;
@@ -1601,6 +1602,7 @@ export const api = {
             usage?: TokenUsage;
             tutorProgressToken?: string;
             remainingToday?: number | null;
+            countsTowardQuota?: boolean;
           };
           try {
             evt = JSON.parse(data);
@@ -1625,6 +1627,7 @@ export const api = {
               evt.usage,
               evt.tutorProgressToken,
               evt.remainingToday,
+              evt.countsTowardQuota,
             );
             return;
           }

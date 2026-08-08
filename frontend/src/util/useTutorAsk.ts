@@ -310,6 +310,7 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
             usage,
             nextTutorProgressToken,
             remainingToday,
+            countsTowardQuota,
           ) => {
             cancelPending();
             if (!operationIsCurrent()) return;
@@ -325,7 +326,11 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
             // turn. The 30s cache + next natural fetch reconciles if we drift.
             // Anon: skip — there's no /api/user/ai-status cache to decrement,
             // and the L_anon ledger is per-IP server-side.
-            if (!isAnon && aiStatus?.source === "platform")
+            if (
+              countsTowardQuota !== false &&
+              !isAnon &&
+              aiStatus?.source === "platform"
+            )
               notePlatformQuestionConsumed();
             if (remainingToday !== undefined) {
               opts.onAllowanceUpdate?.(remainingToday);

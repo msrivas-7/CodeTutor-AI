@@ -166,6 +166,8 @@ export interface AIAskResult {
   sections: TutorSections;
   raw: string;
   usage?: TokenUsage;
+  /** False only when the final rendered teaching-value contract failed. */
+  hasTeachingValue?: boolean;
 }
 
 export interface AIStreamHandlers {
@@ -174,6 +176,7 @@ export interface AIStreamHandlers {
     raw: string,
     sections: TutorSections,
     usage?: TokenUsage,
+    hasTeachingValue?: boolean,
   ): void | Promise<void>;
   // `status` carries the upstream HTTP status when the failure came from
   // the provider (e.g. 401 from OpenAI on bad key). Absent for transport

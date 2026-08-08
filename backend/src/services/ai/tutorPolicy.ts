@@ -87,6 +87,11 @@ function safeText(value: string | null | undefined): string | null {
   return scrubCanaries(value)?.trim() || null;
 }
 
+function hasActualFileDiff(diff: string | null | undefined): boolean {
+  const normalized = diff?.trim();
+  return !!normalized && !/^\(no file edits since last tutor turn\)$/i.test(normalized);
+}
+
 function safeProse(
   value: string | null | undefined,
   params: Pick<AIAskParams, "files" | "question">,
@@ -224,8 +229,8 @@ function fallbackClarifyingQuestion(params: TutorPolicyParams): string {
   const mentionedOutputCall = visibleLines
     .flatMap((line) => [...line.matchAll(/\b(print|console\.log)\s*\(/g)])
     .map((match) => match[1])[0];
-  if (params.diffSinceLastTurn) {
-    return "What changed in the result after your most recent edit?";
+  if (hasActualFileDiff(params.diffSinceLastTurn)) {
+    return "Which visible behavior do you expect the edited line to change?";
   }
 
   if (executableLines.length === 0 && mentionedOutputCall) {
@@ -433,6 +438,94 @@ function visibleCodeCitation(
   return null;
 }
 
+const EXPLICIT_HINT_REQUEST =
+  /\b(?:give|offer|provide|share|show) me (?:a |another )?(?:gentle|small|tiny|first|stronger)?\s*(?:hint|nudge|clue)\b|\b(?:can|could|would|will) you (?:give|offer|provide|share|show) (?:me )?(?:a |another )?(?:gentle|small|tiny|first|stronger)?\s*(?:hint|nudge|clue)\b|^(?:please\s+)?(?:a\s+)?(?:gentle|small|tiny|first|stronger)?\s*(?:hint|nudge|clue)\b|\bpoint me in the right direction\b|\bhelp me get started\b/i;
+
+function visibleOutputOperation(
+  params: Pick<AIAskParams, "files">,
+): {
+  path: string;
+  line: number;
+  call: "print" | "console.log";
+  hasArgument: boolean;
+} | null {
+  for (const file of params.files) {
+    for (const [index, source] of file.content.split("\n").entries()) {
+      if (/^\s*(?:#|\/\/)/.test(source)) continue;
+      const match = source.match(/\b(print|console\.log)\s*\((.*)\)/);
+      if (!match || INSTRUCTION_INJECTION.test(source)) continue;
+      return {
+        path: file.path,
+        line: index + 1,
+        call: match[1] as "print" | "console.log",
+        hasArgument: match[2].trim().length > 0,
+      };
+    }
+  }
+  return null;
+}
+
+function lessonGoal(params: TutorPolicyParams): string | null {
+  const objective = params.lessonContext?.lessonObjectives.find((item) => item.trim());
+  return objective?.replace(/[.!]+$/, "") ?? null;
+}
+
+function groundedGentleHint(params: TutorPolicyParams): {
+  summary: string;
+  hint: string;
+  nextStep: string;
+  question: string;
+  citations: TutorSections["citations"];
+} {
+  const current = socraticValue(params);
+  const hasVisibleCondition = params.files.some((file) =>
+    file.content.split("\n").some((line) =>
+      /^\s*(?:if|elif)\s+.+:?\s*$|^\s*(?:if|else\s+if)\s*\(.+\)/.test(line),
+    ),
+  );
+  if (params.lastRun || hasActualFileDiff(params.diffSinceLastTurn) || hasVisibleCondition) {
+    return {
+      summary: current.summary ?? "The latest visible evidence should guide the next change.",
+      hint: current.hint ?? "Use the cited result to narrow the next inspection to one line.",
+      nextStep: "Run the smallest relevant case and compare the new result with this evidence.",
+      question: current.question ?? clarifyingQuestion({}, params),
+      citations: current.citations ?? null,
+    };
+  }
+
+  const output = visibleOutputOperation(params);
+  if (output) {
+    const goal = lessonGoal(params);
+    return {
+      summary: `Your current line already uses \`${output.call}()\`, so the output operation itself is in place.`,
+      hint: output.hasArgument
+        ? `The text or expression inside \`${output.call}()\` is the part that determines what appears in Output${goal ? `; compare only that part with the lesson goal to ${goal.charAt(0).toLowerCase()}${goal.slice(1)}` : ""}.`
+        : `The \`${output.call}()\` call is empty; decide which lesson result belongs inside its parentheses without changing the output operation.`,
+      nextStep: `Run this exact line once, then compare the visible Output with the lesson request before editing anything else.`,
+      question: `Which part inside \`${output.call}()\` controls the message the learner sees?`,
+      citations: [{
+        path: output.path,
+        line: output.line,
+        column: null,
+        reason: "Current output operation and its visible argument",
+      }],
+    };
+  }
+
+  const goal = lessonGoal(params);
+  return {
+    summary: current.summary ?? (goal
+      ? `The current task is to ${goal.charAt(0).toLowerCase()}${goal.slice(1)}.`
+      : "The next useful move should be tied to the current file, not a guessed final answer."),
+    hint: current.hint ?? (goal
+      ? `Choose the smallest visible line that contributes to the goal to ${goal.charAt(0).toLowerCase()}${goal.slice(1)}, and predict its result before changing it.`
+      : "Choose one visible line, predict its result, and run that smallest case before adding another step."),
+    nextStep: "Run the smallest current case and use its actual output or error as the next piece of evidence.",
+    question: current.question ?? clarifyingQuestion({}, params),
+    citations: current.citations ?? null,
+  };
+}
+
 function socraticValue(
   params: TutorPolicyParams,
 ): Pick<TutorSections, "summary" | "hint" | "citations"> & {
@@ -485,11 +578,11 @@ function socraticValue(
     };
   }
 
-  if (params.diffSinceLastTurn) {
+  if (hasActualFileDiff(params.diffSinceLastTurn)) {
     const citation = visibleCodeCitation(params);
     return {
-      summary: "The code has changed since the previous tutor turn, so the newest run result is the evidence that matters now.",
-      hint: "Compare the current result with the result from before the edit and name the first behavior that changed.",
+      summary: "The visible code has changed since the previous tutor turn, but there is no newer run result yet.",
+      hint: "Predict what the edited line should change, then run it once and compare that prediction with the observed result.",
       citations: citation ? [citation] : null,
     };
   }
@@ -715,6 +808,54 @@ function pythonSingleListAddition(
   return null;
 }
 
+function visibleCollectionHowto(
+  params: Pick<AIAskParams, "files" | "question" | "lessonContext">,
+): {
+  summary: string;
+  explain: string;
+  hint: string;
+  nextStep: string;
+  citation: NonNullable<TutorSections["citations"]>[number];
+} | null {
+  const language = params.lessonContext?.language;
+  for (const file of params.files) {
+    const match = file.content.match(
+      /^\s*(?:(?:const|let|var)\s+)?([A-Za-z_$][\w$]*)\s*=\s*\[[^\n]*\]\s*;?\s*$/m,
+    );
+    if (!match) continue;
+    const variable = match[1];
+    const line = file.content.slice(0, match.index).split("\n").length;
+    const citation = {
+      path: file.path,
+      line,
+      column: null,
+      reason: `Visible collection named ${variable}`,
+    };
+    if (
+      language === "python" &&
+      /\badd\b[^.!?]{0,40}\bitem\b|\bitem\b[^.!?]{0,40}\blist\b/i.test(params.question)
+    ) {
+      return {
+        summary: `The current \`${variable}\` list can add one item without replacing the values already inside it.`,
+        explain: `Python's \`append()\` list method adds one item to the end of the existing \`${variable}\` list.`,
+        hint: `Use the method on \`${variable}\` itself and pass only the one new item you want to add.`,
+        nextStep: `Add one item to \`${variable}\`, then run the current print line and check that the list grew by exactly one entry.`,
+        citation,
+      };
+    }
+    if (language === "javascript" && /\bprintAll\b/i.test(params.question)) {
+      return {
+        summary: `The current \`${variable}\` array needs an iteration step rather than a fabricated display method.`,
+        explain: `That proposed display method is not part of JavaScript arrays. To show every value in \`${variable}\`, visit each item once and log that current item.`,
+        hint: "Use a standard iteration method such as `forEach()` rather than inventing a display method on the array.",
+        nextStep: `Start one iteration over \`${variable}\` and decide what name represents the current item before adding the log action.`,
+        citation,
+      };
+    }
+  }
+  return null;
+}
+
 function visiblePythonListSortCorrection(
   params: Pick<AIAskParams, "files" | "question" | "lessonContext">,
 ): {
@@ -866,25 +1007,86 @@ function visiblePythonInputHowto(
 } | null {
   if (
     params.lessonContext?.language !== "python" ||
-    !/\b(?:input|ask(?:ing)? (?:the )?user|their name)\b/i.test(params.question) ||
-    !/\b(?:print|display|show|back)\b/i.test(params.question)
+    !/\b(?:input|ask(?:ing)? (?:the )?user|asks? for (?:a|the) name|their name)\b/i.test(params.question) ||
+    !/\b(?:prints?|display|show|back)\b/i.test(params.question)
   ) {
     return null;
   }
   for (const file of params.files) {
     const lines = file.content.split("\n");
     const printIndex = lines.findIndex((line) => /^\s*print\s*\(/.test(line));
-    if (printIndex < 0) continue;
+    if (printIndex >= 0) {
+      return {
+        explain:
+          "First store the value returned by `input()` in a variable; then use that variable in the existing `print()` call.",
+        nextStep:
+          `Add one \`input()\` assignment immediately before line ${printIndex + 1}, then run the file and enter a short name before changing the greeting.`,
+        citation: {
+          path: file.path,
+          line: printIndex + 1,
+          column: null,
+          reason: "Existing output line that will use the captured name",
+        },
+      };
+    }
+
+    const firstVisibleIndex = lines.findIndex(
+      (line) => line.trim() && !INSTRUCTION_INJECTION.test(line),
+    );
+    if (firstVisibleIndex >= 0) {
+      return {
+        explain:
+          "`input()` produces the learner's name value; capture that value first so the later greeting has something specific to display.",
+        nextStep:
+          "Add only the name-capture assignment beneath the current placeholder, run it with a short name, and inspect that value before adding the greeting output.",
+        citation: {
+          path: file.path,
+          line: firstVisibleIndex + 1,
+          column: null,
+          reason: "Current placeholder for the first name-input step",
+        },
+      };
+    }
+  }
+  return null;
+}
+
+function visiblePythonRangeHowto(
+  params: Pick<AIAskParams, "files" | "question" | "lessonContext">,
+): {
+  summary: string;
+  explain: string;
+  nextStep: string;
+  citation: NonNullable<TutorSections["citations"]>[number];
+} | null {
+  if (params.lessonContext?.language !== "python") return null;
+  const bounds = params.question.match(
+    /\b(?:print|show|display)\s+(?:the\s+)?numbers?\s+(-?\d+)\s+(?:to|through)\s+(-?\d+)\b/i,
+  );
+  if (!bounds) return null;
+  const start = Number(bounds[1]);
+  const end = Number(bounds[2]);
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start > end) {
+    return null;
+  }
+  for (const file of params.files) {
+    const lines = file.content.split("\n");
+    const anchorIndex = lines.findIndex(
+      (line) => line.trim() && !INSTRUCTION_INJECTION.test(line),
+    );
+    if (anchorIndex < 0) continue;
     return {
+      summary:
+        `Displaying every number from ${start} through ${end} is a repetition task, so one loop should control the repeated output.`,
       explain:
-        "First store the value returned by `input()` in a variable; then use that variable in the existing `print()` call.",
+        `Python's \`range()\` includes its starting value but stops before its ending value; account for that boundary so ${end} is not skipped.`,
       nextStep:
-        `Add one \`input()\` assignment immediately before line ${printIndex + 1}, then run the file and enter a short name before changing the greeting.`,
+        "Add only the loop header for the requested interval beneath the current placeholder, then run once and inspect the first and last displayed values before changing anything else.",
       citation: {
         path: file.path,
-        line: printIndex + 1,
+        line: anchorIndex + 1,
         column: null,
-        reason: "Existing output line that will use the captured name",
+        reason: "Current placeholder for the requested number loop",
       },
     };
   }
@@ -1306,6 +1508,13 @@ function fallbackWalkthroughSteps(
     .map((body) => ({ body, path: null, line: null }));
 }
 
+function visibleExpressionIdentifiers(expression: string | undefined): string[] {
+  if (!expression) return [];
+  const withoutStrings = expression.replace(/(["'])(?:\\.|(?!\1).)*\1/g, " ");
+  return [...new Set(withoutStrings.match(/\b[A-Za-z_$][\w$]*\b/g) ?? [])]
+    .filter((name) => !["true", "false", "null", "undefined"].includes(name.toLowerCase()));
+}
+
 function visibleCodeWalkthroughSteps(
   params: Pick<AIAskParams, "files" | "question">,
 ): NonNullable<TutorSections["walkthrough"]> {
@@ -1342,6 +1551,9 @@ function visibleCodeWalkthroughSteps(
       const consoleOutputIdentifier = line.match(
         /^console\.log\s*\(\s*([A-Za-z_$][\w$]*)\s*\)\s*;?$/,
       )?.[1];
+      const consoleOutputExpression = line.match(
+        /^console\.log\s*\((.*)\)\s*;?$/,
+      )?.[1];
       const pythonOutput = /^print\s*\(/.test(line);
       const pythonOutputIdentifier = line.match(
         /^print\s*\(\s*([A-Za-z_$][\w$]*)\s*\)\s*$/,
@@ -1355,6 +1567,9 @@ function visibleCodeWalkthroughSteps(
       const pythonFormattedIdentifier = line.match(
         /^print\s*\(\s*f["'][^"']*\{([A-Za-z_]\w*)[^}]*\}[^"']*["']\s*\)\s*$/,
       )?.[1];
+      const pythonOutputExpression = line.match(/^print\s*\((.*)\)\s*$/)?.[1];
+      const consoleExpressionNames = visibleExpressionIdentifiers(consoleOutputExpression);
+      const pythonExpressionNames = visibleExpressionIdentifiers(pythonOutputExpression);
       const pythonFromImport = line.match(
         /^from\s+([A-Za-z_][\w.]*)\s+import\s+(.+)$/,
       );
@@ -1376,6 +1591,8 @@ function visibleCodeWalkthroughSteps(
       } else if (consoleOutput) {
         body = consoleOutputIdentifier
           ? `This line logs the current \`${consoleOutputIdentifier}\` value to the console.`
+          : consoleOutputExpression?.includes("+") && consoleExpressionNames.length
+          ? `This line combines visible text with the current ${consoleExpressionNames.map((name) => `\`${name}\``).join(" and ")} value${consoleExpressionNames.length === 1 ? "" : "s"}, then logs the result to the console.`
           : "This line logs the visible expression’s result to the console.";
       } else if (pythonOutput) {
         body = pythonLengthOutputIdentifier
@@ -1386,6 +1603,8 @@ function visibleCodeWalkthroughSteps(
           ? `This line displays the current \`${pythonOutputIdentifier}\` value.`
           : pythonFormattedIdentifier
           ? `This line displays the current \`${pythonFormattedIdentifier}\` value.`
+          : pythonOutputExpression?.includes("+") && pythonExpressionNames.length
+          ? `This line combines visible text with the current ${pythonExpressionNames.map((name) => `\`${name}\``).join(" and ")} value${pythonExpressionNames.length === 1 ? "" : "s"}, then displays the result.`
           : "This line displays the visible expression’s result.";
       } else if (pythonFromImport) {
         const names = pythonFromImport[2]
@@ -1402,8 +1621,12 @@ function visibleCodeWalkthroughSteps(
       } else if (assignment) {
         const [, name, expression] = assignment;
         const called = expression.match(/^([A-Za-z_$][\w$]*)\s*\(/)?.[1];
+        const expressionNames = visibleExpressionIdentifiers(expression)
+          .filter((identifier) => identifier !== name);
         body = called
           ? `\`${name}\` receives the value returned by calling \`${called}\`.`
+          : expression.includes("+") && expressionNames.length
+          ? `\`${name}\` stores new text combined from the visible text and the current ${expressionNames.map((identifier) => `\`${identifier}\``).join(" and ")} value${expressionNames.length === 1 ? "" : "s"}.`
           : `\`${name}\` stores the value computed by this expression.`;
       } else if (/^(?:if|elif|else\b|for|while)\b/.test(line)) {
         body = "This line controls which part of the visible flow runs next.";
@@ -1414,6 +1637,33 @@ function visibleCodeWalkthroughSteps(
     }
   }
   return steps;
+}
+
+function repairMisgroundedOutputClaims(
+  grounded: NonNullable<TutorSections["walkthrough"]>,
+  visible: NonNullable<TutorSections["walkthrough"]>,
+  params: Pick<AIAskParams, "files">,
+): NonNullable<TutorSections["walkthrough"]> {
+  const fallbackByLocation = new Map(
+    visible.map((step) => [`${step.path ?? ""}:${step.line ?? ""}`, step]),
+  );
+  const sourceByLocation = new Map<string, string>(
+    params.files.flatMap((file) =>
+      file.content.split("\n").map((source, index) => [
+        `${file.path}:${index + 1}`,
+        source.trim(),
+      ] as const),
+    ),
+  );
+  return grounded.map((step) => {
+    const location = `${step.path ?? ""}:${step.line ?? ""}`;
+    const source = sourceByLocation.get(location) ?? "";
+    const claimsOutput = /\b(?:prints?|printed|logs?|logged|displays?|displayed|outputs?|outputted)\b/i.test(step.body);
+    const isOutputLine = /\b(?:print|console\.log)\s*\(/.test(source);
+    return claimsOutput && !isOutputLine
+      ? fallbackByLocation.get(location) ?? step
+      : step;
+  });
 }
 
 function ensureRepresentativeLongWalkthrough(
@@ -1568,11 +1818,27 @@ export function applyTutorOutputPolicy({
     // Fail closed to a deterministic current-work observation, a bounded clue,
     // and one grounded question. A generic question by itself is not enough
     // value to consume a learner's limited tutor allowance.
-    const { question, ...value } = socraticValue(params);
+    const grounded = EXPLICIT_HINT_REQUEST.test(params.question)
+      ? groundedGentleHint(params)
+      : socraticValue(params);
+    const { question, summary, hint, citations } = grounded;
     return {
       intent: "socratic",
-      ...value,
+      summary,
+      hint,
+      citations,
       checkQuestions: [question ?? clarifyingQuestion(sections, params)],
+    };
+  }
+  if (intent === "howto" && EXPLICIT_HINT_REQUEST.test(params.question)) {
+    const value = groundedGentleHint(params);
+    return {
+      intent: "howto",
+      summary: value.summary,
+      hint: value.hint,
+      nextStep: value.nextStep,
+      checkQuestions: [value.question],
+      citations: value.citations,
     };
   }
   const protectedRequest = PROTECTED_REQUEST.test(params.question);
@@ -1650,13 +1916,28 @@ export function applyTutorOutputPolicy({
   }
   if (intent === "howto") {
     const inputHowto = visiblePythonInputHowto(params);
+    const rangeHowto = visiblePythonRangeHowto(params);
+    const collectionHowto = visibleCollectionHowto(params);
     return {
       ...common,
-      citations: inputHowto ? [inputHowto.citation] : common.citations,
-      explain: inputHowto?.explain ?? safeProse(sections.explain, params),
-      hint: safeAction(sections.hint, params),
+      summary: rangeHowto?.summary ?? collectionHowto?.summary ?? common.summary,
+      citations: inputHowto
+        ? [inputHowto.citation]
+        : rangeHowto
+          ? [rangeHowto.citation]
+        : collectionHowto
+          ? [collectionHowto.citation]
+          : common.citations,
+      explain:
+        inputHowto?.explain ??
+        rangeHowto?.explain ??
+        collectionHowto?.explain ??
+        safeProse(sections.explain, params),
+      hint: collectionHowto?.hint ?? safeAction(sections.hint, params),
       nextStep:
         inputHowto?.nextStep ??
+        rangeHowto?.nextStep ??
+        collectionHowto?.nextStep ??
         (protectedRequest
           ? "Implement only the first behavior the task asks for, then run it and describe the value or output you observe before adding the next part."
           : safeAction(sections.nextStep, params)) ??
@@ -1696,14 +1977,19 @@ export function applyTutorOutputPolicy({
           visibleSteps,
           params,
         );
+    const repairedGrounded = repairMisgroundedOutputClaims(
+      grounded,
+      visibleSteps,
+      params,
+    );
     const continuation = requestedWalkthroughStart(params);
     const continued = continuation
-      ? grounded.filter((step) =>
+      ? repairedGrounded.filter((step) =>
           step.path === continuation.path &&
           step.line != null &&
           step.line >= continuation.line,
         )
-      : grounded;
+      : repairedGrounded;
     const walkthrough = normalizeWalkthroughLocationWording(continuation && continued.length === 0
       ? [continuationFallbackStep(continuation)]
       : continued);
@@ -1795,6 +2081,15 @@ export function applyTutorOutputPolicy({
     ?.map((citation) => meaningfulProse(citation.reason, params))
     .filter((reason): reason is string => !!reason)
     .sort((a, b) => b.length - a.length)[0];
+  const conceptCheck = conditional
+    ? "With the current visible value, which branch do you predict will run first?"
+    : constBinding
+      ? `What would you expect to happen if the visible \`${visibleIdentifier ?? "const"}\` binding were assigned a different value later?`
+      : listSortCorrection
+        ? "Which option changes the visible list itself, and which option returns a separate sorted value?"
+        : anchor
+          ? "What result do you predict from the cited line when the current code runs?"
+          : "How would you explain this concept in your own words before changing the code?";
   return {
     ...common,
     summary:
@@ -1826,10 +2121,119 @@ export function applyTutorOutputPolicy({
       listSortCorrection?.example ??
       conditional?.example ??
       constBinding?.example ??
-      (asksForConcreteExample ? visibleConcreteExample(params) : null) ??
-      anchor?.example ??
-      safeAction(sections.example, params) ??
+      (asksForConcreteExample
+        ? visibleConcreteExample(params) ?? anchor?.example ?? safeAction(sections.example, params)
+        : protectedRequest
+          ? anchor?.example
+          : null) ??
       null,
-    pitfalls: safeAction(sections.pitfalls, params),
+    comprehensionCheck:
+      conditional || constBinding || listSortCorrection
+        ? conceptCheck
+        : common.comprehensionCheck ?? conceptCheck,
+    // Concept turns stay to three teaching beats: observation, explanation,
+    // and one prediction/check. Extra examples are opt-in and pitfalls are
+    // omitted so correct information does not become an overlong lecture.
+    pitfalls: null,
+  };
+}
+
+/**
+ * Final response-value contract used by quota finalization. The output policy
+ * performs the bounded deterministic repair first; this check is the last
+ * fail-safe that prevents a structurally present but pedagogically empty turn
+ * from consuming the learner's visible allowance.
+ */
+export function hasTutorTeachingValue(
+  sections: TutorSections,
+  params: Pick<TutorPolicyParams, "question" | "files" | "lessonContext" | "lastRun">,
+): boolean {
+  const text = [
+    sections.summary,
+    sections.diagnose,
+    sections.explain,
+    sections.example,
+    sections.hint,
+    sections.nextStep,
+    sections.strongerHint,
+    sections.comprehensionCheck,
+    ...(sections.checkQuestions ?? []),
+    ...(sections.walkthrough ?? []).map((step) => step.body),
+  ].filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+  if (text.length === 0) return false;
+
+  const anchored = Boolean(
+    sections.citations?.length ||
+    params.lastRun ||
+    params.lessonContext ||
+    params.files.some((file) => file.content.trim()),
+  );
+  if (!anchored) return false;
+
+  if (EXPLICIT_HINT_REQUEST.test(params.question)) {
+    const clue = sections.hint?.trim();
+    const move = sections.intent === "socratic"
+      ? sections.checkQuestions?.[0]?.trim()
+      : sections.nextStep?.trim();
+    if (!clue || !move) return false;
+    if (/^(?:think about|look at|inspect|review|use) (?:the )?(?:current )?(?:code|file|task)[.!]?$/i.test(clue)) {
+      return false;
+    }
+  }
+
+  switch (sections.intent) {
+    case "socratic":
+      return Boolean(sections.summary?.trim() && sections.hint?.trim() && sections.checkQuestions?.length);
+    case "debug":
+      return Boolean(sections.diagnose?.trim() && (sections.nextStep?.trim() || sections.hint?.trim()));
+    case "howto":
+      return Boolean(sections.nextStep?.trim() && (sections.hint?.trim() || sections.explain?.trim()));
+    case "walkthrough":
+      return Boolean(sections.walkthrough?.length);
+    case "checkin":
+      return Boolean(sections.diagnose?.trim());
+    case "concept":
+      return Boolean(sections.explain?.trim() || sections.example?.trim());
+    default:
+      return text.length >= 2;
+  }
+}
+
+/**
+ * Honest recovery copy for the rare case where the repaired provider output
+ * still cannot satisfy the teaching-value contract. Routes deliberately keep
+ * this turn outside the visible allowance and progression state.
+ */
+export function tutorValueRecovery(
+  params: Pick<TutorPolicyParams, "files" | "lastRun">,
+): TutorSections {
+  const citation = visibleCodeCitation(params);
+  if (params.lastRun) {
+    const observed = params.lastRun.stderr.trim() || params.lastRun.stdout.trim();
+    return {
+      intent: "howto",
+      summary: "I couldn't ground a reliable teaching response yet, so use the latest run as the next source of truth.",
+      hint: observed
+        ? "Start with the first visible output or error line and connect it to the line that produced it."
+        : "The latest run produced no visible output; first identify which current line is expected to display or return a result.",
+      nextStep: "Run the smallest relevant case once more, then ask about the first output or error line you do not understand.",
+      citations: citation ? [citation] : null,
+    };
+  }
+  if (citation) {
+    return {
+      intent: "howto",
+      summary: "I couldn't ground a reliable teaching response from the available evidence yet.",
+      hint: "Use the cited current line as the starting point and predict one observable result before changing it.",
+      nextStep: "Run that smallest case, then ask about the first output or error that differs from your prediction.",
+      citations: [citation],
+    };
+  }
+  return {
+    intent: "howto",
+    summary: "I don't have enough current-work evidence to give you a useful answer yet.",
+    hint: "A visible line of code or a run result will let me give a specific clue instead of guessing.",
+    nextStep: "Add or select the line you are working on, run it once, and then ask again with the visible output or error.",
+    citations: null,
   };
 }

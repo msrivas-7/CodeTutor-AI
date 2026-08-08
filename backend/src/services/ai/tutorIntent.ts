@@ -46,6 +46,14 @@ const HOWTO = [
   /\bhow\s+i\s+(?:show|make|build|create|add|print|read|loop)\b/,
 ];
 
+const HINT = [
+  /\b(?:give|offer|provide|share|show) me (?:a |another )?(?:gentle|small|tiny|first|stronger)?\s*(?:hint|nudge|clue)\b/,
+  /\b(?:can|could|would|will) you (?:give|offer|provide|share|show) (?:me )?(?:a |another )?(?:gentle|small|tiny|first|stronger)?\s*(?:hint|nudge|clue)\b/,
+  /^(?:please\s+)?(?:a\s+)?(?:gentle|small|tiny|first|stronger)?\s*(?:hint|nudge|clue)\b/,
+  /\bpoint me in the right direction\b/,
+  /\bhelp me get started\b/,
+];
+
 const CONCEPT = [
   /\bwhat\s+(?:is|are)\b/,
   /\bwhat\s+does\b/,
@@ -105,6 +113,10 @@ export function classifyTutorIntent({
   // they also mention the error that motivated the change.
   if (matchesAny(text, CHECKIN)) return "checkin";
   if (matchesAny(text, DEBUG)) return "debug";
+  // An explicit request for a clue is procedural help, not a generic concept
+  // question. Keep this after debug/check-in so "hint about this error" still
+  // receives the richer evidence-aware debugging contract.
+  if (matchesAny(text, HINT)) return "howto";
   if (matchesAny(text, HOWTO)) return "howto";
   if (matchesAny(text, CONCEPT)) return "concept";
 

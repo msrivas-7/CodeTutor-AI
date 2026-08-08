@@ -352,6 +352,27 @@ describe("structured response recovery", () => {
     expect(result.sections.nextStep).toContain("print()");
     expect(() => JSON.parse(result.raw)).not.toThrow();
   });
+
+  it("returns an actionable no-value recovery and marks it outside visible quota", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({
+        output_text: JSON.stringify({ intent: "concept", summary: "Think about it." }),
+        usage: { input_tokens: 8, output_tokens: 3 },
+      }), { status: 200, headers: { "Content-Type": "application/json" } }),
+    );
+
+    const result = await openaiProvider.ask(minimalParams({
+      question: "Give me a gentle hint.",
+      files: [],
+      history: [{ role: "assistant", content: "What are you trying?" }],
+      tutorStage: "approach",
+    }));
+
+    expect(result.hasTeachingValue).toBe(false);
+    expect(result.sections.summary).toContain("don't have enough current-work evidence");
+    expect(result.sections.nextStep).toContain("run it once");
+    expect(JSON.parse(result.raw)).toEqual(result.sections);
+  });
 });
 
 describe("summarize request lifecycle", () => {

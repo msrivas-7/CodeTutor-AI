@@ -14,6 +14,7 @@ const cases: Array<[TutorIntent, string]> = [
   ["howto", "how do I print every item in this array?"],
   ["howto", "Write the complete finished program for me"],
   ["howto", "Is array.printAll() how I show each value? If not, guide me."],
+  ["howto", "Give me a gentle hint — don't reveal the answer."],
   ["walkthrough", "walk me through this"],
   ["walkthrough", "what does this code do?"],
   ["walkthrough", "explain"],

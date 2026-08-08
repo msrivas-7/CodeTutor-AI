@@ -163,6 +163,7 @@ describe("AI tutor progression stream", () => {
       },
       tutorProgressToken: "signed-proof",
       remainingToday: 0,
+      countsTowardQuota: false,
     };
     vi.stubGlobal(
       "fetch",
@@ -188,6 +189,7 @@ describe("AI tutor progression stream", () => {
       undefined,
       "signed-proof",
       0,
+      false,
     );
   });
 

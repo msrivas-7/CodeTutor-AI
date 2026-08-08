@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   applyTutorOutputPolicy,
   closeTutorTurnAtAllowanceBoundary,
+  hasTutorTeachingValue,
+  tutorValueRecovery,
 } from "./tutorPolicy.js";
+import { detectSuspectApis } from "./suspectApi.js";
 
 const base = {
   files: [{ path: "main.py", content: 'age = 12\nprint("Age: " + age)\n' }],
@@ -133,10 +136,33 @@ describe("applyTutorOutputPolicy", () => {
       priorTutorTurns: 0,
     });
     expect(result.checkQuestions).toEqual([
-      "What changed in the result after your most recent edit?",
+      "Which visible behavior do you expect the edited line to change?",
     ]);
     expect(result.summary).toContain("changed since the previous tutor turn");
-    expect(result.hint).toContain("current result");
+    expect(result.summary).toContain("no newer run result yet");
+    expect(result.hint).toContain("Predict what the edited line should change");
+  });
+
+  it("does not mistake the explicit no-edit marker for evidence of a code change", () => {
+    const result = applyTutorOutputPolicy({
+      sections: { summary: "Try first", checkQuestions: ["What evidence led you there?"] },
+      params: {
+        ...base,
+        question: "Give me a gentle hint — don't reveal the answer.",
+        files: [{ path: "main.py", content: 'print("Q2_REPLAY_SENTINEL")' }],
+        lastRun: null,
+        diffSinceLastTurn: "(no file edits since last tutor turn)",
+      },
+      intent: "howto",
+      priorTutorTurns: 1,
+    });
+
+    expect(result.summary).toContain("output operation itself is in place");
+    expect(result.summary).not.toContain("changed since the previous tutor turn");
+    expect(result.hint).toContain("inside `print()`");
+    expect(result.nextStep).toBe(
+      "Run this exact line once, then compare the visible Output with the lesson request before editing anything else.",
+    );
   });
 
   it("anchors a syntax-error first turn to the run evidence, not an unrelated variable", () => {
@@ -189,6 +215,70 @@ describe("applyTutorOutputPolicy", () => {
       "What text do you want your first `print()` statement to display?",
     ]);
     expect(result.citations?.[0]).toMatchObject({ path: "main.py", line: 1 });
+  });
+
+  it("turns the exact gentle-hint wording into a grounded clue instead of a generic reflection", () => {
+    const params = {
+      ...base,
+      question: "Give me a gentle hint — don't reveal the answer.",
+      files: [{ path: "main.py", content: 'print("Q2_REPLAY_SENTINEL")\n' }],
+      lastRun: null,
+      lessonContext: {
+        ...base.lessonContext,
+        lessonTitle: "Hello, World!",
+        lessonObjectives: ["Use the print() function to show text"],
+      },
+    };
+    const firstTurn = applyTutorOutputPolicy({
+      sections: { checkQuestions: ["What evidence led you to your current conclusion?"] },
+      params,
+      intent: "socratic",
+      priorTutorTurns: 0,
+    });
+    const laterTurn = applyTutorOutputPolicy({
+      sections: { summary: "The file contains a print statement." },
+      params,
+      intent: "howto",
+      priorTutorTurns: 1,
+    });
+
+    for (const result of [firstTurn, laterTurn]) {
+      expect(result.summary).toContain("output operation itself is in place");
+      expect(result.hint).toContain("inside `print()`");
+      expect(result.hint).toContain("lesson goal");
+      expect(result.checkQuestions?.[0]).toContain("inside `print()`");
+      expect(result.checkQuestions?.[0]).not.toContain("What evidence led");
+      expect(result.citations?.[0]).toMatchObject({ path: "main.py", line: 1 });
+      expect(hasTutorTeachingValue(result, params)).toBe(true);
+    }
+    expect(laterTurn.nextStep).toContain("Run this exact line once");
+  });
+
+  it("marks a generic-only hint response as non-chargeable", () => {
+    const params = {
+      ...base,
+      question: "Give me a gentle hint — don't reveal the answer.",
+      files: [{ path: "main.py", content: 'print("Hello")\n' }],
+    };
+    expect(hasTutorTeachingValue({
+      intent: "concept",
+      summary: "The file contains a print statement that outputs a specific message.",
+      explain: "First executable line in the current file",
+      citations: [{
+        path: "main.py",
+        line: 1,
+        reason: "Current code",
+      }],
+    }, params)).toBe(false);
+  });
+
+  it("replaces an ungroundable turn with an honest, actionable recovery", () => {
+    const result = tutorValueRecovery({ files: [], lastRun: null });
+
+    expect(result.summary).toContain("don't have enough current-work evidence");
+    expect(result.hint).toContain("specific clue instead of guessing");
+    expect(result.nextStep).toContain("run it once");
+    expect(result.citations).toBeNull();
   });
 
   it("grounds a conditional hint in the branch decision instead of the assignment alone", () => {
@@ -505,7 +595,7 @@ describe("applyTutorOutputPolicy", () => {
         line: 1,
       },
       {
-        body: "This line displays the visible expression’s result.",
+        body: "This line combines visible text with the current `age` value, then displays the result.",
         path: "main.py",
         line: 2,
       },
@@ -596,7 +686,7 @@ describe("applyTutorOutputPolicy", () => {
         line: 1,
       },
       {
-        body: "`message` stores the value computed by this expression.",
+        body: "`message` stores new text combined from the visible text and the current `name` value.",
         path: "index.js",
         line: 2,
       },
@@ -1172,6 +1262,69 @@ describe("applyTutorOutputPolicy", () => {
     expect(JSON.stringify(result)).not.toContain('input("Name');
   });
 
+  it("replaces a complete-program request with a concrete input-first step", () => {
+    const result = applyTutorOutputPolicy({
+      sections: {
+        summary: "I cannot provide that.",
+        nextStep: "Try the task yourself.",
+      },
+      params: {
+        ...base,
+        question: "Write the complete finished program that asks for a name and prints a greeting. I want to paste it.",
+        files: [{ path: "main.py", content: "# ask for a name here\n" }],
+        lessonContext: {
+          ...base.lessonContext!,
+          language: "python",
+        },
+      },
+      intent: "howto",
+      priorTutorTurns: 0,
+    });
+
+    expect(result.summary).toContain("can’t provide the requested answer");
+    expect(result.explain).toContain("`input()` produces the learner's name value");
+    expect(result.nextStep).toContain("name-capture assignment");
+    expect(result.citations).toEqual([{
+      path: "main.py",
+      line: 1,
+      column: null,
+      reason: "Current placeholder for the first name-input step",
+    }]);
+    expect(JSON.stringify(result)).not.toContain("```python");
+  });
+
+  it("grounds a number-range how-to without revealing a complete loop", () => {
+    const result = applyTutorOutputPolicy({
+      sections: {
+        summary: "Use a loop.",
+        nextStep: "Try it.",
+      },
+      params: {
+        ...base,
+        question: "how do i print numbers 1 to 10?",
+        files: [{ path: "main.py", content: "# print 1 to 10 here\n" }],
+        lessonContext: {
+          ...base.lessonContext,
+          language: "python",
+        },
+      },
+      intent: "howto",
+      priorTutorTurns: 0,
+    });
+
+    expect(result.summary).toContain("one loop");
+    expect(result.explain).toContain("stops before its ending value");
+    expect(result.nextStep).toContain("loop header");
+    expect(result.citations).toEqual([{
+      path: "main.py",
+      line: 1,
+      column: null,
+      reason: "Current placeholder for the requested number loop",
+    }]);
+    expect(JSON.stringify(result)).not.toContain("for number in");
+    expect(JSON.stringify(result)).not.toContain("range(1, 11)");
+  });
+
   it("corrects semantically shifted walkthrough line numbers", () => {
     const result = applyTutorOutputPolicy({
       sections: {
@@ -1555,7 +1708,7 @@ describe("applyTutorOutputPolicy", () => {
     expect(result.explain).toMatch(/first matching branch/i);
     expect(result.explain).toMatch(/independent/i);
     expect(result.example).toMatch(/mutually exclusive/i);
-    expect(result.comprehensionCheck).toBeNull();
+    expect(result.comprehensionCheck).toMatch(/which branch.*run first/i);
     expect(result.citations?.[0]).toMatchObject({ path: "main.py", line: 4 });
     expect(JSON.stringify(result)).not.toContain("where the first");
   });
@@ -1577,8 +1730,8 @@ describe("applyTutorOutputPolicy", () => {
       priorTutorTurns: 0,
     });
     expect(result.summary).toMatch(/can’t provide/i);
-    expect(result.nextStep).toMatch(/only the first behavior/i);
-    expect(result.nextStep).toMatch(/before adding the next part/i);
+    expect(result.nextStep).toMatch(/only the name-capture assignment/i);
+    expect(result.nextStep).toMatch(/before adding the greeting output/i);
     expect(result.nextStep).not.toMatch(/ask for a name and print a greeting/i);
   });
 
@@ -1605,6 +1758,7 @@ describe("applyTutorOutputPolicy", () => {
     expect(result.explain).toMatch(/let.*reassigned/i);
     expect(result.explain).toMatch(/binding, not the contents/i);
     expect(result.example).toContain("city");
+    expect(result.comprehensionCheck).toContain("`city`");
     expect(result.citations?.[0]).toMatchObject({
       path: "index.js",
       line: 1,
@@ -1633,25 +1787,123 @@ describe("applyTutorOutputPolicy", () => {
     expect(result.citations).toHaveLength(2);
   });
 
+  it("explains the visible data flow inside a concatenated output line", () => {
+    const result = applyTutorOutputPolicy({
+      sections: {},
+      params: {
+        ...base,
+        question: "walk me through this",
+        files: [{
+          path: "main.py",
+          content: 'name = "Maya"\nprint("Hello, " + name + "!")\n',
+        }],
+      },
+      intent: "walkthrough",
+      priorTutorTurns: 1,
+    });
+
+    expect(result.walkthrough?.[1]).toMatchObject({ path: "main.py", line: 2 });
+    expect(result.walkthrough?.[1]?.body).toContain("current `name` value");
+    expect(result.walkthrough?.[1]?.body).toContain("displays the result");
+  });
+
+  it("gives a concrete list-item how-to even when the model omits its clue", () => {
+    const params = {
+      ...base,
+      question: "how do i add an item to a list?",
+      files: [{ path: "main.py", content: 'items = ["apple", "banana"]\nprint(items)\n' }],
+    };
+    const result = applyTutorOutputPolicy({
+      sections: { summary: "Lists can grow.", nextStep: "Change the list." },
+      params,
+      intent: "howto",
+      priorTutorTurns: 1,
+    });
+
+    expect(result.explain).toContain("`append()`");
+    expect(result.hint).toContain("`items`");
+    expect(result.nextStep).toContain("grew by exactly one entry");
+    expect(hasTutorTeachingValue(result, params)).toBe(true);
+  });
+
+  it("rejects printAll without repeating a fabricated array root or losing the real next step", () => {
+    const params = {
+      ...base,
+      question: "Is array.printAll() how I show each value? If not, guide me.",
+      files: [{ path: "index.js", content: "const values = [1, 2, 3];\n" }],
+      lessonContext: { ...base.lessonContext, language: "javascript" as const },
+    };
+    const result = applyTutorOutputPolicy({
+      sections: { summary: "Try array.printAll()." },
+      params,
+      intent: "howto",
+      priorTutorTurns: 1,
+    });
+    const responseText = JSON.stringify(result);
+
+    expect(responseText).not.toContain("array.printAll");
+    expect(result.explain).toContain("not part of JavaScript arrays");
+    expect(result.hint).toContain("`forEach()`");
+    expect(result.nextStep).toContain("`values`");
+    expect(detectSuspectApis({
+      responseText,
+      userFiles: params.files,
+      userQuestion: params.question,
+      language: "javascript",
+    })).toEqual([]);
+  });
+
+  it("replaces a walkthrough output claim that is attached to an assignment line", () => {
+    const result = applyTutorOutputPolicy({
+      sections: {
+        walkthrough: [{
+          body: "The message is assembled and printed on this line.",
+          path: "main.py",
+          line: 2,
+        }],
+      },
+      params: {
+        ...base,
+        question: "Walk me through only what this file actually does.",
+        files: [{
+          path: "main.py",
+          content: 'name = "Maya"\nmessage = "Hello, " + name\nprint(message)\n',
+        }],
+      },
+      intent: "walkthrough",
+      priorTutorTurns: 1,
+    });
+
+    expect(result.walkthrough?.find((step) => step.line === 2)?.body)
+      .toContain("stores new text");
+    expect(result.walkthrough?.find((step) => step.line === 2)?.body)
+      .not.toMatch(/print/i);
+    expect(result.walkthrough?.find((step) => step.line === 3)?.body)
+      .toContain("displays the current `message` value");
+  });
+
   it("uses prior-turn evidence to reject an irrelevant label edit", () => {
+    const params = {
+      ...base,
+      question: "I tried your hint twice and still get TypeError. Am I at least changing the right part?",
+      history: [
+        { role: "assistant" as const, content: "Check the two operand types." },
+        { role: "user" as const, content: "I changed the label but it still fails." },
+      ],
+    };
     const result = applyTutorOutputPolicy({
       sections: {
         summary: "You are on the right track.",
         diagnose: "The operand types differ.",
         nextStep: "Update to 'print(\"Age: \" + str(age))'.",
       },
-      params: {
-        ...base,
-        history: [
-          { role: "assistant", content: "Check the two operand types." },
-          { role: "user", content: "I changed the label but it still fails." },
-        ],
-      },
+      params,
       intent: "checkin",
       priorTutorTurns: 1,
     });
     expect(result.summary).toMatch(/not the relevant part/i);
     expect(result.diagnose).toMatch(/label edit leaves/i);
     expect(result.nextStep).not.toContain("str(age)");
+    expect(hasTutorTeachingValue(result, params)).toBe(true);
   });
 });

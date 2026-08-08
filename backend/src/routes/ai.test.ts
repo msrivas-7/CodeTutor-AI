@@ -361,6 +361,38 @@ describe("POST /api/ai/ask — schema validation", () => {
     });
   });
 
+  it("does not spend visible quota or advance progression for a no-value tutor payload", async () => {
+    vi.mocked(resolveAICredential).mockResolvedValue(platformCredential);
+    vi.mocked(reserveAIRequest).mockResolvedValueOnce({ ok: true, remainingToday: 29 });
+    vi.mocked(openaiProvider.ask).mockResolvedValueOnce({
+      sections: {
+        intent: "concept",
+        summary: "The file contains a print statement.",
+      },
+      raw: "{\"intent\":\"concept\"}",
+      hasTeachingValue: false,
+    });
+
+    const res = await req("u-1", "/api/ai/ask", {
+      method: "POST",
+      body: JSON.stringify(validAskBody({ model: "gpt-4.1-nano" })),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      countsTowardQuota: boolean;
+      remainingToday: number;
+      tutorProgressToken: null;
+    };
+    expect(body).toMatchObject({
+      countsTowardQuota: false,
+      remainingToday: 30,
+      tutorProgressToken: null,
+    });
+    expect(vi.mocked(finalizeAIRequest)).toHaveBeenCalledWith(
+      expect.objectContaining({ countsTowardQuota: false }),
+    );
+  });
+
   it("unlocks an approach only with valid same-user, same-task server proof", async () => {
     vi.mocked(getOpenAIKey).mockResolvedValue("sk-test");
     vi.mocked(openaiProvider.ask).mockResolvedValue({

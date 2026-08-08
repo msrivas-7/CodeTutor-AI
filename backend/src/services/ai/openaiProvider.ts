@@ -24,7 +24,11 @@ import { aiTokensConsumed } from "../metrics.js";
 import { parseTutorOutput } from "./tutorOutput.js";
 import { decorateModel, rankByTeachingQuality } from "./modelRegistry.js";
 import { classifyTutorIntent } from "./tutorIntent.js";
-import { applyTutorOutputPolicy } from "./tutorPolicy.js";
+import {
+  applyTutorOutputPolicy,
+  hasTutorTeachingValue,
+  tutorValueRecovery,
+} from "./tutorPolicy.js";
 
 const OPENAI_BASE = "https://api.openai.com/v1";
 
@@ -482,7 +486,12 @@ export const openaiProvider: AIProvider = {
       aiTokensConsumed.inc({ model: params.model, kind: "output", funding_source: fs }, usage.outputTokens);
     }
 
-    return { sections, raw, usage };
+    const hasTeachingValue = hasTutorTeachingValue(sections, params);
+    if (!hasTeachingValue) {
+      sections = tutorValueRecovery(params);
+      raw = JSON.stringify(sections);
+    }
+    return { sections, raw, usage, hasTeachingValue };
   },
 
   async summarize({
@@ -752,6 +761,11 @@ export const openaiProvider: AIProvider = {
       ? ` in=${usage.inputTokens} out=${usage.outputTokens}`
       : "";
     console.log(`[openai] stream end (${elapsed}ms, ${raw.length} chars${usageLog})`);
-    await handlers.onDone(raw, sections, usage);
+    const hasTeachingValue = hasTutorTeachingValue(sections, params);
+    if (!hasTeachingValue) {
+      sections = tutorValueRecovery(params);
+      raw = JSON.stringify(sections);
+    }
+    await handlers.onDone(raw, sections, usage, hasTeachingValue);
   },
 };
