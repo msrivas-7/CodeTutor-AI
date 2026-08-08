@@ -268,9 +268,12 @@ function PaidInterestBanner({ onDismissed }: { onDismissed?: () => void }) {
             <button
               type="button"
               onClick={() => {
+                // Move focus to a stable control before this focused button is
+                // removed. Deferring by one frame can race React's commit and
+                // leave focus on the document body in slower browsers.
+                onDismissed?.();
                 setDismissed(true);
                 writePaidInterestDismissal(userId, true);
-                window.requestAnimationFrame(() => onDismissed?.());
               }}
               aria-label="Dismiss for now"
               className="flex min-h-11 min-w-11 items-center justify-center rounded text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"

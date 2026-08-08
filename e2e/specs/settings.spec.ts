@@ -174,10 +174,14 @@ test.describe("settings panel", () => {
     await openSettings(page, "account");
 
     const paidInterest = page.getByRole("region", { name: "Paid plan interest" });
+    const accountTab = page.getByRole("button", {
+      name: "Account",
+      exact: true,
+    });
     await expect(paidInterest).toBeVisible();
     await page.getByRole("button", { name: "Dismiss for now" }).click();
     await expect(paidInterest).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Account" })).toBeFocused();
+    await expect(accountTab).toBeFocused();
 
     await page.keyboard.press("Escape");
     await openSettings(page, "account");
