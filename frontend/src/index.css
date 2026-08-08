@@ -51,11 +51,62 @@
   --scroll-thumb-hover: 148 163 184;
 }
 
-/* The code-token atmosphere is designed for dark negative space. On light
-   surfaces even a faint chip reads like an unexplained disabled control, so
-   leave the calmer gradient/card composition unadorned. */
+/* The atmosphere is a genuine background layer in both themes. Screen blend
+   gives dark rooms a faint glow; multiply keeps the same moving marks visible
+   on light surfaces without turning them into foreground ink. */
+.ambient-glyph-field {
+  mix-blend-mode: screen;
+}
+
 [data-theme="light"] .ambient-glyph-field {
-  display: none;
+  mix-blend-mode: multiply;
+}
+
+[data-theme="light"] .ambient-glyph-field [data-floating-glyph] {
+  color: rgb(var(--color-accent) / 0.38);
+}
+
+/* Content that sits over the moving atmosphere needs a real paint layer.
+   z-index alone cannot occlude a glyph through a translucent card or bare
+   heading. This invisible canvas-coloured underlay lets individual glyphs
+   travel naturally through negative space and disappear beneath content. */
+.ambient-content-occluder {
+  isolation: isolate;
+}
+
+.ambient-content-occluder::before {
+  background: rgb(var(--color-bg));
+  border-radius: 1.5rem;
+  content: "";
+  inset: -0.75rem -1rem;
+  pointer-events: none;
+  position: absolute;
+  z-index: -1;
+}
+
+/* Centered auth/cinematic surfaces have translucent lighting rather than a
+   flat canvas that can paint over the atmosphere. Mask the content column out
+   of the glyph layer itself so marks still drift at the sides and genuinely
+   pass underneath the central experience. */
+.ambient-glyph-field--center-safe {
+  -webkit-mask-image: linear-gradient(
+    to right,
+    #000 0%,
+    #000 22%,
+    transparent 32%,
+    transparent 68%,
+    #000 78%,
+    #000 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    #000 0%,
+    #000 22%,
+    transparent 32%,
+    transparent 68%,
+    #000 78%,
+    #000 100%
+  );
 }
 
 html, body, #root {

@@ -500,7 +500,10 @@ export default function StartPage() {
   }
 
   return (
-    <div className="relative flex h-full flex-col bg-bg text-ink">
+    <div
+      className="relative isolate flex h-full flex-col overflow-x-hidden overflow-y-auto bg-bg text-ink"
+      data-testid="start-page"
+    >
       <div className="hidden sm:block">
         <AmbientGlyphField />
       </div>
@@ -509,18 +512,18 @@ export default function StartPage() {
           Identical positioning to LessonPage / CourseOverview / EditorPage
           headers so the chip lands in the exact same screen position no
           matter which page the learner is on. */}
-      <div className="pointer-events-none absolute inset-x-0 top-4 z-10">
+      <div className="pointer-events-none absolute inset-x-0 top-4 z-20">
         <div className="absolute left-4 sm:left-1/2 sm:-translate-x-1/2">
-          <div className="pointer-events-auto"><StreakChip /></div>
+          <div className="ambient-content-occluder pointer-events-auto relative"><StreakChip /></div>
         </div>
-        <div className="pointer-events-auto absolute right-4 flex items-center gap-2">
+        <div className="ambient-content-occluder pointer-events-auto absolute right-4 flex items-center gap-2">
           <span className="hidden sm:inline-flex"><FeedbackButton /></span>
           <UserMenu />
         </div>
       </div>
-      <StaggerReveal className="flex flex-1 flex-col items-center justify-center px-5 pb-8 pt-20 sm:px-6">
+      <StaggerReveal className="relative z-10 flex flex-1 flex-col items-center justify-center px-5 pb-8 pt-20 sm:px-6">
         <StaggerItem>
-          <div ref={headerRef} className="mb-10 flex flex-col items-center gap-4">
+          <div ref={headerRef} className="ambient-content-occluder relative mb-10 flex flex-col items-center gap-4">
             <Wordmark size="hero" className="text-[38px] sm:text-[48px]" />
             <p className="max-w-lg text-center text-base leading-relaxed text-muted sm:text-[15px]">
               Learn to code with a tutor who has all day for you. Write real
@@ -554,7 +557,7 @@ export default function StartPage() {
             whileHover={{ y: -6, scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             transition={{ type: "spring", stiffness: 300, damping: 22 }}
-            className="group relative flex min-h-44 flex-col items-start gap-4 overflow-hidden rounded-2xl border border-violet/45 bg-gradient-to-br from-violet/15 via-panel to-accent/10 p-6 text-left shadow-soft transition-[border-color,box-shadow] hover:border-violet/70 hover:shadow-glow focus:outline-none focus-visible:ring-2 focus-visible:ring-violet sm:p-8"
+            className="group relative flex min-h-44 flex-col items-start gap-4 overflow-hidden rounded-2xl border border-violet/45 bg-panel bg-gradient-to-br from-violet/15 via-panel to-accent/10 p-6 text-left shadow-soft transition-[border-color,box-shadow] hover:border-violet/70 hover:shadow-glow focus:outline-none focus-visible:ring-2 focus-visible:ring-violet sm:p-8"
           >
             <div className="absolute right-5 top-5 rounded-full border border-violet/30 bg-violet/10 px-3 py-1 text-meta font-semibold uppercase tracking-wider text-violet">
               Recommended
@@ -583,7 +586,7 @@ export default function StartPage() {
             whileHover={{ y: -3 }}
             whileTap={{ scale: 0.98 }}
             transition={{ type: "spring", stiffness: 300, damping: 22 }}
-            className="group flex min-h-24 items-center gap-4 rounded-xl border border-border bg-panel/75 p-5 text-left shadow-sm transition-[border-color,background-color] hover:border-accent/45 hover:bg-panel focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="group flex min-h-24 items-center gap-4 rounded-xl border border-border bg-panel p-5 text-left shadow-sm transition-[border-color,background-color] hover:border-accent/45 hover:bg-panel focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent/10 text-accent transition group-hover:bg-accent/20">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -602,7 +605,7 @@ export default function StartPage() {
         </StaggerItem>
       </StaggerReveal>
 
-      <footer className="border-t border-border bg-panel/60 px-4 py-2 text-center text-[10px] text-faint">
+      <footer className="relative z-10 border-t border-border bg-panel px-4 py-2 text-center text-[10px] text-faint">
         CodeTutor AI © 2026 Mehul Srivastava — All rights reserved
       </footer>
 

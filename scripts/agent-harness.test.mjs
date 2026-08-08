@@ -265,6 +265,82 @@ test("rejects vague browser bypasses", () => {
   assert.match(started.stderr, /concrete non-browser change/i);
 });
 
+test("requires concrete user approval for major design changes", () => {
+  const root = fixture();
+  const missing = run(root, [
+    "start", "--feature", "new visual language", "--scope", "frontend",
+    "--design-impact", "major",
+  ]);
+  assert.notEqual(missing.status, 0);
+  assert.match(missing.stderr, /design-approval/i);
+
+  const vague = run(root, [
+    "start", "--feature", "new visual language", "--scope", "frontend",
+    "--design-impact", "major", "--design-approval", "User approved.",
+  ]);
+  assert.notEqual(vague.status, 0);
+  assert.match(vague.stderr, /concrete user-approved design direction/i);
+
+  const approvedDirection =
+    "Restore the individual glyphs behind every content layer and keep them visible in both light and dark themes.";
+  const approved = run(root, [
+    "start", "--feature", "approved visual language", "--scope", "frontend",
+    "--design-impact", "major", "--design-approval", approvedDirection,
+  ]);
+  assert.equal(approved.status, 0, approved.stderr);
+  const session = approved.stdout.match(/HARNESS_SESSION_ID=([0-9a-f-]+)/)?.[1];
+  assert.ok(session);
+  const stored = JSON.parse(
+    fs.readFileSync(path.join(root, ".agent-harness", "sessions", `${session}.json`), "utf8"),
+  );
+  assert.equal(stored.designImpact, "major");
+  assert.equal(stored.designApproval, approvedDirection);
+  assert.ok(stored.designApprovedAt);
+});
+
+test("can record a concrete major-design approval after session start", () => {
+  const root = fixture();
+  const started = run(root, [
+    "start", "--feature", "emerging design scope", "--scope", "frontend",
+  ]);
+  assert.equal(started.status, 0, started.stderr);
+  const session = started.stdout.match(/HARNESS_SESSION_ID=([0-9a-f-]+)/)?.[1];
+  assert.ok(session);
+
+  const approval =
+    "Keep the existing individual glyph language, move it behind content, and tune contrast independently for both themes.";
+  const recorded = run(root, [
+    "approve-design", "--session", session, "--approval", approval,
+  ]);
+  assert.equal(recorded.status, 0, recorded.stderr);
+  const stored = JSON.parse(
+    fs.readFileSync(path.join(root, ".agent-harness", "sessions", `${session}.json`), "utf8"),
+  );
+  assert.equal(stored.designImpact, "major");
+  assert.equal(stored.designApproval, approval);
+  assert.ok(stored.designApprovedAt);
+});
+
+test("adds adversarially discovered UX findings to an active browser session", () => {
+  const root = fixture();
+  const started = run(root, [
+    "start", "--feature", "adversarial browser pass", "--scope", "frontend,e2e",
+    "--findings", "UX-001",
+  ]);
+  assert.equal(started.status, 0, started.stderr);
+  const session = started.stdout.match(/HARNESS_SESSION_ID=([0-9a-f-]+)/)?.[1];
+  assert.ok(session);
+
+  const added = run(root, [
+    "add-findings", "--session", session, "--findings", "UX-002,UX-003",
+  ]);
+  assert.equal(added.status, 0, added.stderr);
+  const stored = JSON.parse(
+    fs.readFileSync(path.join(root, ".agent-harness", "sessions", `${session}.json`), "utf8"),
+  );
+  assert.deepEqual(stored.findings, ["UX-001", "UX-002", "UX-003"]);
+});
+
 test("requires finding and final-phase browser evidence and binds it to the staged commit", () => {
   const root = fixture();
   const started = run(root, [

@@ -352,7 +352,7 @@ function FullCinematic({
   const codeLine = `>>> print(${JSON.stringify(`Hello, ${exampleName}!`)})`;
   return (
     <motion.div
-      className="relative flex h-full w-full items-center justify-center"
+      className="relative isolate flex h-full w-full items-center justify-center overflow-hidden"
       animate={
         exiting
           ? { opacity: 0, filter: "blur(6px)" }
@@ -400,7 +400,7 @@ function FullCinematic({
       {/* Beat 6 — environment awakens */}
       <motion.div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-0"
+        className="pointer-events-none absolute inset-0 z-0"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{
@@ -409,7 +409,7 @@ function FullCinematic({
           ease: HOUSE_EASE,
         }}
       >
-        <AmbientGlyphField density="ambient" opacityClass="text-accent/10" />
+        <AmbientGlyphField density="ambient" opacityClass="text-accent/10" occludeCenter />
       </motion.div>
 
       {/* Beats 2–3 — code line settles up as a caption after typing in.
@@ -417,7 +417,7 @@ function FullCinematic({
           so this container only needs to handle the Beat 3 settle:
           translate up + scale down + dim to caption opacity. */}
       <motion.div
-        className="absolute inset-x-0 flex justify-center"
+        className="absolute inset-x-0 z-10 flex justify-center"
         initial={{ y: 0, scale: 1, opacity: 1 }}
         animate={{
           y: -140,

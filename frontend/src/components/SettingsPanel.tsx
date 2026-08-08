@@ -1157,10 +1157,10 @@ function PublicSharesSection({
             return (
               <li
                 key={share.shareToken}
-                className="rounded-md border border-border bg-elevated/30 p-2.5"
+                className="rounded-md border border-border bg-elevated/30 p-2"
               >
-                <div className="flex min-w-0 items-start justify-between gap-3">
-                  <div className="min-w-0">
+                <div className="flex min-w-0 items-center gap-2">
+                  <div className="min-w-0 flex-1">
                     <div className="truncate text-xs font-semibold text-ink">
                       {share.lessonTitle}
                     </div>
@@ -1172,13 +1172,26 @@ function PublicSharesSection({
                     href={share.url}
                     target="_blank"
                     rel="noreferrer"
-                    className="shrink-0 rounded-md border border-border bg-bg px-2.5 py-1.5 text-xs font-semibold text-muted transition hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    className="inline-flex min-h-11 shrink-0 items-center rounded-md border border-border bg-bg px-2.5 py-1.5 text-xs font-semibold text-muted transition hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                   >
                     View
                   </a>
+                  {!confirmingThis && (
+                    <button
+                      ref={(node) => {
+                        if (node) stopButtonRefs.current.set(share.shareToken, node);
+                        else stopButtonRefs.current.delete(share.shareToken);
+                      }}
+                      type="button"
+                      onClick={() => setConfirming(share.shareToken)}
+                      className="inline-flex min-h-11 shrink-0 items-center rounded-md px-2.5 text-xs font-semibold text-danger transition hover:bg-danger/10 hover:text-danger/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-danger"
+                    >
+                      Stop sharing
+                    </button>
+                  )}
                 </div>
 
-                {confirmingThis ? (
+                {confirmingThis && (
                   <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-danger/30 bg-danger/5 p-2">
                     <span className="mr-auto text-xs leading-relaxed text-danger">
                       The current public link will stop working.
@@ -1188,7 +1201,7 @@ function PublicSharesSection({
                       type="button"
                       onClick={() => void revoke(share)}
                       disabled={revoking === share.shareToken}
-                      className="rounded-md bg-danger px-2.5 py-1.5 text-xs font-semibold text-bg disabled:opacity-60"
+                      className="inline-flex min-h-11 items-center rounded-md bg-danger px-2.5 py-1.5 text-xs font-semibold text-bg disabled:opacity-60"
                     >
                       {revoking === share.shareToken ? "Stopping…" : "Stop sharing"}
                     </button>
@@ -1196,23 +1209,11 @@ function PublicSharesSection({
                       type="button"
                       onClick={cancelConfirmation}
                       disabled={revoking === share.shareToken}
-                      className="rounded-md border border-border bg-bg px-2.5 py-1.5 text-xs text-muted disabled:opacity-60"
+                      className="inline-flex min-h-11 items-center rounded-md border border-border bg-bg px-2.5 py-1.5 text-xs text-muted disabled:opacity-60"
                     >
                       Keep public
                     </button>
                   </div>
-                ) : (
-                  <button
-                    ref={(node) => {
-                      if (node) stopButtonRefs.current.set(share.shareToken, node);
-                      else stopButtonRefs.current.delete(share.shareToken);
-                    }}
-                    type="button"
-                    onClick={() => setConfirming(share.shareToken)}
-                    className="mt-2 text-xs font-semibold text-danger transition hover:text-danger/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-danger"
-                  >
-                    Stop sharing
-                  </button>
                 )}
               </li>
             );

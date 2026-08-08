@@ -1,49 +1,62 @@
 import { useMemo } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 
-// Decorative code atmosphere for low-density product surfaces. Earlier
-// versions animated individual punctuation marks across the full viewport.
-// Those marks regularly crossed headings, cards, and the footer, where they
-// looked like clipped markup rather than intentional art. Keep the code motif,
-// but render complete tokens inside faint chips and confine them to desktop
-// edge gutters. Meaningful content owns the centre of every surface.
+// Atmospheric backdrop: individual code glyphs drift upward behind the real
+// product surface. The field deliberately owns z-0 while every meaningful
+// call-site paints its content at z-10, so a glyph can travel freely without
+// ever sitting on top of a heading, card, form, control, or footer.
+//
+// Tuned for two densities:
+//   - `hero` (loaders/reveals): a richer field with slightly stronger contrast
+//   - `ambient` (auth/Start): fewer, quieter marks
+//
+// Framer Motion honors prefers-reduced-motion for these transforms. The
+// repository-wide reduced-motion rule also collapses repeating animations.
 
-interface CodeToken {
-  text: string;
+const GLYPHS = ["{", "}", "<", ">", "/", ";", "·", "&", "[", "]"];
+
+interface FloatingGlyph {
+  char: string;
   leftPct: number;
-  topPct: number;
-  phase: number;
+  duration: number;
+  delay: number;
+  size: number;
+  staticTopPct: number;
 }
 
-const AMBIENT_TOKENS: CodeToken[] = [
-  { text: "</>", leftPct: 4, topPct: 20, phase: 0 },
-  { text: "{ }", leftPct: 89, topPct: 34, phase: 0.9 },
-  { text: "[ ]", leftPct: 6, topPct: 72, phase: 1.8 },
-  { text: "=>", leftPct: 90, topPct: 82, phase: 2.7 },
-];
+// Deterministic positions avoid StrictMode remount jitter while retaining the
+// irregular, organic field that made the original atmosphere feel alive.
+function buildGlyphField(count: number, seedBase: number): FloatingGlyph[] {
+  const rng = (seed: number) => {
+    const x = Math.sin((seed + seedBase) * 9973) * 10000;
+    return x - Math.floor(x);
+  };
 
-const HERO_TOKENS: CodeToken[] = [
-  { text: "</>", leftPct: 3, topPct: 12, phase: 0 },
-  { text: "{ }", leftPct: 88, topPct: 18, phase: 0.65 },
-  { text: "[ ]", leftPct: 7, topPct: 37, phase: 1.3 },
-  { text: "=>", leftPct: 90, topPct: 43, phase: 1.95 },
-  { text: "( )", leftPct: 4, topPct: 65, phase: 2.6 },
-  { text: "&&", leftPct: 87, topPct: 70, phase: 3.25 },
-  { text: "::", leftPct: 9, topPct: 86, phase: 3.9 },
-  { text: "//", leftPct: 92, topPct: 88, phase: 4.55 },
-];
+  return Array.from({ length: count }, (_, index) => ({
+    char: GLYPHS[index % GLYPHS.length],
+    leftPct: rng(index + 1) * 100,
+    duration: 10 + rng(index + 23) * 8,
+    delay: rng(index + 47) * 6,
+    size: 10 + Math.floor(rng(index + 71) * 8),
+    staticTopPct: 6 + rng(index + 89) * 88,
+  }));
+}
 
 export function AmbientGlyphField({
   density = "ambient",
-  opacityClass = "text-accent/70",
+  opacityClass = "text-accent/8",
+  occludeCenter = false,
 }: {
   density?: "ambient" | "hero";
   opacityClass?: string;
+  occludeCenter?: boolean;
 }) {
   const reduce = useReducedMotion();
-  const tokens = useMemo(
-    () => (density === "hero" ? HERO_TOKENS : AMBIENT_TOKENS),
-    [density],
+  const count = density === "hero" ? 24 : 7;
+  const seedBase = density === "hero" ? 1 : 2;
+  const glyphs = useMemo(
+    () => buildGlyphField(count, seedBase),
+    [count, seedBase],
   );
 
   return (
@@ -51,33 +64,56 @@ export function AmbientGlyphField({
       aria-hidden="true"
       data-testid="ambient-glyph-field"
       data-density={density}
-      className="ambient-glyph-field pointer-events-none absolute inset-0 overflow-hidden"
+      className={`ambient-glyph-field pointer-events-none absolute inset-0 z-0 overflow-hidden${occludeCenter ? " ambient-glyph-field--center-safe" : ""}`}
     >
-      {tokens.map((token) => (
+      {glyphs.map((glyph, index) => (
         <motion.span
-          key={`${token.text}-${token.leftPct}-${token.topPct}`}
-          data-glyph-token={token.text}
-          className={`absolute hidden select-none items-center gap-1.5 rounded-full border border-accent/25 bg-accent/5 px-2.5 py-1 font-mono text-[10px] tracking-[0.16em] backdrop-blur-sm lg:inline-flex ${opacityClass}`}
-          style={{ left: `${token.leftPct}%`, top: `${token.topPct}%` }}
-          initial={false}
+          key={`${glyph.char}-${index}`}
+          data-floating-glyph={glyph.char}
+          className={`absolute bottom-[-10%] select-none font-mono ${opacityClass}`}
+          style={{
+            left: `${glyph.leftPct}%`,
+            top: reduce ? `${glyph.staticTopPct}%` : undefined,
+            bottom: reduce ? "auto" : "-10%",
+            fontSize: glyph.size,
+          }}
           animate={
             reduce
-              ? { y: 0, opacity: 0.9 }
-              : { y: [-3, 3, -3], opacity: [0.75, 1, 0.75] }
+              ? { x: 0, y: 0, opacity: 0.35 }
+              : {
+                  y: "-120vh",
+                  x: [0, glyph.leftPct % 2 === 0 ? 12 : -12, 0],
+                  opacity: [0, 1, 1, 0],
+                }
           }
           transition={
             reduce
               ? { duration: 0 }
               : {
-                  duration: 7.5,
-                  delay: token.phase,
-                  repeat: Infinity,
-                  ease: "easeInOut",
+                  y: {
+                    duration: glyph.duration,
+                    repeat: Infinity,
+                    ease: "linear",
+                    delay: -glyph.delay,
+                  },
+                  x: {
+                    duration: glyph.duration / 2,
+                    repeat: Infinity,
+                    repeatType: "reverse",
+                    ease: "easeInOut",
+                    delay: -glyph.delay,
+                  },
+                  opacity: {
+                    duration: glyph.duration,
+                    repeat: Infinity,
+                    ease: "linear",
+                    delay: -glyph.delay,
+                    times: [0, 0.15, 0.85, 1],
+                  },
                 }
           }
         >
-          <span className="h-1 w-1 rounded-full bg-accent/60" />
-          <span>{token.text}</span>
+          {glyph.char}
         </motion.span>
       ))}
     </div>

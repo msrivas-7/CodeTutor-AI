@@ -66,6 +66,26 @@ test.describe("settings panel", () => {
     );
     await expect(page.getByTestId("ambient-glyph-field")).toBeHidden();
 
+    // UX-130: a short phone viewport must scroll to every existing Start
+    // action and the footer instead of clipping them inside a fixed-height,
+    // overflow-hidden shell.
+    const playground = page.getByRole("button", { name: /open the playground/i });
+    const footer = page.getByRole("contentinfo");
+    await playground.scrollIntoViewIfNeeded();
+    await expect(playground).toBeVisible();
+    await footer.scrollIntoViewIfNeeded();
+    await expect(footer).toBeVisible();
+    const startScroll = await page.getByTestId("start-page").evaluate((element) => ({
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+      scrollTop: element.scrollTop,
+    }));
+    expect(
+      startScroll.scrollHeight,
+      "Start content extends naturally beyond the phone viewport",
+    ).toBeGreaterThan(startScroll.clientHeight);
+    expect(startScroll.scrollTop, "lower content required a real vertical scroll").toBeGreaterThan(0);
+
     // The desktop Start layout uses the same absolute utility band, but the
     // centered hero must still reserve its vertical space. UX-115 originally
     // reproduced at this common laptop viewport even after the phone header
@@ -167,6 +187,115 @@ test.describe("settings panel", () => {
     expect(await download.path()).not.toBeNull();
   });
 
+  test("public-share inventory stays compact until confirmation needs room", async ({
+    page,
+  }) => {
+    const shares = [
+      {
+        shareToken: "aaaaaaaaaaaa",
+        courseId: "python-fundamentals",
+        lessonId: "hello-world",
+        lessonTitle: "Hello, World!",
+        courseTitle: "Python Fundamentals",
+        displayName: null,
+        codeSnippet: 'print("Hello")',
+        mastery: "strong",
+        timeSpentMs: 60_000,
+        attemptCount: 1,
+        viewCount: 0,
+        url: "/s/aaaaaaaaaaaa",
+        ogImageUrl: null,
+        ogStoryImageUrl: null,
+        createdAt: "2026-08-01T08:13:32.000Z",
+        updatedAt: "2026-08-01T08:13:32.000Z",
+        rotatedAt: null,
+        revision: 1,
+      },
+      {
+        shareToken: "bbbbbbbbbbbb",
+        courseId: "python-fundamentals",
+        lessonId: "lists",
+        lessonTitle: "A deliberately long lesson title that must truncate cleanly",
+        courseTitle: "A deliberately long course title for containment",
+        displayName: null,
+        codeSnippet: "print([])",
+        mastery: "strong",
+        timeSpentMs: 120_000,
+        attemptCount: 2,
+        viewCount: 0,
+        url: "/s/bbbbbbbbbbbb",
+        ogImageUrl: null,
+        ogStoryImageUrl: null,
+        createdAt: "2026-08-01T08:13:32.000Z",
+        updatedAt: "2026-08-01T08:13:32.000Z",
+        rotatedAt: null,
+        revision: 1,
+      },
+    ];
+    await page.route("**/api/shares/mine/all", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ shares }),
+      });
+    });
+
+    await page.setViewportSize({ width: 537, height: 800 });
+    await page.goto("/start");
+    await openSettings(page, "account");
+
+    const list = page.getByRole("list", { name: "Public lesson shares" });
+    const rows = list.getByRole("listitem");
+    await expect(rows).toHaveCount(2);
+    await page.waitForTimeout(250);
+
+    for (let index = 0; index < 2; index += 1) {
+      const row = rows.nth(index);
+      const view = row.getByRole("link", { name: "View", exact: true });
+      const stop = row.getByRole("button", { name: "Stop sharing", exact: true });
+      const rowBox = await row.boundingBox();
+      const viewBox = await view.boundingBox();
+      const stopBox = await stop.boundingBox();
+      expect(rowBox?.height ?? Infinity, `share row ${index} compact height`).toBeLessThanOrEqual(
+        64,
+      );
+      expect(viewBox?.height ?? 0, `share row ${index} View target`).toBeGreaterThanOrEqual(44);
+      expect(stopBox?.height ?? 0, `share row ${index} Stop target`).toBeGreaterThanOrEqual(44);
+      expect(
+        await row.evaluate((element) => element.scrollWidth - element.clientWidth),
+        `share row ${index} horizontal overflow`,
+      ).toBeLessThanOrEqual(1);
+    }
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect
+      .poll(async () => (await rows.first().boundingBox())?.height ?? Infinity)
+      .toBeLessThanOrEqual(64);
+    expect(
+      await list.evaluate((element) => element.scrollWidth - element.clientWidth),
+      "compact public-share list horizontal overflow",
+    ).toBeLessThanOrEqual(1);
+
+    const firstRow = rows.first();
+    const inventoryStop = firstRow.getByRole("button", {
+      name: "Stop sharing",
+      exact: true,
+    });
+    await inventoryStop.click();
+    const confirmStop = firstRow.getByRole("button", {
+      name: "Stop sharing",
+      exact: true,
+    });
+    await expect(confirmStop).toBeFocused();
+    expect((await firstRow.boundingBox())?.height ?? 0).toBeGreaterThan(64);
+
+    await firstRow.getByRole("button", { name: "Keep public", exact: true }).click();
+    await expect(inventoryStop).toBeFocused();
+    await expect
+      .poll(async () => (await firstRow.boundingBox())?.height ?? Infinity)
+      .toBeLessThanOrEqual(64);
+  });
+
   test("paid-plan dismissal survives Settings reopen and reload for this session", async ({
     page,
   }) => {
@@ -224,7 +353,7 @@ test.describe("settings panel", () => {
     await openSettings(page, "profile");
 
     const glyphField = page.getByTestId("ambient-glyph-field");
-    const glyphTokens = glyphField.locator("[data-glyph-token]");
+    const glyphs = glyphField.locator("[data-floating-glyph]");
 
     // Light — Phase 18b: theme persists through `preferences.theme` on the
     // server; the only user-visible effect we can assert here without racing
@@ -232,49 +361,46 @@ test.describe("settings panel", () => {
     // case is covered by cross-device.spec.ts.
     await page.getByRole("button", { name: /^light$/i }).click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
-    await expect(glyphField).toBeHidden();
+    await expect(glyphField).toBeVisible();
+    await expect(glyphs).toHaveCount(7);
+    expect(await glyphField.evaluate((element) => getComputedStyle(element).mixBlendMode)).toBe(
+      "multiply",
+    );
 
     // Dark
     await page.getByRole("button", { name: /^dark$/i }).click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
     await expect(glyphField).toBeVisible();
-    await expect(glyphTokens).toHaveCount(4);
-    for (let i = 0; i < await glyphTokens.count(); i += 1) {
-      expect((await glyphTokens.nth(i).innerText()).trim().length).toBeGreaterThanOrEqual(2);
+    await expect(glyphs).toHaveCount(7);
+    expect(await glyphField.evaluate((element) => getComputedStyle(element).mixBlendMode)).toBe(
+      "screen",
+    );
+    for (let i = 0; i < await glyphs.count(); i += 1) {
+      expect((await glyphs.nth(i).innerText()).trim()).toHaveLength(1);
     }
 
     // Close + reopen settings on Appearance — selected button should remain
     // aria-pressed=true.
     await page.keyboard.press("Escape");
+    expect(await glyphField.evaluate((element) => getComputedStyle(element).zIndex)).toBe("0");
+    expect(await glyphField.evaluate((element) => getComputedStyle(element).pointerEvents)).toBe(
+      "none",
+    );
     expect(
-      await page.evaluate(() => {
-        const tokens = Array.from(
-          document.querySelectorAll<HTMLElement>("[data-glyph-token]"),
-        )
-          .filter((element) => getComputedStyle(element).display !== "none")
-          .map((element) => element.getBoundingClientRect());
-        const content = Array.from(
-          document.querySelectorAll<HTMLElement>("h1,h2,p,button,footer"),
-        )
-          .filter((element) => getComputedStyle(element).display !== "none")
-          .map((element) => element.getBoundingClientRect());
-        return tokens.filter((token) =>
-          content.some(
-            (rect) =>
-              token.left < rect.right &&
-              token.right > rect.left &&
-              token.top < rect.bottom &&
-              token.bottom > rect.top,
-          ),
-        ).length;
-      }),
-      "dark-theme code tokens stay out of meaningful Start content",
-    ).toBe(0);
+      await page.locator(".ambient-content-occluder").evaluateAll((elements) =>
+        elements.every((element) => {
+          const background = getComputedStyle(element, "::before").backgroundColor;
+          return background !== "transparent" && background !== "rgba(0, 0, 0, 0)";
+        }),
+      ),
+      "Start headings and utility controls paint above the moving field",
+    ).toBe(true);
 
     await page.setViewportSize({ width: 900, height: 720 });
-    for (let i = 0; i < await glyphTokens.count(); i += 1) {
-      await expect(glyphTokens.nth(i)).toBeHidden();
-    }
+    await expect(glyphField).toBeVisible();
+    await expect(glyphs).toHaveCount(7);
+    await page.setViewportSize({ width: 390, height: 720 });
+    await expect(glyphField).toBeHidden();
     await page.setViewportSize({ width: 1280, height: 720 });
     await openSettings(page, "profile");
     await expect(page.getByRole("button", { name: /^dark$/i })).toHaveAttribute(

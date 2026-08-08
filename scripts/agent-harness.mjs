@@ -41,6 +41,7 @@ const CLASSIFICATIONS = new Set([
 ]);
 const CONFIDENCE = new Set(["candidate", "repeated", "verified"]);
 const BROWSER_IMPACTS = new Set(["required", "none"]);
+const DESIGN_IMPACTS = new Set(["none", "minor", "major"]);
 const BROWSER_LEVELS = new Set(["finding", "phase"]);
 const BROWSER_RESULTS = new Set(["pass", "fail"]);
 const BROWSER_TOOLS = new Set([
@@ -147,6 +148,25 @@ function browserBypassReason(value) {
     );
   }
   return reason;
+}
+
+function designApproval(value) {
+  const approval = assertSafeText("design-approval", value, 800);
+  const normalized = normalize(approval).replace(/[.!]$/, "");
+  const disallowed = new Set([
+    "approved",
+    "user approved",
+    "founder approved",
+    "looks good",
+    "ok",
+    "yes",
+  ]);
+  if (approval.length < 40 || disallowed.has(normalized)) {
+    fail(
+      "--design-approval must record the concrete user-approved design direction, not a generic approval claim.",
+    );
+  }
+  return approval;
 }
 
 function auditEvidence(label, value, maxLength = 1000, minimum = 40) {
@@ -550,6 +570,24 @@ function startSession(options) {
   if (browserImpact === "none" && findings.length) {
     fail("A session that owns UX findings cannot bypass live-browser evidence.");
   }
+  const designImpact = String(
+    options["design-impact"] ?? (browserImpact === "none" ? "none" : "minor"),
+  );
+  if (!DESIGN_IMPACTS.has(designImpact)) {
+    fail("--design-impact must be none, minor, or major.");
+  }
+  if (browserImpact === "none" && designImpact !== "none") {
+    fail("A non-browser session must use --design-impact none.");
+  }
+  if (browserImpact === "required" && designImpact === "none") {
+    fail("Browser-observable work cannot use --design-impact none.");
+  }
+  const approvedDesign = designImpact === "major"
+    ? designApproval(requireOption(options, "design-approval"))
+    : null;
+  if (designImpact !== "major" && options["design-approval"]) {
+    fail("--design-approval is valid only with --design-impact major.");
+  }
   const id = randomUUID();
   const session = {
     schemaVersion: 1,
@@ -562,6 +600,9 @@ function startSession(options) {
     startedAt: now(),
     browserImpact,
     browserBypass,
+    designImpact,
+    designApproval: approvedDesign,
+    designApprovedAt: approvedDesign ? now() : null,
     findings,
     browserAudits: [],
     validations: [],
@@ -576,7 +617,52 @@ function startSession(options) {
       ? `Browser UX gate: required${findings.length ? ` for ${findings.join(", ")}` : ""}`
       : `Browser UX gate: bypassed — ${browserBypass}`,
   );
+  console.log(
+    designImpact === "major"
+      ? `Design gate: major change approved — ${approvedDesign}`
+      : `Design gate: ${designImpact} change`,
+  );
   printContext(knowledge, scopes);
+}
+
+function approveDesign(options) {
+  initStore({ quiet: true });
+  const id = requireOption(options, "session");
+  const filePath = path.join(SESSIONS_DIR, `${id}.json`);
+  if (!fs.existsSync(filePath)) fail(`Unknown harness session: ${id}`);
+  const approval = designApproval(requireOption(options, "approval"));
+  withWriteLock(() => {
+    const session = readJson(filePath);
+    if (session.status !== "active") fail(`Harness session ${id} is not active.`);
+    if (session.browserImpact !== "required") {
+      fail("Only a browser-observable session can be classified as a major design change.");
+    }
+    session.designImpact = "major";
+    session.designApproval = approval;
+    session.designApprovedAt = now();
+    writeJson(filePath, session);
+  });
+  appendEvent("design-approved", { sessionId: id, designImpact: "major" });
+  console.log(`Major design approval recorded for session ${id}.`);
+}
+
+function addSessionFindings(options) {
+  initStore({ quiet: true });
+  const id = requireOption(options, "session");
+  const filePath = path.join(SESSIONS_DIR, `${id}.json`);
+  if (!fs.existsSync(filePath)) fail(`Unknown harness session: ${id}`);
+  const findings = parseFindings(requireOption(options, "findings"));
+  withWriteLock(() => {
+    const session = readJson(filePath);
+    if (session.status !== "active") fail(`Harness session ${id} is not active.`);
+    if (session.browserImpact !== "required") {
+      fail("A session must require live-browser evidence before it can own UX findings.");
+    }
+    session.findings = [...new Set([...(session.findings ?? []), ...findings])];
+    writeJson(filePath, session);
+  });
+  appendEvent("session-findings-added", { sessionId: id, findings });
+  console.log(`Added ${findings.join(", ")} to session ${id}.`);
 }
 
 function pendingFailures(sessionId = null) {
@@ -1024,6 +1110,15 @@ function assertBrowserCoverage(session, workspaceFingerprint) {
   }
 }
 
+function assertDesignApproval(session) {
+  if (session.designImpact !== "major") return;
+  if (!session.designApproval || !session.designApprovedAt) {
+    fail(
+      `Session ${session.id} is a major design change without a recorded user-approved direction.`,
+    );
+  }
+}
+
 function assertCommitReady() {
   initStore({ quiet: true });
   const staged = changeFingerprint("staged");
@@ -1048,6 +1143,7 @@ function assertCommitReady() {
     );
   }
   const session = sessions[0];
+  assertDesignApproval(session);
   console.log(
     `Pre-commit quality gate passed for ${session.feature} (${session.browserImpact === "required" ? "live-browser evidence" : "recorded non-browser bypass"}).`,
   );
@@ -1060,6 +1156,7 @@ function finishSession(options) {
   if (!fs.existsSync(filePath)) fail(`Unknown harness session: ${id}`);
   const session = readJson(filePath);
   if (session.status !== "active") fail(`Harness session ${id} is already finished.`);
+  assertDesignApproval(session);
   const pending = pendingFailures(id);
   if (pending.length) {
     fail(`Session ${id} has unresolved failure(s): ${pending.map((item) => item.id).join(", ")}`);
@@ -1129,7 +1226,9 @@ function printHelp() {
 
 Commands:
   init
-  start --feature <name> [--scope frontend,backend] [--findings UX-001,UX-002] [--browser-impact required|none --browser-bypass <reason>]
+  start --feature <name> [--scope frontend,backend] [--findings UX-001,UX-002] [--browser-impact required|none --browser-bypass <reason>] [--design-impact none|minor|major --design-approval <approved direction>]
+  approve-design --session <id> --approval <user-approved design direction>
+  add-findings --session <id> --findings UX-001,UX-002
   context [--scope frontend,backend]
   run --session <id> [--scope scope] [--cwd path] -- <command> [args]
   browser-audit --session <id> --level finding|phase --tool <browser skill> --browser <name> --environment local|preview|production --url <url> --entrypoint <text> --happy <text> --failure-recovery <text> --adversarial <text> --viewports <text> --focus <text> --screenshots <paths> --result pass|fail [--findings UX-001,UX-002]
@@ -1154,6 +1253,12 @@ function main() {
       break;
     case "start":
       startSession(options);
+      break;
+    case "approve-design":
+      approveDesign(options);
+      break;
+    case "add-findings":
+      addSessionFindings(options);
       break;
     case "context": {
       const knowledge = initStore({ quiet: true });

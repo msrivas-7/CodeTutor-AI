@@ -37,6 +37,74 @@ async function expectNoHorizontalOverflow(page: Page) {
 }
 
 test.describe("Phase A-Q — visual viewport matrix", () => {
+  test("auth glyph atmosphere moves behind content and becomes still for reduced motion", async ({
+    page,
+  }) => {
+    await page.emulateMedia({ colorScheme: "dark", reducedMotion: "no-preference" });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/login");
+
+    const field = page.getByTestId("ambient-glyph-field");
+    const glyphs = field.locator("[data-floating-glyph]");
+    await expect(field).toBeVisible();
+    await expect(glyphs).toHaveCount(7);
+    await expect(field).toHaveClass(/ambient-glyph-field--center-safe/);
+
+    const sample = () =>
+      glyphs.evaluateAll((elements) =>
+        elements.map((element) => {
+          const style = getComputedStyle(element);
+          return `${style.transform}|${style.opacity}`;
+        }),
+      );
+    const initialMotion = await sample();
+    await expect
+      .poll(async () => JSON.stringify(await sample()), { timeout: 2_000 })
+      .not.toBe(JSON.stringify(initialMotion));
+
+    const contentLayer = page
+      .locator("div.relative.z-10")
+      .filter({ has: page.getByRole("heading", { name: "Sign in", exact: true }) })
+      .first();
+    await expect(contentLayer).toBeVisible();
+    expect(await field.evaluate((element) => getComputedStyle(element).zIndex)).toBe("0");
+    expect(await contentLayer.evaluate((element) => getComputedStyle(element).zIndex)).toBe(
+      "10",
+    );
+    expect(await field.evaluate((element) => getComputedStyle(element).pointerEvents)).toBe(
+      "none",
+    );
+
+    await page.evaluate(() => {
+      document.documentElement.dataset.theme = "light";
+      document.documentElement.style.colorScheme = "light";
+    });
+    await expect(field).toBeVisible();
+    expect(await field.evaluate((element) => getComputedStyle(element).mixBlendMode)).toBe(
+      "multiply",
+    );
+    const lightGlyphColor = await glyphs.first().evaluate(
+      (element) => getComputedStyle(element).color,
+    );
+    expect(lightGlyphColor).toMatch(/rgba?\(2, 132, 199(?:, 0\.38)?\)/);
+    const centerMask = await field.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return style.maskImage || style.webkitMaskImage;
+    });
+    expect(centerMask).toMatch(/transparent|rgba\(0, 0, 0, 0\)/);
+    const lightMotion = await sample();
+    await expect
+      .poll(async () => JSON.stringify(await sample()), { timeout: 2_000 })
+      .not.toBe(JSON.stringify(lightMotion));
+
+    await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
+    await page.reload();
+    await expect(field).toBeVisible();
+    const stillStart = await sample();
+    await page.waitForTimeout(400);
+    expect(await sample()).toEqual(stillStart);
+  });
+
   test("phone auth and recovery controls keep a 44px interaction floor", async ({
     page,
   }) => {

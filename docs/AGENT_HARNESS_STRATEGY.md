@@ -92,6 +92,17 @@ of why no application runtime, response, content, style, or browser behavior can
 change. A new agent should then read the linked tracked docs and run a small
 baseline appropriate to the touched surface.
 
+Every session also classifies design impact as `none`, `minor`, or `major`.
+Major means a material change to the established visual style, layout model,
+motion language, interaction pattern, information architecture, or product
+narrative—not a normal implementation detail within an already approved
+direction. A bug report identifies an unacceptable outcome but does not grant
+permission to replace the underlying design. Major work requires the user's
+explicit approval before implementation and a concrete record of the approved
+direction via `--design-impact major --design-approval "..."`. If the scope
+becomes major after start, `approve-design` records the decision. Generic claims
+such as “user approved” are rejected, and agents may not manufacture approval.
+
 ### 2. Execute and observe
 
 Important checks should run through `run`. Passing commands become session
@@ -153,6 +164,12 @@ the staged fingerprint. It records the slice summary and checks, then runs
 finished fingerprint; changing the diff requires repeating finish and, for UI
 work, the combined browser pass. `finish --no-commit` exists only for explicit
 review/handoff sessions and cannot authorize a commit.
+
+For a session classified as a major design change, `finish` and `pre-commit`
+also require the persisted user-approved direction. This mechanical gate does
+not attempt to infer design magnitude from a diff; the always-loaded agent rule
+owns truthful classification, while the CLI makes the approval auditable and
+prevents an acknowledged major change from silently bypassing the decision.
 
 The pull-request phase is complete only after the same commit has green CI, all
 actionable review comments are resolved, and the cumulative PR phase ledger is

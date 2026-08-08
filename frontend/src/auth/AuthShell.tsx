@@ -40,7 +40,7 @@ export function AuthShell({
   return (
     // No `bg-bg` — the WebGL mesh + lighting stack is the background.
     // A solid color layer here would paint over the mesh.
-    <div className="relative flex min-h-screen flex-col text-ink">
+    <div className="relative isolate flex min-h-screen flex-col overflow-hidden text-ink">
       {/* Atmospheric backdrop — same palette as MarketingPage at 50%
           opacity. The dimming turns the mesh into "shared world"
           texture without competing with the form for attention. */}
@@ -73,7 +73,7 @@ export function AuthShell({
           content. Keep the atmospheric detail where there is enough negative
           space for it to register as a deliberate background layer. */}
       <div className="hidden sm:block">
-        <AmbientGlyphField />
+        <AmbientGlyphField occludeCenter />
       </div>
       {/* Soft key light + vignette — `key-only` + `soft` intensity
           gives the auth surface a subtle warm accent glow with the
