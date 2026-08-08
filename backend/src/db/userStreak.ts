@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { db, withRlsContext } from "./client.js";
+import { db } from "./client.js";
 import { HttpError } from "../middleware/errorHandler.js";
 
 // Phase 21B: per-user learning streak.
@@ -86,11 +86,92 @@ function fmtDate(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+function fmtDateOrNull(d: Date | null): string | null {
+  return d ? fmtDate(d) : null;
+}
+
 /** Add `days` to a Date and return a new Date (UTC-midnight). */
 function addDays(d: Date, days: number): Date {
   const r = new Date(d);
   r.setUTCDate(r.getUTCDate() + days);
   return r;
+}
+
+export type StreakDayKind = "active" | "grace";
+
+export interface StreakDay {
+  date: Date;
+  kind: StreakDayKind;
+}
+
+const StreakDaySchema = z.object({
+  streak_date: z.date(),
+  day_kind: z.enum(["active", "grace"]),
+});
+
+function parseStreakDays(rows: unknown[]): StreakDay[] {
+  return rows.map((row) => {
+    const parsed = StreakDaySchema.safeParse(row);
+    if (!parsed.success) {
+      throw new HttpError(
+        500,
+        `corrupt user_streak_days row: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`,
+      );
+    }
+    return { date: parsed.data.streak_date, kind: parsed.data.day_kind };
+  });
+}
+
+function latestDay(days: StreakDay[], kind: StreakDayKind): Date | null {
+  for (let index = days.length - 1; index >= 0; index -= 1) {
+    if (days[index]?.kind === kind) return days[index]!.date;
+  }
+  return null;
+}
+
+/**
+ * Derive the live streak from the authoritative UTC-day ledger. Grace rows
+ * bridge a calendar gap but do not add a learned day to the displayed count.
+ * A latest active day two days ago remains provisionally alive when the next
+ * grace is eligible, matching the existing lazy-freeze contract; the grace
+ * row is written only when the learner returns and qualifies again.
+ */
+export function deriveCurrentStreak(
+  days: StreakDay[],
+  lastFreezeUsed: Date | null,
+  now: Date = new Date(),
+): number {
+  const normalized = [...days].sort((a, b) => a.date.getTime() - b.date.getTime());
+  let latestActiveIndex = -1;
+  for (let index = normalized.length - 1; index >= 0; index -= 1) {
+    if (normalized[index]?.kind === "active") {
+      latestActiveIndex = index;
+      break;
+    }
+  }
+  if (latestActiveIndex < 0) return 0;
+
+  const today = todayUtc(now);
+  const latestActive = normalized[latestActiveIndex]!.date;
+  const latestGap = dayDiff(today, latestActive);
+  if (latestGap > 2) return 0;
+  if (
+    latestGap === 2 &&
+    lastFreezeUsed &&
+    dayDiff(today, lastFreezeUsed) <= 7
+  ) {
+    return 0;
+  }
+
+  let current = 0;
+  let expected = latestActive;
+  for (let index = latestActiveIndex; index >= 0; index -= 1) {
+    const day = normalized[index]!;
+    if (dayDiff(expected, day.date) !== 0) break;
+    if (day.kind === "active") current += 1;
+    expected = addDays(day.date, -1);
+  }
+  return current;
 }
 
 /**
@@ -213,10 +294,13 @@ function shapeFor(
  * returns the public shape with wasFirstToday=false, freezeUsedToday=false.
  */
 export async function getUserStreak(userId: string, now: Date = new Date()): Promise<UserStreakRow> {
-  // Phase 26: ensure-row UPSERT + optional decay UPDATE under one RLS
-  // context. The two queries land in the same transaction so the row
-  // lock implied by ON CONFLICT is held across the read.
-  return await withRlsContext(userId, async (tx) => {
+  // Streak classification is backend-owned. Use the privileged application
+  // transaction with explicit user predicates; browser roles have read-only
+  // grants on both tables. Lock the summary while reconciling it to the
+  // authoritative day ledger so a concurrent qualifying action cannot race
+  // this read-side repair.
+  const sql = db();
+  return await sql.begin(async (tx) => {
     const rows = await tx`
       INSERT INTO public.user_streak (user_id)
       VALUES (${userId})
@@ -224,16 +308,46 @@ export async function getUserStreak(userId: string, now: Date = new Date()): Pro
       RETURNING user_id, current_streak, longest_streak, last_active_date, last_freeze_used
     `;
     const parsed = parseRow(rows[0]);
-    const decay = applyDecay(parsed, now);
-    if (decay.decayed) {
+    const dayRows = await tx`
+      SELECT streak_date, day_kind
+        FROM public.user_streak_days
+       WHERE user_id = ${userId}
+       ORDER BY streak_date ASC
+    `;
+    const days = parseStreakDays(dayRows);
+    const lastActiveDate = latestDay(days, "active");
+    const lastFreezeUsed = latestDay(days, "grace");
+    const current = deriveCurrentStreak(days, lastFreezeUsed, now);
+    const longest = Math.max(parsed.longest, current);
+    if (
+      current !== parsed.current ||
+      longest !== parsed.longest ||
+      fmtDateOrNull(lastActiveDate) !== fmtDateOrNull(parsed.lastActiveDate) ||
+      fmtDateOrNull(lastFreezeUsed) !== fmtDateOrNull(parsed.lastFreezeUsed)
+    ) {
       await tx`
         UPDATE public.user_streak
-           SET current_streak = ${decay.current},
-               updated_at     = now()
+           SET current_streak   = ${current},
+               longest_streak   = ${longest},
+               last_active_date = ${fmtDateOrNull(lastActiveDate)}::date,
+               last_freeze_used = ${fmtDateOrNull(lastFreezeUsed)}::date,
+               updated_at       = now()
          WHERE user_id = ${userId}
       `;
     }
-    return shapeFor(parsed, decay, false, false, now);
+    return shapeFor(
+      parsed,
+      {
+        current,
+        longest,
+        lastActiveDate,
+        lastFreezeUsed,
+        decayed: current !== parsed.current,
+      },
+      false,
+      false,
+      now,
+    );
   });
 }
 
@@ -261,29 +375,11 @@ export async function updateUserStreak(userId: string, now: Date = new Date()): 
   const yesterday = addDays(today, -1);
   const yesterdayStr = fmtDate(yesterday);
 
-  // Serialized via postgres row-level lock. Audit walked the race and
-  // confirmed it's safe under default READ COMMITTED:
-  //
-  //   Call A: BEGIN → INSERT (acquires row lock on user_id via
-  //           ON CONFLICT path) → SELECT FOR UPDATE (already has lock)
-  //           → UPDATE → COMMIT (releases lock).
-  //   Call B: BEGIN → INSERT (BLOCKS on A's lock) → A commits, B
-  //           unblocks, INSERT triggers ON CONFLICT → SELECT FOR
-  //           UPDATE → reads A's post-commit state (lastActiveDate=
-  //           today) → falls into same-day no-op branch below →
-  //           returns wasFirstToday=false.
-  //
-  // The "same-day no-op" check on line 285 is reached with the row
-  // locked AND the most recent committed state visible (READ COMMITTED
-  // semantics give per-statement snapshots after a lock acquisition).
-  // No race on wasFirstToday.
-  //
-  // Phase 26: withRlsContext wraps the whole sequence in a transaction
-  // with SET LOCAL ROLE authenticated; the existing FOR UPDATE row lock
-  // semantics are unchanged.
-  let result: UserStreakRow | null = null;
-  await withRlsContext(userId, async (tx) => {
-    // Ensure row exists, then lock it.
+  // The summary row is the serialization point for both the ledger insert
+  // and cached-summary update. A concurrent same-day request blocks on this
+  // row, then observes today's committed ledger entry and becomes a no-op.
+  const sql = db();
+  return await sql.begin(async (tx) => {
     await tx`
       INSERT INTO public.user_streak (user_id)
       VALUES (${userId})
@@ -296,50 +392,85 @@ export async function updateUserStreak(userId: string, now: Date = new Date()): 
        FOR UPDATE
     `;
     const parsed = parseRow(rows[0]);
+    const initialRows = await tx`
+      SELECT streak_date, day_kind
+        FROM public.user_streak_days
+       WHERE user_id = ${userId}
+       ORDER BY streak_date ASC
+    `;
+    const initialDays = parseStreakDays(initialRows);
+    const priorActive = latestDay(initialDays, "active");
+    const priorFreeze = latestDay(initialDays, "grace");
 
-    // Same-day no-op.
-    if (parsed.lastActiveDate && dayDiff(today, parsed.lastActiveDate) === 0) {
-      result = shapeFor(parsed, { current: parsed.current, longest: parsed.longest, lastActiveDate: parsed.lastActiveDate, lastFreezeUsed: parsed.lastFreezeUsed, decayed: false }, false, false, now);
-      return;
-    }
-
-    let nextCurrent: number;
-    let nextFreeze: Date | null = parsed.lastFreezeUsed;
-    let freezeUsedNow = false;
-    const gap = parsed.lastActiveDate ? dayDiff(today, parsed.lastActiveDate) : Infinity;
-
-    if (parsed.current === 0 || !parsed.lastActiveDate || gap === Infinity) {
-      // First-ever or post-decay zero → start fresh at Day 1.
-      nextCurrent = 1;
-    } else if (gap === 1) {
-      nextCurrent = parsed.current + 1;
-    } else if (gap === 2) {
-      const freezeEligible =
-        !parsed.lastFreezeUsed || dayDiff(today, parsed.lastFreezeUsed) > 7;
-      if (freezeEligible) {
-        nextCurrent = parsed.current + 1;
-        nextFreeze = yesterday;
-        freezeUsedNow = true;
-      } else {
-        nextCurrent = 1;
+    if (priorActive && dayDiff(today, priorActive) === 0) {
+      const current = deriveCurrentStreak(initialDays, priorFreeze, now);
+      const longest = Math.max(parsed.longest, current);
+      if (current !== parsed.current || longest !== parsed.longest) {
+        await tx`
+          UPDATE public.user_streak
+             SET current_streak = ${current},
+                 longest_streak = ${longest},
+                 updated_at     = now()
+           WHERE user_id = ${userId}
+        `;
       }
-    } else {
-      // gap > 2 → break, restart at 1.
-      nextCurrent = 1;
+      return shapeFor(
+        parsed,
+        {
+          current,
+          longest,
+          lastActiveDate: priorActive,
+          lastFreezeUsed: priorFreeze,
+          decayed: current !== parsed.current,
+        },
+        false,
+        false,
+        now,
+      );
     }
 
+    let freezeUsedNow = false;
+    const gap = priorActive ? dayDiff(today, priorActive) : Infinity;
+    if (gap === 2) {
+      const freezeEligible =
+        !priorFreeze || dayDiff(today, priorFreeze) > 7;
+      if (freezeEligible) {
+        await tx`
+          INSERT INTO public.user_streak_days (user_id, streak_date, day_kind)
+          VALUES (${userId}, ${yesterdayStr}::date, 'grace')
+          ON CONFLICT (user_id, streak_date) DO NOTHING
+        `;
+        freezeUsedNow = true;
+      }
+    }
+
+    await tx`
+      INSERT INTO public.user_streak_days (user_id, streak_date, day_kind)
+      VALUES (${userId}, ${todayStr}::date, 'active')
+      ON CONFLICT (user_id, streak_date) DO UPDATE
+      SET day_kind = 'active'
+    `;
+
+    const finalRows = await tx`
+      SELECT streak_date, day_kind
+        FROM public.user_streak_days
+       WHERE user_id = ${userId}
+       ORDER BY streak_date ASC
+    `;
+    const finalDays = parseStreakDays(finalRows);
+    const nextFreeze = latestDay(finalDays, "grace");
+    const nextCurrent = deriveCurrentStreak(finalDays, nextFreeze, now);
     const nextLongest = Math.max(parsed.longest, nextCurrent);
     await tx`
       UPDATE public.user_streak
          SET current_streak   = ${nextCurrent},
              longest_streak   = ${nextLongest},
              last_active_date = ${todayStr}::date,
-             last_freeze_used = ${nextFreeze ? fmtDate(nextFreeze) : null}::date,
+             last_freeze_used = ${fmtDateOrNull(nextFreeze)}::date,
              updated_at       = now()
        WHERE user_id = ${userId}
     `;
-    void yesterdayStr; // referenced for readability; nextFreeze carries the value
-    result = shapeFor(
+    return shapeFor(
       parsed,
       {
         current: nextCurrent,
@@ -353,14 +484,11 @@ export async function updateUserStreak(userId: string, now: Date = new Date()): 
       now,
     );
   });
-  if (!result) throw new Error("updateUserStreak: transaction returned no result");
-  return result;
 }
 
 // ---------------------------------------------------------------------------
-// History — for the dynamic-island widget. Returns distinct UTC dates from
-// the past `days` days where lesson_progress was touched (a proxy for any
-// activity), plus the freeze-used date if it falls in the window.
+// History — for the dynamic-island widget. Reads the same authoritative UTC
+// day ledger used to derive the summary chip.
 // ---------------------------------------------------------------------------
 
 export interface StreakHistory {
@@ -386,51 +514,26 @@ export async function getStreakHistory(
   for (let i = 0; i < days; i++) {
     windowDates.push(fmtDate(addDays(start, i)));
   }
-  // Phase 26: both queries land in one RLS-scoped transaction. lesson_progress
-  // and user_streak both have RLS policies on auth.uid() = user_id; the
-  // explicit WHERE user_id = ${userId} clauses are defense-in-depth.
-  const { activityRows, streakRow } = await withRlsContext(userId, async (tx) => {
-    // Distinct activity dates from lesson_progress in the window. updated_at
-    // is the broadest proxy: any progressStore action that PATCHes the row
-    // (start, run, hint, complete, code-save) bumps it. Cheap because the
-    // (user_id, updated_at DESC) index from migration 20260420130000 covers
-    // exactly this query shape.
-    const activityRows = await tx<Array<{ d: string }>>`
-      SELECT DISTINCT to_char((updated_at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS d
-        FROM public.lesson_progress
+  const sql = db();
+  const dayRows = await sql<Array<{ streak_date: Date; day_kind: StreakDayKind }>>`
+      SELECT streak_date, day_kind
+        FROM public.user_streak_days
        WHERE user_id = ${userId}
-         AND updated_at >= ${fmtDate(start)}::date
-         AND updated_at <  ${fmtDate(addDays(today, 1))}::date
-    `;
-    // Read both user_streak fields in a single query — earlier impl ran
-    // two separate SELECTs, opening a (microscopic) race window where
-    // an updateUserStreak between the queries could yield an
-    // inconsistent freeze + active-date pair. Single SELECT = atomic.
-    const streakRow = await tx<
-      Array<{ last_freeze_used: Date | null; last_active_date: Date | null }>
-    >`
-      SELECT last_freeze_used, last_active_date
-        FROM public.user_streak
-       WHERE user_id = ${userId}
-    `;
-    return { activityRows, streakRow };
-  });
-  const active = new Set(activityRows.map((r) => r.d));
-  const lf = streakRow[0]?.last_freeze_used;
-  const la = streakRow[0]?.last_active_date;
-  const freezeUsedDates: string[] = [];
-  if (lf) {
-    const lfStr = fmtDate(lf);
-    if (windowDates.includes(lfStr)) freezeUsedDates.push(lfStr);
-  }
-  if (la) {
-    const laStr = fmtDate(la);
-    if (windowDates.includes(laStr)) active.add(laStr);
-  }
+         AND streak_date >= ${fmtDate(start)}::date
+         AND streak_date <= ${fmtDate(today)}::date
+       ORDER BY streak_date ASC
+  `;
+  const daysInWindow = parseStreakDays(dayRows);
+  const active = new Set(
+    daysInWindow.filter((day) => day.kind === "active").map((day) => fmtDate(day.date)),
+  );
+  const grace = new Set(
+    daysInWindow.filter((day) => day.kind === "grace").map((day) => fmtDate(day.date)),
+  );
   return {
     windowDates,
     activeDates: windowDates.filter((d) => active.has(d)),
-    freezeUsedDates,
+    freezeUsedDates: windowDates.filter((d) => grace.has(d)),
     todayUtc: fmtDate(today),
   };
 }
@@ -438,5 +541,8 @@ export async function getStreakHistory(
 // Test-only: reset for fixtures.
 export async function __deleteUserStreakForTests(userId: string): Promise<void> {
   const sql = db();
-  await sql`DELETE FROM public.user_streak WHERE user_id = ${userId}`;
+  await sql.begin(async (tx) => {
+    await tx`DELETE FROM public.user_streak_days WHERE user_id = ${userId}`;
+    await tx`DELETE FROM public.user_streak WHERE user_id = ${userId}`;
+  });
 }

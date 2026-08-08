@@ -541,6 +541,7 @@ export default function LessonPage({
   const instructionsRestoreRef = useRef<HTMLButtonElement>(null);
   const tutorRestoreRef = useRef<HTMLButtonElement>(null);
   const tutorOpenNonce = useAIStore((s) => s.tutorOpenNonce);
+  const resetInteractionRef = useRef(false);
   useEffect(() => {
     if (tutorOpenNonce > 0) layout.setTutorCollapsed(false);
   }, [tutorOpenNonce, layout.setTutorCollapsed]);
@@ -573,6 +574,7 @@ export default function LessonPage({
     setTutorCollapsed: layout.setTutorCollapsed,
     mode,
     interactionBlocked: runButtonLocked,
+    interactionBlockedRef: resetInteractionRef,
   });
   const validator = useLessonValidator({
     lesson: loader.lesson,
@@ -598,9 +600,13 @@ export default function LessonPage({
       runner.setHasEdited(true);
       runner.setHasRun(hadRun);
     },
+    resetInteractionRef,
     mode,
     retrievalAnswered,
   });
+  const runInteractionLocked = runButtonLocked || validator.resettingCode;
+  const checkInteractionLocked = checkButtonLocked || validator.resettingCode;
+  const editorInteractionLocked = editorLocked || validator.resettingCode;
 
   const handleExitPractice = () => {
     validator.handleExitPractice();
@@ -1379,7 +1385,28 @@ export default function LessonPage({
           </button>
         </div>
       )}
-      {validator.resetUndo && (
+      {validator.resettingCode && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex min-h-11 items-center gap-3 border-b border-accent/30 bg-accent/10 px-4 py-2 text-sm text-ink"
+        >
+          <span
+            aria-hidden="true"
+            className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-accent/30 border-t-accent"
+          />
+          <span>Resetting code… The editor will unlock when the starter is ready.</span>
+        </div>
+      )}
+      {validator.resetCodeError && !validator.confirmResetCode && !validator.resettingCode && (
+        <div
+          role="alert"
+          className="flex min-h-11 items-center border-b border-warn/40 bg-warn/10 px-4 py-2 text-sm text-warn"
+        >
+          {validator.resetCodeError}
+        </div>
+      )}
+      {validator.resetUndo && !validator.resettingCode && (
         <div
           role="status"
           className="flex min-h-11 items-center gap-3 border-b border-accent/30 bg-accent/10 px-4 py-2 text-sm"
@@ -1546,7 +1573,9 @@ export default function LessonPage({
                     attentionTarget={contextualGuide.target}
                     focusRequest={editorFocusRequest}
                     onFocusRequestSettled={handleEditorFocusRequestSettled}
-                    readOnly={editorLocked}
+                    contentCommitRequest={validator.resetContentCommit}
+                    onContentCommitSettled={validator.settleCodeResetContent}
+                    readOnly={editorInteractionLocked}
                   />
                 </Suspense>
               </div>
@@ -1648,11 +1677,11 @@ export default function LessonPage({
                   duration: CINEMA_DURATIONS.tactileTap / 1000,
                   ease: MATERIAL_EASE,
                 }}
-                disabled={runner.stopping || (!runner.running && (!runner.canRun || runButtonLocked))}
+                disabled={runner.stopping || (!runner.running && (!runner.canRun || runInteractionLocked))}
                 className={`flex h-11 flex-1 items-center justify-center gap-1.5 rounded-xl text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
                   runner.running && !runner.stopping
                     ? "bg-danger/15 text-danger ring-1 ring-danger/40 active:bg-danger/25"
-                    : runner.canRun && !runButtonLocked
+                    : runner.canRun && !runInteractionLocked
                       ? "bg-accent text-bg active:bg-accent/90"
                     : "bg-elevated text-muted"
                 }`}
@@ -1677,9 +1706,9 @@ export default function LessonPage({
                 onClick={() => {
                   void validator.handleCheck();
                 }}
-                disabled={runner.running || validator.runningTests || validator.completionSaving || checkButtonLocked}
+                disabled={runner.running || validator.runningTests || validator.completionSaving || checkInteractionLocked}
                 className={`flex h-11 flex-1 items-center justify-center gap-1.5 rounded-xl text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-violet ${
-                  !runner.running && !validator.runningTests && !validator.completionSaving && !checkButtonLocked
+                  !runner.running && !validator.runningTests && !validator.completionSaving && !checkInteractionLocked
                     ? "bg-violet/20 text-violet active:bg-violet/30"
                     : "bg-elevated text-muted"
                 }`}
@@ -1718,8 +1747,8 @@ export default function LessonPage({
               <button
                 type="button"
                 onClick={validator.handleReset}
-                disabled={runner.running}
-                title="Reset code to starter"
+                disabled={runner.running || validator.resettingCode}
+                title={validator.resettingCode ? "Resetting code…" : "Reset code to starter"}
                 aria-label="Reset code to starter"
                 className="flex h-11 w-11 items-center justify-center rounded-xl text-base text-muted transition active:bg-elevated disabled:opacity-40"
               >
@@ -1881,7 +1910,9 @@ export default function LessonPage({
                   attentionTarget={contextualGuide.target}
                   focusRequest={editorFocusRequest}
                   onFocusRequestSettled={handleEditorFocusRequestSettled}
-                  readOnly={editorLocked}
+                  contentCommitRequest={validator.resetContentCommit}
+                  onContentCommitSettled={validator.settleCodeResetContent}
+                  readOnly={editorInteractionLocked}
                 />
               </Suspense>
             </div>
@@ -1941,20 +1972,22 @@ export default function LessonPage({
                       duration: CINEMA_DURATIONS.tactileTap / 1000,
                       ease: MATERIAL_EASE,
                     }}
-                    disabled={runner.stopping || (!runner.running && (!runner.canRun || runButtonLocked))}
+                    disabled={runner.stopping || (!runner.running && (!runner.canRun || runInteractionLocked))}
                     className={`flex min-h-11 items-center gap-1.5 whitespace-nowrap rounded-lg px-4 py-2 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
                       runner.running && !runner.stopping
                         ? "bg-danger/15 text-danger ring-1 ring-danger/40 hover:bg-danger/25"
-                        : runner.canRun && !runButtonLocked
+                        : runner.canRun && !runInteractionLocked
                           ? "bg-accent text-bg hover:bg-accent/90"
                         : "bg-elevated text-muted cursor-not-allowed"
                     }`}
                     title={
-                      runButtonLocked
-                        ? "The tutor will tell you when to run"
+                      validator.resettingCode
+                        ? "Resetting code…"
+                        : runInteractionLocked
+                          ? "The tutor will tell you when to run"
                         : runner.running
                           ? "Stop the running program"
-                          : runner.canRun
+                        : runner.canRun
                           ? `Run your code (${keys.run})`
                           : runner.sessionPhase !== "active"
                             ? "Waiting for session to start…"
@@ -1995,8 +2028,8 @@ export default function LessonPage({
                 <button
                   type="button"
                   onClick={validator.handleReset}
-                  disabled={runner.running}
-                  title="Reset code to starter"
+                  disabled={runner.running || validator.resettingCode}
+                  title={validator.resettingCode ? "Resetting code…" : "Reset code to starter"}
                   aria-label="Reset code to starter"
                   className="flex min-h-11 items-center gap-1 whitespace-nowrap rounded-lg px-3 py-2 text-sm text-muted transition hover:bg-elevated hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-40"
                 >
@@ -2016,15 +2049,17 @@ export default function LessonPage({
                       // mis-type as the override object.
                       void validator.handleCheck();
                     }}
-                    disabled={runner.running || validator.runningTests || validator.completionSaving || checkButtonLocked}
+                    disabled={runner.running || validator.runningTests || validator.completionSaving || checkInteractionLocked}
                     className={`flex min-h-11 items-center gap-1.5 whitespace-nowrap rounded-lg px-4 py-2 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-violet ${
-                      !runner.running && !validator.runningTests && !validator.completionSaving && !checkButtonLocked
+                      !runner.running && !validator.runningTests && !validator.completionSaving && !checkInteractionLocked
                         ? "bg-violet/20 text-violet hover:bg-violet/30"
                         : "bg-elevated text-muted cursor-not-allowed"
                     }`}
                     title={
-                      checkButtonLocked
-                        ? "The tutor will tell you when to check"
+                      validator.resettingCode
+                        ? "Resetting code…"
+                        : checkInteractionLocked
+                          ? "The tutor will tell you when to check"
                         : "Verify your solution against the lesson's checks"
                     }
                     aria-label="Check my work against lesson requirements"

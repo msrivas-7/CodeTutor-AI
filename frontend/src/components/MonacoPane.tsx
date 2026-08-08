@@ -114,6 +114,8 @@ interface MonacoPaneProps {
   attentionTarget?: EditorAttentionTarget | null;
   focusRequest?: { path: string; ticket: number } | null;
   onFocusRequestSettled?: (ticket: number) => void;
+  contentCommitRequest?: { ticket: number; path: string; content: string } | null;
+  onContentCommitSettled?: (ticket: number, matched: boolean) => void;
   readOnly?: boolean;
 }
 
@@ -121,6 +123,8 @@ export function MonacoPane({
   attentionTarget = null,
   focusRequest = null,
   onFocusRequestSettled,
+  contentCommitRequest = null,
+  onContentCommitSettled,
   readOnly = false,
 }: MonacoPaneProps = {}) {
   // P-C1: scoped selectors — a no-arg `useProjectStore()` re-renders on every
@@ -139,6 +143,8 @@ export function MonacoPane({
   const lastFocusRequest = useRef(0);
   const scheduledFocusRequest = useRef(0);
   const focusRequestRaf = useRef<number | null>(null);
+  const contentCommitRaf = useRef<number | null>(null);
+  const settledContentCommit = useRef(0);
   const theme = useEffectiveTheme();
 
   // A14: track the last-applied reveal ticket so activeFile-driven re-runs of
@@ -245,13 +251,51 @@ export function MonacoPane({
     focusRequestRaf.current = requestAnimationFrame(focusWhenReady);
   };
 
+  const applyContentCommitRequest = () => {
+    if (
+      !contentCommitRequest ||
+      contentCommitRequest.ticket <= settledContentCommit.current
+    ) {
+      return;
+    }
+    const request = contentCommitRequest;
+    if (contentCommitRaf.current !== null) cancelAnimationFrame(contentCommitRaf.current);
+    let attempts = 0;
+    const confirmWhenRendered = () => {
+      contentCommitRaf.current = null;
+      const editor = editorRef.current;
+      const model = editor?.getModel();
+      if (
+        useProjectStore.getState().activeFile === request.path &&
+        model?.getValue() === request.content
+      ) {
+        settledContentCommit.current = request.ticket;
+        onContentCommitSettled?.(request.ticket, true);
+        return;
+      }
+      attempts += 1;
+      if (attempts < 120) {
+        contentCommitRaf.current = requestAnimationFrame(confirmWhenRendered);
+        return;
+      }
+      settledContentCommit.current = request.ticket;
+      onContentCommitSettled?.(request.ticket, false);
+    };
+    contentCommitRaf.current = requestAnimationFrame(confirmWhenRendered);
+  };
+
   useEffect(() => {
     applyFocusRequest();
   }, [focusRequest?.path, focusRequest?.ticket, activeFile]);
 
+  useEffect(() => {
+    applyContentCommitRequest();
+  }, [contentCommitRequest?.ticket, contentCommitRequest?.path, contentCommitRequest?.content, activeFile]);
+
   useEffect(
     () => () => {
       if (focusRequestRaf.current !== null) cancelAnimationFrame(focusRequestRaf.current);
+      if (contentCommitRaf.current !== null) cancelAnimationFrame(contentCommitRaf.current);
       attentionDecorationsRef.current?.clear();
       attentionDecorationsRef.current = null;
     },
@@ -267,6 +311,7 @@ export function MonacoPane({
     // not lost between the old textarea unmounting and the new one becoming
     // ready.
     applyFocusRequest();
+    applyContentCommitRequest();
     // Apply any pending reveal recorded before this editor instance existed —
     // typical when clicking a ref that switches the active file, which
     // remounts the Editor (we key on activeFile). Fresh reveals still focus
@@ -356,7 +401,11 @@ export function MonacoPane({
       beforeMount={defineThemes}
       options={{
         readOnly,
-        readOnlyMessage: { value: "Finish or skip the welcome to start editing." },
+        readOnlyMessage: {
+          value: contentCommitRequest
+            ? "Resetting code. The editor will unlock when the starter is ready."
+            : "Finish or skip the welcome to start editing.",
+        },
         fontSize: 13,
         fontFamily: "'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace",
         fontLigatures: true,

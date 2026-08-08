@@ -9,7 +9,7 @@
 import { expect, test } from "../fixtures/auth";
 
 import { mockAllAI } from "../fixtures/aiMocks";
-import { getMonacoValue, setMonacoValue, waitForMonacoReady } from "../fixtures/monaco";
+import { focusMonaco, getMonacoValue, setMonacoValue, waitForMonacoReady } from "../fixtures/monaco";
 import { loadProfile, markOnboardingDone, seedApiKey } from "../fixtures/profiles";
 import { readLessonSolution, readPracticeSolution } from "../fixtures/solutions";
 import * as S from "../utils/selectors";
@@ -104,6 +104,53 @@ test.describe("practice mode", () => {
     await page.getByRole("button", { name: /practice 1 of 3/i }).click();
     await expect(page.getByRole("heading", { name: /greeting with default/i })).toBeVisible();
     expect(await getMonacoValue(page)).toContain("def greet");
+  });
+
+  test("rate-limited completion keeps the solution and gates retry to Retry-After", async ({ page }) => {
+    await loadProfile(page, "capstones-pending");
+    let blockedOnce = false;
+    await page.route(
+      `**/api/user/lessons/${COURSE_ID}/${LESSON_ID}`,
+      async (route) => {
+        const request = route.request();
+        const body = request.method() === "PATCH"
+          ? (request.postDataJSON() as Record<string, unknown>)
+          : {};
+        if (!blockedOnce && body.practiceEvidence) {
+          blockedOnce = true;
+          await route.fulfill({
+            status: 429,
+            contentType: "application/json",
+            headers: { "Retry-After": "2" },
+            body: JSON.stringify({ error: "Too many requests" }),
+          });
+          return;
+        }
+        await route.fallback();
+      },
+    );
+    await page.goto(`/learn/course/${COURSE_ID}/lesson/${LESSON_ID}?mode=practice`);
+    await waitForMonacoReady(page);
+
+    const solution = readPracticeSolution(COURSE_ID, LESSON_ID, EX1);
+    await setMonacoValue(page, solution);
+    await S.lessonRunButton(page).click();
+    await S.checkMyWorkButton(page).click();
+
+    await expect(page.getByRole("alert").filter({ hasText: /practice result not saved/i })).toBeVisible({
+      timeout: 30_000,
+    });
+    const countdown = page.getByRole("button", { name: /retry in \d+s/i });
+    await expect(countdown).toBeVisible();
+    await expect(countdown).toBeDisabled();
+    expect(await getMonacoValue(page)).toBe(solution);
+    await expect(page.getByText(/0\/3 done/).first()).toBeVisible();
+
+    const retry = page.getByRole("button", { name: /^retry saving$/i });
+    await expect(retry).toBeEnabled({ timeout: 5_000 });
+    await retry.click();
+    await expect(page.getByText(/nice work/i).first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/1\/3 done/).first()).toBeVisible();
   });
 
   test("authenticated phone practice keeps every workspace surface inside the viewport", async ({ page }) => {
@@ -212,6 +259,44 @@ test.describe("practice mode", () => {
 
     // Header reverts to 0/3 done.
     await expect(page.getByText(/0\/3 done/).first()).toBeVisible({ timeout: 5_000 });
+  });
+
+  test("completed practice code resets to the authored starter before the editor unlocks", async ({ page }) => {
+    await loadProfile(page, "capstones-pending");
+    await page.goto(`/learn/course/${COURSE_ID}/lesson/${LESSON_ID}?mode=practice`);
+    await waitForMonacoReady(page);
+
+    const authoredStarter = await getMonacoValue(page);
+    const solved = readPracticeSolution(COURSE_ID, LESSON_ID, EX1);
+    await setMonacoValue(page, solved);
+    await S.lessonRunButton(page).click();
+    await S.checkMyWorkButton(page).click();
+    await expect(page.getByText(/nice work/i).first()).toBeVisible({ timeout: 30_000 });
+    // Let the ordinary debounced practice draft persist so Reset is forced to
+    // choose between a real saved solution and the immutable authored starter.
+    await page.waitForTimeout(2_300);
+
+    const resetAndWaitForCommit = async () => {
+      await S.resetCodeButton(page).click();
+      const confirm = page.getByRole("alertdialog", { name: /reset this code/i });
+      await expect(confirm).toBeVisible();
+      await confirm.getByRole("button", { name: /^reset code$/i }).click();
+      await expect(
+        page.getByRole("status").filter({ hasText: /code reset\. output, checks, and tutor context/i }),
+      ).toBeVisible({ timeout: 5_000 });
+      expect(await getMonacoValue(page)).toBe(authoredStarter);
+    };
+
+    await resetAndWaitForCommit();
+    await page.getByRole("button", { name: /undo reset/i }).click();
+    await expect.poll(() => getMonacoValue(page)).toBe(solved);
+
+    await resetAndWaitForCommit();
+    await focusMonaco(page);
+    await page.keyboard.press(process.platform === "darwin" ? "Meta+End" : "Control+End");
+    await page.keyboard.type("\n# RESET_SENTINEL_AFTER_COMMIT");
+    await page.waitForTimeout(2_300);
+    expect(await getMonacoValue(page)).toContain("RESET_SENTINEL_AFTER_COMMIT");
   });
 
   test("Show hints toggles the hints list", async ({ page }) => {

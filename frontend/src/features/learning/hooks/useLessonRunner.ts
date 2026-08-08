@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type RefObject } from "react";
+import { useCallback, useEffect, useState, type MutableRefObject, type RefObject } from "react";
 import type { Lesson } from "../types";
 import type { RunResult } from "../../../types";
 import { useAIStore } from "../../../state/aiStore";
@@ -42,6 +42,7 @@ export interface UseLessonRunnerArgs {
    * Cmd/Ctrl+Enter cannot execute behind a cinematic or scripted tutor step.
    */
   interactionBlocked?: boolean;
+  interactionBlockedRef?: MutableRefObject<boolean>;
 }
 
 export function useLessonRunner({
@@ -54,6 +55,7 @@ export function useLessonRunner({
   setTutorCollapsed,
   mode = "authed",
   interactionBlocked = false,
+  interactionBlockedRef,
 }: UseLessonRunnerArgs) {
   const sessionId = useSessionStore((s) => s.sessionId);
   const sessionPhase = useSessionStore((s) => s.phase);
@@ -80,7 +82,14 @@ export function useLessonRunner({
   const [editCount, setEditCount] = useState(0);
 
   const handleRun = useCallback(async () => {
-    if (interactionBlocked || running || !courseId || !lessonId || !lesson) return;
+    if (
+      interactionBlocked ||
+      interactionBlockedRef?.current ||
+      running ||
+      !courseId ||
+      !lessonId ||
+      !lesson
+    ) return;
     // Phase 27-v2.1: mode="authed" still requires an active session;
     // mode="anon" skips the session check (no sessionId on /try/).
     if (mode === "authed" && (!sessionId || sessionPhase !== "active")) return;
@@ -153,7 +162,7 @@ export function useLessonRunner({
     } finally {
       useRunStore.getState().finishRun(operation.id);
     }
-  }, [interactionBlocked, mode, sessionId, sessionPhase, running, courseId, lessonId, lesson, incrementRun, saveOutput, saveCode, practiceMode]);
+  }, [interactionBlocked, interactionBlockedRef, mode, sessionId, sessionPhase, running, courseId, lessonId, lesson, incrementRun, saveOutput, saveCode, practiceMode]);
 
   const handleStop = useCallback(async () => {
     const store = useRunStore.getState();

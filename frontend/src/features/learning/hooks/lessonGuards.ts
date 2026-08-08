@@ -63,6 +63,22 @@ export function shouldAutoEnterPractice(input: AutoPracticeInput): boolean {
   return true;
 }
 
+export function selectPracticeWorkspaceFiles(
+  entry: string,
+  starterCode: string | undefined,
+  persisted: Record<string, string> | undefined,
+  forceAuthoredStarter: boolean,
+): Record<string, string> {
+  if (
+    !forceAuthoredStarter &&
+    persisted &&
+    Object.keys(persisted).length > 0
+  ) {
+    return persisted;
+  }
+  return { [entry]: starterCode ?? "# Write your code here\n" };
+}
+
 // handleCheck dispatches to practice-exercise rules or lesson-level rules.
 // Keeping this as a pure selector makes it obvious what each branch
 // actually validates against.

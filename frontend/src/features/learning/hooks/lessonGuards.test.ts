@@ -10,6 +10,7 @@ import {
   buildAskTutorPrompt,
   countFailsByVisibility,
   lessonWorkspaceContextKey,
+  selectPracticeWorkspaceFiles,
   selectCompletionRulesForCheck,
   shouldAutoEnterPractice,
   shouldBouncePrereq,
@@ -41,6 +42,23 @@ describe("lesson workspace boundaries", () => {
         "lesson:python/hello",
       ),
     ).toBe(true);
+  });
+});
+
+describe("selectPracticeWorkspaceFiles", () => {
+  const persisted = { "main.js": "function fixed() { return true; }\n" };
+  const starter = "function fixed() { /* TODO */ }\n";
+
+  it("resumes the exercise-specific saved buffer during ordinary navigation", () => {
+    expect(
+      selectPracticeWorkspaceFiles("main.js", starter, persisted, false),
+    ).toEqual(persisted);
+  });
+
+  it("uses the immutable authored starter for an explicit reset", () => {
+    expect(
+      selectPracticeWorkspaceFiles("main.js", starter, persisted, true),
+    ).toEqual({ "main.js": starter });
   });
 });
 
