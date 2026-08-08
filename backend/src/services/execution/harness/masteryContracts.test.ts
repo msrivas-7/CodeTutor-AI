@@ -12,6 +12,7 @@ import type { FunctionTest, HarnessSuite, SourceCheck, TestReport } from "./type
 type CompletionRule =
   | { type: "function_tests"; tests: FunctionTest[] }
   | { type: "source_checks"; checks: SourceCheck[] }
+  | { type: "expected_stdout"; expected: string; match?: string }
   | { type: string };
 
 const courseRoot = path.resolve(process.cwd(), "../frontend/public/courses");
@@ -65,6 +66,26 @@ function failedNames(report: TestReport): string[] {
 }
 
 describe("Q4 mastery contracts reject formerly accepted shortcuts", { timeout: 30_000 }, () => {
+  it("keeps the leap-year and debugging outcomes exact and semantically aligned", () => {
+    expect(rules("javascript-fundamentals", "conditionals", "leap-year")).toContainEqual({
+      type: "expected_stdout",
+      expected: "leap",
+      match: "exact",
+    });
+    expect(rules("python-fundamentals", "debugging-basics")).toContainEqual({
+      type: "expected_stdout",
+      expected: "All bugs fixed!\nResult: [4, 8, 12, 16, 20]",
+      match: "exact",
+    });
+
+    const debuggingSolution = fs.readFileSync(
+      path.join(courseRoot, "python-fundamentals", "lessons", "debugging-basics", "solution", "main.py"),
+      "utf8",
+    );
+    expect(debuggingSolution).toContain("def double_evens(numbers):");
+    expect(debuggingSolution).toContain("result.append(n * 2)");
+  });
+
   it("rejects Math.max in the running-maximum practice", () => {
     const report = run(
       "javascript",
@@ -110,6 +131,25 @@ describe("Q4 mastery contracts reject formerly accepted shortcuts", { timeout: 3
     ]));
   });
 
+  it("rejects duplicated parent behavior when the lesson requires super()", () => {
+    const duplicatedParent = run(
+      "python",
+      [
+        "class Account:",
+        "    def __init__(self, owner, balance=0): self.owner, self.balance = owner, balance",
+        "    def deposit(self, amount): self.balance += amount",
+        "    def describe(self): return f'{self.owner}: {self.balance}'",
+        "class SavingsAccount(Account):",
+        "    def __init__(self, owner, balance=0, rate_percent=5):",
+        "        self.owner, self.balance, self.rate_percent = owner, balance, rate_percent",
+        "    def add_interest(self): self.balance += self.balance * self.rate_percent // 100",
+        "    def describe(self): return f'{self.owner}: {self.balance} ({self.rate_percent}% interest)'",
+      ].join("\n"),
+      suiteFrom(rules("python-intermediate", "oop-inheritance")),
+    );
+    expect(failedNames(duplicatedParent)).toContain("Delegate with super()");
+  });
+
   it("rejects for-loop and ordinary-loop substitutes for required constructs", () => {
     const forGenerator = run(
       "python",
@@ -121,8 +161,20 @@ describe("Q4 mastery contracts reject formerly accepted shortcuts", { timeout: 3
       "def sum_column(lines, index):\n    total = 0\n    for line in lines:\n        total += int(line.split(',')[index])\n    return total\n",
       suiteFrom(rules("python-intermediate", "capstone-csv-analyzer", "sum-column")),
     );
+    const ordinarySet = run(
+      "python",
+      [
+        "def unique_in_column(lines, col_index):",
+        "    values = set()",
+        "    for line in lines:",
+        "        values.add(line.split(',')[col_index])",
+        "    return sorted(values)",
+      ].join("\n"),
+      suiteFrom(rules("python-intermediate", "capstone-csv-analyzer", "unique-in-column")),
+    );
     expect(failedNames(forGenerator)).toContain("Use a while loop");
     expect(failedNames(ordinarySum)).toContain("Generator expression in sum_column");
+    expect(failedNames(ordinarySet)).toContain("Set comprehension in unique_in_column");
   });
 
   it("rejects in-place Todo and Query transformations", () => {
