@@ -144,7 +144,24 @@ test.describe("Phase A-Q — visual viewport matrix", () => {
     });
   }
 
-  for (const width of [781, 900, 1366]) {
+  for (const width of [781, 900]) {
+    test(`${width}px uses the complete single-column lesson flow`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 720 });
+      await openStableLesson(page);
+
+      await expect(page.getByRole("region", { name: "Lesson instructions" })).toBeVisible();
+      await expect(page.getByRole("region", { name: "Code editor" })).toBeVisible();
+      await expect(page.getByRole("region", { name: "Program output" })).toBeVisible();
+      await expect(page.getByRole("region", { name: "AI tutor" })).toBeVisible();
+      await expect(page.getByRole("button", { name: /^run code/i }).first()).toBeVisible();
+      await expect(page.getByRole("button", { name: /check my work/i }).first()).toBeVisible();
+      await expect(page.getByRole("button", { name: /show instructions panel/i })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: /show tutor panel/i })).toHaveCount(0);
+      await expectNoHorizontalOverflow(page);
+    });
+  }
+
+  for (const width of [1366]) {
     test(`${width}px keeps instructions and tutor mutually exclusive`, async ({ page }) => {
       await page.setViewportSize({ width, height: 720 });
       await openStableLesson(page);

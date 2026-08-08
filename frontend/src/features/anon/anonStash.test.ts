@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearAnonWorkspace,
+  readAnonTutorState,
   readAnonWorkspace,
+  writeAnonTutorState,
   writeAnonWorkspace,
 } from "./anonStash";
 
@@ -46,6 +48,7 @@ describe("anonymous workspace recovery", () => {
       },
       runError: null,
       completed: true,
+      practiceCompletedIds: ["two-lines"],
     });
 
     expect(readAnonWorkspace()).toMatchObject({
@@ -53,7 +56,42 @@ describe("anonymous workspace recovery", () => {
       stdin: "Ada\n",
       result: { stdout: "kept\n", exitCode: 0 },
       completed: true,
+      practiceCompletedIds: ["two-lines"],
     });
+  });
+
+  it("restores anonymous tutor history and exhaustion for the same UTC day", () => {
+    writeAnonTutorState({
+      exhausted: true,
+      history: [
+        { id: "u1", role: "user", content: "Can I ask again?" },
+        { id: "a1", role: "assistant", content: "Today's free questions are used." },
+      ],
+    });
+
+    expect(readAnonTutorState()).toMatchObject({
+      exhausted: true,
+      history: [
+        { role: "user", content: "Can I ask again?" },
+        { role: "assistant", content: "Today's free questions are used." },
+      ],
+    });
+  });
+
+  it("re-enables the tutor after the UTC quota day changes without losing history", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-07T23:59:00Z"));
+    writeAnonTutorState({
+      exhausted: true,
+      history: [{ id: "a1", role: "assistant", content: "Come back tomorrow." }],
+    });
+    vi.setSystemTime(new Date("2026-08-08T00:01:00Z"));
+    expect(readAnonTutorState()).toMatchObject({
+      exhausted: false,
+      history: [{ content: "Come back tomorrow." }],
+      quotaDateUtc: "2026-08-08",
+    });
+    vi.useRealTimers();
   });
 
   it("rejects malformed stored output instead of poisoning the workspace", () => {

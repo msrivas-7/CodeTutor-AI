@@ -117,6 +117,8 @@ const POST_RUN_BEAT_MS = 2_000;
 // auto-skips, which is the wedge-detection behavior we wanted; an
 // engaged-but-slow learner is no longer punished.
 const WATCHDOG_IDLE_MS = 5 * 60 * 1000;
+const SKIPPED_WELCOME_HANDOFF =
+  "You're in control—run the starter when you're ready, or ask me anything.";
 
 export function useFirstRunChoreography({
   enabled,
@@ -164,7 +166,18 @@ export function useFirstRunChoreography({
   }, [onSeed]);
 
   const skipChoreography = useCallback(() => {
+    // Skip is a complete handoff even if it lands before the first scripted
+    // token or after the stream naturally settled. Cancelling with a
+    // replacement only works while a stream is live; always publish the
+    // handoff explicitly so the earliest possible click cannot leave an
+    // empty tutor panel.
     currentStreamRef.current?.cancel();
+    useAIStore.getState().pushAssistant(
+      SKIPPED_WELCOME_HANDOFF,
+      { summary: SKIPPED_WELCOME_HANDOFF },
+      undefined,
+      { scripted: true },
+    );
     persistDoneOnSkip();
     skip();
   }, [persistDoneOnSkip, skip]);

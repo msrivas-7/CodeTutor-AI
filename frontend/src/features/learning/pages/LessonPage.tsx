@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { LessonInstructionsPanel } from "../components/LessonInstructionsPanel";
 import { PracticeInstructionsView } from "../components/PracticeInstructionsView";
@@ -37,7 +37,12 @@ import { useRunStore } from "../../../state/runStore";
 import { isRetrievalPending, pickFirstFailure } from "../utils/validator";
 import { computeMastery, formatTimeSpent } from "../utils/mastery";
 import { useShortcutLabels } from "../../../util/platform";
-import { clamp, clampSide, usePhoneFormFactor } from "../../../util/layoutPrefs";
+import {
+  clamp,
+  clampSide,
+  useNarrowViewport,
+  usePhoneFormFactor,
+} from "../../../util/layoutPrefs";
 import {
   LESSON_LAYOUT_BOUNDS,
   LESSON_LAYOUT_DEFAULTS,
@@ -56,6 +61,7 @@ import { FirstRunHandoffReveal } from "../../firstRun/FirstRunHandoffReveal";
 import {
   extractNameFromCode,
   hasChoreographyDoneAnon,
+  readAnonTutorState,
   writeAnonWorkspace,
   type AnonWorkspaceV1,
 } from "../../anon/anonStash";
@@ -474,9 +480,24 @@ export default function LessonPage({
   }, [courseId, lessonId, practiceMode, practiceIndex, loader.lesson?.practiceExercises, lessonWorkspaceContextKey]);
 
   const switchChatContext = useAIStore((s) => s.switchChatContext);
+  const initialAnonTutorStateRef = useRef(
+    mode === "anon" ? readAnonTutorState() : null,
+  );
   useEffect(() => {
-    if (chatCtxKey) switchChatContext(chatCtxKey);
-  }, [chatCtxKey, switchChatContext]);
+    if (!chatCtxKey) return;
+    switchChatContext(chatCtxKey);
+    if (mode === "anon" && initialAnonTutorStateRef.current) {
+      const saved = initialAnonTutorStateRef.current;
+      useAIStore.setState({
+        history: saved.history,
+        asking: false,
+        askError: null,
+        pending: null,
+        pendingScripted: false,
+        pendingAsk: null,
+      });
+    }
+  }, [chatCtxKey, mode, switchChatContext]);
 
   const switchRunContext = useRunStore((s) => s.switchRunContext);
   useEffect(() => {
@@ -576,6 +597,21 @@ export default function LessonPage({
     interactionBlocked: runButtonLocked,
     interactionBlockedRef: resetInteractionRef,
   });
+  const persistAnonProgress = useCallback((progress: {
+    completed: boolean;
+    practiceCompletedIds: string[];
+  }) => {
+    if (mode !== "anon") return;
+    writeAnonWorkspace({
+      courseId: "python-fundamentals",
+      lessonId: "hello-world",
+      files: useProjectStore.getState().files,
+      stdin: useRunStore.getState().stdin,
+      result: useRunStore.getState().result,
+      runError: useRunStore.getState().error,
+      ...progress,
+    });
+  }, [mode]);
   const validator = useLessonValidator({
     lesson: loader.lesson,
     courseId,
@@ -603,6 +639,7 @@ export default function LessonPage({
     resetInteractionRef,
     mode,
     retrievalAnswered,
+    onAnonProgressCommitted: mode === "anon" ? persistAnonProgress : undefined,
   });
   const runInteractionLocked = runButtonLocked || validator.resettingCode;
   const checkInteractionLocked = checkButtonLocked || validator.resettingCode;
@@ -690,6 +727,9 @@ export default function LessonPage({
           stdin: anonResumeSnapshot.stdin,
         });
         if (anonResumeSnapshot.completed) validator.restoreCompleted();
+        validator.restoreAnonPracticeCompleted(
+          anonResumeSnapshot.practiceCompletedIds ?? [],
+        );
       }
       return;
     }
@@ -700,7 +740,8 @@ export default function LessonPage({
       stdin: runStdin,
       result: runResult,
       runError,
-      completed: Boolean(validator.validation?.passed),
+      completed: validator.localLessonCompleted,
+      practiceCompletedIds: validator.localPracticeCompletedIds,
     });
   }, [
     mode,
@@ -715,20 +756,20 @@ export default function LessonPage({
     anonResumeSnapshot,
     lessonWorkspaceContextKey,
     loader.initializedForRef,
-    validator.validation?.passed,
+    validator.localLessonCompleted,
+    validator.localPracticeCompletedIds,
     validator.restoreCompleted,
+    validator.restoreAnonPracticeCompleted,
   ]);
 
-  // Phone lessons are a 390px-native single-column screen, NOT a responsive
-  // squeeze of the desktop three-panel splitter layout. This applies to both
-  // anonymous and authenticated learners: an account/session change must not
-  // push the editor, output, and tutor off the physical viewport. All state machinery
-  // (loader / runner / validator / choreography / overlays) is shared
-  // with the desktop branch — only the workspace JSX arrangement
-  // differs, so the audited funnel behavior can't drift between form
-  // factors.
+  // Compact lessons are a native single-column workspace, not a squeezed
+  // desktop splitter layout. The former phone-only cutoff left 768–900px
+  // tablet and embedded-browser windows with a tutor rail that could reduce
+  // the editor to a sliver. Keep the coding surface primary through 900px;
+  // all state machinery remains shared with the desktop branch.
   const phoneFormFactor = usePhoneFormFactor();
-  const isPhoneNative = phoneFormFactor;
+  const compactWorkspace = useNarrowViewport(900);
+  const isPhoneNative = phoneFormFactor || compactWorkspace;
   const handledPhoneTutorOpenNonceRef = useRef(tutorOpenNonce);
 
   useEffect(() => {
@@ -977,13 +1018,18 @@ export default function LessonPage({
   const lp = mode === "authed"
     ? lessonProgressMap[`${courseId}/${lessonId}`]
     : undefined;
-  const lessonStatus = validator.validation?.passed
+  const lessonStatus = (mode === "anon"
+    ? validator.localLessonCompleted
+    : validator.validation?.passed)
     ? "completed"
     : lp?.status ?? (mode === "anon" ? "in_progress" : undefined);
   const practiceTotal = lesson?.practiceExercises?.length ?? 0;
+  const completedPracticeIds = mode === "anon"
+    ? validator.localPracticeCompletedIds
+    : lp?.practiceCompletedIds ?? [];
   const practiceDone =
     practiceTotal > 0
-      ? (lp?.practiceCompletedIds ?? []).filter((id) =>
+      ? completedPracticeIds.filter((id) =>
           lesson!.practiceExercises!.some((exercise) => exercise.id === id),
         ).length
       : 0;
@@ -994,9 +1040,12 @@ export default function LessonPage({
     hasError: runner.hasStderr,
     hasChecked: validator.hasChecked,
     checkPassed:
-      !!validator.validation?.passed || isRetrievalPending(validator.validation),
+      (mode === "anon" ? validator.localLessonCompleted : !!validator.validation?.passed) ||
+      isRetrievalPending(validator.validation),
     failedCheckCount: validator.failedCheckCount,
-    lessonComplete: lp?.status === "completed" || !!validator.validation?.passed,
+    lessonComplete:
+      lp?.status === "completed" ||
+      (mode === "anon" ? validator.localLessonCompleted : !!validator.validation?.passed),
     tutorConfigured,
     hasFunctionTests: validator.functionTests.length > 0,
     failedVisibleTests: validator.failedVisibleTests,
@@ -1013,7 +1062,8 @@ export default function LessonPage({
       : null;
   })();
   const showNext =
-    (validator.validation?.passed || lp?.status === "completed") &&
+    ((mode === "anon" ? validator.localLessonCompleted : validator.validation?.passed) ||
+      lp?.status === "completed") &&
     !validator.completionPresentationPending &&
     !validator.showComplete &&
     nextLessonId;
@@ -1031,7 +1081,9 @@ export default function LessonPage({
       // initial/animate only run on MOUNT — re-renders within a
       // mounted lesson don't re-fire.
       initial={
-        inHandoff && (isFirstRun || mode === "anon")
+        openingBlocked ||
+        compactWorkspace ||
+        (inHandoff && (isFirstRun || mode === "anon"))
           ? false
           : { opacity: 0, y: 8 }
       }
@@ -1518,7 +1570,7 @@ export default function LessonPage({
                 <PracticeInstructionsView
                   exercises={lesson.practiceExercises}
                   currentIndex={practiceIndex}
-                  completedIds={lp?.practiceCompletedIds ?? []}
+                  completedIds={completedPracticeIds}
                   validation={validator.practiceValidation}
                   testReport={validator.practiceTestReport}
                   saveError={validator.practiceSaveError}
@@ -1622,6 +1674,7 @@ export default function LessonPage({
                 onAnonExhausted={onAnonExhausted}
                 onAnonTrialPaused={onAnonTrialPaused}
                 onAnonSaveRequested={onAnonSave}
+                initialAnonTutorState={initialAnonTutorStateRef.current}
               />
             </section>
           </div>
@@ -1821,7 +1874,7 @@ export default function LessonPage({
               <PracticeInstructionsView
                 exercises={lesson.practiceExercises}
                 currentIndex={practiceIndex}
-                completedIds={lp?.practiceCompletedIds ?? []}
+                completedIds={completedPracticeIds}
                 validation={validator.practiceValidation}
                 testReport={validator.practiceTestReport}
                 saveError={validator.practiceSaveError}
@@ -2349,6 +2402,7 @@ export default function LessonPage({
               onAnonExhausted={onAnonExhausted}
               onAnonTrialPaused={onAnonTrialPaused}
               onAnonSaveRequested={onAnonSave}
+              initialAnonTutorState={initialAnonTutorStateRef.current}
             />
           </motion.aside>
         </motion.main>
@@ -2426,7 +2480,7 @@ export default function LessonPage({
         <LessonCompletePanel
           lesson={lesson}
           mode={mode}
-          completedPracticeIds={lp?.practiceCompletedIds ?? []}
+          completedPracticeIds={completedPracticeIds}
           mastery={computeMastery(lp, lesson)?.level ?? null}
           timeSpentMs={lp?.timeSpentMs}
           nextLessonTitle={loader.nextLessonTitle}

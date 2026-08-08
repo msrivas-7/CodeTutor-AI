@@ -280,7 +280,7 @@ function documentShell(options: {
 <body>
   <a class="skip" href="#main">Skip to lesson</a>
   ${options.body.replace('<main id="main">', '<main id="main" tabindex="-1">')}
-  <script>document.querySelector('.skip')?.addEventListener('click',function(){requestAnimationFrame(function(){document.getElementById('main')?.focus({preventScroll:true})})})</script>
+  <script>(function(){var skip=document.querySelector('.skip');var main=document.getElementById('main');if(!skip||!main)return;skip.addEventListener('click',function(event){event.preventDefault();history.replaceState(null,'','#main');main.scrollIntoView({block:'start'});main.focus({preventScroll:true});requestAnimationFrame(function(){main.focus({preventScroll:true})})})})()</script>
 </body>
 </html>\n`;
 }

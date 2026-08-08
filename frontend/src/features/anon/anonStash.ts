@@ -1,3 +1,5 @@
+import type { AIMessage } from "../../types";
+
 // Phase 27-v2 — sessionStorage stash for anon→authed handoff.
 //
 // When an anonymous learner finishes lesson 1 on /try/... and clicks
@@ -39,6 +41,7 @@
 
 const STORAGE_KEY = "codetutor.anonRun";
 const WORKSPACE_KEY = "codetutor.anonWorkspace";
+const TUTOR_KEY = "codetutor.anonTutor";
 const SCHEMA_VERSION = 1;
 
 // Phase 27-v2 Day 2: separate one-shot flag tracking whether the
@@ -101,7 +104,20 @@ export interface AnonWorkspaceV1 {
   result: import("../../types").RunResult | null;
   runError: string | null;
   completed: boolean;
+  practiceCompletedIds?: string[];
   updatedAt: string;
+}
+
+export interface AnonTutorStateV1 {
+  v: 1;
+  history: AIMessage[];
+  exhausted: boolean;
+  quotaDateUtc: string;
+  updatedAt: string;
+}
+
+function utcDateKey(date = new Date()): string {
+  return date.toISOString().slice(0, 10);
 }
 
 export function writeAnonWorkspace(
@@ -148,11 +164,65 @@ export function readAnonWorkspace(): AnonWorkspaceV1 | null {
           ) ||
           !["compile", "run", "setup"].includes(String(parsed.result.stage)))) ||
       typeof parsed.completed !== "boolean" ||
+      (parsed.practiceCompletedIds !== undefined &&
+        (!Array.isArray(parsed.practiceCompletedIds) ||
+          parsed.practiceCompletedIds.some((value) => typeof value !== "string"))) ||
       typeof parsed.updatedAt !== "string"
     ) {
       return null;
     }
     return parsed as AnonWorkspaceV1;
+  } catch {
+    return null;
+  }
+}
+
+export function writeAnonTutorState(
+  state: Pick<AnonTutorStateV1, "history" | "exhausted">,
+): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(
+      TUTOR_KEY,
+      JSON.stringify({
+        v: SCHEMA_VERSION,
+        history: state.history.slice(-40),
+        exhausted: state.exhausted,
+        quotaDateUtc: utcDateKey(),
+        updatedAt: new Date().toISOString(),
+      } satisfies AnonTutorStateV1),
+    );
+  } catch {
+    // Session-only continuity is best-effort. The server still owns quota.
+  }
+}
+
+export function readAnonTutorState(): AnonTutorStateV1 | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(TUTOR_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<AnonTutorStateV1>;
+    if (
+      parsed.v !== SCHEMA_VERSION ||
+      !Array.isArray(parsed.history) ||
+      parsed.history.length > 40 ||
+      parsed.history.some(
+        (message) =>
+          !message ||
+          !["user", "assistant"].includes(String(message.role)) ||
+          typeof message.content !== "string",
+      ) ||
+      typeof parsed.exhausted !== "boolean" ||
+      typeof parsed.quotaDateUtc !== "string" ||
+      typeof parsed.updatedAt !== "string"
+    ) {
+      return null;
+    }
+    const snapshot = parsed as AnonTutorStateV1;
+    return snapshot.quotaDateUtc === utcDateKey()
+      ? snapshot
+      : { ...snapshot, exhausted: false, quotaDateUtc: utcDateKey() };
   } catch {
     return null;
   }

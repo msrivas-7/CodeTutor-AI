@@ -906,35 +906,19 @@ function AccountTab({
     shared: boolean;
   }) => void;
 }) {
-  const patchPreferences = usePreferencesStore((s) => s.patch);
   const nav = useNavigate();
 
   const [showDelete, setShowDelete] = useState(false);
   const [replaying, setReplaying] = useState(false);
-  const [replayErr, setReplayErr] = useState<string | null>(null);
 
-  const handleReplayIntro = async () => {
-    // Order matters. StartPage contains a synchronous `<Navigate to="/welcome">`
-    // that fires the instant welcomeDone flips to false (optimistic update from
-    // patchPreferences). If we awaited the patch first while on StartPage, that
-    // Navigate would unmount StartPage — and the SettingsModal mounted inside
-    // it — mid-handler. Fix: close the modal and nav to /welcome FIRST, THEN
-    // await the patch.
-    setReplayErr(null);
+  const handleReplayIntro = () => {
+    // Replay is presentation-only. Resetting welcome/coach preferences here
+    // made an innocent "watch again" action enter the destructive first-run
+    // lesson path and overwrite real work. The explicit replay route returns
+    // to Start without changing any learner state.
     setReplaying(true);
     onClose?.();
-    nav("/welcome");
-    try {
-      await patchPreferences({
-        welcomeDone: false,
-        workspaceCoachDone: false,
-        editorCoachDone: false,
-      });
-    } catch (e) {
-      console.error("[settings] replay-intro patch failed:", (e as Error).message);
-    } finally {
-      setReplaying(false);
-    }
+    nav("/welcome?replay=1");
   };
 
   return (
@@ -953,14 +937,6 @@ function AccountTab({
 
       <section className="flex flex-col gap-2">
         <h3 className="text-xs font-semibold text-ink">Replay the intro</h3>
-        {replayErr && (
-          <div
-            role="alert"
-            className="rounded-md border border-danger/40 bg-danger/10 px-2 py-1 text-[11px] text-danger"
-          >
-            {replayErr}
-          </div>
-        )}
         <button
           type="button"
           onClick={handleReplayIntro}
@@ -968,10 +944,10 @@ function AccountTab({
           aria-busy={replaying}
           className="self-start rounded-md border border-border bg-elevated px-3 py-1 text-[11px] font-semibold text-ink transition hover:border-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {replaying ? "Resetting…" : "Watch the moment again"}
+          {replaying ? "Opening…" : "Watch the moment again"}
         </button>
         <p className="text-[10px] leading-relaxed text-faint">
-          Replay the cinematic opening and the lesson handoff.
+          Replay the cinematic opening without changing your lessons or progress.
         </p>
       </section>
 

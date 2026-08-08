@@ -362,6 +362,7 @@ export default function AnonLessonPage() {
         <CinematicGreeting
           mode="full"
           firstName="there"
+          exampleName="Maya"
           heroLine="Your turn."
           // Phase 27-v2.2 audit fix (product-owner P2-1): the prior
           // subtitle "Make it say your name." re-stated what the

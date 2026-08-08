@@ -36,9 +36,15 @@ describe("first two lessons — promise continuity contract", () => {
     expect(variablesContent).toContain("name = \"Alice\"");
   });
 
-  it("keeps the cinematic example identical to lesson one's example", () => {
+  it("keeps the cinematic example on lesson one's single-string print concept", () => {
     const cinematic = read("src/features/firstRun/CinematicGreeting.tsx");
-    expect(cinematic).toContain(`const CODE_LINE = '>>> print("Hello, Maya!")'`);
+    expect(cinematic).toContain(
+      'const exampleName = explicitExampleName?.trim() || firstName.trim() || "there";',
+    );
+    expect(cinematic).toContain(
+      "const codeLine = `>>> print(${JSON.stringify(`Hello, ${exampleName}!`)})`;",
+    );
+    expect(cinematic).toContain("Example code · {exampleName}");
     expect(cinematic).not.toContain('name = "Maya"\\nprint("Hello, " + name + "!")');
   });
 });

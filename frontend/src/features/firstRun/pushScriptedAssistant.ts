@@ -8,10 +8,9 @@ import { useAIStore } from "../../state/aiStore";
 // so the visual cadence matches real SSE output.
 //
 // Returns a cancellable promise-like object. Caller's step runner
-// awaits `done` to know when to advance; calling `cancel()` halts the
-// stream mid-typing + commits whatever landed up to that point (so a
-// user clicking skip mid-greeting still sees a coherent-looking turn
-// in history).
+// awaits `done` to know when to advance. Cancellation is transactional:
+// an interrupted fragment is never published as a complete tutor reply.
+// A caller may atomically replace it with a short, complete handoff.
 //
 // Scripted turns are surfaced in the `summary` section — a
 // conversational, non-code-focused channel that renders naturally
@@ -22,7 +21,7 @@ import { useAIStore } from "../../state/aiStore";
 
 export interface ScriptedAssistantHandle {
   done: Promise<void>;
-  cancel: () => void;
+  cancel: (replacement?: string) => void;
 }
 
 interface Options {
@@ -45,9 +44,10 @@ export function pushScriptedAssistant(
   const { charIntervalMs = 50, flipAsking = true } = options;
   const store = useAIStore.getState();
 
-  let cancelled = false;
+  let settled = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let currentLength = 0;
+  let resolveDone: (() => void) | null = null;
 
   if (flipAsking) store.setAsking(true);
   // startScriptedStream seeds pending AND flags pendingScripted=true,
@@ -60,48 +60,39 @@ export function pushScriptedAssistant(
   // real SSE first-token transition.
   store.updateStream("", { summary: "" });
 
+  const finalize = (final: string | null) => {
+    if (settled) return;
+    settled = true;
+    if (timer) clearTimeout(timer);
+    timer = null;
+    if (final?.trim()) {
+      store.pushAssistant(final, { summary: final }, undefined, {
+        scripted: true,
+      });
+    }
+    store.clearStream();
+    if (flipAsking) store.setAsking(false);
+    resolveDone?.();
+  };
+
   const done = new Promise<void>((resolve) => {
+    resolveDone = resolve;
     const tick = () => {
-      if (cancelled) {
-        commitFinal();
-        resolve();
-        return;
-      }
+      if (settled) return;
       currentLength += 1;
       const partial = content.slice(0, currentLength);
       store.updateStream(partial, { summary: partial });
       if (currentLength >= content.length) {
-        commitFinal();
-        resolve();
+        finalize(content);
         return;
       }
       timer = setTimeout(tick, charIntervalMs);
     };
-
-    const commitFinal = () => {
-      if (timer) clearTimeout(timer);
-      timer = null;
-      const final = content.slice(0, currentLength);
-      // pushAssistant appends the turn to history with no usage delta
-      // — scripted turns don't hit the API and shouldn't count
-      // against the learner's free-tier quota. The `scripted: true`
-      // meta flag travels with the message so renderers can keep
-      // cinematic-voice styling even after it's been committed to
-      // history (not just during the streaming phase).
-      store.pushAssistant(final, { summary: final }, undefined, {
-        scripted: true,
-      });
-      store.clearStream();
-      if (flipAsking) store.setAsking(false);
-    };
-
     timer = setTimeout(tick, charIntervalMs);
   });
 
   return {
     done,
-    cancel: () => {
-      cancelled = true;
-    },
+    cancel: (replacement) => finalize(replacement?.trim() || null),
   };
 }

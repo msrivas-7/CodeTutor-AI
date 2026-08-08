@@ -33,6 +33,12 @@ export interface CinematicGreetingProps {
   /** Full mode: the user's first visit — hero is "Hello, {name}!".
    *  Minimal mode: returning learner — hero is "Welcome back, {name}." */
   heroLine: string;
+  /**
+   * Optional explicitly fictional learner used by the code card. Anonymous
+   * onboarding passes "Maya" so it never pretends "there" is a person's
+   * name; signed-in greetings omit this and use the real resolved name.
+   */
+  exampleName?: string;
   /** Sits below the hero in both modes. In full mode, arrives in Beat 5.
    *  In minimal mode, arrives in Beat C. */
   subtitle: string;
@@ -141,8 +147,6 @@ const MINIMAL_TIMELINE = {
 // single-string `print()` concept exactly. The prior concatenation example
 // introduced a variable and `+` before the lesson taught either construct,
 // breaking continuity less than a minute before the learner saw the task.
-const CODE_LINE = '>>> print("Hello, Maya!")';
-
 export function CinematicGreeting(props: CinematicGreetingProps) {
   const reduce = useReducedMotion();
   // Phase 27-v2.2 Fix 5 — phone gets a faster Skip-button reveal. On
@@ -333,7 +337,8 @@ export function CinematicGreeting(props: CinematicGreetingProps) {
 // ---- full mode ---------------------------------------------------------
 
 function FullCinematic({
-  firstName: _firstName, // used only to drive heroLine upstream
+  firstName,
+  exampleName: explicitExampleName,
   heroLine,
   subtitle,
   supportLine,
@@ -343,6 +348,8 @@ function FullCinematic({
   exiting,
 }: CinematicGreetingProps & { exiting: boolean }) {
   const t = FULL_TIMELINE;
+  const exampleName = explicitExampleName?.trim() || firstName.trim() || "there";
+  const codeLine = `>>> print(${JSON.stringify(`Hello, ${exampleName}!`)})`;
   return (
     <motion.div
       className="relative flex h-full w-full items-center justify-center"
@@ -450,10 +457,10 @@ function FullCinematic({
           }}
         >
           <span className="mb-2 block font-sans text-xs font-semibold uppercase leading-none tracking-[0.16em] text-faint">
-            Example code · Maya
+            Example code · {exampleName}
           </span>
           <TypewriterLine
-            text={CODE_LINE}
+            text={codeLine}
             startDelayMs={t.codeType.enter}
             charIntervalMs={110}
             showCursor={true}
