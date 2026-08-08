@@ -211,6 +211,65 @@ test.describe("Phase A-Q — visual viewport matrix", () => {
     });
   }
 
+  test("responsive workspace mode changes preserve the focused pane", async ({ page }) => {
+    await page.setViewportSize({ width: 901, height: 863 });
+    await openStableLesson(page);
+
+    const showInstructions = page.getByRole("button", {
+      name: "Show instructions panel",
+      exact: true,
+    });
+    await showInstructions.click();
+    const collapseInstructions = page.getByRole("button", {
+      name: "Collapse instructions",
+      exact: true,
+    });
+    await expect(collapseInstructions).toBeFocused();
+
+    await page.setViewportSize({ width: 781, height: 863 });
+    await expect(page.getByRole("region", { name: "Lesson instructions" })).toBeFocused();
+    await expectNoHorizontalOverflow(page);
+
+    await page.setViewportSize({ width: 901, height: 863 });
+    await expect(collapseInstructions).toBeFocused();
+
+    const showTutor = page.getByRole("button", {
+      name: "Show tutor panel",
+      exact: true,
+    });
+    await showTutor.click();
+    const collapseTutor = page.getByRole("button", {
+      name: "Collapse tutor",
+      exact: true,
+    });
+    await expect(collapseTutor).toBeFocused();
+
+    await page.setViewportSize({ width: 781, height: 863 });
+    await expect(page.getByRole("region", { name: "AI tutor" })).toBeFocused();
+    await expectNoHorizontalOverflow(page);
+
+    await page.setViewportSize({ width: 901, height: 863 });
+    await expect(collapseTutor).toBeFocused();
+    await expectNoHorizontalOverflow(page);
+
+    // Monaco's hidden native edit-context sits beneath its rendered text
+    // layer, so clicking that semantic node directly is not a real pointer
+    // path. Click the visible editor canvas, then verify the responsive
+    // handoff from the edit context it focuses.
+    await page.locator(".monaco-editor").click({ position: { x: 160, y: 80 } });
+    await page.setViewportSize({ width: 781, height: 863 });
+    await expect(page.getByRole("region", { name: "Code editor" })).toBeFocused();
+    await page.setViewportSize({ width: 901, height: 863 });
+    await expect(page.getByRole("region", { name: "Code editor" })).toBeFocused();
+
+    await page.getByRole("tab", { name: "stdout", exact: true }).click();
+    await page.setViewportSize({ width: 781, height: 863 });
+    await expect(page.getByRole("region", { name: "Program output" })).toBeFocused();
+    await page.setViewportSize({ width: 901, height: 863 });
+    await expect(page.getByRole("region", { name: "Program output" })).toBeFocused();
+    await expectNoHorizontalOverflow(page);
+  });
+
   test("light theme preserves hierarchy and contrast", async ({ page }) => {
     await page.emulateMedia({ colorScheme: "light", reducedMotion: "reduce" });
     await page.setViewportSize({ width: 390, height: 844 });
@@ -268,13 +327,16 @@ test.describe("Phase A-Q — visual viewport matrix", () => {
         ) as [number, number, number];
       const panel = token("--color-panel");
       const success = token("--color-success");
+      const danger = token("--color-danger");
       return {
         accentOnPanel: ratio(token("--color-accent-ink"), panel),
         successOnTint: ratio(success, blend(success, panel, 0.15)),
+        dangerOnTint: ratio(danger, blend(danger, panel, 0.1)),
       };
     });
     expect(contrast.accentOnPanel).toBeGreaterThanOrEqual(4.5);
     expect(contrast.successOnTint).toBeGreaterThanOrEqual(4.5);
+    expect(contrast.dangerOnTint).toBeGreaterThanOrEqual(4.5);
     await expect(page).toHaveScreenshot("phone-390x844-light-reduced-motion.png", {
       animations: "disabled",
       caret: "hide",

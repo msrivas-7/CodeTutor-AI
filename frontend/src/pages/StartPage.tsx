@@ -518,7 +518,7 @@ export default function StartPage() {
           <UserMenu />
         </div>
       </div>
-      <StaggerReveal className="flex flex-1 flex-col items-center justify-center px-5 pb-8 pt-20 sm:px-6 sm:pt-0">
+      <StaggerReveal className="flex flex-1 flex-col items-center justify-center px-5 pb-8 pt-20 sm:px-6">
         <StaggerItem>
           <div ref={headerRef} className="mb-10 flex flex-col items-center gap-4">
             <Wordmark size="hero" className="text-[38px] sm:text-[48px]" />

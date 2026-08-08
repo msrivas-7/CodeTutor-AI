@@ -283,12 +283,18 @@ export function StreakChip({ override, compact, interactive = true, prominent = 
     const ro = new ResizeObserver(update);
     ro.observe(buttonRef.current);
     window.addEventListener("resize", closeForViewportChange);
+    // Native Safari's application fullscreen transition can resize only the
+    // visual viewport. In that path `window.resize` and DOM fullscreen events
+    // are not guaranteed to fire, which previously left this fixed portal
+    // stranded over the compact page after Escape exited fullscreen.
+    window.visualViewport?.addEventListener("resize", closeForViewportChange);
     window.addEventListener("scroll", update, true);
     document.addEventListener("fullscreenchange", closeForViewportChange);
     document.addEventListener("webkitfullscreenchange", closeForViewportChange);
     return () => {
       ro.disconnect();
       window.removeEventListener("resize", closeForViewportChange);
+      window.visualViewport?.removeEventListener("resize", closeForViewportChange);
       window.removeEventListener("scroll", update, true);
       document.removeEventListener("fullscreenchange", closeForViewportChange);
       document.removeEventListener("webkitfullscreenchange", closeForViewportChange);

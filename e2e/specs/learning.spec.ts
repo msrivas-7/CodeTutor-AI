@@ -283,6 +283,8 @@ test.describe("learning", () => {
     await expect(page.getByText(/^Done$|^In progress$/i).first()).toBeVisible();
     await expect(page.getByText(/\b3 runs · 1 attempt\b/i).first()).toBeVisible();
     await expect(page.getByText(/\b1 runs\b|\b1 attempts\b/i)).toHaveCount(0);
+    await expect(page.getByText(/attempts?0\b/i)).toHaveCount(0);
+    await expect(page.getByText(/^0$/, { exact: true })).toHaveCount(0);
     await expect(page.locator('[data-testid="ambient-glyph-field"]')).toHaveCount(0);
   });
 

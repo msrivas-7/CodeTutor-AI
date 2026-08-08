@@ -67,6 +67,7 @@ export function SettingsPanel({
   }) => void;
 }) {
   const [tab, setTab] = useState<Tab>("profile");
+  const activeTabRef = useRef<HTMLButtonElement>(null);
   const visibleTabs = Object.keys(TAB_LABEL) as Tab[];
 
   return (
@@ -85,7 +86,7 @@ export function SettingsPanel({
         )}
       </div>
 
-      <PaidInterestBanner />
+      <PaidInterestBanner onDismissed={() => activeTabRef.current?.focus()} />
 
       <div className="flex min-h-0 flex-1 flex-col gap-4 sm:flex-row">
         <nav
@@ -97,6 +98,7 @@ export function SettingsPanel({
             return (
               <button
                 key={t}
+                ref={active ? activeTabRef : undefined}
                 type="button"
                 onClick={() => setTab(t)}
                 aria-current={active ? "page" : undefined}
@@ -143,19 +145,52 @@ export function SettingsPanel({
 
 // Phase 24A: paid-plan banner — single surface for both acquisition and
 // recovery. Pre-click: "Interested?" CTA + dismiss × that hides the banner
-// for the current open of the settings modal. Post-click: "Interest
+// for the current signed-in browser session. Post-click: "Interest
 // recorded. Clicked by mistake?" + Remove link.
 //
-// The dismissal is intentionally modal-scoped (not sessionStorage). Each
-// time the user opens Settings, SettingsModal mounts fresh + the banner
-// re-appears — a user who dismissed earlier still has another chance to
-// engage. Less aggressive than every-render, less leaky than localStorage.
-function PaidInterestBanner() {
+// "For now" means this browser session, not one modal mount. Keying the
+// sessionStorage entry by the authenticated user prevents one account's
+// choice from suppressing the banner for a different account in the same
+// tab. Storage failures stay non-fatal (private-mode Safari can reject it).
+const PAID_INTEREST_DISMISS_KEY = "codetutor.paid-interest-dismissed";
+
+function paidInterestDismissKey(userId: string): string {
+  return `${PAID_INTEREST_DISMISS_KEY}:${userId}`;
+}
+
+function readPaidInterestDismissal(userId: string | null): boolean {
+  if (!userId || typeof window === "undefined") return false;
+  try {
+    return window.sessionStorage.getItem(paidInterestDismissKey(userId)) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writePaidInterestDismissal(userId: string | null, dismissed: boolean): void {
+  if (!userId || typeof window === "undefined") return;
+  try {
+    const key = paidInterestDismissKey(userId);
+    if (dismissed) window.sessionStorage.setItem(key, "1");
+    else window.sessionStorage.removeItem(key);
+  } catch {
+    // The in-memory state still respects dismissal for this mount.
+  }
+}
+
+function PaidInterestBanner({ onDismissed }: { onDismissed?: () => void }) {
   const { status, refetch } = useAIStatus();
+  const userId = useAuthStore((s) => s.user?.id ?? null);
   const [submitting, setSubmitting] = useState(false);
   const [withdrawing, setWithdrawing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [dismissed, setDismissed] = useState(false);
+  const [dismissed, setDismissed] = useState(() =>
+    readPaidInterestDismissal(userId),
+  );
+
+  useEffect(() => {
+    setDismissed(readPaidInterestDismissal(userId));
+  }, [userId]);
 
   const hasShown = status?.hasShownPaidInterest === true;
   if (!hasShown && dismissed) return null;
@@ -184,6 +219,7 @@ function PaidInterestBanner() {
       // Reset dismissal so a user who removed by mistake immediately sees
       // the acquisition CTA again, no modal-reopen required.
       setDismissed(false);
+      writePaidInterestDismissal(userId, false);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -231,7 +267,11 @@ function PaidInterestBanner() {
             </button>
             <button
               type="button"
-              onClick={() => setDismissed(true)}
+              onClick={() => {
+                setDismissed(true);
+                writePaidInterestDismissal(userId, true);
+                window.requestAnimationFrame(() => onDismissed?.());
+              }}
               aria-label="Dismiss for now"
               className="flex min-h-11 min-w-11 items-center justify-center rounded text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
@@ -1187,6 +1227,7 @@ function PublicSharesSection({
 // back on PATCH failure.
 function NotificationsSection() {
   const optIn = useEmailOptIn();
+  const streaksHidden = useDisableStreaks();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1208,9 +1249,13 @@ function NotificationsSection() {
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1">
           <div className="text-[12px] font-medium text-ink">Streak nudges</div>
-          <p className="mt-0.5 text-[10px] leading-relaxed text-faint">
-            One short email when you skip a day, so your streak doesn't quietly
-            slip away. We'll never send more than one per day.
+          <p
+            id="streak-nudge-description"
+            className="mt-0.5 text-[10px] leading-relaxed text-faint"
+          >
+            {streaksHidden
+              ? "Off while streaks are hidden. Show streaks again to choose whether you want email nudges."
+              : "One short email when you skip a day, so your streak doesn't quietly slip away. We'll never send more than one per day."}
           </p>
         </div>
         <button
@@ -1218,19 +1263,24 @@ function NotificationsSection() {
           role="switch"
           aria-checked={optIn}
           aria-label="Toggle streak nudge emails"
+          aria-describedby="streak-nudge-description"
           aria-busy={busy}
-          disabled={busy}
+          disabled={busy || streaksHidden}
           onClick={onToggle}
-          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60 ${
-            optIn ? "border-accent/60 bg-accent/80" : "border-border bg-elevated"
-          }`}
+          className="relative inline-flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center rounded-lg transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60"
         >
           <span
             aria-hidden="true"
-            className={`inline-block h-3.5 w-3.5 transform rounded-full bg-bg shadow transition ${
-              optIn ? "translate-x-[18px]" : "translate-x-[3px]"
+            className={`relative inline-flex h-5 w-9 items-center rounded-full border transition ${
+              optIn ? "border-accent/60 bg-accent/80" : "border-border bg-elevated"
             }`}
-          />
+          >
+            <span
+              className={`inline-block h-3.5 w-3.5 transform rounded-full bg-bg shadow transition ${
+                optIn ? "translate-x-[18px]" : "translate-x-[3px]"
+              }`}
+            />
+          </span>
         </button>
       </div>
       {error && (
@@ -1290,16 +1340,20 @@ function StreakDisplaySection() {
           aria-busy={busy}
           disabled={busy}
           onClick={onToggle}
-          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60 ${
-            disabled ? "border-accent/60 bg-accent/80" : "border-border bg-elevated"
-          }`}
+          className="relative inline-flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center rounded-lg transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60"
         >
           <span
             aria-hidden="true"
-            className={`inline-block h-3.5 w-3.5 transform rounded-full bg-bg shadow transition ${
-              disabled ? "translate-x-[18px]" : "translate-x-[3px]"
+            className={`relative inline-flex h-5 w-9 items-center rounded-full border transition ${
+              disabled ? "border-accent/60 bg-accent/80" : "border-border bg-elevated"
             }`}
-          />
+          >
+            <span
+              className={`inline-block h-3.5 w-3.5 transform rounded-full bg-bg shadow transition ${
+                disabled ? "translate-x-[18px]" : "translate-x-[3px]"
+              }`}
+            />
+          </span>
         </button>
       </div>
       {error && (

@@ -34,6 +34,24 @@ test.describe("settings panel", () => {
   test("phone Start header and Settings controls keep safe spacing and touch targets", async ({
     page,
   }) => {
+    await page.route("**/api/user/streak", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          current: 3,
+          longest: 5,
+          lastActiveDate: "2026-08-08",
+          lastFreezeUsed: null,
+          isActiveToday: true,
+          isAtRisk: false,
+          resetAtUtc: "2026-08-09T00:00:00.000Z",
+          freezeActive: false,
+          wasFirstToday: false,
+          freezeUsedToday: false,
+        }),
+      });
+    });
     await page.setViewportSize({ width: 360, height: 800 });
     await page.goto("/start");
 
@@ -47,6 +65,35 @@ test.describe("settings panel", () => {
       userMenuBox!.y + userMenuBox!.height + 12,
     );
     await expect(page.getByTestId("ambient-glyph-field")).toBeHidden();
+
+    // The desktop Start layout uses the same absolute utility band, but the
+    // centered hero must still reserve its vertical space. UX-115 originally
+    // reproduced at this common laptop viewport even after the phone header
+    // had enough separation.
+    await page.setViewportSize({ width: 1280, height: 720 });
+    const desktopWordmarkBox = await wordmark.boundingBox();
+    const streakBox = await page
+      .getByRole("button", { name: /day streak/i })
+      .boundingBox();
+    expect(desktopWordmarkBox).not.toBeNull();
+    expect(streakBox).not.toBeNull();
+    expect(
+      desktopWordmarkBox!.y,
+      "desktop wordmark clears the centered streak control",
+    ).toBeGreaterThanOrEqual(streakBox!.y + streakBox!.height + 12);
+
+    // Native Safari may leave `window.resize` silent when application
+    // fullscreen exits via Escape, while visualViewport still reports the
+    // reflow. The anchored portal must close on that browser-owned resize.
+    const streakControl = page.getByRole("button", { name: /day streak/i });
+    await streakControl.click();
+    await expect(page.getByRole("dialog", { name: "Streak details" })).toBeVisible();
+    await page.evaluate(() => {
+      window.visualViewport?.dispatchEvent(new Event("resize"));
+    });
+    await expect(page.getByRole("dialog", { name: "Streak details" })).toHaveCount(0);
+
+    await page.setViewportSize({ width: 360, height: 800 });
 
     await userMenu.click();
     await page.getByRole("menuitem", { name: /^settings$/i }).click();
@@ -81,6 +128,27 @@ test.describe("settings panel", () => {
       await dialog.evaluate((element) => element.scrollWidth - element.clientWidth),
       "settings horizontal overflow",
     ).toBeLessThanOrEqual(1);
+
+    await dialog.getByRole("button", { name: "Account" }).click();
+    const switches = dialog.getByRole("switch");
+    await expect(switches).toHaveCount(2);
+    const dialogBox = await dialog.boundingBox();
+    expect(dialogBox).not.toBeNull();
+    for (let i = 0; i < await switches.count(); i += 1) {
+      const control = switches.nth(i);
+      const name = await control.getAttribute("aria-label");
+      const box = await control.boundingBox();
+      expect(box, `${name} geometry`).not.toBeNull();
+      expect(box!.height, `${name} touch target height`).toBeGreaterThanOrEqual(44);
+      expect(box!.width, `${name} touch target width`).toBeGreaterThanOrEqual(44);
+      expect(box!.x + box!.width, `${name} stays inside Settings`).toBeLessThanOrEqual(
+        dialogBox!.x + dialogBox!.width,
+      );
+    }
+    expect(
+      await dialog.evaluate((element) => element.scrollWidth - element.clientWidth),
+      "Account settings horizontal overflow",
+    ).toBeLessThanOrEqual(1);
   });
 
   test("data export downloads a named JSON file and announces the exact filename", async ({
@@ -99,9 +167,60 @@ test.describe("settings panel", () => {
     expect(await download.path()).not.toBeNull();
   });
 
+  test("paid-plan dismissal survives Settings reopen and reload for this session", async ({
+    page,
+  }) => {
+    await page.goto("/start");
+    await openSettings(page, "account");
+
+    const paidInterest = page.getByRole("region", { name: "Paid plan interest" });
+    await expect(paidInterest).toBeVisible();
+    await page.getByRole("button", { name: "Dismiss for now" }).click();
+    await expect(paidInterest).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Account" })).toBeFocused();
+
+    await page.keyboard.press("Escape");
+    await openSettings(page, "account");
+    await expect(paidInterest).toHaveCount(0);
+
+    await page.keyboard.press("Escape");
+    await page.reload();
+    await openSettings(page, "account");
+    await expect(paidInterest).toHaveCount(0);
+  });
+
+  test("hiding streaks turns email nudges off without silently restoring them", async ({
+    page,
+  }) => {
+    await page.goto("/start");
+    await openSettings(page, "account");
+
+    const nudgeSwitch = page.getByRole("switch", {
+      name: "Toggle streak nudge emails",
+    });
+    const hideSwitch = page.getByRole("switch", { name: "Toggle hide streaks" });
+    await expect(nudgeSwitch).toBeChecked();
+    await expect(hideSwitch).not.toBeChecked();
+
+    await hideSwitch.click();
+    await expect(hideSwitch).toBeChecked();
+    await expect(nudgeSwitch).not.toBeChecked();
+    await expect(nudgeSwitch).toBeDisabled();
+    await expect(page.getByText(/off while streaks are hidden/i)).toBeVisible();
+
+    await hideSwitch.click();
+    await expect(hideSwitch).not.toBeChecked();
+    await expect(nudgeSwitch).toBeEnabled();
+    await expect(nudgeSwitch).not.toBeChecked();
+  });
+
   test("Theme toggle applies data-theme on <html> and persists pref", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto("/start");
     await openSettings(page, "profile");
+
+    const glyphField = page.getByTestId("ambient-glyph-field");
+    const glyphTokens = glyphField.locator("[data-glyph-token]");
 
     // Light — Phase 18b: theme persists through `preferences.theme` on the
     // server; the only user-visible effect we can assert here without racing
@@ -109,14 +228,50 @@ test.describe("settings panel", () => {
     // case is covered by cross-device.spec.ts.
     await page.getByRole("button", { name: /^light$/i }).click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+    await expect(glyphField).toBeHidden();
 
     // Dark
     await page.getByRole("button", { name: /^dark$/i }).click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+    await expect(glyphField).toBeVisible();
+    await expect(glyphTokens).toHaveCount(4);
+    for (let i = 0; i < await glyphTokens.count(); i += 1) {
+      expect((await glyphTokens.nth(i).innerText()).trim().length).toBeGreaterThanOrEqual(2);
+    }
 
     // Close + reopen settings on Appearance — selected button should remain
     // aria-pressed=true.
     await page.keyboard.press("Escape");
+    expect(
+      await page.evaluate(() => {
+        const tokens = Array.from(
+          document.querySelectorAll<HTMLElement>("[data-glyph-token]"),
+        )
+          .filter((element) => getComputedStyle(element).display !== "none")
+          .map((element) => element.getBoundingClientRect());
+        const content = Array.from(
+          document.querySelectorAll<HTMLElement>("h1,h2,p,button,footer"),
+        )
+          .filter((element) => getComputedStyle(element).display !== "none")
+          .map((element) => element.getBoundingClientRect());
+        return tokens.filter((token) =>
+          content.some(
+            (rect) =>
+              token.left < rect.right &&
+              token.right > rect.left &&
+              token.top < rect.bottom &&
+              token.bottom > rect.top,
+          ),
+        ).length;
+      }),
+      "dark-theme code tokens stay out of meaningful Start content",
+    ).toBe(0);
+
+    await page.setViewportSize({ width: 900, height: 720 });
+    for (let i = 0; i < await glyphTokens.count(); i += 1) {
+      await expect(glyphTokens.nth(i)).toBeHidden();
+    }
+    await page.setViewportSize({ width: 1280, height: 720 });
     await openSettings(page, "profile");
     await expect(page.getByRole("button", { name: /^dark$/i })).toHaveAttribute(
       "aria-pressed",

@@ -192,6 +192,47 @@ test.describe("practice mode", () => {
     expect(layout.practiceButtons.every(({ width, height }) => width >= 44 && height >= 44)).toBe(true);
   });
 
+  test("minimum-width desktop practice keeps complete calls and expected values readable", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await loadProfile(page, "capstones-pending");
+    await page.goto(`/learn/course/${COURSE_ID}/lesson/${LESSON_ID}?mode=practice`);
+    await waitForMonacoReady(page);
+    await page.getByRole("button", { name: /^exercise 2:/i }).click();
+
+    const splitter = page.getByRole("separator", { name: "Resize panel width" }).first();
+    for (let i = 0; i < 8; i += 1) await splitter.press("Shift+ArrowLeft");
+    await expect(splitter).toHaveAttribute("aria-valuenow", "240");
+
+    const layout = await page.evaluate(() => {
+      const panel = document.querySelector<HTMLElement>(
+        'section[aria-labelledby^="practice-tests-"]',
+      );
+      const panelRight = panel?.getBoundingClientRect().right ?? 0;
+      const code = Array.from(panel?.querySelectorAll<HTMLElement>("code") ?? []);
+      return {
+        panelOverflow: panel ? panel.scrollWidth - panel.clientWidth : -1,
+        code: code.map((node) => ({
+          text: node.textContent?.trim(),
+          clientWidth: node.clientWidth,
+          scrollWidth: node.scrollWidth,
+          right: node.getBoundingClientRect().right,
+          whiteSpace: getComputedStyle(node).whiteSpace,
+          overflowWrap: getComputedStyle(node).overflowWrap,
+        })),
+        panelRight,
+      };
+    });
+    expect(layout.panelOverflow).toBe(0);
+    expect(layout.code.length).toBeGreaterThanOrEqual(6);
+    expect(layout.code.every(({ text }) => Boolean(text))).toBe(true);
+    expect(layout.code.every(({ clientWidth, scrollWidth }) => scrollWidth <= clientWidth)).toBe(true);
+    expect(layout.code.every(({ right }) => right <= layout.panelRight)).toBe(true);
+    expect(layout.code.every(({ whiteSpace }) => whiteSpace === "pre-wrap")).toBe(true);
+    expect(layout.code.every(({ overflowWrap }) => overflowWrap === "anywhere")).toBe(true);
+  });
+
   test("completing all 3 exercises swaps Next for 'All practice done'", async ({ page }) => {
     await loadProfile(page, "capstones-pending");
     await page.goto(`/learn/course/${COURSE_ID}/lesson/${LESSON_ID}?mode=practice`);

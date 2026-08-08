@@ -115,10 +115,10 @@ export function useLessonLayout({ courseId, lessonId }: UseLessonLayoutArgs) {
   const [resetMenuOpen, setResetMenuOpen] = useState(false);
 
   const resetMenuRef = useRef<HTMLDivElement>(null);
-  const instrRef = useRef<HTMLDivElement>(null);
+  const instrRef = useRef<HTMLElement>(null);
   const editorRef = useRef<HTMLElement>(null);
   const runBtnRef = useRef<HTMLButtonElement>(null);
-  const outputRef = useRef<HTMLDivElement>(null);
+  const outputRef = useRef<HTMLElement>(null);
   const checkBtnRef = useRef<HTMLButtonElement>(null);
   const tutorRef = useRef<HTMLElement>(null);
 

@@ -1,4 +1,13 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { LessonInstructionsPanel } from "../components/LessonInstructionsPanel";
 import { PracticeInstructionsView } from "../components/PracticeInstructionsView";
@@ -77,6 +86,8 @@ import { api } from "../../../api/client";
 function formatCount(count: number, singular: string, plural = `${singular}s`) {
   return `${count} ${count === 1 ? singular : plural}`;
 }
+
+type WorkspaceFocusSurface = "instructions" | "editor" | "output" | "tutor";
 
 function PracticePersistenceBanner({
   saving,
@@ -778,6 +789,91 @@ export default function LessonPage({
   const compactWorkspace = useNarrowViewport(900);
   const isPhoneNative = phoneFormFactor || compactWorkspace;
   const handledPhoneTutorOpenNonceRef = useRef(tutorOpenNonce);
+  const previousPhoneNativeRef = useRef(isPhoneNative);
+  const responsiveFocusSurfaceRef = useRef<WorkspaceFocusSurface | null>(null);
+
+  useEffect(() => {
+    const rememberWorkspaceFocus = (target: EventTarget | null) => {
+      if (!(target instanceof HTMLElement)) return;
+
+      if (
+        target === instructionsRestoreRef.current ||
+        layout.instrRef.current?.contains(target)
+      ) {
+        responsiveFocusSurfaceRef.current = "instructions";
+      } else if (layout.outputRef.current?.contains(target)) {
+        responsiveFocusSurfaceRef.current = "output";
+      } else if (layout.editorRef.current?.contains(target)) {
+        responsiveFocusSurfaceRef.current = "editor";
+      } else if (
+        target === tutorRestoreRef.current ||
+        layout.tutorRef.current?.contains(target)
+      ) {
+        responsiveFocusSurfaceRef.current = "tutor";
+      } else {
+        responsiveFocusSurfaceRef.current = null;
+      }
+    };
+    const onFocusIn = (event: FocusEvent) => rememberWorkspaceFocus(event.target);
+
+    rememberWorkspaceFocus(document.activeElement);
+    document.addEventListener("focusin", onFocusIn, true);
+    return () => document.removeEventListener("focusin", onFocusIn, true);
+    // Layout refs are stable for the lifetime of useLessonLayout.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // The compact and desktop workspaces intentionally use different DOM
+  // branches. When a tablet rotates or an embedded browser crosses the
+  // breakpoint, the focused pane control can therefore unmount even though
+  // the same learner surface remains present. The focusin listener above
+  // keeps a semantic owner that survives ref reassignment; hand that focus to
+  // the equivalent surface after the replacement branch mounts. Do nothing
+  // when focus lives outside the workspace so a Settings/feedback dialog is
+  // never interrupted by a background viewport change.
+  useLayoutEffect(() => {
+    const modeChanged = previousPhoneNativeRef.current !== isPhoneNative;
+    previousPhoneNativeRef.current = isPhoneNative;
+
+    if (modeChanged) {
+      const surface = responsiveFocusSurfaceRef.current;
+      responsiveFocusSurfaceRef.current = null;
+      let target: HTMLElement | null = null;
+
+      if (surface === "instructions") {
+        if (isPhoneNative) {
+          target = layout.instrRef.current;
+        } else if (layout.instrRef.current?.getAttribute("aria-hidden") === "true") {
+          target = instructionsRestoreRef.current;
+        } else {
+          target =
+            layout.instrRef.current?.querySelector<HTMLElement>(
+              '[title="Collapse instructions"], [aria-label="Collapse practice instructions"]',
+            ) ?? layout.instrRef.current;
+        }
+      } else if (surface === "editor") {
+        target = layout.editorRef.current;
+      } else if (surface === "output") {
+        target = layout.outputRef.current;
+      } else if (surface === "tutor") {
+        if (isPhoneNative) {
+          target = layout.tutorRef.current;
+        } else if (layout.tutorRef.current?.getAttribute("aria-hidden") === "true") {
+          target = tutorRestoreRef.current;
+        } else {
+          target =
+            layout.tutorRef.current?.querySelector<HTMLElement>(
+              '[aria-label="Collapse tutor"]',
+            ) ?? layout.tutorRef.current;
+        }
+      }
+
+      if (target && document.contains(target)) target.focus({ preventScroll: true });
+    }
+    // Layout refs are stable for the lifetime of useLessonLayout. The mode is
+    // deliberately the only trigger; other pane updates must not steal focus.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPhoneNative]);
 
   useEffect(() => {
     if (tutorOpenNonce <= handledPhoneTutorOpenNonceRef.current) return;
@@ -1213,9 +1309,9 @@ export default function LessonPage({
           {lessonStatus && (() => {
             const practiceAllDone = practiceTotal > 0 && practiceDone === practiceTotal;
             return (
-              <div className="hidden items-center overflow-hidden rounded-full sm:flex">
+              <div className="hidden h-11 items-stretch overflow-hidden rounded-full sm:flex">
                 <span
-                  className={`px-2.5 py-0.5 text-[10px] font-medium ${
+                  className={`inline-flex h-11 items-center px-2.5 text-[10px] font-medium ${
                     lessonStatus === "completed"
                       ? "bg-success/20 text-success"
                       : lessonStatus === "in_progress"
@@ -1234,7 +1330,7 @@ export default function LessonPage({
                   lessonStatus === "completed" && (
                     <button
                       onClick={validator.handleEnterPractice}
-                      className={`border-l border-bg/40 px-2.5 py-0.5 text-[10px] font-semibold transition ${
+                      className={`inline-flex h-11 items-center border-l border-bg/40 px-2.5 text-[10px] font-semibold transition ${
                         practiceAllDone
                           ? "bg-success/20 text-success hover:bg-success/30"
                           : "bg-violet/20 text-violet hover:bg-violet/30"
@@ -1269,7 +1365,7 @@ export default function LessonPage({
                   !!lp?.lastCode?.[LANGUAGE_ENTRYPOINT[lesson.language]]?.trim() && (
                     <button
                       onClick={(event) => openShareDialog(event.currentTarget)}
-                      className={`border-l border-bg/40 px-2.5 py-0.5 text-[10px] font-semibold transition ${
+                      className={`inline-flex h-11 items-center border-l border-bg/40 px-2.5 text-[10px] font-semibold transition ${
                         hasExistingShare
                           ? "bg-success/15 text-success hover:bg-success/25"
                           : "bg-accent/15 text-accent hover:bg-accent/25"
@@ -1570,7 +1666,9 @@ export default function LessonPage({
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
             {/* 1 — Mission. Natural reading order starts with WHY. */}
             <section
+              ref={layout.instrRef as React.RefObject<HTMLElement>}
               aria-label="Lesson instructions"
+              tabIndex={-1}
               className="h-[38vh] min-h-[200px] border-b border-border"
             >
               {practiceMode && lesson.practiceExercises ? (
@@ -1613,7 +1711,9 @@ export default function LessonPage({
             {/* 2 — Code. The active step is TYPING; the editor gets the
                 tallest stable band. */}
             <section
+              ref={layout.editorRef as React.RefObject<HTMLElement>}
               aria-label="Code editor"
+              tabIndex={-1}
               className="flex h-[34vh] min-h-[200px] flex-col border-b border-border"
             >
               {loader.resumed && !practiceMode && (
@@ -1641,7 +1741,9 @@ export default function LessonPage({
             </section>
             {/* 3 — Output. The payoff lands directly under the code. */}
             <section
+              ref={layout.outputRef as React.RefObject<HTMLElement>}
               aria-label="Program output"
+              tabIndex={-1}
               className="h-[20vh] min-h-[110px] border-b border-border"
             >
               <OutputPanel suppressErrorEncouragement={contextualGuideVisible} />
@@ -1863,7 +1965,8 @@ export default function LessonPage({
             </button>
           )}
           <motion.div
-            ref={layout.instrRef}
+            ref={layout.instrRef as React.RefObject<HTMLDivElement>}
+            tabIndex={-1}
             initial={false}
             animate={{ width: layout.instrCollapsed ? 0 : layout.instrW }}
             transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
@@ -1939,6 +2042,8 @@ export default function LessonPage({
           {/* Editor + Output */}
           <section
             ref={layout.editorRef as React.RefObject<HTMLElement>}
+            aria-label="Code editor"
+            tabIndex={-1}
             className="flex min-w-0 flex-1 flex-col overflow-hidden"
           >
             {loader.resumed && !practiceMode && (
@@ -1988,7 +2093,10 @@ export default function LessonPage({
               onDoubleClick={() => layout.setOutputH(LESSON_LAYOUT_DEFAULTS.out)}
             />
             <div
-              ref={layout.outputRef}
+              ref={layout.outputRef as React.RefObject<HTMLDivElement>}
+              role="region"
+              aria-label="Program output"
+              tabIndex={-1}
               style={{ height: layout.outputH }}
               className="min-h-0 shrink-0"
             >
@@ -2371,6 +2479,7 @@ export default function LessonPage({
           )}
           <motion.aside
             ref={layout.tutorRef as React.RefObject<HTMLElement>}
+            tabIndex={-1}
             initial={false}
             animate={{ width: layout.tutorCollapsed ? 0 : layout.tutorW }}
             transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}

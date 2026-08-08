@@ -98,7 +98,11 @@ function applyServer(prefs: UserPreferences): Partial<PreferencesState> {
     uiLayout: prefs.uiLayout ?? {},
     hasOpenaiKey: prefs.hasOpenaiKey,
     lastWelcomeBackAt: prefs.lastWelcomeBackAt,
-    emailOptIn: prefs.emailOptIn,
+    // Hidden streaks suppress the email too. Older rows can still contain
+    // both flags as true from before that invariant was enforced; never
+    // render that contradictory state, and persist the effective false value
+    // the next time the learner shows streaks again.
+    emailOptIn: prefs.disableStreaks ? false : prefs.emailOptIn,
     disableStreaks: prefs.disableStreaks,
     accountFrozen: prefs.accountFrozen ?? false,
     hydrated: true,
@@ -302,7 +306,12 @@ export function useDisableStreaks(): boolean {
 }
 
 export async function setDisableStreaks(disabled: boolean): Promise<void> {
-  await usePreferencesStore.getState().patch({ disableStreaks: disabled });
+  const emailOptIn = usePreferencesStore.getState().emailOptIn;
+  await usePreferencesStore.getState().patch(
+    disabled
+      ? { disableStreaks: true, emailOptIn: false }
+      : { disableStreaks: false, emailOptIn },
+  );
 }
 
 export function useUiLayoutValue<T>(path: string, fallback: T): T {

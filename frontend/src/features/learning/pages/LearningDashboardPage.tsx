@@ -142,14 +142,20 @@ export default function LearningDashboardPage() {
     nav(`/learn/course/${target.id}`);
   }
 
-  function lessonTitle(lessonId: string): string {
-    const meta = activeCourse?.lessons.find((l) => l.id === lessonId);
+  function lessonMeta(courseId: string, lessonId: string): LessonMeta | undefined {
+    return courses
+      .find(({ course }) => course.id === courseId)
+      ?.lessons.find((lesson) => lesson.id === lessonId);
+  }
+
+  function lessonTitle(courseId: string, lessonId: string): string {
+    const meta = lessonMeta(courseId, lessonId);
     return meta?.title ?? lessonId;
   }
 
-  function lessonOrder(lessonId: string): number {
-    const meta = activeCourse?.lessons.find((l) => l.id === lessonId);
-    return meta?.order ?? 0;
+  function lessonOrder(courseId: string, lessonId: string): number | null {
+    const meta = lessonMeta(courseId, lessonId);
+    return meta?.order ?? null;
   }
 
   function timeAgo(iso: string): string {
@@ -378,15 +384,17 @@ export default function LearningDashboardPage() {
                         className="flex w-full items-center gap-3 rounded-lg border border-border bg-panel/60 px-4 py-2.5 text-left transition hover:border-accent/30 hover:bg-panel"
                       >
                         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-elevated text-[11px] font-bold text-muted">
-                          {lessonOrder(lp.lessonId)}
+                          {lessonOrder(lp.courseId, lp.lessonId) ?? "—"}
                         </span>
                         <div className="min-w-0 flex-1">
-                          <p className="truncate text-xs font-semibold">{lessonTitle(lp.lessonId)}</p>
+                          <p className="truncate text-xs font-semibold">
+                            {lessonTitle(lp.courseId, lp.lessonId)}
+                          </p>
                           <p className="text-[10px] text-muted">
                             {lp.runCount} {lp.runCount === 1 ? "run" : "runs"} · {lp.attemptCount} {lp.attemptCount === 1 ? "attempt" : "attempts"}
-                            {lp.timeSpentMs && lp.timeSpentMs > 0 && (
-                              <> · {formatTimeSpent(lp.timeSpentMs)}</>
-                            )}
+                            {typeof lp.timeSpentMs === "number" && lp.timeSpentMs > 0
+                              ? <> · {formatTimeSpent(lp.timeSpentMs)}</>
+                              : null}
                           </p>
                         </div>
                         <div className="flex items-center gap-2">

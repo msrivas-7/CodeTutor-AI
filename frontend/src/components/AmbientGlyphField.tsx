@@ -1,104 +1,83 @@
 import { useMemo } from "react";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 
-// Atmospheric backdrop: ASCII/code glyphs drifting upward at random
-// positions. Signals "code platform" without being literal or busy.
-// Tuned for two call-site densities:
-//   - `hero` mode (AuthLoader, splash pages): more glyphs, higher opacity
-//   - `ambient` mode (Dashboard, StartPage, CourseOverview): fewer
-//     glyphs, low opacity — texture, not content
-//
-// Intentionally skipped on LessonPage + /editor — those surfaces are
-// already dense with code content, additional glyph motion would fight
-// the primary UI.
-//
-// `prefers-reduced-motion` is honored automatically by framer-motion.
+// Decorative code atmosphere for low-density product surfaces. Earlier
+// versions animated individual punctuation marks across the full viewport.
+// Those marks regularly crossed headings, cards, and the footer, where they
+// looked like clipped markup rather than intentional art. Keep the code motif,
+// but render complete tokens inside faint chips and confine them to desktop
+// edge gutters. Meaningful content owns the centre of every surface.
 
-const GLYPHS = ["{", "}", "<", ">", "/", ";", "·", "&", "[", "]"];
-
-interface FloatingGlyph {
-  char: string;
+interface CodeToken {
+  text: string;
   leftPct: number;
-  duration: number;
-  delay: number;
-  size: number;
+  topPct: number;
+  phase: number;
 }
 
-// Cheap deterministic hash so two identical call-sites produce the same
-// field (avoids StrictMode double-mount jitter).
-function buildGlyphField(count: number, seedBase: number): FloatingGlyph[] {
-  const rng = (seed: number) => {
-    const x = Math.sin((seed + seedBase) * 9973) * 10000;
-    return x - Math.floor(x);
-  };
-  return Array.from({ length: count }, (_, i) => ({
-    char: GLYPHS[i % GLYPHS.length],
-    leftPct: rng(i + 1) * 100,
-    duration: 10 + rng(i + 23) * 8, // 10–18s (slower drift for ambient)
-    delay: rng(i + 47) * 6,
-    size: 10 + Math.floor(rng(i + 71) * 8),
-  }));
-}
+const AMBIENT_TOKENS: CodeToken[] = [
+  { text: "</>", leftPct: 4, topPct: 20, phase: 0 },
+  { text: "{ }", leftPct: 89, topPct: 34, phase: 0.9 },
+  { text: "[ ]", leftPct: 6, topPct: 72, phase: 1.8 },
+  { text: "=>", leftPct: 90, topPct: 82, phase: 2.7 },
+];
+
+const HERO_TOKENS: CodeToken[] = [
+  { text: "</>", leftPct: 3, topPct: 12, phase: 0 },
+  { text: "{ }", leftPct: 88, topPct: 18, phase: 0.65 },
+  { text: "[ ]", leftPct: 7, topPct: 37, phase: 1.3 },
+  { text: "=>", leftPct: 90, topPct: 43, phase: 1.95 },
+  { text: "( )", leftPct: 4, topPct: 65, phase: 2.6 },
+  { text: "&&", leftPct: 87, topPct: 70, phase: 3.25 },
+  { text: "::", leftPct: 9, topPct: 86, phase: 3.9 },
+  { text: "//", leftPct: 92, topPct: 88, phase: 4.55 },
+];
 
 export function AmbientGlyphField({
   density = "ambient",
-  opacityClass = "text-accent/8",
+  opacityClass = "text-accent/70",
 }: {
   density?: "ambient" | "hero";
-  // Tailwind color class controlling visibility. Defaults to very subtle;
-  // hero call sites (AuthLoader) override to /25.
   opacityClass?: string;
 }) {
-  const count = density === "hero" ? 24 : 7;
-  const seedBase = density === "hero" ? 1 : 2;
-  const glyphs = useMemo(() => buildGlyphField(count, seedBase), [count, seedBase]);
+  const reduce = useReducedMotion();
+  const tokens = useMemo(
+    () => (density === "hero" ? HERO_TOKENS : AMBIENT_TOKENS),
+    [density],
+  );
 
   return (
-    // mix-blend-mode: screen means glyphs only add light — they effectively
-    // vanish against bright/opaque surfaces (header backdrops, card fills)
-    // and only register where there's dark negative space. Combined with the
-    // low base opacity, this keeps the field atmospheric rather than visible-
-    // through-the-UI noise.
     <div
       aria-hidden="true"
       data-testid="ambient-glyph-field"
-      className="pointer-events-none absolute inset-0 overflow-hidden"
-      style={{ mixBlendMode: "screen" }}
+      data-density={density}
+      className="ambient-glyph-field pointer-events-none absolute inset-0 overflow-hidden"
     >
-      {glyphs.map((g, i) => (
+      {tokens.map((token) => (
         <motion.span
-          key={i}
-          className={`absolute bottom-[-10%] select-none font-mono ${opacityClass}`}
-          style={{ left: `${g.leftPct}%`, fontSize: g.size }}
-          animate={{
-            y: "-120vh",
-            x: [0, g.leftPct % 2 === 0 ? 12 : -12, 0],
-            opacity: [0, 1, 1, 0],
-          }}
-          transition={{
-            y: {
-              duration: g.duration,
-              repeat: Infinity,
-              ease: "linear",
-              delay: g.delay,
-            },
-            x: {
-              duration: g.duration / 2,
-              repeat: Infinity,
-              repeatType: "reverse",
-              ease: "easeInOut",
-              delay: g.delay,
-            },
-            opacity: {
-              duration: g.duration,
-              repeat: Infinity,
-              ease: "linear",
-              delay: g.delay,
-              times: [0, 0.15, 0.85, 1],
-            },
-          }}
+          key={`${token.text}-${token.leftPct}-${token.topPct}`}
+          data-glyph-token={token.text}
+          className={`absolute hidden select-none items-center gap-1.5 rounded-full border border-accent/25 bg-accent/5 px-2.5 py-1 font-mono text-[10px] tracking-[0.16em] backdrop-blur-sm lg:inline-flex ${opacityClass}`}
+          style={{ left: `${token.leftPct}%`, top: `${token.topPct}%` }}
+          initial={false}
+          animate={
+            reduce
+              ? { y: 0, opacity: 0.9 }
+              : { y: [-3, 3, -3], opacity: [0.75, 1, 0.75] }
+          }
+          transition={
+            reduce
+              ? { duration: 0 }
+              : {
+                  duration: 7.5,
+                  delay: token.phase,
+                  repeat: Infinity,
+                  ease: "easeInOut",
+                }
+          }
         >
-          {g.char}
+          <span className="h-1 w-1 rounded-full bg-accent/60" />
+          <span>{token.text}</span>
         </motion.span>
       ))}
     </div>

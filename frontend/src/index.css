@@ -43,10 +43,19 @@
   --color-success: 4 112 80;
   --color-warn: 217 119 6;
   --color-warn-ink: 180 83 9;
-  --color-danger: 220 38 38;
+  /* red-700 keeps ordinary-size danger copy above 4.5:1 even when it sits
+     on the standard 10% danger tint; red-600 only reached ~3.96:1. */
+  --color-danger: 185 28 28;
   --color-violet: 147 51 234;
   --scroll-thumb: 203 213 225;
   --scroll-thumb-hover: 148 163 184;
+}
+
+/* The code-token atmosphere is designed for dark negative space. On light
+   surfaces even a faint chip reads like an unexplained disabled control, so
+   leave the calmer gradient/card composition unadorned. */
+[data-theme="light"] .ambient-glyph-field {
+  display: none;
 }
 
 html, body, #root {
