@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   api,
   type AdminDenylistRow,
   type AdminUserListEntry,
   type AdminUserOverride,
 } from "../../api/client";
+import { AdminLoadFailure } from "./AdminLoadFailure";
 import { useAdminDraft } from "./useAdminDraft";
 
 // Phase 20-P5: paginated users table + per-user override editor.
@@ -33,19 +34,29 @@ export function UsersSection() {
   const [hasMore, setHasMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const editOpenerRef = useRef<HTMLButtonElement | null>(null);
 
-  const refresh = async () => {
+  const refresh = async (targetPage = page) => {
+    setBusy(true);
     try {
       const r = await api.adminListUsers({
-        page,
+        page: targetPage,
         perPage: PAGE_SIZE,
         search: search.trim() || undefined,
       });
       setUsers(r.users);
       setHasMore(r.hasMore);
+      setSelected((current) =>
+        current && r.users.some((user) => user.id === current)
+          ? current
+          : null,
+      );
       setError(null);
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -54,48 +65,92 @@ export function UsersSection() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page]);
 
-  const onSearch = async () => {
+  const onSearch = () => {
+    if (page === 1) {
+      void refresh(1);
+      return;
+    }
+    // The page effect owns this request so a page-2 search cannot race a
+    // second page-1 request and replace the correct results out of order.
     setPage(1);
-    await refresh();
   };
 
-  if (error) {
+  const closeEditor = () => {
+    const opener = editOpenerRef.current;
+    setSelected(null);
+    requestAnimationFrame(() => opener?.focus());
+  };
+
+  if (error && !users) {
     return (
-      <div className="rounded-md border border-danger/40 bg-danger/10 p-3 text-[11px] text-danger">
-        {error}
-      </div>
+      <AdminLoadFailure
+        title="Users did not load"
+        error={error}
+        onRetry={() => void refresh(page)}
+      />
     );
   }
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-2">
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") void onSearch();
-          }}
-          placeholder="search by email…"
-          className="flex-1 rounded border border-border bg-bg px-2 py-1 text-[11px] text-ink"
-        />
+    <div className="flex flex-col gap-3">
+      <form
+        className="flex flex-col gap-2 sm:flex-row sm:items-end"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSearch();
+        }}
+      >
+        <label className="flex min-w-0 flex-1 flex-col gap-1">
+          <span className="text-[11px] font-medium text-muted">
+            Search users
+          </span>
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Email address"
+            className="min-h-11 w-full rounded-md border border-border bg-bg px-3 text-base text-ink outline-none transition placeholder:text-faint focus:border-accent/60 focus:ring-2 focus:ring-accent/30 sm:text-xs"
+          />
+        </label>
         <button
-          onClick={() => void onSearch()}
-          className="rounded-md border border-border bg-elevated px-3 py-1 text-[11px] font-semibold text-ink transition hover:border-accent/60"
+          type="submit"
+          disabled={busy}
+          className="min-h-11 cursor-pointer rounded-md border border-border bg-elevated px-4 text-xs font-semibold text-ink transition-colors duration-200 hover:border-accent/60 hover:bg-accent/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-wait disabled:opacity-60 sm:self-end"
         >
-          Search
+          {busy ? "Searching…" : "Search"}
         </button>
-      </div>
+      </form>
 
-      {!users && <div className="text-[11px] text-muted">Loading…</div>}
+      {error && users && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger"
+        >
+          <span>Could not refresh users: {error}</span>
+          <button
+            type="button"
+            onClick={() => void refresh(page)}
+            className="min-h-11 cursor-pointer rounded-md border border-danger/40 bg-panel px-3 font-semibold transition-colors hover:bg-danger/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-danger"
+          >
+            Try again
+          </button>
+        </div>
+      )}
+
+      {!users && (
+        <div role="status" className="text-xs text-muted">
+          Loading users…
+        </div>
+      )}
       {users && users.length === 0 && (
-        <div className="text-[11px] text-muted">No users on this page.</div>
+        <div role="status" className="text-xs text-muted">
+          No users match this search.
+        </div>
       )}
 
       {users && users.length > 0 && (
         <div className="overflow-x-auto rounded-md border border-border">
-          <table className="w-full text-left text-[11px]">
+          <table className="w-full min-w-[720px] text-left text-[11px]">
             <thead className="bg-elevated/50 text-[10px] uppercase tracking-wider text-muted">
               <tr>
                 <th className="px-2 py-1">Email</th>
@@ -103,7 +158,9 @@ export function UsersSection() {
                 <th className="px-2 py-1 text-right">$ today</th>
                 <th className="px-2 py-1 text-right">$ lifetime</th>
                 <th className="px-2 py-1">Flags</th>
-                <th className="px-2 py-1" />
+                <th className="sticky right-0 z-10 border-l border-border bg-elevated px-2 py-1">
+                  <span className="sr-only">Actions</span>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -114,16 +171,16 @@ export function UsersSection() {
                     selected === u.id ? "bg-accent/5" : ""
                   }`}
                 >
-                  <td className="px-2 py-1.5 font-mono text-ink">
+                  <td className="min-w-[260px] whitespace-nowrap px-2 py-1.5 font-mono text-ink">
                     {u.email ?? <span className="text-faint">(no email)</span>}
                   </td>
-                  <td className="px-2 py-1.5 text-right tabular-nums text-ink">
+                  <td className="whitespace-nowrap px-2 py-1.5 text-right tabular-nums text-ink">
                     {u.questionsToday}
                   </td>
-                  <td className="px-2 py-1.5 text-right tabular-nums text-ink">
+                  <td className="whitespace-nowrap px-2 py-1.5 text-right tabular-nums text-ink">
                     ${u.usdToday.toFixed(4)}
                   </td>
-                  <td className="px-2 py-1.5 text-right tabular-nums text-ink">
+                  <td className="whitespace-nowrap px-2 py-1.5 text-right tabular-nums text-ink">
                     ${u.usdLifetime.toFixed(4)}
                   </td>
                   <td className="px-2 py-1.5">
@@ -140,12 +197,18 @@ export function UsersSection() {
                       )}
                     </div>
                   </td>
-                  <td className="px-2 py-1.5 text-right">
+                  <td className="sticky right-0 z-10 border-l border-border bg-bg px-2 py-1.5 text-right">
                     <button
-                      onClick={() =>
-                        setSelected((id) => (id === u.id ? null : u.id))
-                      }
-                      className="text-[10px] text-accent hover:underline"
+                      type="button"
+                      aria-expanded={selected === u.id}
+                      aria-controls={`admin-user-${u.id}`}
+                      onClick={(event) => {
+                        if (selected !== u.id) {
+                          editOpenerRef.current = event.currentTarget;
+                        }
+                        setSelected((id) => (id === u.id ? null : u.id));
+                      }}
+                      className="min-h-11 min-w-11 cursor-pointer rounded-md px-3 text-xs font-semibold text-accent transition-colors hover:bg-accent/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
                     >
                       {selected === u.id ? "Close" : "Edit"}
                     </button>
@@ -165,14 +228,14 @@ export function UsersSection() {
           <button
             disabled={page <= 1}
             onClick={() => setPage((p) => Math.max(1, p - 1))}
-            className="rounded-md border border-border bg-elevated px-2 py-0.5 text-[10px] text-muted disabled:opacity-50"
+            className="min-h-11 cursor-pointer rounded-md border border-border bg-elevated px-3 text-xs font-medium text-muted transition-colors hover:border-accent/50 hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50"
           >
             ← Prev
           </button>
           <button
             disabled={!hasMore}
             onClick={() => setPage((p) => p + 1)}
-            className="rounded-md border border-border bg-elevated px-2 py-0.5 text-[10px] text-muted disabled:opacity-50"
+            className="min-h-11 cursor-pointer rounded-md border border-border bg-elevated px-3 text-xs font-medium text-muted transition-colors hover:border-accent/50 hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50"
           >
             Next →
           </button>
@@ -182,7 +245,7 @@ export function UsersSection() {
       {selected && (
         <UserDrawer
           userId={selected}
-          onClose={() => setSelected(null)}
+          onClose={closeEditor}
           onSaved={async () => {
             await refresh();
           }}
@@ -221,17 +284,22 @@ function UserDrawer({ userId, onClose, onSaved }: UserDrawerProps) {
   }, [userId]);
 
   return (
-    <div className="flex flex-col gap-3 rounded-md border border-accent/30 bg-accent/5 p-3">
+    <div
+      id={`admin-user-${userId}`}
+      className="flex flex-col gap-3 rounded-md border border-accent/30 bg-accent/5 p-3"
+    >
       <div className="flex items-center justify-between">
         <h4 className="text-[12px] font-semibold text-ink">
           User{" "}
           <span className="font-mono text-[11px]">{userId.slice(0, 8)}…</span>
         </h4>
         <button
+          type="button"
+          aria-label="Close user editor"
           onClick={onClose}
-          className="rounded px-2 py-0.5 text-[11px] text-muted transition hover:bg-elevated hover:text-ink"
+          className="min-h-11 cursor-pointer rounded-md px-3 text-xs text-muted transition-colors hover:bg-elevated hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
-          close
+          Close
         </button>
       </div>
       {error && (

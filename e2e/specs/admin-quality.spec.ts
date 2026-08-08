@@ -25,6 +25,159 @@ test.describe("Q7 calm and trustworthy admin operations", () => {
     await expect(page.getByLabel("Event type").locator('option[value="eval_sample_viewed"]')).toHaveCount(0);
   });
 
+  test("users search and edit controls stay usable across pagination and phone layout", async ({
+    page,
+  }) => {
+    const firstUser = {
+      id: "00000000-0000-4000-8000-000000000001",
+      email: "alpha@example.test",
+      displayName: "Alpha",
+      createdAt: "2026-08-08T00:00:00.000Z",
+      lastSignInAt: null,
+      questionsToday: 1,
+      usdToday: 0.01,
+      usdLifetime: 0.5,
+      override: null,
+      denylisted: false,
+    };
+    const secondUser = {
+      ...firstUser,
+      id: "00000000-0000-4000-8000-000000000002",
+      email: "beta@example.test",
+      displayName: "Beta",
+    };
+    const searchedUser = {
+      ...firstUser,
+      id: "00000000-0000-4000-8000-000000000003",
+      email: "needle@example.test",
+      displayName: "Needle",
+    };
+    const listRequests: Array<{ page: string | null; search: string | null }> = [];
+
+    await page.route("**/api/admin/users?**", async (route) => {
+      const url = new URL(route.request().url());
+      const requestedPage = url.searchParams.get("page");
+      const search = url.searchParams.get("search");
+      listRequests.push({ page: requestedPage, search });
+      const users = search
+        ? requestedPage === "1"
+          ? [searchedUser]
+          : []
+        : requestedPage === "2"
+          ? [secondUser]
+          : [firstUser];
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          users,
+          page: Number(requestedPage ?? "1"),
+          perPage: 25,
+          hasMore: !search && requestedPage !== "2",
+        }),
+      });
+    });
+    await page.route(`**/api/admin/users/${searchedUser.id}`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          user: searchedUser,
+          questionsToday: searchedUser.questionsToday,
+          usdToday: searchedUser.usdToday,
+          usdLifetime: searchedUser.usdLifetime,
+          override: null,
+          denylisted: false,
+          denylist: null,
+        }),
+      });
+    });
+
+    await page.goto("/admin/users");
+    const searchInput = page.getByRole("searchbox", { name: "Search users" });
+    const searchButton = page.getByRole("button", { name: "Search" });
+    const nextButton = page.getByRole("button", { name: "Next →" });
+    const firstEdit = page.getByRole("button", { name: "Edit" });
+    await expect(searchInput).toBeVisible();
+    await expect(firstEdit).toBeVisible();
+
+    for (const control of [searchInput, searchButton, firstEdit, nextButton]) {
+      await expect
+        .poll(async () => (await control.boundingBox())?.height ?? 0)
+        .toBeGreaterThanOrEqual(44);
+    }
+
+    await nextButton.click();
+    await expect(page.getByText("beta@example.test")).toBeVisible();
+    await searchInput.fill("needle");
+    await searchInput.press("Enter");
+    await expect(page.getByText("needle@example.test")).toBeVisible();
+    expect(
+      listRequests.filter((request) => request.search === "needle"),
+    ).toEqual([{ page: "1", search: "needle" }]);
+
+    const editButton = page
+      .getByRole("row", { name: /needle@example\.test/ })
+      .locator(`button[aria-controls="admin-user-${searchedUser.id}"]`);
+    await editButton.click();
+    await expect(editButton).toHaveAttribute("aria-expanded", "true");
+    const closeEditor = page.getByRole("button", { name: "Close user editor" });
+    await expect
+      .poll(async () => (await closeEditor.boundingBox())?.height ?? 0)
+      .toBeGreaterThanOrEqual(44);
+    await closeEditor.click();
+    await expect(editButton).toBeFocused();
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect
+      .poll(async () => (await searchInput.boundingBox())?.height ?? 0)
+      .toBeGreaterThanOrEqual(44);
+    await expect
+      .poll(async () => (await searchButton.boundingBox())?.height ?? 0)
+      .toBeGreaterThanOrEqual(44);
+    await expect(editButton).toBeInViewport();
+    await expect
+      .poll(async () => (await editButton.boundingBox())?.height ?? 0)
+      .toBeGreaterThanOrEqual(44);
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            document.documentElement.scrollWidth -
+            document.documentElement.clientWidth,
+        ),
+      )
+      .toBe(0);
+  });
+
+  test("overview queue counts separate active work from waiting work", async ({
+    page,
+  }) => {
+    await page.route("**/api/admin/dashboard", async (route) => {
+      const response = await route.fetch();
+      const snapshot = await response.json();
+      await route.fulfill({
+        response,
+        json: {
+          ...snapshot,
+          queues: {
+            ...snapshot.queues,
+            dockerExecInflight: 0,
+            dockerExecQueued: 0,
+            renderActive: 2,
+            renderWaiting: 3,
+          },
+        },
+      });
+    });
+
+    await page.goto("/admin/overview");
+    await expect(page.getByLabel("0 active, 0 waiting")).toBeVisible();
+    await expect(page.getByLabel("2 active, 3 waiting")).toBeVisible();
+    await expect(page.getByText(/0\(0 waiting\)/)).toHaveCount(0);
+    await expect(page.getByText(/2\(3 waiting\)/)).toHaveCount(0);
+  });
+
   test("project controls are grouped, searchable, and preserve an unfinished draft across reload", async ({ page }) => {
     await page.goto("/admin/project");
     await expect(page.getByRole("heading", { name: "System configuration" })).toBeVisible();
