@@ -110,13 +110,13 @@ The tutor can reference relevant lines, react to repeated failures, discuss trad
 The hosted product runs at [codetutor.msrivas.com](https://codetutor.msrivas.com). The frontend is a React application on Azure Static Web Apps; the API, execution control plane, and isolated runner pool live behind Caddy on an Azure VM. Supabase owns authentication and learner data, OpenAI powers the tutor, and Key Vault supplies runtime secrets through managed identity.
 
 ```mermaid
-flowchart LR
-    B[Browser] --> F[React frontend<br/>Azure Static Web Apps]
+flowchart TD
     B -->|HTTPS + SSE| A[Express API<br/>Azure VM]
-    A --> S[(Supabase<br/>Auth + Postgres)]
-    A --> O[OpenAI<br/>Responses API]
     A --> P[Docker socket proxy<br/>endpoint allowlist]
     P --> R[Per-session runner<br/>no network · resource capped]
+    B --> F[React frontend<br/>Azure Static Web Apps]
+    A --> S[(Supabase<br/>Auth + Postgres)]
+    A --> O[OpenAI<br/>Responses API]
     K[Azure Key Vault] -. managed identity .-> A
 ```
 
