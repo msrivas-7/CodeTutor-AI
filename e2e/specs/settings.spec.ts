@@ -925,6 +925,18 @@ test.describe("settings panel", () => {
     await expect(
       page.getByRole("heading", { level: 1, name: /Hello, World!/i }),
     ).toBeFocused({ timeout: 6_000 });
+
+    // A collapsed instructions pane keeps its H1 mounted but hidden. A second
+    // replay must not target that unfocusable heading or revive the already
+    // settled tutor ticket; the stable workspace main owns keyboard arrival.
+    await page.getByRole("button", { name: "Collapse instructions" }).click();
+    await openSettings(page, "account");
+    await page.getByRole("button", { name: /^watch the moment again$/i }).click();
+    await page.getByRole("button", { name: /skip introduction/i }).click();
+    await expect(page).toHaveURL(safeReturn);
+    await expect(page.locator("#main-content")).toBeFocused({ timeout: 6_000 });
+    expect(await getMonacoValue(page)).toBe(preservedDraft);
+    expect(lessonResets, "repeat replay remains read-only").toHaveLength(1);
   });
 
   test("Escape closes the settings modal cleanly", async ({ page }) => {

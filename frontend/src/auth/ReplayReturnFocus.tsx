@@ -26,7 +26,16 @@ export function ReplayReturnFocus() {
     const focusDestination = () => {
       if (userInteracted) return;
       const active = document.activeElement;
-      const heading = document.querySelector<HTMLElement>("main h1, h1");
+      // Collapsed workspace panes deliberately keep their content mounted.
+      // Ignore those hidden headings: focus() on a display-none H1 is a no-op
+      // and would strand keyboard arrival on BODY after the replay.
+      const heading = Array.from(
+        document.querySelectorAll<HTMLElement>("main h1, h1"),
+      ).find(
+        (candidate) =>
+          candidate.getClientRects().length > 0 &&
+          !candidate.closest('[aria-hidden="true"], [inert]'),
+      );
       const alreadyMeaningful = active instanceof HTMLElement &&
         active !== document.body &&
         active.isConnected &&

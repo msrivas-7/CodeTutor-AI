@@ -29,6 +29,7 @@ import { SavedTutorBookmark } from "./SavedTutorBookmark";
 import { SavedTutorAccordion } from "./SavedTutorAccordion";
 import { useSavedTutorMessages } from "../features/learning/hooks/useSavedTutorMessages";
 import { useShortcutLabels } from "../util/platform";
+import { usePendingElementFocus } from "../hooks/usePendingElementFocus";
 
 export function AssistantPanel({
   onCollapse,
@@ -62,6 +63,7 @@ export function AssistantPanel({
     summarizing,
     activeSelection,
     focusComposerNonce,
+    focusComposerSettledNonce,
     sessionUsage,
   } = useAIStore(
     useShallow((s) => ({
@@ -80,6 +82,7 @@ export function AssistantPanel({
       summarizing: s.summarizing,
       activeSelection: s.activeSelection,
       focusComposerNonce: s.focusComposerNonce,
+      focusComposerSettledNonce: s.focusComposerSettledNonce,
       sessionUsage: s.sessionUsage,
     })),
   );
@@ -90,6 +93,7 @@ export function AssistantPanel({
   const commitSummary = useAIStore((s) => s.commitSummary);
   const setSummarizing = useAIStore((s) => s.setSummarizing);
   const setActiveSelection = useAIStore((s) => s.setActiveSelection);
+  const settleFocusComposer = useAIStore((s) => s.settleFocusComposer);
 
   const hasKey = usePreferencesStore((s) => s.hasOpenaiKey);
   const { status: aiStatus } = useAIStatus();
@@ -146,14 +150,6 @@ export function AssistantPanel({
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [history.length, asking]);
 
-  // Cmd+K from the editor bumps `focusComposerNonce`. Pull focus into the
-  // composer so the student can immediately type the ask about their selection.
-  // Skip the very first mount (nonce starts at 0).
-  useEffect(() => {
-    if (focusComposerNonce === 0) return;
-    textareaRef.current?.focus();
-  }, [focusComposerNonce]);
-
   useEffect(() => {
     if (clearConfirm) keepButtonRef.current?.focus({ preventScroll: true });
   }, [clearConfirm]);
@@ -179,6 +175,17 @@ export function AssistantPanel({
   // backend is willing to fund us on the platform key. Platform model choice
   // is implicit and server-owned even if an old preference remains stored.
   const configured = onPlatform || (hasKey && !!selectedModel);
+
+  // Keep the request pending while project/access hydration disables the
+  // composer. The same Cmd+K request is fulfilled as soon as the actual input
+  // becomes focusable instead of being lost to a disabled textarea.
+  usePendingElementFocus({
+    requestNonce: focusComposerNonce,
+    settledNonce: focusComposerSettledNonce,
+    targetRef: textareaRef,
+    blocked: statusLoading || !configured || inputLocked,
+    onSettled: settleFocusComposer,
+  });
 
   const prepareAnswer = (value: string) => {
     setDraft(value);

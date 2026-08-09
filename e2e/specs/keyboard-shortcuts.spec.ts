@@ -150,6 +150,14 @@ test.describe("keyboard shortcuts + schema-error branch", () => {
     await page.keyboard.press(`${mod}+KeyK`);
 
     await expect(composer).toBeFocused({ timeout: 3_000 });
+    await expect
+      .poll(() =>
+        composer.evaluate((element) => {
+          const rect = element.getBoundingClientRect();
+          return rect.top >= 0 && rect.bottom <= window.innerHeight;
+        }),
+      )
+      .toBe(true);
   });
 
   test("schema-error lesson renders malformed copy, not 'not found'", async ({ page }) => {
