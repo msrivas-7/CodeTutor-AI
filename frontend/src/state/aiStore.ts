@@ -84,6 +84,7 @@ interface AIState {
   // selection is captured outside the panel.
   activeSelection: BoundEditorSelection | null;
   focusComposerNonce: number;
+  focusComposerSettledNonce: number;
   // Monotonic signal used by help entry points outside the tutor panel.
   // Starting a hidden tutor request is never acceptable: pages observe this
   // nonce and open the owning rail before the request is consumed.
@@ -115,6 +116,7 @@ interface AIState {
   setActiveSelection: (sel: BoundEditorSelection | null) => void;
   setTutorProgressToken: (token: string | null) => void;
   bumpFocusComposer: () => void;
+  settleFocusComposer: (nonce: number) => void;
   requestTutorOpen: () => void;
 
   pushUser: (content: string) => void;
@@ -213,6 +215,7 @@ export const useAIStore = create<AIState>((set, get) => ({
 
   activeSelection: null,
   focusComposerNonce: 0,
+  focusComposerSettledNonce: 0,
   tutorOpenNonce: 0,
   sessionUsage: { inputTokens: 0, outputTokens: 0 },
   tutorProgressToken: null,
@@ -255,6 +258,18 @@ export const useAIStore = create<AIState>((set, get) => ({
     saveChatToCache(get);
   },
   bumpFocusComposer: () => set((s) => ({ focusComposerNonce: s.focusComposerNonce + 1 })),
+  settleFocusComposer: (nonce) => {
+    const state = get();
+    // Settle only the exact latest ticket. A late consumer from a replaced
+    // panel must not clear a newer focus request that arrived meanwhile.
+    if (
+      nonce !== state.focusComposerNonce ||
+      nonce <= state.focusComposerSettledNonce
+    ) {
+      return;
+    }
+    set({ focusComposerSettledNonce: nonce });
+  },
   requestTutorOpen: () => set((s) => ({ tutorOpenNonce: s.tutorOpenNonce + 1 })),
 
   pushUser: (content) => {
@@ -345,6 +360,7 @@ export const useAIStore = create<AIState>((set, get) => ({
       summarizing: false,
       activeSelection: null,
       focusComposerNonce: 0,
+      focusComposerSettledNonce: 0,
       tutorOpenNonce: 0,
       sessionUsage: { inputTokens: 0, outputTokens: 0 },
       tutorProgressToken: null,

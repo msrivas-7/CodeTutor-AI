@@ -63,6 +63,7 @@ export function AssistantPanel({
     summarizing,
     activeSelection,
     focusComposerNonce,
+    focusComposerSettledNonce,
     sessionUsage,
   } = useAIStore(
     useShallow((s) => ({
@@ -81,6 +82,7 @@ export function AssistantPanel({
       summarizing: s.summarizing,
       activeSelection: s.activeSelection,
       focusComposerNonce: s.focusComposerNonce,
+      focusComposerSettledNonce: s.focusComposerSettledNonce,
       sessionUsage: s.sessionUsage,
     })),
   );
@@ -91,6 +93,7 @@ export function AssistantPanel({
   const commitSummary = useAIStore((s) => s.commitSummary);
   const setSummarizing = useAIStore((s) => s.setSummarizing);
   const setActiveSelection = useAIStore((s) => s.setActiveSelection);
+  const settleFocusComposer = useAIStore((s) => s.settleFocusComposer);
 
   const hasKey = usePreferencesStore((s) => s.hasOpenaiKey);
   const { status: aiStatus } = useAIStatus();
@@ -178,8 +181,10 @@ export function AssistantPanel({
   // becomes focusable instead of being lost to a disabled textarea.
   usePendingElementFocus({
     requestNonce: focusComposerNonce,
+    settledNonce: focusComposerSettledNonce,
     targetRef: textareaRef,
     blocked: statusLoading || !configured || inputLocked,
+    onSettled: settleFocusComposer,
   });
 
   const prepareAnswer = (value: string) => {

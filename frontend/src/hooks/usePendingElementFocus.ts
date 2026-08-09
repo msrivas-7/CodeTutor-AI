@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from "react";
+import { useEffect, type RefObject } from "react";
 
 /**
  * Fulfil a store-backed focus request only after its target can actually accept
@@ -8,32 +8,34 @@ import { useEffect, useRef, type RefObject } from "react";
  */
 export function usePendingElementFocus<T extends HTMLElement>({
   requestNonce,
+  settledNonce,
   targetRef,
   blocked,
+  onSettled,
 }: {
   requestNonce: number;
+  settledNonce: number;
   targetRef: RefObject<T>;
   blocked: boolean;
+  onSettled: (nonce: number) => void;
 }) {
-  const handledNonceRef = useRef(0);
-
   useEffect(() => {
-    // aiStore.reset() restarts the monotonic request counter. Reset the local
-    // acknowledgement too so nonce 1 is not mistaken for an old request.
-    if (requestNonce === 0) {
-      handledNonceRef.current = 0;
-      return;
-    }
-    if (handledNonceRef.current === requestNonce || blocked) return;
+    if (requestNonce === 0 || requestNonce <= settledNonce || blocked) return;
 
     const target = targetRef.current;
     if (!target || target.matches(":disabled")) return;
 
-    target.focus({ preventScroll: true });
+    // These requests come from explicit navigation/help actions. Preserve the
+    // browser's reveal behavior so a focused composer cannot remain off-screen
+    // in a vertically stacked or compact workspace.
+    target.focus();
     // Do not acknowledge a request that the browser declined. A later
     // readiness render can retry it instead of silently losing the handoff.
     if (document.activeElement === target) {
-      handledNonceRef.current = requestNonce;
+      // Settle in the owning store rather than only inside this mounted child.
+      // Otherwise a later remount interprets the completed ticket as new and
+      // steals focus from the route's intended arrival point.
+      onSettled(requestNonce);
     }
-  }, [blocked, requestNonce, targetRef]);
+  }, [blocked, onSettled, requestNonce, settledNonce, targetRef]);
 }

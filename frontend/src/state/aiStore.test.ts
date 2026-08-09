@@ -54,3 +54,24 @@ describe("per-task tutor progression proof", () => {
     });
   });
 });
+
+describe("composer focus tickets", () => {
+  it("settles only the latest request and does not replay it after remount", () => {
+    useAIStore.getState().bumpFocusComposer();
+    const first = useAIStore.getState().focusComposerNonce;
+    expect(first).toBe(1);
+
+    useAIStore.getState().settleFocusComposer(first);
+    expect(useAIStore.getState().focusComposerSettledNonce).toBe(first);
+
+    useAIStore.getState().bumpFocusComposer();
+    const second = useAIStore.getState().focusComposerNonce;
+    expect(second).toBe(2);
+
+    useAIStore.getState().settleFocusComposer(first);
+    expect(useAIStore.getState().focusComposerSettledNonce).toBe(first);
+
+    useAIStore.getState().settleFocusComposer(second);
+    expect(useAIStore.getState().focusComposerSettledNonce).toBe(second);
+  });
+});

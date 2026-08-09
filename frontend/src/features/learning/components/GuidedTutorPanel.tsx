@@ -131,6 +131,8 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
     activeSelection,
     setActiveSelection,
     focusComposerNonce,
+    focusComposerSettledNonce,
+    settleFocusComposer,
   } = useAIStore();
   const hasKey = usePreferencesStore((s) => s.hasOpenaiKey);
   const persona = usePreferencesStore((s) => s.persona);
@@ -229,8 +231,10 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
   // genuinely enabled so the handoff is deterministic under slow hydration.
   usePendingElementFocus({
     requestNonce: focusComposerNonce,
+    settledNonce: focusComposerSettledNonce,
     targetRef: textareaRef,
     blocked: statusLoading || !configured || Boolean(inputLocked) || anonQuotaExhausted,
+    onSettled: settleFocusComposer,
   });
 
   useEffect(() => {
