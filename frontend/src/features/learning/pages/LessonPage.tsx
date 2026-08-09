@@ -11,6 +11,7 @@ import {
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { LessonInstructionsPanel } from "../components/LessonInstructionsPanel";
 import { PracticeInstructionsView } from "../components/PracticeInstructionsView";
+import { LessonActionsMenu } from "../components/LessonActionsMenu";
 import { GuidedTutorPanel } from "../components/GuidedTutorPanel";
 // P-H2: dynamic-import keeps Monaco out of the lesson page's initial JS until
 // the editor mounts (the instructions/intro column loads first). The editor
@@ -572,6 +573,8 @@ export default function LessonPage({
   });
   const instructionsRestoreRef = useRef<HTMLButtonElement>(null);
   const tutorRestoreRef = useRef<HTMLButtonElement>(null);
+  const moreActionsButtonRef = useRef<HTMLButtonElement>(null);
+  const resetCodeButtonRef = useRef<HTMLButtonElement>(null);
   const tutorOpenNonce = useAIStore((s) => s.tutorOpenNonce);
   const handledTutorOpenNonceRef = useRef(0);
   const resetInteractionRef = useRef(false);
@@ -659,9 +662,22 @@ export default function LessonPage({
     retrievalAnswered,
     onAnonProgressCommitted: mode === "anon" ? persistAnonProgress : undefined,
   });
-  const runInteractionLocked = runButtonLocked || validator.resettingCode;
-  const checkInteractionLocked = checkButtonLocked || validator.resettingCode;
-  const editorInteractionLocked = editorLocked || validator.resettingCode;
+  const runInteractionLocked =
+    runButtonLocked || validator.resettingCode || validator.practiceTransitioning;
+  const checkInteractionLocked =
+    checkButtonLocked || validator.resettingCode || validator.practiceTransitioning;
+  const editorInteractionLocked =
+    editorLocked || validator.resettingCode || validator.practiceTransitioning;
+
+  const editorContentCommit =
+    validator.resetContentCommit ?? validator.practiceContentCommit;
+  const handleEditorContentCommitSettled = (ticket: number, matched: boolean) => {
+    if (validator.resetContentCommit?.ticket === ticket) {
+      validator.settleCodeResetContent(ticket, matched);
+      return;
+    }
+    validator.settlePracticeContent(ticket, matched);
+  };
 
   const handleExitPractice = () => {
     validator.handleExitPractice();
@@ -674,6 +690,26 @@ export default function LessonPage({
       root
         .querySelector<HTMLElement>("[data-lesson-title]")
         ?.focus({ preventScroll: true });
+    });
+  };
+
+  const handleUndoCodeReset = () => {
+    validator.undoCodeReset();
+    const activeFile = useProjectStore.getState().activeFile;
+    if (!activeFile) return;
+    editorFocusTicket.current += 1;
+    setEditorFocusRequest({
+      path: activeFile,
+      ticket: editorFocusTicket.current,
+    });
+  };
+
+  const showInstructionsFeedback = () => {
+    layout.setInstrCollapsed(false);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        layout.instrRef.current?.focus({ preventScroll: true });
+      });
     });
   };
 
@@ -1571,7 +1607,7 @@ export default function LessonPage({
           </span>
           <button
             type="button"
-            onClick={validator.undoCodeReset}
+            onClick={handleUndoCodeReset}
             className="min-h-11 rounded-lg px-3 py-2 font-semibold text-accent transition hover:bg-accent/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             Undo reset
@@ -1679,6 +1715,8 @@ export default function LessonPage({
                   validation={validator.practiceValidation}
                   testReport={validator.practiceTestReport}
                   saveError={validator.practiceSaveError}
+                  workspaceTransitioning={validator.practiceTransitioning}
+                  workspaceTransitionError={validator.practiceTransitionError}
                   onSelectExercise={validator.handleSelectPracticeExercise}
                   onExitPractice={handleExitPractice}
                   onNextExercise={validator.handleNextPracticeExercise}
@@ -1732,8 +1770,8 @@ export default function LessonPage({
                     attentionTarget={contextualGuide.target}
                     focusRequest={editorFocusRequest}
                     onFocusRequestSettled={handleEditorFocusRequestSettled}
-                    contentCommitRequest={validator.resetContentCommit}
-                    onContentCommitSettled={validator.settleCodeResetContent}
+                    contentCommitRequest={editorContentCommit}
+                    onContentCommitSettled={handleEditorContentCommitSettled}
                     readOnly={editorInteractionLocked}
                   />
                 </Suspense>
@@ -1907,9 +1945,10 @@ export default function LessonPage({
                 </button>
               )}
               <button
+                ref={resetCodeButtonRef}
                 type="button"
                 onClick={validator.handleReset}
-                disabled={runner.running || validator.resettingCode}
+                disabled={runner.running || validator.resettingCode || validator.practiceTransitioning}
                 title={validator.resettingCode ? "Resetting code…" : "Reset code to starter"}
                 aria-label="Reset code to starter"
                 className="flex h-11 w-11 items-center justify-center rounded-xl text-base text-muted transition active:bg-elevated disabled:opacity-40"
@@ -1966,6 +2005,8 @@ export default function LessonPage({
           )}
           <motion.div
             ref={layout.instrRef as React.RefObject<HTMLDivElement>}
+            role="region"
+            aria-label="Lesson instructions"
             tabIndex={-1}
             initial={false}
             animate={{ width: layout.instrCollapsed ? 0 : layout.instrW }}
@@ -1988,6 +2029,8 @@ export default function LessonPage({
                 validation={validator.practiceValidation}
                 testReport={validator.practiceTestReport}
                 saveError={validator.practiceSaveError}
+                workspaceTransitioning={validator.practiceTransitioning}
+                workspaceTransitionError={validator.practiceTransitionError}
                 onSelectExercise={validator.handleSelectPracticeExercise}
                 onExitPractice={handleExitPractice}
                 onNextExercise={validator.handleNextPracticeExercise}
@@ -2075,8 +2118,8 @@ export default function LessonPage({
                   attentionTarget={contextualGuide.target}
                   focusRequest={editorFocusRequest}
                   onFocusRequestSettled={handleEditorFocusRequestSettled}
-                  contentCommitRequest={validator.resetContentCommit}
-                  onContentCommitSettled={validator.settleCodeResetContent}
+                  contentCommitRequest={editorContentCommit}
+                  onContentCommitSettled={handleEditorContentCommitSettled}
                   readOnly={editorInteractionLocked}
                 />
               </Suspense>
@@ -2194,9 +2237,10 @@ export default function LessonPage({
                     to the starter. Muted styling so it doesn't compete
                     with Run / Check My Work. */}
                 <button
+                  ref={resetCodeButtonRef}
                   type="button"
                   onClick={validator.handleReset}
-                  disabled={runner.running || validator.resettingCode}
+                  disabled={runner.running || validator.resettingCode || validator.practiceTransitioning}
                   title={validator.resettingCode ? "Resetting code…" : "Reset code to starter"}
                   aria-label="Reset code to starter"
                   className="flex min-h-11 items-center gap-1 whitespace-nowrap rounded-lg px-3 py-2 text-sm text-muted transition hover:bg-elevated hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-40"
@@ -2326,12 +2370,16 @@ export default function LessonPage({
                     Next Lesson →
                   </button>
                 )}
-                <div ref={layout.resetMenuRef} className="relative">
+                <div className="relative">
                   <button
+                    ref={moreActionsButtonRef}
+                    type="button"
+                    id="lesson-actions-trigger"
                     onClick={() => layout.setResetMenuOpen((v) => !v)}
                     aria-label="More lesson actions"
                     aria-haspopup="menu"
                     aria-expanded={layout.resetMenuOpen}
+                    aria-controls={layout.resetMenuOpen ? "lesson-actions-menu" : undefined}
                     className="flex h-11 w-11 items-center justify-center rounded-lg text-muted transition hover:bg-elevated hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                     title="More actions"
                   >
@@ -2346,35 +2394,13 @@ export default function LessonPage({
                       <circle cx="19" cy="12" r="1.6" />
                     </svg>
                   </button>
-                  {layout.resetMenuOpen && (
-                    // Opens UPWARD (bottom-full) — the kebab sits low in the
-                    // viewport (between editor and output panel) so a downward
-                    // dropdown falls off-screen.
-                    //
-                    // Phase 22F2 prep: Reset CODE moved out to a top-level
-                    // link (next to Run). This menu is now destructive-only:
-                    // Reset Lesson wipes ALL progress and lives behind a
-                    // confirmation modal. Keeping it hidden in the ⋯ menu
-                    // is intentional — beginners shouldn't discover it
-                    // accidentally.
-                    <div
-                      role="menu"
-                      className="absolute right-0 bottom-full z-40 mb-1 w-48 overflow-hidden rounded-lg border border-border bg-panel/95 p-1 shadow-xl backdrop-blur"
-                    >
-                      <button
-                        role="menuitem"
-                        onClick={() => {
-                          layout.setResetMenuOpen(false);
-                          validator.setConfirmResetLesson(true);
-                        }}
-                        disabled={runner.running}
-                        className="block w-full rounded-md px-3 py-1.5 text-left text-xs font-medium text-danger/80 transition hover:bg-danger/10 hover:text-danger disabled:cursor-not-allowed disabled:opacity-40"
-                        title="Reset all lesson progress (attempts, runs, hints, code) — destructive"
-                      >
-                        Reset Lesson
-                      </button>
-                    </div>
-                  )}
+                  <LessonActionsMenu
+                    open={layout.resetMenuOpen}
+                    anchorRef={moreActionsButtonRef}
+                    disabled={runner.running}
+                    onClose={() => layout.setResetMenuOpen(false)}
+                    onResetLesson={() => validator.setConfirmResetLesson(true)}
+                  />
                 </div>
               </div>
               {/* Row 2 — Validation feedback. For lessons WITH function_tests,
@@ -2386,21 +2412,47 @@ export default function LessonPage({
                   only), the banner is still the immediate fail signal, so
                   keep rendering it. Caps height so long hints can't push
                   the toolbar off-screen. */}
-              {!practiceMode
+              {((!practiceMode
                 && validator.validation
                 && !validator.validation.passed
                 && !isRetrievalPending(validator.validation)
-                && validator.functionTests.length === 0
-                && validator.sourceChecks.length === 0 && (
+                && (layout.instrCollapsed
+                  || (validator.functionTests.length === 0
+                    && validator.sourceChecks.length === 0)))
+                || (practiceMode
+                  && validator.practiceValidation
+                  && !validator.practiceValidation.passed
+                  && layout.instrCollapsed)) && (
                 <div
                   role="alert"
-                  className="mx-4 mt-1.5 flex max-h-24 flex-col gap-0.5 overflow-y-auto rounded-lg bg-danger/10 px-3 py-1.5 text-xs font-medium text-danger"
+                  tabIndex={-1}
+                  data-workspace-check-feedback="true"
+                  className="mx-4 mt-1.5 flex max-h-28 flex-wrap items-center gap-x-3 gap-y-1 overflow-y-auto rounded-lg bg-danger/10 px-3 py-1.5 text-xs font-medium text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger"
                 >
-                  <span>{validator.validation.feedback[0] ?? "Not quite."}</span>
-                  {validator.validation.nextHints?.[0] && (
-                    <span className="text-[11px] font-normal opacity-80">
-                      {validator.validation.nextHints[0]}
-                    </span>
+                  <div className="min-w-0 flex-1">
+                    <div>
+                      {(practiceMode
+                        ? validator.practiceValidation?.feedback[0]
+                        : validator.validation?.feedback[0]) ?? "Not quite yet."}
+                    </div>
+                    {(practiceMode
+                      ? validator.practiceValidation?.nextHints?.[0]
+                      : validator.validation?.nextHints?.[0]) && (
+                      <div className="mt-0.5 text-[11px] font-normal opacity-80">
+                        {practiceMode
+                          ? validator.practiceValidation?.nextHints?.[0]
+                          : validator.validation?.nextHints?.[0]}
+                      </div>
+                    )}
+                  </div>
+                  {layout.instrCollapsed && (
+                    <button
+                      type="button"
+                      onClick={showInstructionsFeedback}
+                      className="min-h-11 shrink-0 rounded-lg border border-danger/35 px-3 py-2 text-xs font-semibold transition hover:bg-danger/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger"
+                    >
+                      Show feedback
+                    </button>
                   )}
                 </div>
               )}
@@ -2766,6 +2818,7 @@ export default function LessonPage({
           }}
           role="alertdialog"
           labelledBy="reset-lesson-title"
+          returnFocusRef={moreActionsButtonRef}
           position="center"
           panelClassName="mx-4 w-full max-w-sm rounded-xl border border-danger/30 bg-panel p-5 shadow-xl"
         >
@@ -2809,6 +2862,7 @@ export default function LessonPage({
       {validator.confirmResetCode && (
         <Modal
           onClose={() => validator.setConfirmResetCode(false)}
+          returnFocusRef={resetCodeButtonRef}
           role="alertdialog"
           labelledBy="reset-code-title"
           position="center"

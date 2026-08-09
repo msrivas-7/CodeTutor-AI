@@ -114,31 +114,12 @@ export function useLessonLayout({ courseId, lessonId }: UseLessonLayoutArgs) {
   const [showSettings, setShowSettings] = useState(false);
   const [resetMenuOpen, setResetMenuOpen] = useState(false);
 
-  const resetMenuRef = useRef<HTMLDivElement>(null);
   const instrRef = useRef<HTMLElement>(null);
   const editorRef = useRef<HTMLElement>(null);
   const runBtnRef = useRef<HTMLButtonElement>(null);
   const outputRef = useRef<HTMLElement>(null);
   const checkBtnRef = useRef<HTMLButtonElement>(null);
   const tutorRef = useRef<HTMLElement>(null);
-
-  useEffect(() => {
-    if (!resetMenuOpen) return;
-    const onDown = (e: MouseEvent) => {
-      if (resetMenuRef.current && !resetMenuRef.current.contains(e.target as Node)) {
-        setResetMenuOpen(false);
-      }
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setResetMenuOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [resetMenuOpen]);
 
   return {
     outputH,
@@ -155,7 +136,6 @@ export function useLessonLayout({ courseId, lessonId }: UseLessonLayoutArgs) {
     setShowSettings,
     resetMenuOpen,
     setResetMenuOpen,
-    resetMenuRef,
     instrRef,
     editorRef,
     runBtnRef,

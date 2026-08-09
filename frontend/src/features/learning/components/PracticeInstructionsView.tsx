@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FunctionTest, PracticeExercise, TestReport, ValidationResult } from "../types";
 import { Modal } from "../../../components/Modal";
 import { pickFirstFailure } from "../utils/validator";
@@ -55,6 +55,8 @@ interface PracticeInstructionsViewProps {
   validation: ValidationResult | null;
   testReport?: TestReport | null;
   saveError?: string | null;
+  workspaceTransitioning?: boolean;
+  workspaceTransitionError?: string | null;
   onSelectExercise: (index: number) => void;
   onExitPractice: () => void;
   onNextExercise: () => void;
@@ -70,6 +72,8 @@ export function PracticeInstructionsView({
   validation,
   testReport,
   saveError,
+  workspaceTransitioning = false,
+  workspaceTransitionError = null,
   onSelectExercise,
   onExitPractice,
   onNextExercise,
@@ -92,10 +96,19 @@ export function PracticeInstructionsView({
   ).length;
   const hasNext = currentIndex < exercises.length - 1;
   const firstFailure = pickFirstFailure(testReport);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const wasTransitioningRef = useRef(workspaceTransitioning);
 
   useEffect(() => {
     setShowHints(false);
   }, [current?.id]);
+
+  useEffect(() => {
+    if (wasTransitioningRef.current && !workspaceTransitioning) {
+      headingRef.current?.focus({ preventScroll: true });
+    }
+    wasTransitioningRef.current = workspaceTransitioning;
+  }, [workspaceTransitioning]);
 
   if (!current) return null;
 
@@ -147,6 +160,7 @@ export function PracticeInstructionsView({
           Without it, axe flags `scrollable-region-focusable` (serious). */}
       <div className="flex-1 overflow-y-auto px-4 py-3" tabIndex={0}>
         <button
+          type="button"
           onClick={onExitPractice}
           className="mb-3 flex min-h-11 items-center gap-1 rounded-lg px-2 text-sm text-muted transition hover:bg-elevated hover:text-ink"
         >
@@ -160,8 +174,10 @@ export function PracticeInstructionsView({
               const active = i === currentIndex;
               return (
                 <button
+                  type="button"
                   key={ex.id}
                   onClick={() => onSelectExercise(i)}
+                  disabled={workspaceTransitioning}
                   className={`flex h-11 w-11 items-center justify-center rounded-full text-sm font-bold transition focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${
                     active
                       ? "bg-violet text-bg ring-2 ring-violet/40"
@@ -180,7 +196,32 @@ export function PracticeInstructionsView({
           </div>
         )}
 
-        <h2 className="mb-2 text-sm font-bold text-ink">{current.title}</h2>
+        <h2
+          ref={headingRef}
+          tabIndex={-1}
+          className="mb-2 text-sm font-bold text-ink focus:outline-none"
+        >
+          {current.title}
+        </h2>
+
+        {workspaceTransitioning && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="mb-3 rounded-lg border border-accent/30 bg-accent/10 px-3 py-2 text-xs text-accent"
+          >
+            Opening this challenge… The editor will unlock when its starter is ready.
+          </div>
+        )}
+
+        {workspaceTransitionError && (
+          <div
+            role="alert"
+            className="mb-3 rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger"
+          >
+            {workspaceTransitionError}
+          </div>
+        )}
 
         <div className="mb-3 rounded-lg border border-violet/20 bg-violet/5 px-3 py-2">
           <div className="text-[10px] font-semibold uppercase tracking-wider text-violet/70">
@@ -268,7 +309,9 @@ export function PracticeInstructionsView({
 
         {showCurrentCompletion && hasNext && (
           <button
+            type="button"
             onClick={onNextExercise}
+            disabled={workspaceTransitioning}
             className="mt-3 min-h-11 w-full rounded-lg bg-violet/20 px-3 py-2 text-sm font-semibold text-violet transition hover:bg-violet/30"
           >
             Next challenge →
@@ -277,7 +320,9 @@ export function PracticeInstructionsView({
 
         {showCurrentCompletion && !hasNext && (
           <button
+            type="button"
             onClick={onExitPractice}
+            disabled={workspaceTransitioning}
             className="mt-3 min-h-11 w-full rounded-lg bg-success/20 px-3 py-2 text-sm font-semibold text-success transition hover:bg-success/30"
           >
             All practice done — back to lesson

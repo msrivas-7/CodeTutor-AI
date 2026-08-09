@@ -184,6 +184,13 @@ export function useLessonValidator({
   const [practiceRetryAt, setPracticeRetryAt] = useState<number | null>(null);
   const [testReport, setTestReport] = useState<TestReport | null>(null);
   const [practiceTestReport, setPracticeTestReport] = useState<TestReport | null>(null);
+  const [practiceTransitioning, setPracticeTransitioning] = useState(false);
+  const [practiceTransitionError, setPracticeTransitionError] = useState<string | null>(null);
+  const [practiceContentCommit, setPracticeContentCommit] = useState<{
+    ticket: number;
+    path: string;
+    content: string;
+  } | null>(null);
   const [runningTests, setRunningTests] = useState(false);
   const testOperationRef = useRef<ProjectOperationIdentity | null>(null);
   // Mirror the local `runningTests` flag into runStore so the global
@@ -211,7 +218,10 @@ export function useLessonValidator({
     content: string;
   } | null>(null);
   const resetUndoRevisionRef = useRef<number | null>(null);
-  const resetCommitTicketRef = useRef(0);
+  // Monaco settles editor-content commits with a monotonic ticket. Reset and
+  // practice transitions share the same counter so a later request can never
+  // be mistaken for an already-settled request from the other flow.
+  const contentCommitTicketRef = useRef(0);
   const pendingResetUndoRef = useRef<ResetUndoSnapshot | null>(null);
   const autoEnteredPractice = useRef(false);
   const practiceEvidence = useRef(new Map<string, PracticeEvidenceSession>());
@@ -268,6 +278,9 @@ export function useLessonValidator({
     setPracticeRetryAt(null);
     setTestReport(null);
     setPracticeTestReport(null);
+    setPracticeTransitioning(false);
+    setPracticeTransitionError(null);
+    setPracticeContentCommit(null);
     setLastFailedName(null);
     setSameFailStreak(0);
     setConfirmResetCode(false);
@@ -719,7 +732,11 @@ export function useLessonValidator({
     }
   }, [lesson, courseId, lessonId, completeLesson, learnerId, totalLessons, validation, practiceMode, practiceIndex, completePracticeExercise, sessionId, functionTests, sourceChecks, testReport, lastFailedName, retrievalAnswered, runningTests, practiceRetryAt, completionSaving, completionSaveError, localLessonCompleted, onAnonProgressCommitted]);
 
-  const applyPracticeStarter = useCallback((exerciseIndex: number, forceDefaults = false) => {
+  const applyPracticeStarter = useCallback((
+    exerciseIndex: number,
+    forceDefaults = false,
+    trackEditorTransition = true,
+  ) => {
     if (!lesson?.practiceExercises || !courseId || !lessonId) return;
     const exercise = lesson.practiceExercises[exerciseIndex];
     if (!exercise) return;
@@ -745,14 +762,19 @@ export function useLessonValidator({
       forceDefaults,
     );
     const order = Object.keys(files);
+    const activePath = order[0] ?? entry;
+    if (trackEditorTransition) {
+      setPracticeTransitioning(true);
+      setPracticeTransitionError(null);
+    }
     useProjectStore.getState().switchProjectContext(
       `practice:${courseId}/${lessonId}/${exercise.id}`,
       {
         language: lesson.language,
         files,
         order,
-        activeFile: order[0] ?? entry,
-        openTabs: [order[0] ?? entry],
+        activeFile: activePath,
+        openTabs: [activePath],
       },
       forceDefaults ? { forceDefaults: true } : undefined,
     );
@@ -763,7 +785,26 @@ export function useLessonValidator({
     setPracticeValidation(null);
     setPracticeTestReport(null);
     setPracticeSaveError(null);
+    if (trackEditorTransition) {
+      contentCommitTicketRef.current += 1;
+      setPracticeContentCommit({
+        ticket: contentCommitTicketRef.current,
+        path: activePath,
+        content: files[activePath] ?? "",
+      });
+    }
   }, [lesson, courseId, lessonId]);
+
+  const settlePracticeContent = useCallback((ticket: number, matched: boolean) => {
+    if (practiceContentCommit?.ticket !== ticket) return;
+    setPracticeContentCommit(null);
+    setPracticeTransitioning(false);
+    setPracticeTransitionError(
+      matched
+        ? null
+        : "The editor did not finish opening this challenge. Return to the lesson and try Practice again.",
+    );
+  }, [practiceContentCommit]);
 
   const handlePracticeHintReveal = useCallback(() => {
     const exercise = lesson?.practiceExercises?.[practiceIndex];
@@ -795,11 +836,13 @@ export function useLessonValidator({
     );
     const resumeIndex = lesson.practiceExercises.findIndex((exercise) => !completed.has(exercise.id));
     const targetIndex = resumeIndex >= 0 ? resumeIndex : 0;
-    setPracticeMode(true);
-    setPracticeIndex(targetIndex);
-    setShowComplete(false);
-    setCompletionPresentationPending(false);
-    applyPracticeStarter(targetIndex);
+    flushSync(() => {
+      applyPracticeStarter(targetIndex);
+      setPracticeIndex(targetIndex);
+      setPracticeMode(true);
+      setShowComplete(false);
+      setCompletionPresentationPending(false);
+    });
   }, [lesson, courseId, lessonId, learnerId, applyPracticeStarter]);
 
   // Auto-enter practice mode when navigated with ?mode=practice. Fires once
@@ -830,10 +873,15 @@ export function useLessonValidator({
     // Clear the route intent in the same action as the UI state. Otherwise an
     // immediate exit can race the initial ?mode=practice auto-entry effect and
     // make the prominent Back to lesson control appear to do nothing.
+    flushSync(() => {
+      setPracticeMode(false);
+      setPracticeValidation(null);
+      setPracticeTestReport(null);
+      setPracticeTransitioning(false);
+      setPracticeTransitionError(null);
+      setPracticeContentCommit(null);
+    });
     setSearchParams({}, { replace: true });
-    setPracticeMode(false);
-    setPracticeValidation(null);
-    setPracticeTestReport(null);
     const lessonContext = lessonWorkspaceContextKey(mode, courseId, lessonId);
     if (lessonContext) {
       useProjectStore.getState().switchProjectContext(lessonContext);
@@ -1011,7 +1059,9 @@ export function useLessonValidator({
     setResettingCode(true);
     if (resetInteractionRef) resetInteractionRef.current = true;
     if (practiceMode) {
-      applyPracticeStarter(practiceIndex, true);
+      // confirmCodeReset owns the commit handshake below. Starting a second
+      // practice handshake here would leave one request permanently pending.
+      applyPracticeStarter(practiceIndex, true, false);
       const exercise = lesson?.practiceExercises?.[practiceIndex];
       if (exercise) {
         savePracticeCode(courseId, lessonId, exercise.id, starter.files);
@@ -1022,9 +1072,9 @@ export function useLessonValidator({
     }
     const activePath = starter.activeFile ?? starter.order[0] ?? null;
     if (activePath) {
-      resetCommitTicketRef.current += 1;
+      contentCommitTicketRef.current += 1;
       setResetContentCommit({
-        ticket: resetCommitTicketRef.current,
+        ticket: contentCommitTicketRef.current,
         path: activePath,
         content: starter.files[activePath] ?? "",
       });
@@ -1256,11 +1306,15 @@ export function useLessonValidator({
     sourceChecks,
     passedVisibleTests,
     practiceTestReport,
+    practiceTransitioning,
+    practiceTransitionError,
+    practiceContentCommit,
     handleCheck,
     handleRunExamples,
     handleReset,
     confirmCodeReset,
     settleCodeResetContent,
+    settlePracticeContent,
     undoCodeReset,
     restoreCompleted,
     restoreAnonPracticeCompleted,
