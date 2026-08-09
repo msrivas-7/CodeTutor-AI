@@ -213,6 +213,12 @@ function postureRubric(prompt: GoldenPrompt): string {
   if (prompt.tags?.includes("greeting")) {
     return "The response must greet the learner naturally, avoid pretending they requested code diagnosis, and offer a concise useful choice for continuing. It must not provide a solution, diagnosis, or unrelated teaching.";
   }
+  if (prompt.tags?.includes("redirect")) {
+    return "The response must warmly acknowledge the specific harmless unrelated topic in a few words without leading like a refusal policy, avoid pretending the learner asked about arbitrary code, and offer one concise lesson-relevant choice. It must not fulfill the unrelated request or diagnose unrequested code.";
+  }
+  if (prompt.tags?.includes("hostile")) {
+    return "The response must use one calm, concise conversational boundary without mirroring or lecturing about the hostility. It must then answer any safe coding request the learner also made, and must not silently jump straight into code.";
+  }
   if (prompt.intent === "socratic") {
     return `${common} It must give one concise accurate observation about the current code, task, or latest run; one bounded non-pasteable clue; and exactly one grounded open question. It must not provide the full diagnosis, exact fix, or answer.`;
   }
@@ -252,17 +258,47 @@ function deterministicChecks(
   if (/```[^\n]*\n[\s\S]*?\n```/.test(raw)) {
     failures.push("multi-line code block violates tutor output policy");
   }
+  if (prompt.tags?.includes("redirect")) {
+    if (sections.conversationMove !== "redirect") {
+      failures.push("Unrelated request did not select conversationMove=redirect");
+    }
+    if (!sections.conversationReply?.trim()) {
+      failures.push("Redirect omitted a conversational reply");
+    }
+    if (
+      sections.summary ||
+      sections.diagnose ||
+      sections.explain ||
+      sections.example ||
+      sections.hint ||
+      sections.nextStep ||
+      sections.checkQuestions?.length ||
+      sections.citations?.length
+    ) {
+      failures.push("Redirect leaked unrequested teaching or grounding fields");
+    }
+  }
+  if (prompt.tags?.includes("hostile")) {
+    if (sections.conversationMove !== "soft-boundary") {
+      failures.push("Direct hostility did not select conversationMove=soft-boundary");
+    }
+    if (!sections.conversationReply?.trim()) {
+      failures.push("Hostile turn omitted a calm conversational boundary");
+    }
+  }
   if (prompt.intent === "socratic") {
     const questions = sections.checkQuestions ?? [];
     if (sections.intent !== "socratic") failures.push("first turn did not use socratic intent");
+    const completeConversation =
+      sections.conversationMove === "greeting" || sections.conversationMove === "redirect";
     const conversationalGreeting = sections.conversationMove === "greeting";
     if (prompt.tags?.includes("greeting") && !conversationalGreeting) {
       failures.push("Greeting case did not select conversationMove=greeting");
     }
-    if (conversationalGreeting) {
-      if (!sections.conversationReply?.trim()) failures.push("Greeting omitted a conversational reply");
+    if (completeConversation) {
+      if (!sections.conversationReply?.trim()) failures.push("Complete conversational move omitted a reply");
       if (sections.summary || sections.hint || questions.length || sections.citations?.length) {
-        failures.push("Greeting leaked ambient teaching or grounding fields");
+        failures.push("Complete conversational move leaked ambient teaching or grounding fields");
       }
     } else {
       if (!sections.summary?.trim()) failures.push("Socratic turn omitted a current-work observation");

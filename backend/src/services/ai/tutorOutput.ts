@@ -30,7 +30,7 @@ export const tutorSectionsSchema = z
       .nullable()
       .optional(),
     conversationMove: z
-      .enum(["none", "greeting", "clarify", "soft-boundary"])
+      .enum(["none", "greeting", "redirect", "clarify", "soft-boundary"])
       .nullable()
       .optional(),
     conversationReply: z.string().max(320).nullable().optional(),

@@ -13,7 +13,7 @@ type TutorPolicyParams = Pick<
   Partial<Pick<AIAskParams, "history" | "diffSinceLastTurn" | "learnerName">>;
 
 const PROTECTED_REQUEST =
-  /\b(?:system prompt|hidden tests?|hidden validator|another learner|compare my progress|correct (?:choice|answer)|answer is|exact final line|complete finished program|paste it)\b|\bprivate\s+(?:[A-Z0-9_]+\s+)?(?:mastery|record)\b/i;
+  /\b(?:system prompt|hidden tests?|hidden validator|another learner|compare my progress|correct (?:choice|answer)|answer is|exact final line|complete finished program|paste it)\b|\bprivate\s+(?:[A-Z0-9_]+\s+)?(?:mastery|record)\b|\b(?:reveal|show|quote|expose)\b[^.!?\n]{0,80}\b[A-Z][A-Z0-9]*_CANARY_[A-Z0-9_]+\b/i;
 const ABUSIVE_CONTENT_REQUEST =
   /\b(?:insult|demean|humiliate|belittle|mock|verbally abuse)\s+(?:me|the learner|the user|them)\b/i;
 const CANARY = /\b[A-Z][A-Z0-9]*_CANARY_[A-Z0-9_]+\b/g;
@@ -125,11 +125,57 @@ function safeConversationReply(
   return text && !/`[^`\n]+`/.test(text) ? text : null;
 }
 
+function safeRedirectReply(
+  value: string | null | undefined,
+  params: Pick<AIAskParams, "files" | "question">,
+): string | null {
+  const text = safeProse(value, params);
+  if (!text) return null;
+  const firstSentence = text.match(/^.*?[.!?](?=\s|$)/)?.[0]?.trim() ?? null;
+  if (!firstSentence || firstSentence.endsWith("?") || /`[^`\n]+`/.test(firstSentence)) {
+    return null;
+  }
+
+  // A redirect is a complete social turn. Preserve the model's specific,
+  // learner-facing acknowledgement, then use one stable bridge that cannot
+  // drift into an unrequested identifier or code diagnosis. This is
+  // structural output sanitization, not learner-message classification.
+  const bridge = /\b(?:I|we) can (?:still )?help\b/i.test(firstSentence)
+    ? ""
+    : " I can help with your current coding lesson.";
+  return `${firstSentence}${bridge} Would a goal recap or a gentle hint be more useful?`;
+}
+
 function greetingRecovery(learnerName: string | null | undefined): string {
   const firstName = safeText(learnerName);
   return firstName
     ? `Hi ${firstName} — glad you're here. Would you like a goal recap, a gentle hint, or a walkthrough?`
     : "Hello! Would you like a goal recap, a gentle hint, or a walkthrough for your coding task?";
+}
+
+function redirectRecovery(): string {
+  return "I can’t help with that request here, but I can help with your current coding lesson. Would a goal recap or a gentle hint be more useful?";
+}
+
+function boundaryRecovery(): string {
+  return "Let’s keep this respectful. I can still help with your current coding lesson when you’re ready.";
+}
+
+function hasModelTeachingPayload(sections: TutorSections): boolean {
+  return Boolean(
+    sections.summary ||
+    sections.diagnose ||
+    sections.explain ||
+    sections.example ||
+    sections.walkthrough?.length ||
+    sections.checkQuestions?.length ||
+    sections.hint ||
+    sections.nextStep ||
+    sections.strongerHint ||
+    sections.pitfalls ||
+    sections.citations?.length ||
+    sections.comprehensionCheck
+  );
 }
 
 function hardBoundaryReply({
@@ -175,11 +221,6 @@ const GENERIC_SOCRATIC_HINT =
   /^\s*(?:think about|consider|look at|review)\b[^.!?]*(?:common ways?|current code|visible code|this idea|the concept)\b/i;
 const FINAL_VALUE_REQUEST =
   /\b(?:(?:final (?:score|value|result|output))|(?:tell me (?:the )?(?:score|value|result|output))|(?:(?:exact|complete|finished|final) (?:fix|answer|solution|line|program|code))|(?:(?:give|show|tell) me (?:the )?(?:exact|complete|finished|final)\b))\b/i;
-const CLEARLY_OFF_TOPIC_REQUEST =
-  /\b(?:weather|forecast|temperature|tell me (?:a )?joke|movie recommendations?|sports scores?|recipe|celebrity gossip|stock price|horoscope)\b/i;
-const CODING_TOPIC =
-  /\b(?:code|program|lesson|python|javascript|typescript|java|go|rust|ruby|c\+\+|c#|function|variable|string|array|list|loop|error|debug|output|syntax|class|method|api|http|fetch|print|console)\b/i;
-
 function explicitLanguageMismatch(params: TutorPolicyParams): string | null {
   const current = params.lessonContext?.language?.toLowerCase();
   if (!current) return null;
@@ -2157,7 +2198,14 @@ function visibleCodeWalkthroughSteps(
       } else if (assignment) {
         const [, name, expression] = assignment;
         const called = expression.match(/^([A-Za-z_$][\w$]*)\s*\(/)?.[1];
-        body = called
+        const methodCall = expression.match(
+          /^([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)\s*\(/,
+        );
+        body = methodCall?.[2] === "map"
+          ? `\`${name}\` receives a new array produced by applying \`map\` to each current \`${methodCall[1]}\` value.`
+          : methodCall
+          ? `\`${name}\` receives the value returned by calling \`${methodCall[2]}\` on \`${methodCall[1]}\`.`
+          : called
           ? `\`${name}\` receives the value returned by calling \`${called}\`.`
           : expression.includes("+")
           ? plusExpressionExplanation(name, expression)
@@ -2384,20 +2432,6 @@ export function applyTutorOutputPolicy({
       citations: null,
     };
   }
-  if (
-    !protectedRequestEarly &&
-    CLEARLY_OFF_TOPIC_REQUEST.test(params.question) &&
-    !CODING_TOPIC.test(params.question)
-  ) {
-    return {
-      intent: "concept",
-      summary: "I’m not the best place for that request, but I’m happy to keep helping with what you’re learning here.",
-      explain:
-        "We can jump back in with:\n\n- The lesson instructions and goals.\n- The visible code and its output.\n- An error, debugging step, or coding concept.",
-      comprehensionCheck: "What would be most useful next: the lesson goal, a visible line, or the latest result?",
-      citations: null,
-    };
-  }
   // Conversation moves are orthogonal to the server-selected teaching
   // intent. A pure greeting can arrive while the task is at either the
   // first-turn Socratic stage or a later concept/how-to stage, and it must
@@ -2413,6 +2447,36 @@ export function applyTutorOutputPolicy({
       conversationReply:
         safeConversationReply(sections.conversationReply, params) ??
         greetingRecovery(params.learnerName),
+      summary: null,
+      hint: null,
+      checkQuestions: null,
+      citations: null,
+    };
+  }
+  if (!requiresHardBoundary && sections.conversationMove === "redirect") {
+    return {
+      intent,
+      conversationMove: "redirect",
+      conversationReply:
+        safeRedirectReply(sections.conversationReply, params) ?? redirectRecovery(),
+      summary: null,
+      hint: null,
+      checkQuestions: null,
+      citations: null,
+    };
+  }
+  if (
+    !requiresHardBoundary &&
+    sections.conversationMove === "soft-boundary" &&
+    !hasModelTeachingPayload(sections)
+  ) {
+    return {
+      intent,
+      conversationMove: "soft-boundary",
+      conversationReply:
+        requiredConversationReply ??
+        safeConversationReply(sections.conversationReply, params) ??
+        boundaryRecovery(),
       summary: null,
       hint: null,
       checkQuestions: null,
@@ -2682,8 +2746,14 @@ export function applyTutorOutputPolicy({
       walkthroughStepNeedsFallback(step.body)
     );
     const continuation = requestedWalkthroughStart(params);
-    const completeShortWalkthrough = requestsWholeProgramWalkthrough(params) &&
-        visibleSteps.length <= 6
+    const completeShortWalkthrough = visibleSteps.length <= 6 &&
+        (
+          requestsWholeProgramWalkthrough(params) ||
+          (
+            sections.conversationMove === "clarify" &&
+            modelGrounded.length < visibleSteps.length
+          )
+        )
       ? visibleSteps.map((visibleStep) =>
           modelGrounded.find((modelStep) =>
             modelStep.path === visibleStep.path && modelStep.line === visibleStep.line
@@ -2948,7 +3018,11 @@ export function hasTutorTeachingValue(
   // the initial Socratic stage or after progression selected concept/how-to.
   // Requiring a teaching field for later-stage greetings caused a valid model
   // response to be discarded and replaced with an irrelevant code fallback.
-  if (sections.conversationMove === "greeting") {
+  if (
+    sections.conversationMove === "greeting" ||
+    sections.conversationMove === "redirect" ||
+    (sections.conversationMove === "soft-boundary" && !hasModelTeachingPayload(sections))
+  ) {
     return Boolean(
       sections.conversationReply?.trim() &&
       sections.conversationReply.trim().length >= 12
@@ -2979,8 +3053,18 @@ export function hasTutorTeachingValue(
       return Boolean(sections.summary?.trim() && sections.hint?.trim() && sections.checkQuestions?.length);
     case "debug":
       return Boolean(sections.diagnose?.trim() && (sections.nextStep?.trim() || sections.hint?.trim()));
-    case "howto":
-      return Boolean(sections.nextStep?.trim() && (sections.hint?.trim() || sections.explain?.trim()));
+    case "howto": {
+      const summary = sections.summary?.trim() ?? "";
+      const substantiveSummary = Boolean(
+        summary &&
+        !/^let[’']?s use the current code as evidence[.!]?$/i.test(summary) &&
+        !/^i (?:couldn[’']?t|don[’']?t) (?:ground|have enough)/i.test(summary),
+      );
+      return Boolean(
+        sections.nextStep?.trim() &&
+        (sections.hint?.trim() || sections.explain?.trim() || substantiveSummary),
+      );
+    }
     case "walkthrough":
       return Boolean(sections.walkthrough?.length);
     case "checkin":

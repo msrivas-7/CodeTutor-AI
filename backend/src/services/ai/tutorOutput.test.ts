@@ -17,6 +17,17 @@ describe("parseTutorOutput", () => {
     expect(parsed.conversationReply).toBe("Hello — glad you’re here. What would you like help with?");
   });
 
+  it("accepts the model-authored redirect move", () => {
+    const parsed = parseTutorOutput(JSON.stringify({
+      intent: "howto",
+      conversationMove: "redirect",
+      conversationReply:
+        "I can’t help with that request here, but I can help with this coding lesson.",
+    }), []);
+
+    expect(parsed.conversationMove).toBe("redirect");
+  });
+
   it("publishes the parser's array bounds in the provider schema", () => {
     expect(TUTOR_RESPONSE_SCHEMA.properties.walkthrough.maxItems).toBe(6);
     expect(TUTOR_RESPONSE_SCHEMA.properties.checkQuestions.maxItems).toBe(3);

@@ -28,15 +28,15 @@ export const TUTOR_RESPONSE_SCHEMA = {
     },
     conversationMove: {
       type: ["string", "null"],
-      enum: ["none", "greeting", "clarify", "soft-boundary", null],
+      enum: ["none", "greeting", "redirect", "clarify", "soft-boundary", null],
       description:
-        "The conversational move needed before teaching: greeting, clarify vague input, soft-boundary for hostile/inappropriate input, or none.",
+        "The conversational move needed before teaching: greeting, redirect harmless unrelated input, clarify vague lesson-related input, soft-boundary for hostile/inappropriate input, or none.",
     },
     conversationReply: {
       type: ["string", "null"],
       maxLength: 320,
       description:
-        "One or two short conversational sentences. For greeting this is the complete response: greet, offer useful kinds of help, optionally ask one choice question, and mention no current code, file, run, error, diagnosis, or lesson fact.",
+        "One or two short conversational sentences. For greeting, redirect, or a boundary-only soft-boundary this is the complete response: acknowledge the learner naturally, offer useful lesson help, optionally ask one choice question, and mention no unrequested code diagnosis.",
     },
     summary: {
       type: ["string", "null"],

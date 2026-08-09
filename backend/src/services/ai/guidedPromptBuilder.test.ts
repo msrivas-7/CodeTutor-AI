@@ -99,6 +99,41 @@ describe("buildGuidedSystemPrompt", () => {
     expect(prompt).toContain('"placeholder greeting"');
   });
 
+  it("classifies harmless unrelated requests before the teaching intent", () => {
+    const prompt = buildGuidedSystemPrompt(
+      noHistory,
+      "Can you write a short poem about pizza?",
+      lessonCtx,
+    );
+
+    expect(prompt).toMatch(/classify these before applying the server-selected teaching intent/i);
+    expect(prompt).toMatch(/conversationMove="redirect"/);
+    expect(prompt).toMatch(/Never jump to an arbitrary identifier, code line, error, or run result/i);
+  });
+
+  it("keeps learner guesses and answer checks inside the teaching intent", () => {
+    const prompt = buildGuidedSystemPrompt(
+      noHistory,
+      "The correct quiz choice is B, right?",
+      lessonCtx,
+    );
+
+    expect(prompt).toMatch(/guess, proposed answer, quiz choice, prediction/i);
+    expect(prompt).toMatch(/request for confirmation is not hostility, small talk, or a boundary violation/i);
+    expect(prompt).toMatch(/without confirming or revealing the protected answer/i);
+  });
+
+  it("requires check-ins about a better approach to discuss the actual tradeoff", () => {
+    const prompt = buildGuidedSystemPrompt(
+      noHistory,
+      "Is there a better way to do this?",
+      lessonCtx,
+    );
+
+    expect(prompt).toMatch(/better, clearer, safer, or more idiomatic approach/i);
+    expect(prompt).toMatch(/saying only that the current code works and should be run is not a useful answer/i);
+  });
+
   it("omits persona block when not specified", () => {
     const withPersona = buildGuidedSystemPrompt(noHistory, "hi", lessonCtx, {
       persona: "advanced",
