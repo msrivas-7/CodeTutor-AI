@@ -1,275 +1,188 @@
 <div align="center">
 
-<img src="https://img.shields.io/badge/CodeTutor_AI-Learn_to_Code_with_AI-0f172a?style=for-the-badge&labelColor=0f172a" alt="CodeTutor AI" />
+# CodeTutor AI
 
-### [Try it live → codetutor.msrivas.com](https://codetutor.msrivas.com)
+**Built to teach, not to autocomplete.**
 
-[Browse the public lesson library](https://codetutor.msrivas.com/learn-to-code/)
+You write, run, and prove the code. CodeTutor gives the next useful help without taking over.
 
-[![CI](https://github.com/msrivas-7/CodeTutor-AI/actions/workflows/ci.yml/badge.svg)](https://github.com/msrivas-7/CodeTutor-AI/actions/workflows/ci.yml)
-[![E2E](https://github.com/msrivas-7/CodeTutor-AI/actions/workflows/e2e.yml/badge.svg)](https://github.com/msrivas-7/CodeTutor-AI/actions/workflows/e2e.yml)
-[![Languages](https://img.shields.io/badge/9_Languages-Python_%7C_JS_%7C_TS_%7C_C_%7C_C++_%7C_Java_%7C_Go_%7C_Rust_%7C_Ruby-38bdf8?style=flat-square)](https://codetutor.msrivas.com)
-[![Azure](https://img.shields.io/badge/Hosted_on-Azure-0078D4?style=flat-square&logo=microsoftazure&logoColor=white)](https://codetutor.msrivas.com)
-[![OpenAI](https://img.shields.io/badge/AI_Tutor-OpenAI-412991?style=flat-square&logo=openai&logoColor=white)](https://platform.openai.com/api-keys)
+Hands-on Python and JavaScript courses for beginner-to-intermediate learners, plus a nine-language open coding workspace.
 
-[**Architecture**](docs/ARCHITECTURE.md) &nbsp;&bull;&nbsp; [**Development**](docs/DEVELOPMENT.md) &nbsp;&bull;&nbsp; [**Content authoring**](docs/CONTENT_AUTHORING.md)
+[**Try lesson 1 — no signup →**](https://codetutor.msrivas.com/try/lesson/python-fundamentals/hello-world) &nbsp;·&nbsp;
+[Browse 38 public lessons](https://codetutor.msrivas.com/learn-to-code/)
 
 </div>
 
----
-
-## Why CodeTutor AI
-
-Most coding assistants solve the problem for you. **CodeTutor AI teaches you to solve it yourself** — the tutor knows your lesson, your current code, and how many times you've tried, and escalates hints accordingly. You write the answer; it makes sure you understand why.
-
 <p align="center">
-  <img src="frontend/public/readme-hero.png" alt="CodeTutor AI — three-pane workspace: lesson instructions on the left, code editor in the middle, AI tutor on the right with structured explanation, example, and pitfalls sections." width="900" />
-  <br/>
-  <sub><b>Lesson workspace</b> — instructions, editor, and an AI tutor that guides without spoiling.</sub>
+  <a href="docs/assets/readme/product-experience.jpg"><img src="docs/assets/readme/product-experience.jpg" alt="CodeTutor AI Task Tracker CLI capstone showing the lesson instructions, a multi-function Python program and successful output, and a structured AI tutor discussion about stable task IDs." width="1200" /></a>
+  <br />
+  <sub><b>Task Tracker CLI capstone</b> — the lesson, the learner's code, real execution, and a contextual engineering discussion in one workspace. Select the image for the full-size view.</sub>
 </p>
 
----
+<div align="center">
 
-## Editor Mode
+[![CI](https://github.com/msrivas-7/CodeTutor-AI/actions/workflows/ci.yml/badge.svg)](https://github.com/msrivas-7/CodeTutor-AI/actions/workflows/ci.yml)
+[![E2E](https://github.com/msrivas-7/CodeTutor-AI/actions/workflows/e2e.yml/badge.svg)](https://github.com/msrivas-7/CodeTutor-AI/actions/workflows/e2e.yml)
+![Lessons](https://img.shields.io/badge/lessons-38-8b5cf6?style=flat-square)
+![Practice](https://img.shields.io/badge/practice_exercises-111-38bdf8?style=flat-square)
+![Languages](https://img.shields.io/badge/editor_languages-9-10b981?style=flat-square)
 
-> A full coding workspace across nine languages. Each comes with a starter project so you can jump right in.
+[Architecture](docs/ARCHITECTURE.md) &nbsp;·&nbsp;
+[Development](docs/DEVELOPMENT.md) &nbsp;·&nbsp;
+[Content authoring](docs/CONTENT_AUTHORING.md)
 
-- **Professional editor** — syntax highlighting, autocomplete, multi-file projects, light + dark themes
-- **Instant run** — sandboxed container returns stdout, stderr, and execution time
-- **Highlight + ask** — select any code and press <kbd>Cmd</kbd>+<kbd>K</kbd> / <kbd>Ctrl</kbd>+<kbd>K</kbd> to ask the tutor about it
-- **Dedicated stdin** — sample input pre-filled per language, or paste your own
-- **First-time tour** — walks you through the workspace on your first visit
+</div>
 
-## Guided Learning
+## Learning that leaves the work to the learner
 
-> Three structured courses and 38 public lessons today: 12-lesson **Python Fundamentals**, 12-lesson **JavaScript Fundamentals**, and 14-lesson **Python Intermediate**. The same source content powers the interactive product and crawlable public walkthroughs. _(More courses on the way.)_
+Most AI coding tools optimize for reaching an answer. CodeTutor AI optimizes for building the reasoning that produces one.
 
-- **Learn by doing** — read, write, run, check your work. Loop.
-- **Tutor that teaches, not solves** — knows your lesson context, gives escalating hints, never spoils the answer
-- **Instant validation** — "Check My Work" runs your code against the lesson's completion rules and shows what to fix
-- **Visible + hidden tests** — capstone lessons show example test cases you can run any time; "Check My Work" also runs hidden cases
-- **Practice mode** — 30+ bite-sized challenges (3 per lesson) reinforce each concept with a different twist
-- **Progress that sticks** — code, completions, and progress save to your account and sync across devices
-- **Guided onboarding** — contextual nudges and a spotlight tour introduce the workspace on your first lesson
-- **Learning dashboard** — see what's next, recent activity, and lessons worth revisiting
+The learner keeps the keyboard. The tutor can use the current lesson, code, run results, selected lines, and recent attempts to offer an explanation, question, concrete example, or smaller next step. It can help with syntax, debugging, and design trade-offs without quietly doing the exercise for the learner.
 
-## Shared features
+### The learning loop
+
+1. **Read** — start with a focused lesson and a concrete outcome.
+2. **Make** — write real code in a multi-file Monaco workspace.
+3. **Run** — compile or execute it inside an isolated per-session container.
+4. **Ask** — get help grounded in the lesson and the code on screen.
+5. **Prove** — pass authored checks, then transfer the idea through practice.
+
+## A course, not a prompt collection
+
+<p align="center">
+  <a href="docs/assets/readme/course-library.jpg"><img src="docs/assets/readme/course-library.jpg" alt="CodeTutor AI public course library showing the Read, Make, and Ask learning loop above complete cards for Python Fundamentals, JavaScript Fundamentals, and Python Intermediate." width="1200" /></a>
+  <br />
+  <sub><b>Three guided trails</b> — from a first program to intermediate Python and real-world capstones.</sub>
+</p>
+
+The public catalog currently includes **three courses, 38 lessons, and 111 practice exercises**:
+
+- **Python Fundamentals** — 12 lessons from first output to two capstone programs.
+- **JavaScript Fundamentals** — 12 lessons covering values, control flow, functions, arrays, and objects.
+- **Python Intermediate** — 14 lessons spanning comprehensions, files, classes, iterators, decorators, testing, regex, and capstones.
+
+Lessons can combine authored explanations, starter code, stdin, expected output, function tests, source-shape checks, worked examples, and hidden edge cases. The wider catalog adds short practice exercises that change the shape of a problem instead of simply repeating it. Progress, code, practice, and preferences persist to the learner's account.
+
+## A tutor that can discuss the engineering
+
+The tutor can reference relevant lines, react to repeated failures, discuss trade-offs in the learner's implementation, and change the depth of its help as the conversation develops. In the real production exchange above, it connects stable task IDs to how later commands resolve stored IDs, then hands the next prediction back to the learner. Responses share one structured renderer across lesson and editor modes, keeping explanations, examples, references, and next-step questions readable.
+
+## Two ways to build
 
 <table>
 <tr>
-<td width="50%">
+<td width="52%" valign="top">
 
-**Adaptive AI tutor** — adjusts vocabulary and depth to your experience level (beginner, intermediate, advanced).
+### Guided learning
 
-</td>
-<td width="50%">
-
-**Highlight + ask** — select code and press <kbd>Cmd</kbd>+<kbd>K</kbd> / <kbd>Ctrl</kbd>+<kbd>K</kbd> to ask about it anywhere in the app.
-
-</td>
-</tr>
-<tr>
-<td>
-
-**Stuckness detection** — repeated failures on the same step unlock stronger hints and concrete next steps.
+- Structured courses, prerequisites, capstones, and practice
+- Context-aware tutor and progressive hints
+- Visible examples plus hidden validation
+- Progress, streaks, lesson sharing, and cross-device resume
+- First-run guidance that introduces the workspace in context
 
 </td>
-<td>
+<td width="48%" valign="top">
 
-**Tutor access** — signed-in learners get a small daily allowance on the hosted tier. Bring your own OpenAI key for unlimited use — encrypted at rest, never surfaced back. Editor and run always work without either.
+### Open editor
 
-</td>
-</tr>
-<tr>
-<td>
-
-**Light & dark themes** — follows your system by default, or pick one in Settings. Editor and app chrome switch together.
-
-</td>
-<td>
-
-**Accessible by default** — WCAG AA contrast, keyboard-navigable splitters, full ARIA labeling on every interactive surface.
+- Python, JavaScript, TypeScript, C, C++, Java, Go, Rust, and Ruby
+- Multi-file starter projects with Monaco editing
+- Compiled and interpreted execution with stdin, stdout, and stderr
+- Select code and ask about the exact lines
+- Light and dark themes with persisted layout preferences
 
 </td>
 </tr>
 </table>
 
+## What makes the teaching loop credible
+
+- **Useful AI turns** — tutor contracts favor explanations, concrete examples, and learner-facing next steps over empty Socratic deflection.
+- **Context without client trust** — lesson identity, mastery context, quota, and protected state are resolved or verified at server boundaries.
+- **Proof before progress** — authored checks establish completion; practice asks the learner to transfer the idea into a different shape.
+- **Safe execution** — learner code runs without network access in resource-capped, non-root containers with read-only root filesystems.
+- **State that survives real use** — code, progress, tutor saves, shares, preferences, and activity are server-backed and designed for reloads and multiple devices.
+- **Public learning surfaces** — crawlable course pages and shareable lesson snapshots explain the product before sign-in.
+
 ## Under the hood
 
-A full-stack TypeScript product shipping to real users at **[codetutor.msrivas.com](https://codetutor.msrivas.com)**.
+The hosted product runs at [codetutor.msrivas.com](https://codetutor.msrivas.com). The frontend is a React application on Azure Static Web Apps; the API, execution control plane, and isolated runner pool live behind Caddy on an Azure VM. Supabase owns authentication and learner data, OpenAI powers the tutor, and Key Vault supplies runtime secrets through managed identity.
 
 ```mermaid
-%%{init: {
-  'theme': 'base',
-  'themeVariables': {
-    'primaryColor': '#1e293b',
-    'primaryTextColor': '#f8fafc',
-    'primaryBorderColor': '#334155',
-    'lineColor': '#64748b',
-    'clusterBkg': '#0f172a',
-    'clusterBorder': '#334155'
-  },
-  'flowchart': {
-    'curve': 'basis',
-    'htmlLabels': true,
-    'nodeSpacing': 55,
-    'rankSpacing': 70
-  }
-}}%%
 flowchart LR
-    U((User<br/>Browser))
-    SWA[Static Web Apps<br/>frontend bundle]
-
-    subgraph CLOUD[Cloud services]
-        direction TB
-        SB[(Supabase<br/>Auth + Postgres)]
-        AI[OpenAI<br/>Responses API]
-        KV[Key Vault<br/>runtime secrets]
-    end
-
-    subgraph VM[Azure VM · Ubuntu 24.04]
-        direction TB
-        CD[Caddy<br/>TLS + reverse proxy]
-
-        subgraph BECTR[Backend container · Express + TS]
-            direction TB
-            API[HTTP / SSE routes]
-            SM[SessionManager<br/>userId to runnerId]
-            EB[ExecutionBackend<br/>Dockerode client]
-            SW[Idle sweeper<br/>45 s tick]
-            API --> SM
-            SM --> EB
-            SW -. reaps idle .-> SM
-        end
-
-        SP[socket-proxy<br/>endpoint allowlist]
-
-        subgraph POOL[Runner pool · one per session]
-            direction TB
-            R1[Runner A<br/>non-root · no net<br/>read-only rootfs]
-            R2[Runner B]
-            R3[Runner ...]
-        end
-
-        CD --> API
-        EB -->|tcp:2375| SP
-        SP -->|docker.sock| R1
-        SP --> R2
-        SP --> R3
-    end
-
-    U --> SWA
-    U ==>|HTTPS / SSE| CD
-    U -.->|auth| SB
-    API -->|JWKS + DB| SB
-    EB --> AI
-    EB -. boot time .-> KV
-
-    classDef user fill:#1e293b,stroke:#0f172a,color:#f8fafc,stroke-width:2px
-    classDef edge fill:#0284c7,stroke:#0369a1,color:#fff,stroke-width:2px
-    classDef svc fill:#0078d4,stroke:#005a9e,color:#fff,stroke-width:2px
-    classDef proxy fill:#f59e0b,stroke:#b45309,color:#0f172a,stroke-width:2px
-    classDef runner fill:#10b981,stroke:#047857,color:#fff,stroke-width:2px
-    classDef external fill:#475569,stroke:#334155,color:#fff,stroke-width:2px
-
-    class U user
-    class SWA edge
-    class CD,API,SM,EB,SW,KV svc
-    class SP proxy
-    class R1,R2,R3 runner
-    class SB,AI external
+    B[Browser] --> F[React frontend<br/>Azure Static Web Apps]
+    B -->|HTTPS + SSE| A[Express API<br/>Azure VM]
+    A --> S[(Supabase<br/>Auth + Postgres)]
+    A --> O[OpenAI<br/>Responses API]
+    A --> P[Docker socket proxy<br/>endpoint allowlist]
+    P --> R[Per-session runner<br/>no network · resource capped]
+    K[Azure Key Vault] -. managed identity .-> A
 ```
+
+| Layer | What ships |
+| --- | --- |
+| **Frontend** | React, Vite, TypeScript, Tailwind, Monaco, Zustand, React Router, and streamed execution/tutor updates. |
+| **Backend** | Node, Express, TypeScript, Supabase token verification, server-owned learner context, quota enforcement, and the OpenAI Responses API. |
+| **Execution** | One Docker runner per active session, reached through an allowlisted socket proxy; non-root, no network, read-only rootfs, and CPU/memory/PID limits. |
+| **Learning content** | File-based JSON, Markdown, starter projects, golden solutions, concept tags, practice exercises, and Python/JavaScript function-test harnesses. |
+| **Infrastructure** | Azure Static Web Apps, Azure VM, Caddy, Key Vault, GHCR, OIDC deployments, health probes, alerts, and backups. |
+| **Quality** | Vitest, schema/content validation, golden-solution verification, AI quality gates, and Playwright across critical and exhaustive lanes. |
 
 <details>
-<summary><b>Session lifecycle — create → snapshot → run → reap</b></summary>
+<summary><b>Execution and trust boundaries</b></summary>
 
-<br />
+1. The authenticated browser requests a session from the API.
+2. The backend creates a runner through a Docker socket proxy that exposes only the required container, exec, and image endpoints.
+3. The project snapshot is written into the session workspace, then compiled or run with explicit resource limits.
+4. stdout and stderr stream back to the browser; idle sessions are reaped automatically.
+5. Lesson checks run in a language-specific harness. Hidden expectations remain outside the learner subprocess and results return in a signed envelope.
 
-```mermaid
-%%{init: {
-  'theme': 'base',
-  'themeVariables': {
-    'fontFamily': '-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif',
-    'fontSize': '13px',
-    'primaryColor': '#0284c7',
-    'primaryTextColor': '#f8fafc',
-    'primaryBorderColor': '#0369a1',
-    'lineColor': '#64748b',
-    'actorBkg': '#1e293b',
-    'actorTextColor': '#f8fafc',
-    'actorBorder': '#334155',
-    'signalColor': '#cbd5e1',
-    'signalTextColor': '#e2e8f0',
-    'noteBkgColor': '#fef3c7',
-    'noteTextColor': '#78350f',
-    'noteBorderColor': '#f59e0b',
-    'sequenceNumberColor': '#f8fafc',
-    'activationBkgColor': '#10b981'
-  }
-}}%%
-sequenceDiagram
-    autonumber
-    participant U as Browser
-    participant BE as Backend
-    participant SM as SessionManager
-    participant SP as socket-proxy
-    participant RN as Runner
-
-    U->>BE: POST /api/session (JWT)
-    BE->>SM: create(userId)
-    SM->>SP: /containers/create (allowlist check)
-    SP->>RN: spawn · non-root · --network none · read-only
-    RN-->>SP: containerId
-    SP-->>SM: handle
-    SM-->>BE: sessionId
-    BE-->>U: { sessionId }
-
-    U->>BE: POST /api/project/snapshot (files)
-    BE->>RN: write workspace
-
-    U->>BE: POST /api/execution/run (code, stdin)
-    BE->>SP: exec
-    SP->>RN: run · CPU · mem · PID capped
-    RN-->>BE: stdout · stderr (SSE)
-    BE-->>U: streamed output
-
-    Note over SM,RN: Idle sweeper ticks every 45 s —<br/>reaps sessions past idle timeout
-    SM->>SP: /containers/{id} DELETE
-    SP->>RN: stop · remove
-```
+The backend never gives the browser authority over user ownership, tutor quota, canonical lesson context, or hidden test definitions. BYOK OpenAI keys are encrypted at rest and are never returned to the client after storage.
 
 </details>
 
-| Layer | Stack |
-| --- | --- |
-| **Frontend** | React + Vite + Tailwind + Monaco + Zustand. React Router, SSE streaming, optimistic DB writes with server reconciliation. |
-| **Backend** | Node + Express + TypeScript. Auth + Postgres via Supabase. OpenAI Responses API with strict `json_schema` + intent classifier (debug · concept · howto · walkthrough · checkin). |
-| **Execution** | Per-session Docker runner container — non-root, `--network none`, read-only rootfs, CPU / memory / PID capped. Dockerode goes through a `socket-proxy` sidecar with an endpoint allowlist, not the raw socket. |
-| **Content pipeline** | File-based courses with Zod schemas, a concept graph (used-before-taught detection), per-language function-test harness with HMAC-signed result envelopes, and golden-solution verification in CI. |
-| **Infra** | Azure VM + Static Web Apps + Key Vault (managed-identity secret delivery); Caddy + Let's Encrypt TLS. GHCR images, OIDC deploys, Log Analytics + scheduled-query + availability alerts + weekly VM backups. |
-| **Tests** | Vitest (unit) + content validation + Playwright (end-to-end, real Docker stack). |
+For the full API surface, data model, sandbox controls, and deployment topology, read [the architecture guide](docs/ARCHITECTURE.md).
 
-Full system design, security posture, and API surface: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
+## Run it
 
----
+### Use the hosted product
 
-## Get started
+[Try the first lesson](https://codetutor.msrivas.com/try/lesson/python-fundamentals/hello-world) without installing anything. Sign in with an email link or Google to save progress, continue a course, and use the hosted tutor allowance. Learners can also store their own OpenAI key for additional tutor use; the editor and code runner do not depend on having one.
 
-> [!TIP]
-> **You don't need to install anything.** Click the live link, sign in, and you're coding in seconds — a small daily allowance of tutor questions is included.
+### Develop locally
 
-### Try it live
+CodeTutor AI uses separate frontend, backend, and end-to-end workspaces plus a Docker Compose stack. Local authentication and Postgres use the development Supabase project rather than a local Supabase instance.
 
-Head to **[codetutor.msrivas.com](https://codetutor.msrivas.com)** and sign in with an email magic-link or Google OAuth. The editor and run-code work instantly; drop in your own [OpenAI API key](https://platform.openai.com/api-keys) for unlimited tutor use.
+```bash
+cp .env.example .env
+cp frontend/.env.development.example frontend/.env.development.local
 
-### Build it locally
+(cd frontend && npm install)
+(cd backend && npm install)
 
-Full dev setup (Docker Desktop + Supabase project credentials + frontend/backend install) is documented in **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)**. Content authoring (lessons + practice exercises) is in **[docs/CONTENT_AUTHORING.md](docs/CONTENT_AUTHORING.md)**.
+docker compose up --build
+```
+
+The environment contract, hot-reload workflow, test commands, seeded QA users, and troubleshooting notes live in [the development guide](docs/DEVELOPMENT.md). To add or validate courses and practice, see [content authoring](docs/CONTENT_AUTHORING.md).
+
+## Repository map
+
+```text
+backend/           Express API, AI policy, execution control, persistence
+frontend/          React product and file-based course content
+runner-image/      Polyglot, isolated learner-code image
+e2e/               Playwright journeys, fixtures, and test selection metadata
+infra/azure/       Production infrastructure and deployment scripts
+supabase/          Forward-only database migrations and email templates
+docs/              Architecture, development, authoring, and quality records
+```
 
 ---
 
 <div align="center">
 
-<sub>Copyright &copy; 2026 Mehul Srivastava. All rights reserved. Source available for personal viewing and learning. See <a href="LICENSE">LICENSE</a>.</sub>
+Copyright &copy; 2026 Mehul Srivastava. All rights reserved.<br />
+Source available for personal viewing and learning under the terms in <a href="LICENSE">LICENSE</a>.
 
 </div>
