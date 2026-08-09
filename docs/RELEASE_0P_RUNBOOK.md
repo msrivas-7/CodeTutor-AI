@@ -53,10 +53,14 @@ For VM changes:
 1. Require the production migration version to equal the repository version.
 2. Fetch and reset the VM to the manifest SHA, not the moving `origin/main`.
 3. Snapshot both current local image aliases as `:rollback`.
-4. Pull the selected digest references before changing any alias.
-5. Promote runner first, then backend.
-6. Recreate only the backend and require `/api/health/deep` to pass.
-7. Compare the running backend image ID with the manifest digest.
+4. Remove only superseded local CodeTutor image references, then require at
+   least 8 GiB of free space before pulling anything.
+5. Pull the selected digest references before changing any alias.
+6. Promote runner first, then backend.
+7. Recreate only the backend and require `/api/health/deep` to pass.
+8. Compare the running backend image ID with the manifest digest.
+9. Repeat the safe CodeTutor-only cleanup and headroom check after identity and
+   health pass.
 
 For SWA changes:
 
@@ -101,6 +105,44 @@ deep health, or image-identity verification fails. The workflow requires a
 The script has executable tests for successful digest promotion, failed-image
 pull isolation, and failed-health-check rollback. These run in normal CI.
 
+## Disk headroom and local image retention
+
+Every normal promotion and manual rollback uses the same retention boundary in
+`infra/scripts/vm-promote-candidate.sh`. It is deliberately narrower than
+`docker system prune`:
+
+- protect the image ID used by every existing container, whether running or
+  stopped;
+- protect the current backend and runner `:latest` aliases;
+- protect one backend and runner `:rollback` alias, which is refreshed from the
+  current deployment before each promotion;
+- protect an already-present incoming digest during the pre-pull pass;
+- fail closed when Docker cannot enumerate containers or CodeTutor images;
+  tolerate only a container proven to have disappeared between list and
+  inspection (normal for short-lived learner runners);
+- remove references only from the two CodeTutor GHCR repositories, never from
+  unrelated images, containers, volumes, networks, or build cache;
+- never use force deletion; an unexpected Docker ownership conflict remains in
+  place and is reported rather than bypassed.
+
+Cleanup runs before candidate pulls, after a verified promotion, and after an
+automatic rollback. The pre-pull and post-promotion gates both require at least
+8 GiB free on the filesystem containing `/opt/codetutor`. If protected images
+still leave less space, promotion fails closed; before-pull failure restores the
+previous Git SHA without downloading a candidate, and post-promotion failure
+uses the normal automatic rollback before removing the unreferenced candidate.
+
+The VM keeps only the current deployment plus one immediately usable local
+rollback generation. Older successful candidates remain recoverable through
+their 30-day release artifact and immutable GHCR digest, and the manual rollback
+workflow pulls the selected retained digest when needed.
+
+Promotion evidence includes `IMAGE_RETENTION`, `IMAGE_RETENTION_BLOCKED`,
+`DISK_HEADROOM`, and `DISK_HEADROOM_FAILED` records with the phase, before/after
+free kilobytes, required floor, and removal counts. Treat a blocked reference or
+failed headroom gate as an operational signal to inspect containers and disk
+usage; do not replace the policy with a broad prune.
+
 ## Manual full rollback
 
 Use only a successful `Production release` run still inside artifact
@@ -127,6 +169,7 @@ window closes.
 | Candidate build fails | None | Fix build; no artifacts promoted |
 | CI/E2E/security fails | None | Fix or rerun the failing gate; do not bypass |
 | Migration drift | None | Apply reviewed expand migration, rerun release |
+| Protected images leave less than 8 GiB free | None, or automatic rollback if discovered after retag | Inspect retention/headroom evidence and unexpected containers; expand disk if the current + rollback pair legitimately needs more space |
 | VM pull/health/identity fails | Automatic VM rollback attempted | Inspect `vm-promotion.txt` and VM state before retry |
 | SWA upload fails | Backend may already be newer; old frontend remains | Fix SWA, rerun same release; backend must stay backward-compatible |
 | Post-deploy identity/readiness fails | Candidate may be live | Disable affected surface if needed; run retained-candidate rollback |
