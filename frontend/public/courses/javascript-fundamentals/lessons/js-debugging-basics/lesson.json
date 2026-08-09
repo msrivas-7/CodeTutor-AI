@@ -88,7 +88,7 @@
       "title": "Fix: lastItem returns undefined",
       "prompt": "The function `lastItem(arr)` is supposed to return the last element of the array. Right now it returns `undefined` for any non-empty array. The body is one line — but that one line is wrong. Fix it.",
       "goal": "Notice that the LAST index is `length - 1`, not `length`.",
-      "starterCode": "function lastItem(arr) {\n  // BUG: returns undefined. Why?\n  return arr[arr.length];\n}\n",
+      "starterCode": "function lastItem(arr) {\n  // BUG: returns undefined. Why?\n  return arr[arr.length];\n}\n\n// Run this file to inspect the broken function's real return value.\nconsole.log(\"lastItem([1, 2, 3]) =>\", lastItem([1, 2, 3]));\n",
       "completionRules": [
         { "type": "required_file_contains", "file": "main.js", "pattern": "function lastItem" },
         {

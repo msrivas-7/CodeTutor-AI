@@ -53,6 +53,28 @@ test.describe("practice mode", () => {
     await expect(page.getByRole("button", { name: /back to lesson/i })).toBeVisible();
   });
 
+  test("function-only debugging starter makes Run expose the failing value", async ({ page }) => {
+    await loadProfile(page, "all-complete");
+    await page.goto(
+      "/learn/course/javascript-fundamentals/lesson/js-debugging-basics?mode=practice",
+    );
+    await waitForMonacoReady(page);
+
+    await expect(
+      page.getByRole("heading", { name: "Fix: lastItem returns undefined" }),
+    ).toBeVisible();
+    expect(await getMonacoValue(page)).toContain(
+      'console.log("lastItem([1, 2, 3]) =>", lastItem([1, 2, 3]))',
+    );
+
+    await S.lessonRunButton(page).click();
+    await expect(S.outputPanel(page)).toContainText(
+      "lastItem([1, 2, 3]) => undefined",
+      { timeout: 20_000 },
+    );
+    await expect(S.outputPanel(page)).not.toContainText(/try the stdin tab/i);
+  });
+
   test("exercise picker chips let the learner jump between the 3 exercises", async ({ page }) => {
     await loadProfile(page, "capstones-pending");
     await page.goto(`/learn/course/${COURSE_ID}/lesson/${LESSON_ID}?mode=practice`);

@@ -244,6 +244,7 @@ test.describe("lesson-end feedback chip", () => {
     for (const viewport of [
       { width: 390, height: 844 },
       { width: 360, height: 800 },
+      { width: 320, height: 568 },
     ]) {
       await page.setViewportSize(viewport);
       await page.evaluate(() => document.fonts.ready);

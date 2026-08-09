@@ -108,6 +108,38 @@ describe("B4 discovery build", () => {
     expect(rendered).toContain('<blockquote class="note"><p><em>Keep thinking.</em></p></blockquote>');
   });
 
+  it("renders lesson tables and objective inline code without authoring markers", () => {
+    const rendered = renderMarkdown([
+      "| mode | meaning |",
+      "| --- | --- |",
+      "| `r` | *read* |",
+      "| `w` | **write** |",
+    ].join("\n"));
+    expect(rendered).toContain('<div class="table-scroll"><table>');
+    expect(rendered).toContain('<th scope="col">mode</th>');
+    expect(rendered).toContain("<em>read</em>");
+    expect(rendered).toContain("<strong>write</strong>");
+    expect(rendered).not.toContain("| --- | --- |");
+
+    const habitPage = readFileSync(
+      path.join(output, "lessons", "javascript-fundamentals", "mini-project", "index.html"),
+      "utf8",
+    );
+    expect(habitPage).toContain(
+      '<span class="chip">Wire the functions together in <code>main()</code> and print a summary</span>',
+    );
+    const habitHero = habitPage.match(/<section class="hero">[\s\S]*?<\/section>/)?.[0];
+    expect(habitHero).toBeTruthy();
+    expect(habitHero).not.toContain("`main()`");
+
+    const fileIoPage = readFileSync(
+      path.join(output, "lessons", "python-intermediate", "file-io", "index.html"),
+      "utf8",
+    );
+    expect(fileIoPage).toContain('<th scope="col">mode</th>');
+    expect(fileIoPage).not.toContain("| ---- | ------------------------------------------------ |");
+  });
+
   it("renders a real 1200 by 630 PNG for lesson unfurls", async () => {
     const png = await renderLessonOgPng({
       courseTitle: "Python Fundamentals",
