@@ -28,6 +28,7 @@ import { SavedTutorAccordion } from "../../../components/SavedTutorAccordion";
 import { useShortcutLabels } from "../../../util/platform";
 import { useSavedTutorMessages } from "../hooks/useSavedTutorMessages";
 import { useProgressStore } from "../stores/progressStore";
+import { usePendingElementFocus } from "../../../hooks/usePendingElementFocus";
 import type { LessonMeta, PracticeExercise } from "../types";
 import { EvalSamplingConsentControl } from "../../anon/EvalSamplingConsentControl";
 import {
@@ -223,10 +224,14 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [history.length, asking]);
 
-  useEffect(() => {
-    if (focusComposerNonce === 0) return;
-    textareaRef.current?.focus();
-  }, [focusComposerNonce]);
+  // Skip/coach/selection focus requests can arrive before the lesson workspace
+  // has released its composer lock. Preserve the request until the textarea is
+  // genuinely enabled so the handoff is deterministic under slow hydration.
+  usePendingElementFocus({
+    requestNonce: focusComposerNonce,
+    targetRef: textareaRef,
+    blocked: statusLoading || !configured || Boolean(inputLocked) || anonQuotaExhausted,
+  });
 
   useEffect(() => {
     if (clearConfirm) keepButtonRef.current?.focus({ preventScroll: true });
