@@ -63,6 +63,13 @@ const CONCEPT = [
   /\bexplain\s+(?:the\s+)?(?:idea|concept|term|variables?|strings?)\b/,
 ];
 
+const TASK_EXPLANATION =
+  /\b(?:explain|understand)\b[^.!?]{0,60}\b(?:task|instructions?|lesson)\b|\bwhat should i do in this lesson\b/i;
+
+export function isTaskExplanationRequest(question: string): boolean {
+  return TASK_EXPLANATION.test(question.trim());
+}
+
 function matchesAny(text: string, patterns: RegExp[]): boolean {
   return patterns.some((pattern) => pattern.test(text));
 }
@@ -95,9 +102,7 @@ export function classifyTutorIntent({
       matchesAny(text, WALKTHROUGH) ||
       (files.length > 0 && /^(?:please\s+)?explain[.!?]?$/.test(text))
     ) return "walkthrough";
-    if (
-      /\b(?:explain|understand)\b[^.!?]{0,60}\b(?:task|instructions?|lesson)\b|\bwhat should i do in this lesson\b/i.test(text)
-    ) {
+    if (isTaskExplanationRequest(text)) {
       return "concept";
     }
     return "socratic";
@@ -118,6 +123,7 @@ export function classifyTutorIntent({
   // receives the richer evidence-aware debugging contract.
   if (matchesAny(text, HINT)) return "howto";
   if (matchesAny(text, HOWTO)) return "howto";
+  if (isTaskExplanationRequest(text)) return "concept";
   if (matchesAny(text, CONCEPT)) return "concept";
 
   const priorAssistant = history?.at(-1)?.role === "assistant";

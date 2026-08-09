@@ -5,6 +5,7 @@ import {
   MarkdownContent,
   readFencedCodeBlock,
   readOrderedListBlock,
+  renderInline,
 } from "./LessonInstructionsPanel";
 
 describe("MarkdownContent", () => {
@@ -31,6 +32,15 @@ describe("MarkdownContent", () => {
     expect(html).not.toContain("| --- | --- |");
     expect(html).not.toContain("**one**");
     expect(html).not.toContain("```python");
+  });
+
+  it("renders objective inline code without literal backticks", () => {
+    const html = renderToStaticMarkup(
+      React.createElement("span", null, renderInline("Wire it inside `main()`.", "chip")),
+    );
+    expect(html).toContain("<code");
+    expect(html).toContain("main()");
+    expect(html).not.toContain("`main()`");
   });
 });
 

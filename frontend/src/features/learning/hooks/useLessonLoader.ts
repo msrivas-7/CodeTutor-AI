@@ -100,6 +100,10 @@ export function useLessonLoader({
   // Keying by "${courseId}/${lessonId}" means Effect 2 waits for
   // `lesson.id === lessonId` AND only inits once per lesson identity.
   const initializedForRef = useRef<string | null>(null);
+  // Reactive companion used by interactive controls. The ref protects the
+  // one-shot hydration effect; this state tells the rendered workspace that
+  // the final project context has actually been installed.
+  const [initializedFor, setInitializedFor] = useState<string | null>(null);
   const resumedTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   const startLesson = useProgressStore((s) => s.startLesson);
@@ -266,6 +270,7 @@ export function useLessonLoader({
       },
       forceStarter ? { forceDefaults: true } : undefined,
     );
+    setInitializedFor(key);
   }, [lesson, courseId, lessonId, resumeCode, workspaceContextKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Debounced auto-save. Lesson-mode writes to `lastCode`; practice-mode
@@ -379,5 +384,6 @@ export function useLessonLoader({
     resumed,
     loadError,
     initializedForRef,
+    initializedFor,
   };
 }

@@ -53,6 +53,28 @@ test.describe("practice mode", () => {
     await expect(page.getByRole("button", { name: /back to lesson/i })).toBeVisible();
   });
 
+  test("function-only debugging starter makes Run expose the failing value", async ({ page }) => {
+    await loadProfile(page, "all-complete");
+    await page.goto(
+      "/learn/course/javascript-fundamentals/lesson/js-debugging-basics?mode=practice",
+    );
+    await waitForMonacoReady(page);
+
+    await expect(
+      page.getByRole("heading", { name: "Fix: lastItem returns undefined" }),
+    ).toBeVisible();
+    expect(await getMonacoValue(page)).toContain(
+      'console.log("lastItem([1, 2, 3]) =>", lastItem([1, 2, 3]))',
+    );
+
+    await S.lessonRunButton(page).click();
+    await expect(S.outputPanel(page)).toContainText(
+      "lastItem([1, 2, 3]) => undefined",
+      { timeout: 20_000 },
+    );
+    await expect(S.outputPanel(page)).not.toContainText(/try the stdin tab/i);
+  });
+
   test("exercise picker chips let the learner jump between the 3 exercises", async ({ page }) => {
     await loadProfile(page, "capstones-pending");
     await page.goto(`/learn/course/${COURSE_ID}/lesson/${LESSON_ID}?mode=practice`);
@@ -91,10 +113,13 @@ test.describe("practice mode", () => {
     // Counter tick: 1/3 done now.
     await expect(page.getByText(/1\/3 done/).first()).toBeVisible();
 
-    await nextBtn.click();
+    // A rapid double activation must advance exactly once, never freeze on the
+    // completed challenge or skip over the next authored exercise.
+    await nextBtn.click({ clickCount: 2 });
     await expect(page.getByRole("heading", { name: /greeting with default/i })).toBeVisible({
       timeout: 5_000,
     });
+    await expect(page.getByRole("heading", { name: /greeting with default/i })).toBeFocused();
     // Header now reads "2 of 3".
     await expect(page.getByText(/2 of 3/).first()).toBeVisible();
 
@@ -258,6 +283,7 @@ test.describe("practice mode", () => {
     await expect(page.getByRole("heading", { name: /max of three/i })).toHaveCount(0, {
       timeout: 5_000,
     });
+    await expect(page.getByRole("heading", { level: 1, name: /^functions$/i })).toBeFocused();
   });
 
   test("completed chips show ✓, active chip gets violet highlight", async ({ page }) => {
@@ -331,6 +357,7 @@ test.describe("practice mode", () => {
     await resetAndWaitForCommit();
     await page.getByRole("button", { name: /undo reset/i }).click();
     await expect.poll(() => getMonacoValue(page)).toBe(solved);
+    await expect(page.getByRole("textbox", { name: /code editor for/i }).first()).toBeFocused();
 
     await resetAndWaitForCommit();
     await focusMonaco(page);
@@ -371,6 +398,132 @@ test.describe("practice mode", () => {
     await expect(page).not.toHaveURL(/mode=practice/);
     // And the Practice "X of Y" header chip is gone.
     await expect(page.getByText(/\d+ of 3/)).toHaveCount(0);
+  });
+
+  test("practice owns the editor before actions unlock when Monaco arrives slowly", async ({ page }) => {
+    await loadProfile(page, "capstones-pending");
+
+    let releaseEditor!: () => void;
+    const editorGate = new Promise<void>((resolve) => {
+      releaseEditor = resolve;
+    });
+    await page.route(/.*\/src\/components\/MonacoPane\.tsx(?:\?.*)?$/, async (route) => {
+      await editorGate;
+      await route.continue();
+    });
+
+    await page.goto(`/learn/course/${COURSE_ID}/lesson/${LESSON_ID}`);
+    const practiceEntry = page.getByRole("button", { name: /practice 0 of 3/i });
+    await expect(practiceEntry).toBeVisible({ timeout: 15_000 });
+    await practiceEntry.click();
+
+    await expect(
+      page.getByRole("status").filter({ hasText: /opening this challenge/i }),
+    ).toBeVisible();
+    await expect(S.lessonRunButton(page)).toBeDisabled();
+    await expect(S.checkMyWorkButton(page)).toBeDisabled();
+    await expect(page.getByText("Loading editor…", { exact: true })).toBeVisible();
+
+    releaseEditor();
+    await waitForMonacoReady(page);
+    await expect(
+      page.getByRole("status").filter({ hasText: /opening this challenge/i }),
+    ).toHaveCount(0);
+    expect(await getMonacoValue(page)).toContain("def square");
+    await expect(S.lessonRunButton(page)).toBeEnabled();
+    await expect(S.checkMyWorkButton(page)).toBeEnabled();
+  });
+
+  test("lesson actions portal clears pane clipping and restores focus through Reset cancel", async ({ page }) => {
+    await page.setViewportSize({ width: 901, height: 720 });
+    await loadProfile(page, "capstones-pending");
+    await goToLesson(page);
+
+    const more = page.getByRole("button", { name: "More lesson actions" });
+    await more.click();
+    const menu = page.getByRole("menu", { name: /more lesson actions/i });
+    const resetItem = menu.getByRole("menuitem", { name: "Reset Lesson" });
+    await expect(menu).toBeVisible();
+    await expect(resetItem).toBeFocused();
+
+    const overlay = await menu.evaluate((node) => {
+      const rect = node.getBoundingClientRect();
+      const points = [
+        [rect.left + 8, rect.top + 8],
+        [rect.right - 8, rect.top + 8],
+        [rect.left + 8, rect.bottom - 8],
+        [rect.right - 8, rect.bottom - 8],
+      ];
+      return {
+        parentIsBody: node.parentElement === document.body,
+        insideViewport:
+          rect.left >= 8 && rect.top >= 8
+          && rect.right <= window.innerWidth - 8
+          && rect.bottom <= window.innerHeight - 8,
+        ownsEveryCorner: points.every(([x, y]) => {
+          const top = document.elementFromPoint(x, y);
+          return Boolean(top && node.contains(top));
+        }),
+      };
+    });
+    expect(overlay).toEqual({
+      parentIsBody: true,
+      insideViewport: true,
+      ownsEveryCorner: true,
+    });
+
+    await page.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0);
+    await expect(more).toBeFocused();
+
+    await more.click();
+    await page.getByRole("menuitem", { name: "Reset Lesson" }).click();
+    const confirm = page.getByRole("alertdialog", { name: /reset lesson progress/i });
+    await expect(confirm).toBeVisible();
+    await confirm.getByRole("button", { name: "Cancel" }).click();
+    await expect(confirm).toHaveCount(0);
+    await expect(more).toBeFocused();
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    const phoneEdited = `${await getMonacoValue(page)}\n# keep this mobile edit`;
+    await setMonacoValue(page, phoneEdited);
+    const phoneReset = page.getByRole("button", { name: "Reset code to starter" });
+    await expect(phoneReset).toBeVisible();
+    await phoneReset.click();
+    const phoneConfirm = page.getByRole("alertdialog", { name: /reset this code/i });
+    await expect(phoneConfirm.getByRole("button", { name: "Keep my code" })).toBeFocused();
+    await phoneConfirm.getByRole("button", { name: "Keep my code" }).click();
+    await expect(phoneConfirm).toHaveCount(0);
+    await expect(phoneReset).toBeFocused();
+    await expect.poll(() => getMonacoValue(page)).toBe(phoneEdited);
+    await expect(page.locator("html")).toHaveJSProperty("scrollWidth", 390);
+  });
+
+  test("collapsed Instructions still exposes failed Check feedback and recovery", async ({ page }) => {
+    await loadProfile(page, "capstones-pending");
+    await goToLesson(page);
+    await setMonacoValue(
+      page,
+      [
+        "def celsius_to_fahrenheit(value):",
+        "    return 0",
+        "",
+        "def classify_temp(value):",
+        "    return 'cold'",
+      ].join("\n"),
+    );
+    await S.lessonRunButton(page).click();
+    await page.getByRole("button", { name: "Collapse instructions" }).click();
+    await S.checkMyWorkButton(page).click();
+
+    const feedback = page.locator('[data-workspace-check-feedback="true"]');
+    await expect(feedback).toBeVisible({ timeout: 30_000 });
+    await expect(feedback).toContainText(/not quite|expected|test/i);
+    const showFeedback = feedback.getByRole("button", { name: "Show feedback" });
+    await expect(showFeedback).toBeVisible();
+    await showFeedback.click();
+    await expect(page.getByRole("button", { name: "Collapse instructions" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Lesson instructions" })).toBeFocused();
   });
 
   test("collapsed practice exit focuses the visible instructions restore control", async ({

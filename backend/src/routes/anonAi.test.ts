@@ -61,7 +61,7 @@ vi.mock("../services/ai/credential.js", () => ({
     key: "sk-platform-test",
     remainingToday: 8,
     capToday: 8,
-    allowedModels: ["gpt-4.1-nano"] as const,
+    allowedModels: ["gpt-5.6-luna"] as const,
     resetAtUtc: new Date("2026-08-01T00:00:00.000Z"),
   })),
   invalidateAnonUsageCaches: vi.fn(),
@@ -118,7 +118,7 @@ const unusedBackend = {} as ExecutionBackend;
 function validBody(overrides: Record<string, unknown> = {}) {
   return {
     requestId: "00000000-0000-4000-8000-000000000031",
-    model: "gpt-4.1-nano",
+    model: "gpt-5.6-luna",
     question: "Is this on the right track?",
     files: [{ path: "main.py", content: "print('Hello')\n" }],
     activeFile: "main.py",
@@ -313,23 +313,28 @@ describe("B8 governed anonymous eval sampling", () => {
   });
 });
 
-describe("POST /api/anon/ai/ask/stream — B3 model routing", () => {
-  it("rejects a direct Mini request before admission or provider work", async () => {
+describe("POST /api/anon/ai/ask/stream — platform model routing", () => {
+  it("canonicalizes a stale client model before admission and provider work", async () => {
     const response = await post(validBody({ model: "gpt-4.1-mini" }));
-    expect(response.status).toBe(403);
-    expect(await response.json()).toEqual({ error: "MODEL_NOT_ALLOWED" });
-    expect(vi.mocked(reserveAIRequest)).not.toHaveBeenCalled();
-    expect(vi.mocked(openaiProvider.askStream)).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    await response.text();
+    expect(vi.mocked(reserveAIRequest)).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "gpt-5.6-luna", priceVersion: 3 }),
+    );
+    expect(vi.mocked(openaiProvider.askStream)).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "gpt-5.6-luna" }),
+      expect.any(Object),
+    );
   });
 
-  it("uses Nano on turn one and Mini only for a signed check-in", async () => {
+  it("uses Luna on both the first turn and a signed progressed check-in", async () => {
     const first = await post(validBody());
     expect(first.status).toBe(200);
     const firstText = await first.text();
     const firstDone = JSON.parse(
       firstText.split("\n").find((line) => line.startsWith("data: "))!.slice(6),
     ) as { tutorProgressToken: string };
-    expect(vi.mocked(openaiProvider.askStream).mock.calls[0][0].model).toBe("gpt-4.1-nano");
+    expect(vi.mocked(openaiProvider.askStream).mock.calls[0][0].model).toBe("gpt-5.6-luna");
     expect(vi.mocked(flagSuspectApis)).toHaveBeenCalledWith({
       responseText: "{\"intent\":\"socratic\"}",
       userFiles: [{ path: "main.py", content: "print('Hello')\n" }],
@@ -344,16 +349,16 @@ describe("POST /api/anon/ai/ask/stream — B3 model routing", () => {
     }));
     expect(second.status).toBe(200);
     await second.text();
-    expect(vi.mocked(openaiProvider.askStream).mock.calls[1][0].model).toBe("gpt-4.1-mini");
+    expect(vi.mocked(openaiProvider.askStream).mock.calls[1][0].model).toBe("gpt-5.6-luna");
     expect(vi.mocked(reserveAIRequest).mock.calls[1][0]).toEqual(
       expect.objectContaining({
-        model: "gpt-4.1-mini",
-        reservedCostUsd: 0.00012,
-        priceVersion: 2,
+        model: "gpt-5.6-luna",
+        reservedCostUsd: 0.00008,
+        priceVersion: 3,
       }),
     );
     expect(vi.mocked(finalizeAIRequest).mock.calls[1][0]).toEqual(
-      expect.objectContaining({ costUsd: 0.000012, ledgerStatus: "finish" }),
+      expect.objectContaining({ costUsd: 0.000008, ledgerStatus: "finish" }),
     );
   });
 

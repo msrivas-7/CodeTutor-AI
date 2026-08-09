@@ -376,6 +376,7 @@ test.describe("first-run cinematic on /try/ (Phase 27-v2 Day 2)", () => {
     const skipWelcome = page.getByRole("button", { name: /skip welcome/i });
     await expect(skipWelcome).toBeVisible();
     await skipWelcome.click();
+    await expect(page.getByRole("textbox", { name: "Ask the tutor" })).toBeFocused();
     await expect(page.getByText(
       "You're in control—run the starter when you're ready, or ask me anything.",
       { exact: true },

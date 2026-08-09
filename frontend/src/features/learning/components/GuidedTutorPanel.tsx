@@ -7,7 +7,11 @@ import {
 import { useProjectStore } from "../../../state/projectStore";
 import { useRunStore } from "../../../state/runStore";
 import { useAIStatus } from "../../../state/useAIStatus";
-import { useTutorAsk } from "../../../util/useTutorAsk";
+import {
+  PLATFORM_TUTOR_MODEL,
+  tutorRequestModel,
+  useTutorAsk,
+} from "../../../util/useTutorAsk";
 import {
   TutorResponseView,
   ActionChips,
@@ -86,6 +90,20 @@ interface GuidedTutorPanelProps {
   initialAnonTutorState?: AnonTutorStateV1 | null;
 }
 
+export function canSubmitGuidedTutorTurn({
+  configured,
+  asking,
+  inputLocked,
+  exhausted,
+}: {
+  configured: boolean;
+  asking: boolean;
+  inputLocked: boolean | undefined;
+  exhausted: boolean;
+}): boolean {
+  return configured && !asking && !inputLocked && !exhausted;
+}
+
 export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, priorConcepts, activePracticeExercise, onCollapse, onOpenSettings, resetNonce, inputLocked, clearHidden, mode = "authed", onAnonExhausted, onAnonTrialPaused, onAnonSaveRequested, onSkipWelcome, initialAnonTutorState }: GuidedTutorPanelProps) {
   const incrementHint = useProgressStore((s) => s.incrementHint);
   // Derive the hint cap from the DB-backed hint_count (not local component
@@ -153,6 +171,8 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
   const [clearConfirm, setClearConfirm] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const clearButtonRef = useRef<HTMLButtonElement>(null);
+  const keepButtonRef = useRef<HTMLButtonElement>(null);
   // QA-C1: hint-counter rollback. The Hint button stages intent here at
   // click-time instead of incrementing the counter directly. If the ask
   // succeeds (onAskComplete ok=true) we commit the bump; on error / cancel /
@@ -165,6 +185,11 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
   const effectiveSource: "byok" | "platform" | "none" =
     hasKey ? "byok" : (aiStatus?.source ?? "none");
   const onPlatform = effectiveSource === "platform";
+  const effectiveModel = tutorRequestModel({
+    selectedModel,
+    onPlatform,
+    isAnon: mode === "anon",
+  });
   const exhausted = effectiveSource === "none" && aiStatus?.reason === "free_exhausted";
   useEffect(() => {
     if (!exhausted) setExhaustionDismissed(false);
@@ -202,6 +227,26 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
     if (focusComposerNonce === 0) return;
     textareaRef.current?.focus();
   }, [focusComposerNonce]);
+
+  useEffect(() => {
+    if (clearConfirm) keepButtonRef.current?.focus({ preventScroll: true });
+  }, [clearConfirm]);
+
+  const cancelClear = () => {
+    setClearConfirm(false);
+    window.requestAnimationFrame(() => {
+      clearButtonRef.current?.focus({ preventScroll: true });
+    });
+  };
+
+  const confirmClear = () => {
+    clearConversation();
+    setDraft("");
+    setClearConfirm(false);
+    window.requestAnimationFrame(() => {
+      textareaRef.current?.focus({ preventScroll: true });
+    });
+  };
 
   useEffect(() => {
     if (mode !== "anon") return;
@@ -243,9 +288,8 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
       }
     },
     buildBody: ({ question, files, diffSinceLastTurn, historyForSend, selection }) => ({
-      // Platform users have no selectedModel — backend locks them to
-      // `gpt-4.1-nano` via the allowlist, so we pass that name verbatim.
-      model: selectedModel ?? "gpt-4.1-nano",
+      // Platform and anonymous funding ignore stale persisted BYOK choices.
+      model: effectiveModel ?? PLATFORM_TUTOR_MODEL,
       question,
       files,
       activeFile: activeFile ?? undefined,
@@ -270,7 +314,12 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
   });
 
   const handleSubmit = () => {
-    if (!draft.trim() || anonQuotaExhausted) return;
+    if (!draft.trim() || !canSubmitGuidedTutorTurn({
+      configured,
+      asking,
+      inputLocked,
+      exhausted: anonQuotaExhausted,
+    })) return;
     const q = draft.trim();
     setDraft("");
     submitAsk(q);
@@ -284,17 +333,22 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
   };
 
   useEffect(() => {
-    if (pendingAsk && configured && !asking && !anonQuotaExhausted) {
+    if (pendingAsk && canSubmitGuidedTutorTurn({
+      configured,
+      asking,
+      inputLocked,
+      exhausted: anonQuotaExhausted,
+    })) {
       const q = pendingAsk;
       setPendingAsk(null);
       submitAsk(q);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingAsk, configured, asking, anonQuotaExhausted]);
+  }, [pendingAsk, configured, asking, inputLocked, anonQuotaExhausted]);
 
   return (
-    <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between border-b border-border px-3 py-2">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      <header className="flex shrink-0 items-center justify-between border-b border-border px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">
           <svg className="h-4 w-4 shrink-0 text-violet" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="10" />
@@ -302,7 +356,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
             <line x1="12" y1="17" x2="12.01" y2="17" />
           </svg>
           <span className="text-xs font-semibold">Lesson Tutor</span>
-          {selectedModel && !onPlatform && (
+          {selectedModel && effectiveSource === "byok" && (
             <span className="rounded border border-border bg-elevated px-1.5 py-[1px] font-mono text-[10px] text-muted">
               {selectedModel}
             </span>
@@ -327,6 +381,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
           )}
           {!clearHidden && !clearConfirm && (
           <button
+            ref={clearButtonRef}
             onClick={() => setClearConfirm(true)}
             className="min-h-11 rounded-lg px-3 py-2 text-sm text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-40"
             disabled={history.length === 0 || asking}
@@ -336,9 +391,18 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
           </button>
           )}
           {clearConfirm && (
-            <div className="flex items-center gap-1" role="group" aria-label="Confirm clearing conversation">
-              <button type="button" onClick={() => setClearConfirm(false)} className="min-h-11 rounded-lg px-2 text-sm text-muted">Keep</button>
-              <button type="button" onClick={() => { clearConversation(); setDraft(""); setClearConfirm(false); }} className="min-h-11 rounded-lg px-2 text-sm font-semibold text-danger">Clear chat</button>
+            <div
+              className="flex items-center gap-1"
+              role="group"
+              aria-label="Confirm clearing conversation"
+              onKeyDown={(event) => {
+                if (event.key !== "Escape") return;
+                event.preventDefault();
+                cancelClear();
+              }}
+            >
+              <button ref={keepButtonRef} type="button" onClick={cancelClear} className="min-h-11 rounded-lg px-2 text-sm text-muted">Keep</button>
+              <button type="button" onClick={confirmClear} className="min-h-11 rounded-lg px-2 text-sm font-semibold text-danger">Clear chat</button>
             </div>
           )}
           {onCollapse && (
@@ -373,7 +437,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
         aria-relevant="additions text"
         aria-atomic="false"
         aria-label="Tutor conversation"
-        className="flex-1 space-y-3 overflow-auto p-3"
+        className="min-h-0 flex-1 space-y-3 overflow-auto p-3"
       >
         {statusLoading && (
           <div role="status" className="rounded-lg border border-border bg-elevated/40 p-3 text-sm text-muted">Checking your tutor access…</div>
@@ -395,18 +459,21 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
             <div className="mt-2.5 flex flex-wrap gap-1.5">
               <button
                 onClick={() => setPendingAsk("What should I do in this lesson?")}
+                disabled={!canSubmitGuidedTutorTurn({ configured, asking, inputLocked, exhausted: anonQuotaExhausted })}
                 className="min-h-11 rounded-lg border border-border bg-bg/60 px-3 py-2 text-sm text-ink/80 transition hover:border-accent/40 hover:bg-accent/10 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
                 What should I do?
               </button>
               <button
                 onClick={() => setPendingAsk("I don't understand the instructions. Can you explain?")}
+                disabled={!canSubmitGuidedTutorTurn({ configured, asking, inputLocked, exhausted: anonQuotaExhausted })}
                 className="min-h-11 rounded-lg border border-border bg-bg/60 px-3 py-2 text-sm text-ink/80 transition hover:border-accent/40 hover:bg-accent/10 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
                 Explain the task
               </button>
               <button
                 onClick={() => setPendingAsk("Give me a hint to get started.")}
+                disabled={!canSubmitGuidedTutorTurn({ configured, asking, inputLocked, exhausted: anonQuotaExhausted })}
                 className="min-h-11 rounded-lg border border-border bg-bg/60 px-3 py-2 text-sm text-ink/80 transition hover:border-accent/40 hover:bg-accent/10 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
                 Give me a hint
@@ -441,7 +508,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
                     files: useProjectStore.getState().snapshot(),
                   },
                 } as Record<string, unknown>,
-                model: selectedModel,
+                model: effectiveModel,
               });
             }
           };
@@ -565,7 +632,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
         )}
       </div>
 
-      <div className="border-t border-border bg-panel p-2">
+      <div className="shrink-0 border-t border-border bg-panel p-2">
         {exhausted && !exhaustionDismissed ? (
           <ExhaustionCard
             resetAtUtc={aiStatus?.resetAtUtc ?? null}

@@ -22,7 +22,6 @@ import {
   PLATFORM_TUTOR_ROUTING_POLICY_VERSION,
   platformTutorModelForIntent,
 } from "../src/services/ai/modelRouting.js";
-import { resolveCheckinMiniDisabled } from "../src/config.js";
 import { DEFAULT_JUDGE_MODEL } from "./judgeModel.js";
 
 async function main(): Promise<void> {
@@ -63,7 +62,7 @@ async function main(): Promise<void> {
     // The baseline belongs to the evaluated candidate policy. Make that state
     // explicit so NODE_ENV or an operator switch cannot silently change which
     // candidate this verifier approves.
-    const candidateModel = platformTutorModelForIntent(intent, false);
+    const candidateModel = platformTutorModelForIntent(intent);
     candidateModels.add(candidateModel);
     if (baseline.approvedModelByIntent?.[intent] !== candidateModel) {
       failures.push(
@@ -81,17 +80,8 @@ async function main(): Promise<void> {
         `${candidateModel} registry eval version does not match the approved baseline`,
       );
     }
-
-    const safeOffModel = platformTutorModelForIntent(intent, true);
-    if (safeOffModel !== PLATFORM_DEFAULT_TUTOR_MODEL) {
-      failures.push(
-        `${intent} production safe-off routing does not return the default model`,
-      );
-    }
-    if (!isModelEvaluatedForTutorIntent(safeOffModel, intent)) {
-      failures.push(
-        `${safeOffModel} is not evaluated for safe-off ${intent} use`,
-      );
+    if (candidateModel !== PLATFORM_DEFAULT_TUTOR_MODEL) {
+      failures.push(`${intent} routing does not return the platform default model`);
     }
   }
   const baselineModels = new Set(baseline.approvedModels ?? []);
@@ -100,25 +90,6 @@ async function main(): Promise<void> {
     [...candidateModels].some((model) => !baselineModels.has(model))
   ) {
     failures.push("approved model set does not match candidate routing");
-  }
-  if (
-    resolveCheckinMiniDisabled({ NODE_ENV: "production" }) !== true ||
-    resolveCheckinMiniDisabled({
-      NODE_ENV: "production",
-      PLATFORM_CHECKIN_MINI_DISABLED: "1",
-    }) !== true ||
-    resolveCheckinMiniDisabled({
-      NODE_ENV: "production",
-      PLATFORM_CHECKIN_MINI_DISABLED: "invalid",
-    }) !== true ||
-    resolveCheckinMiniDisabled({
-      NODE_ENV: "production",
-      PLATFORM_CHECKIN_MINI_DISABLED: "0",
-    }) !== false
-  ) {
-    failures.push(
-      "production activation policy must default safely off and require exact 0 for candidate activation",
-    );
   }
   if (failures.length) {
     throw new Error(

@@ -143,6 +143,25 @@ test.describe("B4 public distribution surface", () => {
     await expect(page).toHaveURL(/#main$/);
   });
 
+  test("public lesson objectives and comparison tables render semantically", async ({
+    page,
+  }) => {
+    await page.goto("/lessons/javascript-fundamentals/mini-project/");
+    const objective = page.locator(".hero .chip").filter({
+      hasText: /wire the functions together/i,
+    });
+    await expect(objective).toBeVisible();
+    await expect(objective.locator("code")).toHaveText("main()");
+    await expect(objective).not.toContainText("`main()`");
+
+    await page.goto("/lessons/python-intermediate/file-io/");
+    const table = page.getByRole("table");
+    await expect(table).toBeVisible();
+    await expect(table.getByRole("columnheader", { name: "mode" })).toBeVisible();
+    await expect(table.getByRole("cell", { name: /truncates the file first/i })).toBeVisible();
+    await expect(page.getByText("| mode | what it does |", { exact: false })).toHaveCount(0);
+  });
+
   test("a direct first touch cannot be overwritten by a later tagged CTA", criticalTest({
     risk: "p1",
     owner: "growth",

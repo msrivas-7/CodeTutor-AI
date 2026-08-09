@@ -9,6 +9,7 @@ import {
 import { useAIStore } from "../state/aiStore";
 import { monacoLangFor } from "../types";
 import { useEffectiveTheme } from "../util/theme";
+import { pollForEditorReadiness } from "./monacoReadiness";
 
 // Custom themes tuned to the app palette so the editor feels like part of the
 // product. Dark maps to bg/panel/elevated tokens; light uses the inverse
@@ -117,6 +118,9 @@ interface MonacoPaneProps {
   contentCommitRequest?: { ticket: number; path: string; content: string } | null;
   onContentCommitSettled?: (ticket: number, matched: boolean) => void;
   readOnly?: boolean;
+  /** Stable workspace identity whose store buffer must be present in Monaco. */
+  readinessKey?: string | null;
+  onReadinessConfirmed?: (key: string) => void;
 }
 
 export function MonacoPane({
@@ -126,6 +130,8 @@ export function MonacoPane({
   contentCommitRequest = null,
   onContentCommitSettled,
   readOnly = false,
+  readinessKey = null,
+  onReadinessConfirmed,
 }: MonacoPaneProps = {}) {
   // P-C1: scoped selectors — a no-arg `useProjectStore()` re-renders on every
   // file-tree reorder / tab change, dragging Monaco through a full re-render
@@ -144,6 +150,8 @@ export function MonacoPane({
   const scheduledFocusRequest = useRef(0);
   const focusRequestRaf = useRef<number | null>(null);
   const contentCommitRaf = useRef<number | null>(null);
+  const layoutReadinessRaf = useRef<number | null>(null);
+  const layoutObserverRef = useRef<ResizeObserver | null>(null);
   const settledContentCommit = useRef(0);
   const theme = useEffectiveTheme();
 
@@ -199,6 +207,20 @@ export function MonacoPane({
   useEffect(() => {
     syncAttentionDecoration();
   }, [attentionTarget?.path, attentionTarget?.line, activeFile]);
+
+  useEffect(() => {
+    if (!readinessKey || !activeFile || !onReadinessConfirmed) return;
+    const expected = files[activeFile] ?? "";
+    // Monaco is lazy-loaded and can take longer than a couple of seconds on a
+    // cold device. Keep the lock fail-closed until this component unmounts or
+    // the exact store buffer owns the editor; never time out into a
+    // permanently disabled tutor.
+    return pollForEditorReadiness({
+      expected,
+      readCurrent: () => editorRef.current?.getModel()?.getValue() ?? null,
+      onReady: () => onReadinessConfirmed(readinessKey),
+    });
+  }, [activeFile, files, readinessKey, onReadinessConfirmed]);
 
   const applyFocusRequest = () => {
     if (
@@ -296,6 +318,9 @@ export function MonacoPane({
     () => () => {
       if (focusRequestRaf.current !== null) cancelAnimationFrame(focusRequestRaf.current);
       if (contentCommitRaf.current !== null) cancelAnimationFrame(contentCommitRaf.current);
+      if (layoutReadinessRaf.current !== null) cancelAnimationFrame(layoutReadinessRaf.current);
+      layoutObserverRef.current?.disconnect();
+      layoutObserverRef.current = null;
       attentionDecorationsRef.current?.clear();
       attentionDecorationsRef.current = null;
     },
@@ -304,6 +329,45 @@ export function MonacoPane({
 
   const handleMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
+    layoutObserverRef.current?.disconnect();
+    if (layoutReadinessRaf.current !== null) {
+      cancelAnimationFrame(layoutReadinessRaf.current);
+      layoutReadinessRaf.current = null;
+    }
+
+    // The lesson owns separate compact and desktop DOM branches. During a
+    // rapid breakpoint swap Monaco can mount while its wrapper is temporarily
+    // zero-width; its internal automaticLayout observer has occasionally
+    // retained that first measurement even after the shell recovered. Observe
+    // the real wrapper ourselves and keep a short readiness handshake alive
+    // until both dimensions are usable.
+    const container = editor.getContainerDomNode();
+    const layoutHost = container.parentElement ?? container;
+    const layoutFromHost = () => {
+      if (editorRef.current !== editor || !layoutHost.isConnected) return false;
+      const rect = layoutHost.getBoundingClientRect();
+      if (rect.width < 1 || rect.height < 1) return false;
+      editor.layout({
+        width: Math.floor(rect.width),
+        height: Math.floor(rect.height),
+      });
+      return true;
+    };
+    layoutObserverRef.current = new ResizeObserver(() => {
+      layoutFromHost();
+    });
+    layoutObserverRef.current.observe(layoutHost);
+    let layoutAttempts = 0;
+    const layoutWhenReady = () => {
+      layoutReadinessRaf.current = null;
+      const ready = layoutFromHost();
+      layoutAttempts += 1;
+      if (!ready && layoutAttempts < 120) {
+        layoutReadinessRaf.current = requestAnimationFrame(layoutWhenReady);
+      }
+    };
+    layoutReadinessRaf.current = requestAnimationFrame(layoutWhenReady);
+
     attentionDecorationsRef.current = editor.createDecorationsCollection();
     syncAttentionDecoration();
     // A conflict decision can replace the active file and remount Monaco.

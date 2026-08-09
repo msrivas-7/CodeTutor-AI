@@ -4,6 +4,9 @@ import {
   authReturnTarget,
   callbackUrl,
   consumeReturnTarget,
+  locationReplayReturnTarget,
+  locationReturnTarget,
+  normalizeReplayReturnTarget,
   normalizeReturnTarget,
   rememberReturnTarget,
 } from "./returnTarget";
@@ -34,6 +37,21 @@ describe("auth return targets", () => {
     ).toBe(target);
   });
 
+  it("removes destructive first-run state only from welcome replay targets", () => {
+    const location = {
+      pathname: "/learn/course/python-fundamentals/lesson/hello-world",
+      search: "?firstRun=1&contextGuide=1&mode=practice",
+      hash: "#editor",
+    };
+    expect(locationReturnTarget(location)).toBe(
+      "/learn/course/python-fundamentals/lesson/hello-world?firstRun=1&contextGuide=1&mode=practice#editor",
+    );
+    expect(locationReplayReturnTarget(location)).toBe(
+      "/learn/course/python-fundamentals/lesson/hello-world?contextGuide=1&mode=practice#editor",
+    );
+    expect(normalizeReplayReturnTarget("/welcome?replay=1")).toBe("/start");
+  });
+
   it("rejects external, protocol-relative, and auth-loop destinations", () => {
     expect(normalizeReturnTarget("https://evil.example/steal")).toBe("/start");
     expect(normalizeReturnTarget("//evil.example/steal")).toBe("/start");
@@ -56,5 +74,12 @@ describe("auth return targets", () => {
     expect(authReturnTarget(new URL(path, window.location.origin).search, null)).toBe(
       "/editor?file=main.py#output",
     );
+  });
+
+  it("carries an unexpected session-end explanation without changing the return target", () => {
+    const path = authPath("/login", "/editor?file=main.py", "session-ended");
+    const parsed = new URL(path, window.location.origin);
+    expect(parsed.searchParams.get("reason")).toBe("session-ended");
+    expect(authReturnTarget(parsed.search, null)).toBe("/editor?file=main.py");
   });
 });

@@ -8,21 +8,26 @@
 // partial indexes are independent of version, so no migration is needed.
 //
 // Fail-loud on unknown models. The public request allowlist and this internal
-// price table are intentionally separate: browsers may request only Nano on
-// the platform credential, while the server may route an evaluated intent to
-// another priced model. A thrown error here is the canary that prevents a new
-// internal route from becoming unmetered.
+// price table are intentionally separate: browsers may request only the
+// evaluated platform model, while historical and evaluation-only models can
+// remain priced without becoming client-selectable. A thrown error here is
+// the canary that prevents a new internal route from becoming unmetered.
 
-export const PRICE_VERSION = 2;
+export const PRICE_VERSION = 3;
 
 const PRICES_USD_PER_MILLION: Record<string, { input: number; output: number }> = {
   // gpt-4.1-nano: $0.10/M input + $0.40/M output (public pricing, April 2026).
   // Average tutor exchange at 3K input + 1K output ≈ $0.0007/call; the free
   // tier's cost math in the plan is pegged to these numbers.
   "gpt-4.1-nano": { input: 0.10, output: 0.40 },
-  // gpt-4.1-mini: $0.40/M input + $1.60/M output. B3 permits this only
-  // for server-classified check-ins that passed the independent model gate.
+  // gpt-4.1-mini: $0.40/M input + $1.60/M output. Retained so historical
+  // ledger rows remain interpretable after the Luna migration.
   "gpt-4.1-mini": { input: 0.40, output: 1.60 },
+  // Tutor migration candidates and approved Luna rate (OpenAI public pricing,
+  // August 2026). Priced does not imply client-selectable or eligible.
+  "gpt-5-mini": { input: 0.25, output: 2.00 },
+  "gpt-5.4-mini": { input: 0.75, output: 4.50 },
+  "gpt-5.6-luna": { input: 0.20, output: 1.20 },
 };
 
 export interface PriceResult {
@@ -61,4 +66,4 @@ export function isPlatformAllowedModel(model: string): boolean {
 // Models accepted from an untrusted client for a platform-funded request.
 // Internal routing models MUST NOT be added here: doing so would let a browser
 // select the more expensive model directly and bypass the intent gate.
-export const PLATFORM_ALLOWED_MODELS = ["gpt-4.1-nano"] as const;
+export const PLATFORM_ALLOWED_MODELS = ["gpt-5.6-luna"] as const;

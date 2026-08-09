@@ -72,6 +72,33 @@ describe("buildGuidedSystemPrompt", () => {
     expect(prompt).toMatch(/beginner/i);
   });
 
+  it("provides a sanitized preferred first name for natural greetings", () => {
+    const prompt = buildGuidedSystemPrompt(noHistory, "hi", lessonCtx, {
+      learnerName: "Maya",
+    });
+    expect(prompt).toMatch(/Preferred first name: Maya/);
+    expect(prompt).toMatch(/MUST contain the exact preferred first name\s+Maya once/);
+  });
+
+  it("explicitly tells the tutor not to invent a missing learner name", () => {
+    const prompt = buildGuidedSystemPrompt(noHistory, "hi", lessonCtx);
+    expect(prompt).toMatch(/No safe preferred first name is available/);
+    expect(prompt).toMatch(/without inventing a name/);
+  });
+
+  it("requires mixed unsafe requests to receive one complete conversational boundary", () => {
+    const prompt = buildGuidedSystemPrompt(noHistory, "hi", lessonCtx);
+    expect(prompt).toMatch(/cover every distinct boundary in one concise conversationReply/);
+    expect(prompt).toMatch(/Refusing only one clause and silently dropping the other is not enough/);
+  });
+
+  it("forbids internal authoring labels in learner-facing copy", () => {
+    const prompt = buildGuidedSystemPrompt(noHistory, "hi", lessonCtx);
+    expect(prompt).toMatch(/Write only learner-facing copy/);
+    expect(prompt).toMatch(/Never expose authoring or evaluation labels/);
+    expect(prompt).toContain('"placeholder greeting"');
+  });
+
   it("omits persona block when not specified", () => {
     const withPersona = buildGuidedSystemPrompt(noHistory, "hi", lessonCtx, {
       persona: "advanced",

@@ -1,7 +1,7 @@
 import type { AIModel, TutorIntent } from "./provider.js";
 
-export const MODEL_REGISTRY_VERSION = "2026-08-01.v13";
-export const TUTOR_EVAL_SET_VERSION = "2.4.0+evaluator.2.12.0";
+export const MODEL_REGISTRY_VERSION = "2026-08-09.luna-v1";
+export const TUTOR_EVAL_SET_VERSION = "2.7.0+evaluator.2.13.0";
 
 export type ModelQualityStatus = "evaluated" | "unevaluated";
 
@@ -21,11 +21,35 @@ export interface EvaluatedModelPolicy {
 // key happens to expose today. A model must earn contextual eligibility via
 // the full v2 gate before this file changes.
 const REGISTRY: Record<string, EvaluatedModelPolicy> = {
+  "gpt-5.6-luna": {
+    id: "gpt-5.6-luna",
+    qualityStatus: "evaluated",
+    contextualTutorEligible: true,
+    evalSetVersion: TUTOR_EVAL_SET_VERSION,
+    evaluatedAt: "2026-08-09",
+    evaluatedTutorIntents: [
+      "socratic",
+      "debug",
+      "concept",
+      "howto",
+      "walkthrough",
+      "checkin",
+    ],
+    supportedTutorBehaviors: [
+      "editor-tutor",
+      "guided-tutor",
+      "contextual-offer",
+    ],
+  },
+  // Keep previously qualified BYOK choices eligible through their provider
+  // retirement window. Platform-funded routing is pinned to Luna elsewhere;
+  // removing this entry would instead strand an existing BYOK selection at
+  // the guided-tutor allowlist boundary.
   "gpt-4.1-nano": {
     id: "gpt-4.1-nano",
     qualityStatus: "evaluated",
     contextualTutorEligible: true,
-    evalSetVersion: TUTOR_EVAL_SET_VERSION,
+    evalSetVersion: "2.4.0+evaluator.2.12.0",
     evaluatedAt: "2026-07-31",
     evaluatedTutorIntents: [
       "socratic",
@@ -41,14 +65,11 @@ const REGISTRY: Record<string, EvaluatedModelPolicy> = {
       "contextual-offer",
     ],
   },
-  // B3's frozen 3x comparison promoted Mini only for check-ins. It is not a
-  // generally contextual-eligible model: the same evidence retained Nano for
-  // walkthroughs, and the other four intents were not part of the comparison.
   "gpt-4.1-mini": {
     id: "gpt-4.1-mini",
     qualityStatus: "evaluated",
     contextualTutorEligible: false,
-    evalSetVersion: TUTOR_EVAL_SET_VERSION,
+    evalSetVersion: "2.4.0+evaluator.2.12.0",
     evaluatedAt: "2026-07-31",
     evaluatedTutorIntents: ["checkin"],
     supportedTutorBehaviors: ["editor-tutor", "guided-tutor"],

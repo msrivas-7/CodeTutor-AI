@@ -180,10 +180,27 @@ export default function AnonLessonPage() {
 
   useEffect(() => {
     if (authLoading || user || allowed) return;
-    const frame = window.requestAnimationFrame(() => {
+    let userInteracted = false;
+    const timers: number[] = [];
+    const markInteraction = () => {
+      userInteracted = true;
+    };
+    const focusBlockedTitle = () => {
+      if (userInteracted) return;
+      const active = document.activeElement;
+      if (active !== document.body && active?.isConnected) return;
       blockedTitleRef.current?.focus({ preventScroll: true });
-    });
-    return () => window.cancelAnimationFrame(frame);
+    };
+    window.addEventListener("pointerdown", markInteraction, { capture: true });
+    window.addEventListener("keydown", markInteraction, { capture: true });
+    for (const delay of [0, 150, 500]) {
+      timers.push(window.setTimeout(focusBlockedTitle, delay));
+    }
+    return () => {
+      for (const timer of timers) window.clearTimeout(timer);
+      window.removeEventListener("pointerdown", markInteraction, { capture: true });
+      window.removeEventListener("keydown", markInteraction, { capture: true });
+    };
   }, [allowed, authLoading, courseId, lessonId, user]);
 
   // Resolve the existing browser session before choosing the public trial.

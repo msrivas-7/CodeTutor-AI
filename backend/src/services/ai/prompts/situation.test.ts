@@ -60,7 +60,11 @@ describe("buildSituationBlock — prompt regression v0", () => {
         working; escalate hints sooner.
 
       The server-selected intent="socratic" always outranks stuckness and activity:
-      - No verified prior turn → ask exactly one clarifying question and provide nothing else.
+      - No verified prior turn → provide one bounded observation, one safe clue, and exactly
+        one open question. Never turn that first clue into a diagnosis or finished answer.
+      - When conversationMove="greeting", the greeting contract in the core prompt overrides
+        code grounding: greet naturally, offer useful lesson-help choices, ask one short
+        choice question, and do not discuss the current code, run, file, or error.
       - A verified prior turn unlocks an approach, not a completed answer.
 
       For intent="debug" after the Socratic gate, calibrate escalation using SITUATION:

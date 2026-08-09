@@ -6,24 +6,25 @@ import {
 } from "../../state/preferencesStore";
 import { resolveFirstName } from "./resolveFirstName";
 import { CinematicGreeting } from "./CinematicGreeting";
+import { normalizeReplayReturnTarget } from "../../auth/returnTarget";
 
 export function resolveWelcomeHandoff(
   explicitReplay: boolean,
   welcomeDone: boolean,
+  requestedReturnTo: string | null = null,
 ): { replay: boolean; target: string } {
   const replay = explicitReplay || welcomeDone;
   return {
     replay,
     target: replay
-      ? "/start"
+      ? normalizeReplayReturnTarget(requestedReturnTo)
       : "/learn/course/python-fundamentals/lesson/hello-world?firstRun=1",
   };
 }
 
 // The first-run moment. Mounts from /welcome, plays the full 5.2 s
 // cinematic, then navigates into the learner's first lesson (if truly
-// brand-new) or back to /  (if this is a settings-triggered replay of
-// the greeting by an existing learner).
+// brand-new) or back to the validated page that launched a replay.
 //
 // Copy here matters — this is the product thesis in language:
 //   - hero is the user's name, set by the typewriter-into-stdout beat
@@ -45,12 +46,13 @@ export function FirstRunGreeting() {
   // A replay is a read-only cinematic. It must never reuse the destructive
   // first-lesson onboarding route, because that route intentionally seeds a
   // starter and first-run state for brand-new learners. Existing learners go
-  // back to Start with every draft, completion, share, and coach preference
-  // untouched. Direct /welcome visits after onboarding are treated as replay
-  // too, even without the explicit query flag.
+  // back to a validated internal origin with every draft, completion, share,
+  // and coach preference untouched. Direct /welcome visits after onboarding
+  // are treated as replay too, even without the explicit query flag.
   const { replay, target } = resolveWelcomeHandoff(
     searchParams.get("replay") === "1",
     welcomeDone,
+    searchParams.get("returnTo"),
   );
 
   // Intentionally no `welcomeDone` guard — the earlier version
@@ -79,17 +81,35 @@ export function FirstRunGreeting() {
 
   const handleComplete = async () => {
     // Brand-new learners stamp welcomeDone before entering lesson 1. Replay
-    // is read-only and returns existing learners to Start without preference
-    // or progress writes.
+    // is read-only and returns existing learners to their validated origin
+    // without preference or progress writes.
     if (!replay) await persistOrTimeout();
-    nav(target, { replace: true });
+    const returnsToStart =
+      new URL(target, window.location.origin).pathname === "/start";
+    nav(target, {
+      replace: true,
+      state: replay
+        ? returnsToStart
+          ? { focusStartHeading: true }
+          : { focusAfterReplay: true }
+        : undefined,
+    });
   };
 
   const handleSkip = async () => {
     if (!replay) await persistOrTimeout();
     // Skip changes only the duration: new learners still enter lesson 1,
-    // while replay learners return to their existing Start destination.
-    nav(target, { replace: true });
+    // while replay learners return to the same validated origin.
+    const returnsToStart =
+      new URL(target, window.location.origin).pathname === "/start";
+    nav(target, {
+      replace: true,
+      state: replay
+        ? returnsToStart
+          ? { focusStartHeading: true }
+          : { focusAfterReplay: true }
+        : undefined,
+    });
   };
 
   // Subtitle + support line are the SAME regardless of whether this

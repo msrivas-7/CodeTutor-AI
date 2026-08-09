@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { StatusBadge } from "../components/StatusBadge";
@@ -63,7 +63,15 @@ export default function EditorPage() {
   const nav = useNavigate();
   const switchChatContext = useAIStore((s) => s.switchChatContext);
   const bumpFocusComposer = useAIStore((s) => s.bumpFocusComposer);
+  const [tutorComposerElement, setTutorComposerElement] = useState<HTMLTextAreaElement | null>(null);
   const switchProjectContext = useProjectStore((s) => s.switchProjectContext);
+  const editorProjectContext = useProjectStore((s) => s.projectContext);
+  const [editorReadyContext, setEditorReadyContext] = useState<string | null>(null);
+  const handleEditorReadiness = useCallback((key: string) => {
+    setEditorReadyContext(key);
+  }, []);
+  const editorContextReady =
+    editorProjectContext === "editor" && editorReadyContext === "editor";
   const switchRunContext = useRunStore((s) => s.switchRunContext);
   useSessionLifecycle();
   useGlobalShortcuts();
@@ -97,6 +105,7 @@ export default function EditorPage() {
   // the lesson page.
   const [tutorCollapsed, setTutorCollapsed] = useLocalStorageFlag(LS_TUTOR, false);
   const tutorOpenNonce = useAIStore((s) => s.tutorOpenNonce);
+  const handledTutorOpenNonceRef = useRef(0);
   const [filesCollapsed, setFilesCollapsed] = useLocalStorageFlag(LS_FILES, false);
   const [showSettings, setShowSettings] = useState(false);
   const [showCoach, setShowCoach] = useState(false);
@@ -163,9 +172,15 @@ export default function EditorPage() {
   };
 
   useEffect(() => {
-    if (tutorOpenNonce <= 0) return;
+    if (tutorOpenNonce <= handledTutorOpenNonceRef.current) return;
+    handledTutorOpenNonceRef.current = tutorOpenNonce;
     if (workspaceConstrained) setFilesCollapsed(true);
     setTutorCollapsed(false);
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        tutorRef.current?.focus({ preventScroll: true });
+      });
+    });
   }, [tutorOpenNonce, workspaceConstrained, setFilesCollapsed, setTutorCollapsed]);
 
   const editorCoachDone = usePreferencesStore((s) => s.editorCoachDone);
@@ -244,7 +259,7 @@ export default function EditorPage() {
         </div>
       </header>
 
-      <SessionErrorBanner />
+      <SessionErrorBanner recoveryFocusRef={runButtonRef} />
       <SessionRestartBanner />
       <SessionReplacedModal />
       {editorSaveConflict && (
@@ -344,7 +359,7 @@ export default function EditorPage() {
               other three asides in this app already follow this
               pattern; this one was the odd one out. */}
           <div
-            className="h-full p-3"
+            className={`h-full p-3 ${filesCollapsed ? "invisible" : "visible"}`}
             style={{ width: filesPaneWidth, minWidth: filesPaneWidth }}
           >
             <FileTree onCollapse={() => {
@@ -372,6 +387,8 @@ export default function EditorPage() {
               <MonacoPane
                 focusRequest={editorFocusRequest}
                 onFocusRequestSettled={handleEditorFocusRequestSettled}
+                readinessKey={editorProjectContext}
+                onReadinessConfirmed={handleEditorReadiness}
               />
             </Suspense>
           </div>
@@ -429,6 +446,8 @@ export default function EditorPage() {
         )}
         <motion.aside
           ref={tutorRef as React.RefObject<HTMLElement>}
+          tabIndex={-1}
+          aria-label="AI tutor"
           initial={false}
           animate={{ width: tutorCollapsed ? 0 : tutorPaneWidth }}
           transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
@@ -436,7 +455,7 @@ export default function EditorPage() {
           aria-hidden={tutorCollapsed ? "true" : undefined}
           {...((tutorCollapsed ? { inert: "" } : {}) as Record<string, unknown>)}
         >
-          <AssistantPanel onCollapse={() => {
+          <AssistantPanel inputLocked={!editorContextReady} onComposerElement={setTutorComposerElement} onCollapse={() => {
             setTutorCollapsed(true);
             requestAnimationFrame(() => tutorRestoreRef.current?.focus());
           }} onOpenSettings={() => setShowSettings(true)} />
@@ -456,11 +475,14 @@ export default function EditorPage() {
             tutorPanel: tutorRef.current,
           }}
           onComplete={(outcome) => {
+            const destination = outcome === "completed"
+              ? tutorComposerElement
+              : editorHeadingRef.current;
+            destination?.focus({ preventScroll: true });
             setShowCoach(false);
-            requestAnimationFrame(() => {
-              if (outcome === "completed") bumpFocusComposer();
-              else editorHeadingRef.current?.focus({ preventScroll: true });
-            });
+            if (!destination && outcome === "completed") {
+              requestAnimationFrame(() => bumpFocusComposer());
+            }
           }}
         />
       )}

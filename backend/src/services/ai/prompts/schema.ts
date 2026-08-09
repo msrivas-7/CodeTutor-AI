@@ -3,6 +3,8 @@ export const TUTOR_RESPONSE_SCHEMA = {
   additionalProperties: false,
   required: [
     "intent",
+    "conversationMove",
+    "conversationReply",
     "summary",
     "diagnose",
     "explain",
@@ -24,6 +26,18 @@ export const TUTOR_RESPONSE_SCHEMA = {
       description:
         "Your classification of the student's question. Pick the single best match.",
     },
+    conversationMove: {
+      type: ["string", "null"],
+      enum: ["none", "greeting", "clarify", "soft-boundary", null],
+      description:
+        "The conversational move needed before teaching: greeting, clarify vague input, soft-boundary for hostile/inappropriate input, or none.",
+    },
+    conversationReply: {
+      type: ["string", "null"],
+      maxLength: 320,
+      description:
+        "One or two short conversational sentences. For greeting this is the complete response: greet, offer useful kinds of help, optionally ask one choice question, and mention no current code, file, run, error, diagnosis, or lesson fact.",
+    },
     summary: {
       type: ["string", "null"],
       description: "One-sentence tl;dr of your response.",
@@ -36,7 +50,7 @@ export const TUTOR_RESPONSE_SCHEMA = {
     explain: {
       type: ["string", "null"],
       description:
-        "A conceptual explanation in 2-3 sentences. For concept and howto intents.",
+        "A conceptual explanation in 2-3 short sentences. Use Markdown bullets for parallel points. For concept and howto intents.",
     },
     example: {
       type: ["string", "null"],
@@ -53,7 +67,7 @@ export const TUTOR_RESPONSE_SCHEMA = {
         additionalProperties: false,
         required: ["body", "path", "line"],
         properties: {
-          body: { type: "string", description: "One-or-two-sentence explanation." },
+          body: { type: "string", minLength: 1, description: "One-or-two-sentence explanation." },
           path: {
             type: ["string", "null"],
             description: "File this step points at, or null if general.",
@@ -71,7 +85,7 @@ export const TUTOR_RESPONSE_SCHEMA = {
       maxItems: 3,
       description:
         "One clarifying question for Socratic intent; up to 3 diagnostic questions for debug intent.",
-      items: { type: "string" },
+      items: { type: "string", minLength: 1 },
     },
     hint: {
       type: ["string", "null"],
@@ -100,7 +114,7 @@ export const TUTOR_RESPONSE_SCHEMA = {
         additionalProperties: false,
         required: ["path", "line", "column", "reason"],
         properties: {
-          path: { type: "string", description: "Exact file path as it appears in PROJECT FILES." },
+          path: { type: "string", minLength: 1, description: "Exact file path as it appears in PROJECT FILES." },
           line: { type: "integer", minimum: 1, description: "1-indexed line number." },
           column: {
             type: ["integer", "null"],
@@ -109,6 +123,7 @@ export const TUTOR_RESPONSE_SCHEMA = {
           },
           reason: {
             type: "string",
+            minLength: 1,
             description: "Short (≤60 chars) reason this location matters.",
           },
         },

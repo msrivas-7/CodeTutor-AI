@@ -195,7 +195,7 @@ describe("resolveAICredential", () => {
     if (c.source === "platform") {
       expect(c.remainingToday).toBe(27);
       expect(c.capToday).toBe(30);
-      expect(c.allowedModels).toEqual(["gpt-4.1-nano"]);
+      expect(c.allowedModels).toEqual(["gpt-5.6-luna"]);
       expect(c.key).toBe("sk-platform-test");
       expect(c.resetAtUtc).toBeInstanceOf(Date);
     }
@@ -480,7 +480,7 @@ describe("resolveAnonAICredential", () => {
     if (c.source === "platform") {
       expect(c.remainingToday).toBe(8);
       expect(c.capToday).toBe(8);
-      expect(c.allowedModels).toEqual(["gpt-4.1-nano"]);
+      expect(c.allowedModels).toEqual(["gpt-5.6-luna"]);
       expect(c.key).toBe("sk-platform-test");
       expect(c.resetAtUtc).toBeInstanceOf(Date);
     }

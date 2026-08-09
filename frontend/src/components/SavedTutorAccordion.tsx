@@ -37,6 +37,7 @@ export function SavedTutorAccordion({ messages, loading, onRemove, label }: Prop
   // chevron itself (it's still rendered with opacity-1 immediately).
   const [pendingRemoval, setPendingRemoval] = useState<string | null>(null);
   const removeTimer = useRef<number | null>(null);
+  const accordionButtonRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     const timer = window.setTimeout(() => setChevronReady(true), 600);
     return () => window.clearTimeout(timer);
@@ -58,6 +59,9 @@ export function SavedTutorAccordion({ messages, loading, onRemove, label }: Prop
     if (removeTimer.current !== null) window.clearTimeout(removeTimer.current);
     removeTimer.current = null;
     setPendingRemoval(null);
+    window.requestAnimationFrame(() => {
+      accordionButtonRef.current?.focus({ preventScroll: true });
+    });
   };
   const visibleMessages = messages.filter((message) => message.id !== pendingRemoval);
 
@@ -73,6 +77,7 @@ export function SavedTutorAccordion({ messages, loading, onRemove, label }: Prop
       className="shrink-0 border-b border-border bg-elevated/20"
     >
       <button
+        ref={accordionButtonRef}
         type="button"
         onClick={() => setExpanded((v) => !v)}
         aria-expanded={expanded}

@@ -5,13 +5,17 @@ import type { TokenUsage } from "../types";
 // effort client-side estimate so the student can see what each ask costs.
 // Unknown models return null and we render tokens-only.
 //
-// Source: https://openai.com/api/pricing as of early 2025. Update by editing
+// Source: https://developers.openai.com/api/docs/models as of August 2026. Update by editing
 // this table — nothing else imports the constants.
 const PRICING_PER_1M: Record<string, { in: number; out: number }> = {
   // GPT-4.1 family
   "gpt-4.1-nano": { in: 0.1, out: 0.4 },
   "gpt-4.1-mini": { in: 0.4, out: 1.6 },
   "gpt-4.1": { in: 2.0, out: 8.0 },
+  // Current GPT-5 tutor candidates
+  "gpt-5.6-luna": { in: 0.2, out: 1.2 },
+  "gpt-5.4-mini": { in: 0.75, out: 4.5 },
+  "gpt-5-mini": { in: 0.25, out: 2.0 },
   // GPT-4o family
   "gpt-4o-mini": { in: 0.15, out: 0.6 },
   "gpt-4o": { in: 2.5, out: 10.0 },

@@ -16,6 +16,9 @@ import { authPath, locationReturnTarget } from "./returnTarget";
 export function RequireAuth({ children }: { children: ReactNode }) {
   const loading = useAuthStore((s) => s.loading);
   const user = useAuthStore((s) => s.user);
+  const sessionEndedUnexpectedly = useAuthStore(
+    (s) => s.sessionEndedUnexpectedly,
+  );
   const location = useLocation();
 
   if (loading) {
@@ -38,7 +41,11 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   if (!user) {
     return (
       <Navigate
-        to={authPath("/login", locationReturnTarget(location))}
+        to={authPath(
+          "/login",
+          locationReturnTarget(location),
+          sessionEndedUnexpectedly ? "session-ended" : undefined,
+        )}
         replace
         state={{ from: location }}
       />

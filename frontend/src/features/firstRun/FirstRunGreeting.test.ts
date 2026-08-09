@@ -19,4 +19,28 @@ describe("welcome handoff ownership", () => {
       target: "/start",
     });
   });
+
+  it("returns a replay to its validated internal origin", () => {
+    const practice = "/learn/course/python-fundamentals/lesson/variables?mode=practice#task";
+    expect(resolveWelcomeHandoff(true, true, practice)).toEqual({
+      replay: true,
+      target: practice,
+    });
+    expect(resolveWelcomeHandoff(true, true, "https://evil.example/steal").target)
+      .toBe("/start");
+    expect(resolveWelcomeHandoff(true, true, "/welcome?replay=1").target)
+      .toBe("/start");
+  });
+
+  it("cannot return a replay into destructive first-run lesson state", () => {
+    expect(
+      resolveWelcomeHandoff(
+        true,
+        true,
+        "/learn/course/python-fundamentals/lesson/hello-world?firstRun=1&from=settings#editor",
+      ).target,
+    ).toBe(
+      "/learn/course/python-fundamentals/lesson/hello-world?from=settings#editor",
+    );
+  });
 });

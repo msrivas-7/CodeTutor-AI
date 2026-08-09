@@ -4,6 +4,7 @@ import { estimateCost, formatCost, formatTokens, lookupPrice } from "./pricing";
 describe("lookupPrice", () => {
   it("returns the exact-match entry when the id is in the table", () => {
     expect(lookupPrice("gpt-4o-mini")).toEqual({ in: 0.15, out: 0.6 });
+    expect(lookupPrice("gpt-5.6-luna")).toEqual({ in: 0.2, out: 1.2 });
   });
 
   it("uses longest-prefix match for dated model variants", () => {

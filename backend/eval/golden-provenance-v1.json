@@ -20,10 +20,11 @@
       "caseIds": [
         "r001", "r002", "r003", "r004", "r005", "r006", "r007", "r008", "r009", "r010",
         "r011", "r012", "r013", "r014", "r015", "r016", "r017", "r018", "r019", "r020",
-        "s001", "s002", "s003", "s004", "s005", "s006", "s007", "s008", "s009", "s010"
+        "s001", "s002", "s003", "s004", "s005", "s006", "s007", "s008", "s009", "s010",
+        "r021", "r022", "r023", "r024", "r025", "r026"
       ],
       "origin": "expert-authored",
-      "authoredContext": "Release 0D and B2 adversarial multi-turn regression set"
+      "authoredContext": "Release 0D, B2, and Q13 adversarial multi-turn and conversational regression set"
     }
   ]
 }

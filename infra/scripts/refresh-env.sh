@@ -78,10 +78,6 @@ fetch_optional() {
   # the endpoint is loopback-only (fine for prod today — no external
   # scraper). Seed it in KV when wiring in Prometheus.
   echo "METRICS_TOKEN=$(fetch_optional METRICS-TOKEN)"
-  # B3 activation/rollback. Production treats an absent/invalid value as
-  # safe-off; an operator sets "0" only under the recorded rollout protocol,
-  # while "1" returns check-ins to Nano without taking other intents offline.
-  echo "PLATFORM_CHECKIN_MINI_DISABLED=$(fetch_optional PLATFORM-CHECKIN-MINI-DISABLED)"
   # Release 0A: purpose-specific HMAC for SWA crawler metadata. Current +
   # previous pairs provide a zero-downtime rotation overlap. The preview
   # route remains fail-closed (503) when no current secret is configured;

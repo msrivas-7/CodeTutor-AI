@@ -4,20 +4,25 @@ import type {
   TutorSections,
 } from "./provider.js";
 import { isStandardApiSymbol } from "./suspectApi.js";
+import { isTaskExplanationRequest } from "./tutorIntent.js";
 
 type TutorPolicyParams = Pick<
   AIAskParams,
   "files" | "question" | "lessonContext" | "lastRun"
 > &
-  Partial<Pick<AIAskParams, "history" | "diffSinceLastTurn">>;
+  Partial<Pick<AIAskParams, "history" | "diffSinceLastTurn" | "learnerName">>;
 
 const PROTECTED_REQUEST =
   /\b(?:system prompt|hidden tests?|hidden validator|another learner|compare my progress|correct (?:choice|answer)|answer is|exact final line|complete finished program|paste it)\b|\bprivate\s+(?:[A-Z0-9_]+\s+)?(?:mastery|record)\b/i;
+const ABUSIVE_CONTENT_REQUEST =
+  /\b(?:insult|demean|humiliate|belittle|mock|verbally abuse)\s+(?:me|the learner|the user|them)\b/i;
 const CANARY = /\b[A-Z][A-Z0-9]*_CANARY_[A-Z0-9_]+\b/g;
 
 const INLINE_CODE = /`([^`\n]+)`/g;
 const CODE_LIKE =
   /```|=>|(?:^|\s)(?:const|let|var|return|def|for|while|if)\s+|(?:^|\s)[A-Za-z_$][\w$.[\]]*\s*(?:\+=|-=|\*=|\/=|=(?!=))\s*|\b[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)?\([^\n)]*[^\s)]\)/m;
+const PRESCRIPTIVE_DELIMITER_EDIT =
+  /\b(?:missing|add|insert|fix(?:ing)?|close|forget|forgot)\w*\b[^.!?\n]{0,80}\b(?:closing\s+)?(?:parenthes(?:is|es)|bracket|brace|quote|delimiter)s?\b|\b(?:parenthes(?:is|es)|bracket|brace|quote|delimiter)s?\b[^.!?\n]{0,80}\b(?:missing|never closed)\b|\b(?:didn'?t|doesn'?t|cannot|can'?t)\s+find\b[^.!?\n]{0,80}\bclosing\s+(?:counterpart|symbol|delimiter|parenthes(?:is|es)|bracket|brace|quote)\b/i;
 
 function scrubCanaries(text: string | null | undefined): string | null | undefined {
   return text?.replace(CANARY, "protected value");
@@ -32,7 +37,11 @@ const DANGLING_PROSE_END =
 
 function looksIncomplete(value: string): boolean {
   const text = value.trim();
-  return /[,;:–—-]$/.test(text) || DANGLING_PROSE_END.test(text);
+  // Structured-output limits can clip a field immediately after opening an
+  // inline-code span while leaving the surrounding JSON valid. Rendering that
+  // fragment produces visibly broken prose such as "stores the text value `".
+  const hasUnbalancedInlineCode = (text.match(/`/g)?.length ?? 0) % 2 !== 0;
+  return hasUnbalancedInlineCode || /[,;:–—-]$/.test(text) || DANGLING_PROSE_END.test(text);
 }
 
 function containsNewPasteableCode(
@@ -76,7 +85,8 @@ function safeAction(
   if (
     !scrubbed ||
     looksIncomplete(scrubbed) ||
-    containsNewPasteableCode(scrubbed, params)
+    containsNewPasteableCode(scrubbed, params) ||
+    PRESCRIPTIVE_DELIMITER_EDIT.test(scrubbed)
   ) {
     return null;
   }
@@ -97,7 +107,45 @@ function safeProse(
   params: Pick<AIAskParams, "files" | "question">,
 ): string | null {
   const text = safeText(value);
-  return text && !containsNewPasteableCode(text, params) ? text : null;
+  return text &&
+      !containsNewPasteableCode(text, params) &&
+      !PRESCRIPTIVE_DELIMITER_EDIT.test(text)
+    ? text
+    : null;
+}
+
+function safeConversationReply(
+  value: string | null | undefined,
+  params: Pick<AIAskParams, "files" | "question">,
+): string | null {
+  const text = safeProse(value, params);
+  // Conversational framing should acknowledge the learner, not repeat code or
+  // API tokens. Teaching fields own code-grounded content and are subjected to
+  // the stricter intent policy below.
+  return text && !/`[^`\n]+`/.test(text) ? text : null;
+}
+
+function greetingRecovery(learnerName: string | null | undefined): string {
+  const firstName = safeText(learnerName);
+  return firstName
+    ? `Hi ${firstName} — glad you're here. Would you like a goal recap, a gentle hint, or a walkthrough?`
+    : "Hello! Would you like a goal recap, a gentle hint, or a walkthrough for your coding task?";
+}
+
+function hardBoundaryReply({
+  protectedRequest,
+  abusiveRequest,
+}: {
+  protectedRequest: boolean;
+  abusiveRequest: boolean;
+}): string {
+  if (protectedRequest && abusiveRequest) {
+    return "I can’t share protected instructions, and I won’t insult or demean you. I can still help with the visible lesson in a respectful way.";
+  }
+  if (protectedRequest) {
+    return "I can’t share protected instructions or hidden values, but I can still help with the visible lesson.";
+  }
+  return "I won’t insult or demean you, but I can still help with the lesson in a respectful way.";
 }
 
 function meaningfulProse(
@@ -111,14 +159,47 @@ function meaningfulProse(
   return looksIncomplete(text) ? null : text;
 }
 
+const LEADING_QUESTION =
+  /\b(?:answer|fix|replace|correct line|solution|should|need(?:s)?|missing|try|use|using|add|remove|delete|call|convert)\b|[`()[\]{}=]/i;
 const OPEN_CLARIFYING_QUESTION =
   /^(?:what (?:did you expect|have you tried|happens|part|result|output|error|change|do you think)|where |which part|how would you describe|can you describe|when )/i;
 const SOCRATIC_EVIDENCE_QUESTION =
   /\b(?:expect|observ|happen|result|output|errors?|tried|attempt|unclear|uncertain|confus|think|evidence|understand|noticed|changed)\w*\b/i;
-const LEADING_QUESTION =
-  /\b(?:answer|fix|replace|correct line|solution|should|need(?:s)?|missing|try|use|using|add|remove|delete|call|convert)\b|[`()[\]{}=]/i;
+const PRESCRIPTIVE_SOCRATIC_HINT =
+  /^\s*(?:try\s+)?(?:convert|replace|add|remove|delete|insert|change|use|using|call|write|paste)\b/i;
+const ANSWER_BEARING_CLAIM =
+  /\b(?:exact|complete|finished|final)\s+(?:fix|answer|solution|line|program)\b/i;
+const META_SOCRATIC_SUMMARY =
+  /\b(?:the (?:student|learner) (?:wants|asks|is asking|would like)|you(?:'re| are) (?:asking|wondering))\b/i;
+const GENERIC_SOCRATIC_HINT =
+  /^\s*(?:think about|consider|look at|review)\b[^.!?]*(?:common ways?|current code|visible code|this idea|the concept)\b/i;
 const FINAL_VALUE_REQUEST =
-  /\b(?:final (?:score|value|result|output)|tell me (?:the )?(?:score|value|result|output))\b/i;
+  /\b(?:(?:final (?:score|value|result|output))|(?:tell me (?:the )?(?:score|value|result|output))|(?:(?:exact|complete|finished|final) (?:fix|answer|solution|line|program|code))|(?:(?:give|show|tell) me (?:the )?(?:exact|complete|finished|final)\b))\b/i;
+const CLEARLY_OFF_TOPIC_REQUEST =
+  /\b(?:weather|forecast|temperature|tell me (?:a )?joke|movie recommendations?|sports scores?|recipe|celebrity gossip|stock price|horoscope)\b/i;
+const CODING_TOPIC =
+  /\b(?:code|program|lesson|python|javascript|typescript|java|go|rust|ruby|c\+\+|c#|function|variable|string|array|list|loop|error|debug|output|syntax|class|method|api|http|fetch|print|console)\b/i;
+
+function explicitLanguageMismatch(params: TutorPolicyParams): string | null {
+  const current = params.lessonContext?.language?.toLowerCase();
+  if (!current) return null;
+  const aliases: Array<[string, RegExp]> = [
+    ["python", /\bpython\b/i],
+    ["javascript", /\b(?:javascript|js)\b/i],
+    ["typescript", /\b(?:typescript|ts)\b/i],
+    ["java", /\bjava\b/i],
+    ["go", /\b(?:golang|go language)\b/i],
+    ["rust", /\brust\b/i],
+    ["ruby", /\bruby\b/i],
+    ["c++", /\bc\+\+\b/i],
+    ["c#", /\bc#\b/i],
+  ];
+  const mentioned = aliases.filter(([, pattern]) => pattern.test(params.question));
+  if (mentioned.length !== 1) return null;
+  const [requested] = mentioned[0];
+  const normalizedCurrent = current === "js" ? "javascript" : current === "ts" ? "typescript" : current;
+  return requested === normalizedCurrent ? null : requested;
+}
 
 function firstVisibleIdentifier(params: Pick<AIAskParams, "files">): string | null {
   for (const file of params.files) {
@@ -299,6 +380,7 @@ function clarifyingQuestion(
     ...(sections.checkQuestions ?? []),
     sections.comprehensionCheck,
   ];
+  const conversational = !!sections.conversationMove && sections.conversationMove !== "none";
   for (const candidate of candidates) {
     const safe = safeAction(candidate, params);
     if (
@@ -313,10 +395,15 @@ function clarifyingQuestion(
       safe.length <= 220 &&
       !safe.includes("\n") &&
       safe.endsWith("?") &&
-      OPEN_CLARIFYING_QUESTION.test(safe) &&
-      SOCRATIC_EVIDENCE_QUESTION.test(safe) &&
       !LEADING_QUESTION.test(safe) &&
-      questionUsesVisibleAnchor(safe, params)
+      (
+        conversational ||
+        (
+          OPEN_CLARIFYING_QUESTION.test(safe) &&
+          SOCRATIC_EVIDENCE_QUESTION.test(safe) &&
+          questionUsesVisibleAnchor(safe, params)
+        )
+      )
     ) {
       return safe;
     }
@@ -440,6 +527,8 @@ function visibleCodeCitation(
 
 const EXPLICIT_HINT_REQUEST =
   /\b(?:give|offer|provide|share|show) me (?:a |another )?(?:gentle|small|tiny|first|stronger)?\s*(?:hint|nudge|clue)\b|\b(?:can|could|would|will) you (?:give|offer|provide|share|show) (?:me )?(?:a |another )?(?:gentle|small|tiny|first|stronger)?\s*(?:hint|nudge|clue)\b|^(?:please\s+)?(?:a\s+)?(?:gentle|small|tiny|first|stronger)?\s*(?:hint|nudge|clue)\b|\bpoint me in the right direction\b|\bhelp me get started\b/i;
+const STRONGER_HINT_REQUEST =
+  /\b(?:still stuck|need more|stronger (?:hint|pointer|clue)|another (?:hint|pointer|clue)|more specific)\b/i;
 
 function visibleOutputOperation(
   params: Pick<AIAskParams, "files">,
@@ -465,9 +554,218 @@ function visibleOutputOperation(
   return null;
 }
 
+function visibleStarterOutputComment(
+  params: Pick<AIAskParams, "files">,
+): {
+  path: string;
+  line: number;
+  call: "print" | "console.log";
+} | null {
+  for (const file of params.files) {
+    for (const [index, source] of file.content.split("\n").entries()) {
+      if (!/^\s*(?:#|\/\/)/.test(source) || INSTRUCTION_INJECTION.test(source)) continue;
+      const call = source.match(/\b(print|console\.log)\s*\(/)?.[1];
+      if (call === "print" || call === "console.log") {
+        return { path: file.path, line: index + 1, call };
+      }
+    }
+  }
+  return null;
+}
+
+function directAnswerRequestSocraticValue(
+  params: TutorPolicyParams,
+): ReturnType<typeof socraticValue> | null {
+  if (!FINAL_VALUE_REQUEST.test(params.question)) return null;
+
+  const visibleLines = params.files.flatMap((file) =>
+    file.content.split("\n").map((content, index) => ({
+      path: file.path,
+      line: index + 1,
+      content,
+    })),
+  );
+  const hasExecutableLine = visibleLines.some(({ content }) => {
+    const trimmed = content.trim();
+    return trimmed && !/^(?:#|\/\/)/.test(trimmed) && !INSTRUCTION_INJECTION.test(trimmed);
+  });
+  if (hasExecutableLine) return null;
+
+  const starterComment = visibleLines.find(({ content }) =>
+    /^(?:\s*#|\s*\/\/)/.test(content) && !INSTRUCTION_INJECTION.test(content)
+  );
+  const outputObjective = params.lessonContext?.lessonObjectives.find((objective) =>
+    /\b(?:print|console\.log)\s*\(\)|\b(?:show|display)\s+text\b/i.test(objective)
+  );
+  const outputCall = outputObjective?.match(/\b(print|console\.log)\s*\(\)/i)?.[1] ?? null;
+
+  return {
+    summary: starterComment
+      ? "The starter file contains guidance, but no executable greeting or output statement yet."
+      : "The current workspace does not contain an executable result to reveal yet.",
+    hint: outputCall
+      ? `The lesson objective names \`${outputCall}()\` as the output operation. Choose the greeting text first, then predict exactly what Output should show before writing the statement.`
+      : "Choose one observable result from the lesson objective, state exactly what should happen, and then build only the first step toward that result.",
+    question: outputCall
+      ? "What exact greeting text should the program display when it runs?"
+      : "What should the finished program display or change when it runs?",
+    citations: starterComment
+      ? [{
+          path: starterComment.path,
+          line: starterComment.line,
+          column: null,
+          reason: "Starter guidance for the requested result",
+        }]
+      : null,
+  };
+}
+
 function lessonGoal(params: TutorPolicyParams): string | null {
   const objective = params.lessonContext?.lessonObjectives.find((item) => item.trim());
   return objective?.replace(/[.!]+$/, "") ?? null;
+}
+
+function lessonBulletList(items: string[]): string {
+  return items
+    .map((item) => `- ${item.charAt(0).toUpperCase()}${item.slice(1)}`)
+    .join("\n");
+}
+
+function learnerFacingCriterion(criterion: string): string {
+  return criterion
+    .replace(/the authored placeholder output/gi, "the starter output")
+    .replace(/the learner's own result/gi, "your own result")
+    .replace(/after the code is correct/gi, "after your code is correct")
+    .replace(/;?\s*never reveal its answer/gi, "")
+    .trim();
+}
+
+function lessonTaskExplanation(params: TutorPolicyParams): TutorSections | null {
+  const lesson = params.lessonContext;
+  if (!lesson) return null;
+  const objectives = lesson.lessonObjectives
+    .map((objective) => objective.trim().replace(/[.!]+$/, ""))
+    .filter(Boolean);
+  const criteria = lesson.completionCriteria
+    .map((criterion) => learnerFacingCriterion(criterion).replace(/[.!]+$/, ""))
+    .filter(Boolean);
+  const goal = objectives[0] ?? "complete the lesson's stated objective";
+  const objectiveExplanation = objectives.length > 1
+    ? `This lesson has ${objectives.length} objectives:\n\n${lessonBulletList(objectives)}`
+    : `This lesson's objective is to ${goal.charAt(0).toLowerCase()}${goal.slice(1)}.`;
+  const completionExplanation = criteria.length
+    ? `To finish:\n\n${lessonBulletList(criteria)}`
+    : "The lesson is complete when your run matches the stated objective.";
+
+  return {
+    intent: "concept",
+    summary: `The goal of “${lesson.lessonTitle}” is to ${goal.charAt(0).toLowerCase()}${goal.slice(1)}.`,
+    explain: `${objectiveExplanation}\n\n${completionExplanation}`,
+    nextStep: "Identify the smallest current line that contributes to that goal, run it once, and compare the visible result with the lesson objective.",
+    comprehensionCheck: "In your own words, what should your program demonstrate when this lesson is complete?",
+    citations: null,
+  };
+}
+
+type TaskExplanationFollowUp = "explain-more" | "concrete-example" | "why-it-matters";
+
+// These are application-owned action-chip commands, not an attempt to classify
+// arbitrary learner prose. Free-form follow-ups remain the model's job. Keeping
+// the UI commands exact makes their contract explicit and prevents a vague
+// button press from spending a turn on a re-greeting or unrelated code review.
+const TASK_EXPLANATION_FOLLOW_UPS = new Map<string, TaskExplanationFollowUp>([
+  ["Can you explain that in more detail?", "explain-more"],
+  ["Can you show me a concrete example of that in my code?", "concrete-example"],
+  ["Why does this matter for what I'm trying to do?", "why-it-matters"],
+]);
+
+function previousTurnExplainedLessonTask(params: TutorPolicyParams): boolean {
+  const previousAssistant = [...(params.history ?? [])]
+    .reverse()
+    .find((message) => message.role === "assistant");
+  const objectives = params.lessonContext?.lessonObjectives
+    .map((objective) => objective.trim().toLocaleLowerCase())
+    .filter(Boolean) ?? [];
+  if (!previousAssistant || objectives.length === 0) return false;
+
+  const normalizedPrevious = previousAssistant.content.toLocaleLowerCase();
+  const objectiveMatches = objectives.filter((objective) =>
+    normalizedPrevious.includes(objective)
+  ).length;
+  return objectiveMatches >= Math.min(2, objectives.length);
+}
+
+function lessonTaskExplanationFollowUp(params: TutorPolicyParams): TutorSections | null {
+  const action = TASK_EXPLANATION_FOLLOW_UPS.get(params.question.trim());
+  const lesson = params.lessonContext;
+  if (!action || !lesson || !previousTurnExplainedLessonTask(params)) return null;
+
+  const objectives = lesson.lessonObjectives
+    .map((objective) => objective.trim().replace(/[.!]+$/, ""))
+    .filter(Boolean);
+  const goal = objectives[0] ?? "complete the lesson's stated objective";
+  const output = visibleOutputOperation(params);
+  const objectiveRole = (index: number): string => index === 0
+    ? "this is the action you perform"
+    : index === objectives.length - 1
+      ? "this is the understanding you carry into the next lesson"
+      : "this is the visible behavior you observe";
+
+  if (action === "concrete-example") {
+    return {
+      intent: "concept",
+      summary: "The current output line is where the lesson objectives meet in one visible action.",
+      explain:
+        "It connects the lesson in three steps:\n\n" +
+        objectives.map((objective, index) => `${index + 1}. **${objective}** — ${objectiveRole(index)}.`).join("\n"),
+      example: output
+        ? `Line ${output.line} is the concrete example: it uses the lesson's output operation. First predict what should appear, then run it and compare the visible result.`
+        : "The first small program you run is the concrete example: choose the text you expect to see, run once, and compare the visible result with that prediction.",
+      nextStep: "Make one prediction about the program's visible output, then run it once and compare.",
+      comprehensionCheck: "Which lesson objective does that run demonstrate most directly?",
+      citations: output
+        ? [{
+            path: output.path,
+            line: output.line,
+            column: null,
+            reason: "Current output operation used as the lesson example",
+          }]
+        : null,
+    };
+  }
+
+  if (action === "why-it-matters") {
+    return {
+      intent: "concept",
+      summary: "These objectives teach the full feedback loop you will use throughout the course.",
+      explain:
+        "They matter together because:\n\n" +
+        "- **Writing** gives the computer an instruction.\n" +
+        "- **Running** turns that instruction into observable behavior.\n" +
+        "- **Comparing** the result with your prediction shows whether your understanding matches what the program did.",
+      nextStep: `Use that loop on the first objective—${goal.charAt(0).toLowerCase()}${goal.slice(1)}—before moving to the next one.`,
+      comprehensionCheck: "Why is predicting the result before you run useful for learning?",
+      citations: null,
+    };
+  }
+
+  return {
+    intent: "concept",
+    summary: "The objectives form one learning sequence, not three unrelated tasks.",
+    explain:
+      "Here is how the sequence works:\n\n" +
+      objectives.map((objective, index) => {
+        const role = index === 0
+          ? "establishes the action you will perform"
+          : index === objectives.length - 1
+            ? "checks the idea you should understand after observing the result"
+            : "connects that action to the visible result";
+        return `${index + 1}. **${objective}** — ${role}.`;
+      }).join("\n"),
+    nextStep: `Start with the first objective—${goal.charAt(0).toLowerCase()}${goal.slice(1)}—and state what result you expect before running it.`,
+    comprehensionCheck: "How does the second objective help you verify the first one?",
+    citations: null,
+  };
 }
 
 function groundedGentleHint(params: TutorPolicyParams): {
@@ -524,6 +822,116 @@ function groundedGentleHint(params: TutorPolicyParams): {
     question: current.question ?? clarifyingQuestion({}, params),
     citations: current.citations ?? null,
   };
+}
+
+function groundedStrongerHint(params: TutorPolicyParams): ReturnType<typeof groundedGentleHint> {
+  const current = socraticValue(params);
+  const stderr = params.lastRun?.stderr?.trim() ?? "";
+  if (
+    /\b(?:SyntaxError|parse error)\b/i.test(stderr) &&
+    /(?:never closed|unmatched|unterminated|unexpected end|expected\s+['"]?[)\]}]['"]?)/i.test(stderr)
+  ) {
+    return {
+      summary: current.summary ?? "The parser stopped at an unbalanced expression.",
+      hint:
+        "Trace the cited line left to right: count an opening delimiter as +1 and its matching closing delimiter as -1. Each delimiter type should return to zero by the end of the expression.",
+      nextStep:
+        "Write down the final balance for each delimiter type, correct only the first imbalance you find, and run the same case again.",
+      question: "Which delimiter type finishes the cited line with a non-zero balance?",
+      citations: current.citations ?? null,
+    };
+  }
+
+  if (stderr) {
+    return {
+      summary: current.summary ?? "The latest error narrows the investigation to the cited line.",
+      hint:
+        "Split the cited expression into its values, operators, and calls, then match the error name to the first piece that cannot perform the requested operation.",
+      nextStep:
+        "State what each piece contributes, change only the first piece that conflicts with the error, and rerun the same input.",
+      question: "Which single value, operator, or call on the cited line conflicts with the error name?",
+      citations: current.citations ?? null,
+    };
+  }
+
+  if (params.lastRun?.exitCode === 0) {
+    return {
+      summary: current.summary ?? "The latest run gives you a concrete result to compare.",
+      hint:
+        "Write the expected result beside the observed result and find the first character or value where they diverge; trace only that difference back to the cited expression.",
+      nextStep:
+        "Change the smallest expression responsible for that first difference, then rerun the identical input.",
+      question: "What is the first visible difference between the expected and observed results?",
+      citations: current.citations ?? null,
+    };
+  }
+
+  const starterOutput = visibleStarterOutputComment(params);
+  if (starterOutput) {
+    return {
+      summary: "The current file still has guidance comments, but no output statement that can run.",
+      hint:
+        `The starter comment names \`${starterOutput.call}()\` as the output operation. Combine that with the lesson’s quotation-mark clue: choose the exact text you want displayed, then make that text the operation’s argument.`,
+      nextStep:
+        "Add one executable output statement beneath the comments, run it once, and compare Output with the exact text you predicted.",
+      question: "What exact text will you choose, and what should Output show after the run?",
+      citations: [{
+        path: starterOutput.path,
+        line: starterOutput.line,
+        column: null,
+        reason: `Starter comment identifies ${starterOutput.call}() as the output operation`,
+      }],
+    };
+  }
+
+  const citation = visibleCodeCitation(params);
+  return {
+    summary: current.summary ?? "A line-by-line trace can turn the current uncertainty into one testable prediction.",
+    hint:
+      "For the cited line, write its input, the operation it performs, and the result you expect before reading the next line.",
+    nextStep:
+      "Run the smallest case that reaches that line and compare the observed result with your written prediction.",
+    question: "Which input reaches the cited line, and what single result should that line produce?",
+    citations: current.citations ?? (citation ? [citation] : null),
+  };
+}
+
+const COLLECTION_ITERATION_REQUEST =
+  /\b(?:loops?|looping|iterat(?:e|es|ed|ing|ion)|for\s+each|each\s+(?:item|value|element)|every\s+(?:item|value|element)|go\s+through|process\s+(?:all|each)|visit\s+each)\b/i;
+
+function visibleCollectionIterationSocraticValue(
+  params: Pick<TutorPolicyParams, "files" | "question">,
+): ReturnType<typeof socraticValue> | null {
+  if (!COLLECTION_ITERATION_REQUEST.test(params.question)) return null;
+  for (const file of params.files) {
+    const lines = file.content.split("\n");
+    for (const [index, sourceLine] of lines.entries()) {
+      const match = sourceLine.match(
+        /^\s*(?:(?:const|let|var)\s+)?([A-Za-z_$][\w$]*)\s*=\s*\[([^\n]*)\]\s*;?\s*$/,
+      );
+      if (!match) continue;
+      const [, identifier, rawItems] = match;
+      const itemCount = rawItems.trim()
+        ? rawItems.split(",").map((item) => item.trim()).filter(Boolean).length
+        : 0;
+      const countDescription = itemCount === 1
+        ? "1 visible item"
+        : `${itemCount} visible items`;
+      return {
+        summary: `Line ${index + 1} creates \`${identifier}\` with ${countDescription}.`,
+        hint:
+          `Choose one visible item and state the action that should happen to it once; then predict how many times that action should happen for the ${countDescription} before choosing syntax.`,
+        question: `What single action should happen once for each item in \`${identifier}\`?`,
+        citations: [{
+          path: file.path,
+          line: index + 1,
+          column: null,
+          reason: `Visible collection named ${identifier}`,
+        }],
+      };
+    }
+  }
+  return null;
 }
 
 function socraticValue(
@@ -770,10 +1178,14 @@ function visibleConcreteExample(
     const lines = file.content.split("\n");
     for (const [index, raw] of lines.entries()) {
       const line = raw.trim();
-      if (!line || INSTRUCTION_INJECTION.test(line)) continue;
+      if (!line || /^(?:#|\/\/)/.test(line) || INSTRUCTION_INJECTION.test(line)) continue;
       const excerpt = line.length > 120 ? `${line.slice(0, 117)}…` : line;
       return `In the current file, line ${index + 1} is the concrete example: \`${excerpt}\`. Trace what value that visible line receives and what effect it has when the program runs.`;
     }
+  }
+  const starterComment = visibleStarterOutputComment(params);
+  if (starterComment) {
+    return `The current file has no executable example yet. A starter comment points to \`${starterComment.call}()\`; make the first small run the concrete example by choosing a short message, predicting exactly what should appear, and comparing the visible output.`;
   }
   return null;
 }
@@ -1038,12 +1450,12 @@ function visiblePythonInputHowto(
         explain:
           "`input()` produces the learner's name value; capture that value first so the later greeting has something specific to display.",
         nextStep:
-          "Add only the name-capture assignment beneath the current placeholder, run it with a short name, and inspect that value before adding the greeting output.",
+          "Add only the name-capture assignment beneath the starter comment, run it with a short name, and inspect that value before adding the greeting output.",
         citation: {
           path: file.path,
           line: firstVisibleIndex + 1,
           column: null,
-          reason: "Current placeholder for the first name-input step",
+          reason: "Starter comment for the first name-input step",
         },
       };
     }
@@ -1081,12 +1493,12 @@ function visiblePythonRangeHowto(
       explain:
         `Python's \`range()\` includes its starting value but stops before its ending value; account for that boundary so ${end} is not skipped.`,
       nextStep:
-        "Add only the loop header for the requested interval beneath the current placeholder, then run once and inspect the first and last displayed values before changing anything else.",
+        "Add only the loop header for the requested interval beneath the starter comment, then run once and inspect the first and last displayed values before changing anything else.",
       citation: {
         path: file.path,
         line: anchorIndex + 1,
         column: null,
-        reason: "Current placeholder for the requested number loop",
+        reason: "Starter comment for the requested number loop",
       },
     };
   }
@@ -1279,6 +1691,15 @@ function requestedWalkthroughStart(
     if (index >= 0) return { path: file.path, line: index + 1, content: lines[index] };
   }
   return null;
+}
+
+function requestsWholeProgramWalkthrough(
+  params: Pick<AIAskParams, "files" | "question">,
+): boolean {
+  if (requestedWalkthroughStart(params)) return false;
+  return /\b(?:what\s+does\s+(?:this|the)\s+(?:code|file|program|script)\s+do|walk(?:\s+me)?\s+through(?:\s+(?:this|the|it|my|new|current))?|walkthrough(?:\s+(?:of|for))?|trace(?:\s+through)?(?:\s+(?:this|the|it|my|new|current))?|explain\s+(?:this|the|my|new|current)\s+(?:code|file|program|script))\b/i.test(
+    params.question,
+  );
 }
 
 function continuationFallbackStep(
@@ -1508,11 +1929,124 @@ function fallbackWalkthroughSteps(
     .map((body) => ({ body, path: null, line: null }));
 }
 
+function visibleDelimiterSyntaxDebug(
+  params: Pick<AIAskParams, "files" | "lastRun">,
+): {
+  summary: string;
+  diagnose: string;
+  explain: string;
+  checkQuestions: string[];
+  hint: string;
+  nextStep: string;
+  comprehensionCheck: string;
+  citation: NonNullable<TutorSections["citations"]>[number];
+} | null {
+  const stderr = params.lastRun?.stderr?.trim() ?? "";
+  if (
+    !/\b(?:SyntaxError|parse error)\b/i.test(stderr) ||
+    !/(?:\b(?:never closed|unmatched|unterminated|unexpected end)\b|\bexpected\s+['"]?[)\]}]['"]?)/i.test(stderr)
+  ) {
+    return null;
+  }
+
+  const reportedLine = Number(stderr.match(/(?:line\s+|:)(\d+)(?::\d+)?/i)?.[1]);
+  const fallback = visibleCodeCitation(params);
+  if (!fallback) return null;
+  const file = params.files.find((candidate) => {
+    const escaped = candidate.path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(?:^|[/\\\\])${escaped.replace(/^.*[/\\\\]/, "")}(?::|\"|$)`).test(stderr);
+  });
+  const line = Number.isInteger(reportedLine) && reportedLine > 0
+    ? reportedLine
+    : fallback.line;
+
+  return {
+    summary: "Python stopped while parsing the structure of the cited line.",
+    diagnose:
+      "The error message points to an unbalanced delimiter in the current expression, so Python cannot finish reading the statement.",
+    explain:
+      "Delimiters such as parentheses, brackets, braces, and quotes work in pairs. Python must be able to match those pairs before it can run the statement.",
+    checkQuestions: [
+      "Starting at the beginning of the cited line, which opening and closing symbols can you pair?",
+      "At what point does the delimiter balance stop returning to zero?",
+    ],
+    hint: "Count each delimiter type from left to right, keeping a small running balance for each kind.",
+    nextStep:
+      "Identify the first unmatched symbol on the cited line, make one structural correction, and run the program again.",
+    comprehensionCheck:
+      "Why does Python stop before executing a statement whose delimiters do not balance?",
+    citation: {
+      path: file?.path ?? fallback.path,
+      line,
+      column: null,
+      reason: "Visible line referenced by the parser error",
+    },
+  };
+}
+
+function walkthroughStepNeedsFallback(body: string): boolean {
+  const sentences = body
+    .split(/(?<=[.!?])\s+(?=[A-Z`])/)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+  return (
+    PRESCRIPTIVE_DELIMITER_EDIT.test(body) ||
+    sentences.length > 2 ||
+    body.length > 360 ||
+    /\n\s*(?:[-*•]|\d+[.)])\s+/.test(body)
+  );
+}
+
+function enforceWalkthroughStepContract(
+  steps: NonNullable<TutorSections["walkthrough"]>,
+  visibleFallback: NonNullable<TutorSections["walkthrough"]>,
+): NonNullable<TutorSections["walkthrough"]> {
+  const fallbackByLocation = new Map(
+    visibleFallback.map((step) => [`${step.path ?? ""}:${step.line ?? ""}`, step]),
+  );
+  return steps.flatMap((step) => {
+    if (!walkthroughStepNeedsFallback(step.body)) return [step];
+    const fallback = fallbackByLocation.get(`${step.path ?? ""}:${step.line ?? ""}`);
+    return fallback ? [fallback] : [];
+  });
+}
+
 function visibleExpressionIdentifiers(expression: string | undefined): string[] {
   if (!expression) return [];
   const withoutStrings = expression.replace(/(["'])(?:\\.|(?!\1).)*\1/g, " ");
   return [...new Set(withoutStrings.match(/\b[A-Za-z_$][\w$]*\b/g) ?? [])]
     .filter((name) => !["true", "false", "null", "undefined"].includes(name.toLowerCase()));
+}
+
+function expressionContainsVisibleText(expression: string | undefined): boolean {
+  if (!expression) return false;
+  return /(["'`])(?:\\.|(?!\1).)*\1/.test(expression);
+}
+
+function plusExpressionExplanation(
+  destination: string,
+  expression: string,
+): string {
+  const expressionNames = visibleExpressionIdentifiers(expression);
+  const namedValues = expressionNames.length > 0
+    ? `the current ${expressionNames.map((identifier) => `\`${identifier}\``).join(" and ")} value${expressionNames.length === 1 ? "" : "s"}`
+    : "the visible values";
+  return expressionContainsVisibleText(expression)
+    ? `\`${destination}\` stores new text combined from the visible text and ${namedValues}.`
+    : `\`${destination}\` stores the result of applying \`+\` to ${namedValues}.`;
+}
+
+function outputPlusExpressionExplanation(
+  expression: string,
+  outputAction: "logs" | "displays",
+): string {
+  const expressionNames = visibleExpressionIdentifiers(expression);
+  const namedValues = expressionNames.length > 0
+    ? `the current ${expressionNames.map((identifier) => `\`${identifier}\``).join(" and ")} value${expressionNames.length === 1 ? "" : "s"}`
+    : "the visible values";
+  return expressionContainsVisibleText(expression)
+    ? `This line combines visible text with ${namedValues}, then ${outputAction} the result${outputAction === "logs" ? " to the console" : ""}.`
+    : `This line applies \`+\` to ${namedValues}, then ${outputAction} the result${outputAction === "logs" ? " to the console" : ""}.`;
 }
 
 function visibleCodeWalkthroughSteps(
@@ -1568,8 +2102,6 @@ function visibleCodeWalkthroughSteps(
         /^print\s*\(\s*f["'][^"']*\{([A-Za-z_]\w*)[^}]*\}[^"']*["']\s*\)\s*$/,
       )?.[1];
       const pythonOutputExpression = line.match(/^print\s*\((.*)\)\s*$/)?.[1];
-      const consoleExpressionNames = visibleExpressionIdentifiers(consoleOutputExpression);
-      const pythonExpressionNames = visibleExpressionIdentifiers(pythonOutputExpression);
       const pythonFromImport = line.match(
         /^from\s+([A-Za-z_][\w.]*)\s+import\s+(.+)$/,
       );
@@ -1589,13 +2121,17 @@ function visibleCodeWalkthroughSteps(
       } else if (returned) {
         body = `This line returns \`${returned[1]}\` to the caller.`;
       } else if (consoleOutput) {
-        body = consoleOutputIdentifier
+        body = consoleOutputExpression == null
+          ? "This line starts a `console.log()` call, but its current expression is not structurally complete, so the program stops before it can display anything."
+          : consoleOutputIdentifier
           ? `This line logs the current \`${consoleOutputIdentifier}\` value to the console.`
-          : consoleOutputExpression?.includes("+") && consoleExpressionNames.length
-          ? `This line combines visible text with the current ${consoleExpressionNames.map((name) => `\`${name}\``).join(" and ")} value${consoleExpressionNames.length === 1 ? "" : "s"}, then logs the result to the console.`
+          : consoleOutputExpression?.includes("+")
+          ? outputPlusExpressionExplanation(consoleOutputExpression, "logs")
           : "This line logs the visible expression’s result to the console.";
       } else if (pythonOutput) {
-        body = pythonLengthOutputIdentifier
+        body = pythonOutputExpression == null
+          ? "This line starts a `print()` call, but its current expression is not structurally complete, so the program stops before it can display anything."
+          : pythonLengthOutputIdentifier
           ? `This line calls \`len(${pythonLengthOutputIdentifier})\` and displays the list’s length.`
           : pythonFormattedCall
           ? `This line computes and displays \`${pythonFormattedCall[1]}(${pythonFormattedCall[2].trim()})\`.`
@@ -1603,8 +2139,8 @@ function visibleCodeWalkthroughSteps(
           ? `This line displays the current \`${pythonOutputIdentifier}\` value.`
           : pythonFormattedIdentifier
           ? `This line displays the current \`${pythonFormattedIdentifier}\` value.`
-          : pythonOutputExpression?.includes("+") && pythonExpressionNames.length
-          ? `This line combines visible text with the current ${pythonExpressionNames.map((name) => `\`${name}\``).join(" and ")} value${pythonExpressionNames.length === 1 ? "" : "s"}, then displays the result.`
+          : pythonOutputExpression?.includes("+")
+          ? outputPlusExpressionExplanation(pythonOutputExpression, "displays")
           : "This line displays the visible expression’s result.";
       } else if (pythonFromImport) {
         const names = pythonFromImport[2]
@@ -1621,12 +2157,10 @@ function visibleCodeWalkthroughSteps(
       } else if (assignment) {
         const [, name, expression] = assignment;
         const called = expression.match(/^([A-Za-z_$][\w$]*)\s*\(/)?.[1];
-        const expressionNames = visibleExpressionIdentifiers(expression)
-          .filter((identifier) => identifier !== name);
         body = called
           ? `\`${name}\` receives the value returned by calling \`${called}\`.`
-          : expression.includes("+") && expressionNames.length
-          ? `\`${name}\` stores new text combined from the visible text and the current ${expressionNames.map((identifier) => `\`${identifier}\``).join(" and ")} value${expressionNames.length === 1 ? "" : "s"}.`
+          : expression.includes("+")
+          ? plusExpressionExplanation(name, expression)
           : `\`${name}\` stores the value computed by this expression.`;
       } else if (/^(?:if|elif|else\b|for|while)\b/.test(line)) {
         body = "This line controls which part of the visible flow runs next.";
@@ -1660,7 +2194,14 @@ function repairMisgroundedOutputClaims(
     const source = sourceByLocation.get(location) ?? "";
     const claimsOutput = /\b(?:prints?|printed|logs?|logged|displays?|displayed|outputs?|outputted)\b/i.test(step.body);
     const isOutputLine = /\b(?:print|console\.log)\s*\(/.test(source);
-    return claimsOutput && !isOutputLine
+    const claimsTextCombination =
+      /\b(?:text|string)\b/i.test(step.body) &&
+      /\b(?:combin(?:e|es|ed|ing)?|concat(?:enat(?:e|es|ed|ing|ion))?|join(?:s|ed|ing)?)\b/i.test(step.body);
+    const misclassifiesNonTextPlus =
+      source.includes("+") &&
+      !expressionContainsVisibleText(source) &&
+      claimsTextCombination;
+    return (claimsOutput && !isOutputLine) || misclassifiesNonTextPlus
       ? fallbackByLocation.get(location) ?? step
       : step;
   });
@@ -1814,24 +2355,136 @@ export function applyTutorOutputPolicy({
   intent: TutorIntent;
   priorTutorTurns: number;
 }): TutorSections {
+  const protectedRequestEarly = PROTECTED_REQUEST.test(params.question);
+  const abusiveRequestEarly = ABUSIVE_CONTENT_REQUEST.test(params.question);
+  const requiresHardBoundary = protectedRequestEarly || abusiveRequestEarly;
+  const requiredConversationReply = requiresHardBoundary
+    ? hardBoundaryReply({
+        protectedRequest: protectedRequestEarly,
+        abusiveRequest: abusiveRequestEarly,
+      })
+    : null;
+  if (!requiresHardBoundary && intent === "concept") {
+    const taskFollowUp = lessonTaskExplanationFollowUp(params);
+    if (taskFollowUp) return taskFollowUp;
+  }
+  if (!protectedRequestEarly && intent === "concept" && isTaskExplanationRequest(params.question)) {
+    const taskExplanation = lessonTaskExplanation(params);
+    if (taskExplanation) return taskExplanation;
+  }
+  const requestedLanguage = explicitLanguageMismatch(params);
+  if (requestedLanguage && !protectedRequestEarly) {
+    const currentLanguage = params.lessonContext?.language ?? "the current language";
+    return {
+      intent: "concept",
+      summary: `This lesson is using ${currentLanguage}, but your question is about ${requestedLanguage}.`,
+      explain:
+        `I don’t see ${requestedLanguage} code in the current workspace, so attaching that answer to a visible ${currentLanguage} line would be misleading.\n\n- Ask about the visible ${currentLanguage} lesson here.\n- Or switch to a ${requestedLanguage} workspace before asking about that code.`,
+      comprehensionCheck: `Which ${currentLanguage} concept or visible line would you like to work through?`,
+      citations: null,
+    };
+  }
+  if (
+    !protectedRequestEarly &&
+    CLEARLY_OFF_TOPIC_REQUEST.test(params.question) &&
+    !CODING_TOPIC.test(params.question)
+  ) {
+    return {
+      intent: "concept",
+      summary: "I’m not the best place for that request, but I’m happy to keep helping with what you’re learning here.",
+      explain:
+        "We can jump back in with:\n\n- The lesson instructions and goals.\n- The visible code and its output.\n- An error, debugging step, or coding concept.",
+      comprehensionCheck: "What would be most useful next: the lesson goal, a visible line, or the latest result?",
+      citations: null,
+    };
+  }
+  // Conversation moves are orthogonal to the server-selected teaching
+  // intent. A pure greeting can arrive while the task is at either the
+  // first-turn Socratic stage or a later concept/how-to stage, and it must
+  // remain a complete social turn in both cases. Once the model selects the
+  // structured greeting move, suppress every ambient teaching field. If its
+  // prose is missing or rejected by the output firewall, recover with a safe
+  // named/unnamed greeting rather than spending a learner turn on the generic
+  // evidence fallback.
+  if (!requiresHardBoundary && sections.conversationMove === "greeting") {
+    return {
+      intent,
+      conversationMove: "greeting",
+      conversationReply:
+        safeConversationReply(sections.conversationReply, params) ??
+        greetingRecovery(params.learnerName),
+      summary: null,
+      hint: null,
+      checkQuestions: null,
+      citations: null,
+    };
+  }
   if (intent === "socratic") {
-    // Fail closed to a deterministic current-work observation, a bounded clue,
-    // and one grounded question. A generic question by itself is not enough
-    // value to consume a learner's limited tutor allowance.
-    const grounded = EXPLICIT_HINT_REQUEST.test(params.question)
-      ? groundedGentleHint(params)
-      : socraticValue(params);
-    const { question, summary, hint, citations } = grounded;
+    // The system prompt owns the tutor's conversational response. This layer
+    // parses the structured fields and fails closed only when a field is
+    // missing or violates a hard output invariant. It must not replace valid
+    // model prose with phrase-specific canned conversation.
+    const conversationMove = requiresHardBoundary
+      ? "soft-boundary"
+      : sections.conversationMove ?? "none";
+    const conversationReply = requiredConversationReply ?? (
+      conversationMove !== "none"
+        ? safeConversationReply(sections.conversationReply, params)
+        : null
+    );
+    const collectionIterationGrounding = priorTutorTurns === 0
+      ? visibleCollectionIterationSocraticValue(params)
+      : null;
+    const directAnswerGrounding = directAnswerRequestSocraticValue(params);
+    const forcedGrounding = !!collectionIterationGrounding ||
+      !!directAnswerGrounding ||
+      EXPLICIT_HINT_REQUEST.test(params.question) ||
+      protectedRequestEarly ||
+      FINAL_VALUE_REQUEST.test(params.question);
+    const grounded = collectionIterationGrounding ?? directAnswerGrounding ?? (EXPLICIT_HINT_REQUEST.test(params.question)
+      ? STRONGER_HINT_REQUEST.test(params.question) && priorTutorTurns > 0
+        ? groundedStrongerHint(params)
+        : groundedGentleHint(params)
+      : socraticValue(params));
+    const modelSummary = meaningfulProse(sections.summary, params);
+    const modelHint = safeAction(sections.hint, params);
+    const modelQuestion = clarifyingQuestion(sections, params);
+    const replaceModelGuidance =
+      conversationMove === "clarify" ||
+      (!!sections.hint && !modelHint) ||
+      (!!sections.summary && !modelSummary) ||
+      (!!modelHint && (
+        PRESCRIPTIVE_SOCRATIC_HINT.test(modelHint) ||
+        GENERIC_SOCRATIC_HINT.test(modelHint)
+      )) ||
+      (!!modelSummary && (
+        ANSWER_BEARING_CLAIM.test(modelSummary) ||
+        META_SOCRATIC_SUMMARY.test(modelSummary)
+      ));
     return {
       intent: "socratic",
-      summary,
-      hint,
-      citations,
-      checkQuestions: [question ?? clarifyingQuestion(sections, params)],
+      conversationMove,
+      conversationReply: conversationMove === "clarify" ? null : conversationReply,
+      summary: forcedGrounding || replaceModelGuidance
+        ? grounded.summary
+        : modelSummary ?? grounded.summary,
+      hint: forcedGrounding || replaceModelGuidance
+        ? grounded.hint
+        : modelHint ?? grounded.hint,
+      citations: forcedGrounding || replaceModelGuidance
+        ? grounded.citations
+        : sections.citations?.length
+          ? sections.citations
+          : grounded.citations,
+      checkQuestions: [forcedGrounding || replaceModelGuidance
+        ? grounded.question ?? fallbackClarifyingQuestion(params)
+        : modelQuestion],
     };
   }
   if (intent === "howto" && EXPLICIT_HINT_REQUEST.test(params.question)) {
-    const value = groundedGentleHint(params);
+    const value = STRONGER_HINT_REQUEST.test(params.question) && priorTutorTurns > 0
+      ? groundedStrongerHint(params)
+      : groundedGentleHint(params);
     return {
       intent: "howto",
       summary: value.summary,
@@ -1841,16 +2494,26 @@ export function applyTutorOutputPolicy({
       citations: value.citations,
     };
   }
-  const protectedRequest = PROTECTED_REQUEST.test(params.question);
+  const protectedRequest = protectedRequestEarly;
   const fallbackCitation = visibleCodeCitation(params);
   const visibleIdentifier = firstVisibleIdentifier(params);
   const protectedSummary = /\b(?:system prompt|hidden (?:tests?|validator)|canary)\b/i.test(
     params.question,
   )
-    ? `I can’t provide system instructions or protected values, but I can explain the concept using ${visibleIdentifier ? `\`${visibleIdentifier}\`` : "the visible code"}.`
+    ? visibleIdentifier
+      ? `In the visible lesson, \`${visibleIdentifier}\` is the useful concept to work from.`
+      : "The visible lesson gives us enough evidence to keep working safely."
     : "I can’t provide the requested answer or protected information, but I can help you reason from the visible code.";
   const common: TutorSections = {
     intent,
+    conversationMove: requiresHardBoundary
+      ? "soft-boundary"
+      : sections.conversationMove ?? "none",
+    conversationReply: requiredConversationReply ?? (
+      sections.conversationMove && sections.conversationMove !== "none"
+        ? safeConversationReply(sections.conversationReply, params)
+        : null
+    ),
     summary: protectedRequest
       ? protectedSummary
       : meaningfulProse(sections.summary, params) ?? "Let’s use the current code as evidence.",
@@ -1870,12 +2533,15 @@ export function applyTutorOutputPolicy({
   };
 
   if (intent === "debug") {
+    const delimiterSyntax = visibleDelimiterSyntaxDebug(params);
     const singleListAddition = pythonSingleListAddition(params);
     const noOutput = visibleNoOutputDebug(params);
     return {
       ...common,
-      summary: noOutput?.summary ?? common.summary,
-      citations: noOutput
+      summary: delimiterSyntax?.summary ?? noOutput?.summary ?? common.summary,
+      citations: delimiterSyntax
+        ? [delimiterSyntax.citation]
+        : noOutput
         ? [noOutput.citation]
         : singleListAddition
         ? [{
@@ -1885,33 +2551,43 @@ export function applyTutorOutputPolicy({
             reason: "Non-standard list method with one visible item",
           }]
         : common.citations,
-      comprehensionCheck: noOutput
+      comprehensionCheck: delimiterSyntax
+        ? delimiterSyntax.comprehensionCheck
+        : noOutput
         ? noOutput.checkQuestion
         : singleListAddition
         ? "Which standard list operation adds one item rather than expanding a collection?"
         : common.comprehensionCheck,
-      diagnose: noOutput?.diagnose ?? (singleListAddition
+      diagnose: delimiterSyntax?.diagnose ?? noOutput?.diagnose ?? (singleListAddition
         ? `\`${singleListAddition.variable}\` is a list, and \`${singleListAddition.method}()\` is not a standard list method. The visible call passes one item.`
         : safeProse(sections.diagnose, params) ?? "The current result points to the cited area."),
-      explain: singleListAddition
+      explain: delimiterSyntax?.explain ?? (singleListAddition
         ? `The visible call adds one item to \`${singleListAddition.variable}\`. Python’s standard single-item list method is \`append()\`; compare that method name with \`${singleListAddition.method}()\` on the cited line.`
-        : safeProse(sections.explain, params),
-      checkQuestions: noOutput
+        : safeProse(sections.explain, params)),
+      checkQuestions: delimiterSyntax
+        ? delimiterSyntax.checkQuestions
+        : noOutput
         ? [noOutput.checkQuestion]
         : singleListAddition
         ? ["Are you adding one item, or expanding an existing collection?"]
         : sections.checkQuestions?.map((item) => safeAction(item, params)!).filter(Boolean) ?? null,
-      hint: noOutput?.hint ?? (singleListAddition
+      hint: delimiterSyntax?.hint ?? noOutput?.hint ?? (singleListAddition
         ? "Compare the standard single-item method with the method on the cited line."
         : safeAction(sections.hint, params)),
       nextStep:
-        (noOutput?.nextStep ?? (singleListAddition
+        (delimiterSyntax?.nextStep ?? noOutput?.nextStep ?? (singleListAddition
           ? "Change only the method name on the cited line, then run the code again."
           : safeAction(sections.nextStep, params))) ??
         "Inspect the cited line, make one small change, and run it again.",
       strongerHint:
-        priorTutorTurns > 0 ? safeAction(sections.strongerHint, params) : null,
-      pitfalls: singleListAddition ? null : safeAction(sections.pitfalls, params),
+        delimiterSyntax
+          ? null
+          : priorTutorTurns > 0
+            ? safeAction(sections.strongerHint, params)
+            : null,
+      pitfalls: delimiterSyntax || singleListAddition
+        ? null
+        : safeAction(sections.pitfalls, params),
     };
   }
   if (intent === "howto") {
@@ -1920,6 +2596,12 @@ export function applyTutorOutputPolicy({
     const collectionHowto = visibleCollectionHowto(params);
     return {
       ...common,
+      // A source-grounded collection correction replaces the model turn as a
+      // unit. Keeping optional model fields here can repeat or accidentally
+      // endorse the learner's fabricated API even when the canonical
+      // explanation itself is safe.
+      conversationMove: collectionHowto ? "none" : common.conversationMove,
+      conversationReply: collectionHowto ? null : common.conversationReply,
       summary: rangeHowto?.summary ?? collectionHowto?.summary ?? common.summary,
       citations: inputHowto
         ? [inputHowto.citation]
@@ -1933,6 +2615,10 @@ export function applyTutorOutputPolicy({
         rangeHowto?.explain ??
         collectionHowto?.explain ??
         safeProse(sections.explain, params),
+      diagnose: collectionHowto ? null : common.diagnose,
+      example: collectionHowto ? null : common.example,
+      comprehensionCheck: collectionHowto ? null : common.comprehensionCheck,
+      checkQuestions: collectionHowto ? null : common.checkQuestions,
       hint: collectionHowto?.hint ?? safeAction(sections.hint, params),
       nextStep:
         inputHowto?.nextStep ??
@@ -1942,15 +2628,40 @@ export function applyTutorOutputPolicy({
           ? "Implement only the first behavior the task asks for, then run it and describe the value or output you observe before adding the next part."
           : safeAction(sections.nextStep, params)) ??
         "Choose the first small change in the cited file, then run it before adding more.",
-      pitfalls: safeAction(sections.pitfalls, params),
+      strongerHint: collectionHowto ? null : common.strongerHint,
+      pitfalls: collectionHowto ? null : safeAction(sections.pitfalls, params),
     };
   }
   if (intent === "walkthrough") {
+    const visibleSteps = visibleCodeWalkthroughSteps(params);
+    if (visibleSteps.length === 0 && params.lessonContext?.lessonObjectives.length) {
+      const objectives = params.lessonContext.lessonObjectives
+        .map((objective) => objective.trim().replace(/[.!]+$/, ""))
+        .filter(Boolean)
+        .slice(0, 5);
+      const roleForObjective = (index: number): string => index === 0
+        ? "defines the first outcome to work toward"
+        : index === objectives.length - 1
+          ? "is the understanding to carry forward after the run"
+          : "connects the action to a result you can observe";
+      return {
+        intent: "walkthrough",
+        summary: "There is no executable statement to trace yet, so the useful walkthrough is the lesson’s build-and-observe sequence.",
+        walkthrough: objectives.map((objective, index) => ({
+          body: `**${objective}** — ${roleForObjective(index)}.`,
+          path: null,
+          line: null,
+        })),
+        nextStep: "Choose one result you expect the program to show, add only the smallest statement needed for that first result, and run it once.",
+        comprehensionCheck: "What visible result do you predict before the first run?",
+        citations: null,
+      };
+    }
     const conditionalWalkthrough = visiblePythonConditionalWalkthrough(params);
     const sourceSteps = conditionalWalkthrough ?? (sections.walkthrough?.length
       ? sections.walkthrough
       : fallbackWalkthroughSteps(sections, params));
-    const modelGrounded = groundedWalkthrough(
+    const modelGroundedBeforeContract = groundedWalkthrough(
       splitMultiLineWalkthroughSteps(
         sourceSteps.flatMap((step) => {
           const body = meaningfulProse(step.body, params);
@@ -1960,16 +2671,31 @@ export function applyTutorOutputPolicy({
       ),
       params,
     );
-    const visibleSteps = visibleCodeWalkthroughSteps(params);
     const visibleFallback = visibleSteps.length <= 6
       ? visibleSteps
       : [...visibleSteps.slice(0, 5), visibleSteps.at(-1)!];
+    const modelGrounded = enforceWalkthroughStepContract(
+      modelGroundedBeforeContract,
+      visibleSteps,
+    );
+    const unsafeModelWalkthrough = sourceSteps.some((step) =>
+      walkthroughStepNeedsFallback(step.body)
+    );
+    const continuation = requestedWalkthroughStart(params);
+    const completeShortWalkthrough = requestsWholeProgramWalkthrough(params) &&
+        visibleSteps.length <= 6
+      ? visibleSteps.map((visibleStep) =>
+          modelGrounded.find((modelStep) =>
+            modelStep.path === visibleStep.path && modelStep.line === visibleStep.line
+          ) ?? visibleStep
+        )
+      : null;
     // A deterministic conditional walkthrough already ends at the branch
     // that actually runs. Appending the file's final visible line would teach
     // an unreachable `else` body as if it executes next.
     const grounded = conditionalWalkthrough
       ? modelGrounded
-      : ensureRepresentativeLongWalkthrough(
+      : completeShortWalkthrough ?? ensureRepresentativeLongWalkthrough(
           ensureKeyDataFlowCoverage(
             ensureTerminalWalkthroughCoverage(modelGrounded, visibleFallback),
             visibleSteps,
@@ -1982,7 +2708,6 @@ export function applyTutorOutputPolicy({
       visibleSteps,
       params,
     );
-    const continuation = requestedWalkthroughStart(params);
     const continued = continuation
       ? repairedGrounded.filter((step) =>
           step.path === continuation.path &&
@@ -2000,7 +2725,9 @@ export function applyTutorOutputPolicy({
       ...common,
       summary: containsInstructionComment
         ? "I’ll ignore instruction-like comments and focus only on the executable behavior."
-        : modelGrounded.length === 0
+        : modelGrounded.length === 0 ||
+            unsafeModelWalkthrough ||
+            PRESCRIPTIVE_DELIMITER_EDIT.test(common.summary ?? "")
           ? "Let’s walk through the current code one visible step at a time."
           : common.summary,
       citations: walkthrough
@@ -2012,10 +2739,9 @@ export function applyTutorOutputPolicy({
           reason: step.body.slice(0, 120),
         })),
       walkthrough,
-      comprehensionCheck: groundComprehensionLine(
-        common.comprehensionCheck,
-        params,
-      ),
+      comprehensionCheck: unsafeModelWalkthrough
+        ? "What structural detail prevents the current line from completing its visible operation?"
+        : groundComprehensionLine(common.comprehensionCheck, params),
       // Pitfalls are not a walkthrough field. Dropping them also prevents a
       // model aside from competing with the grounded ordered explanation.
       pitfalls: null,
@@ -2071,16 +2797,52 @@ export function applyTutorOutputPolicy({
       pitfalls: safeAction(sections.pitfalls, params),
     };
   }
+  const delimiterSyntax = visibleDelimiterSyntaxDebug(params);
+  const isGenericDelimiterFollowUp = delimiterSyntax &&
+    /\b(?:explain (?:that|this)|(?:that|this) in more detail|concrete example of (?:that|this)|why does (?:this|that|it) matter|idk|i don'?t know|confus\w*|help(?: me)?(?: pls| please)?|what(?:'s| is) going on)\b/i.test(
+      params.question,
+    );
+  if ((isGenericDelimiterFollowUp || protectedRequest) && delimiterSyntax) {
+    const asksForConcreteExample = /\bconcrete example\b/i.test(params.question);
+    const asksWhyItMatters = /\bwhy does (?:this|that|it) matter\b/i.test(params.question);
+    return {
+      ...common,
+      intent: "concept",
+      summary: protectedRequest ? protectedSummary : delimiterSyntax.summary,
+      citations: [delimiterSyntax.citation],
+      explain: asksWhyItMatters
+        ? "Paired delimiters matter because:\n\n- They define where an expression starts and ends.\n- The parser needs those boundaries before it can understand the operation.\n- Execution cannot begin while the structure is ambiguous."
+        : "Read the parser error as a structural signal:\n\n- Each opening delimiter increases a running balance.\n- Its matching closing delimiter decreases that balance.\n- A complete expression returns every delimiter balance to zero.",
+      example: asksForConcreteExample
+        ? "On the cited line, the running delimiter balance rises above zero and does not return to zero before the line ends. That observable imbalance is the concrete example to investigate."
+        : null,
+      comprehensionCheck: asksWhyItMatters
+        ? "Why must Python know where an expression ends before it can execute the operation?"
+        : "Which delimiter balance remains above zero when you trace the cited line from left to right?",
+      pitfalls: null,
+    };
+  }
   const conditional = visibleConditionalChain(params);
   const constBinding = visibleJsConstBinding(params);
   const listSortCorrection = visiblePythonListSortCorrection(params);
   const anchor = visibleConceptAnchor(params);
   const asksForConcreteExample = /\bconcrete example\b/i.test(params.question);
+  const starterOutputComment = visibleStarterOutputComment(params);
+  const starterCommentConcrete = asksForConcreteExample ? starterOutputComment : null;
   const asksWhyItMatters = /\bwhy (?:does )?(?:this|that|it) matter\b|\bwhy it matters\b/i.test(params.question);
-  const citationExplanation = sections.citations
+  const citationLabels = sections.citations
     ?.map((citation) => meaningfulProse(citation.reason, params))
-    .filter((reason): reason is string => !!reason)
-    .sort((a, b) => b.length - a.length)[0];
+    .filter((reason): reason is string => !!reason) ?? [];
+  const modelExplanation = meaningfulProse(sections.explain, params);
+  const modelExplanationIsCitationLabel = modelExplanation
+    ? citationLabels.some((label) =>
+        label.trim().toLocaleLowerCase().replace(/[.!?]+$/, "") ===
+        modelExplanation.trim().toLocaleLowerCase().replace(/[.!?]+$/, "")
+      )
+    : false;
+  const citationExplanation = citationLabels
+    .filter((label) => label.length >= 48 && (label.match(/[A-Za-z]+/g)?.length ?? 0) >= 8)
+    .sort((a, b) => b.length - a.length)[0] ?? null;
   const conceptCheck = conditional
     ? "With the current visible value, which branch do you predict will run first?"
     : constBinding
@@ -2095,6 +2857,9 @@ export function applyTutorOutputPolicy({
     summary:
       listSortCorrection?.summary ??
       constBinding?.summary ??
+      (starterCommentConcrete
+        ? "The current file contains guidance comments, but no executable example yet."
+        : null) ??
       common.summary,
     citations:
       listSortCorrection
@@ -2103,6 +2868,13 @@ export function applyTutorOutputPolicy({
         ? [conditional.citation]
         : constBinding
           ? [constBinding.citation]
+        : starterCommentConcrete
+          ? [{
+              path: starterCommentConcrete.path,
+              line: starterCommentConcrete.line,
+              column: null,
+              reason: `Starter comment identifies ${starterCommentConcrete.call}() as the output operation`,
+            }]
         : common.citations?.length
         ? common.citations
         : anchor
@@ -2112,7 +2884,13 @@ export function applyTutorOutputPolicy({
       listSortCorrection?.explain ??
       conditional?.explain ??
       constBinding?.explain ??
-      meaningfulProse(sections.explain, params) ??
+      (starterCommentConcrete
+        ? `The cited line is a comment, so it describes \`${starterCommentConcrete.call}()\` but does not execute. The useful example starts with the first executable output statement and the result the learner observes from running it.`
+        : null) ??
+      (modelExplanationIsCitationLabel ? null : modelExplanation) ??
+      (starterOutputComment
+        ? `The cited line is guidance, not executable code. It points to \`${starterOutputComment.call}()\` as the operation that will display the learner’s chosen text after they add an output statement beneath the comments.`
+        : null) ??
       citationExplanation ??
       (asksWhyItMatters
         ? "This matters because the cited line controls behavior the learner can observe on the next run. Being able to predict that line is what makes later debugging changes deliberate instead of guesswork."
@@ -2130,6 +2908,8 @@ export function applyTutorOutputPolicy({
     comprehensionCheck:
       conditional || constBinding || listSortCorrection
         ? conceptCheck
+        : starterCommentConcrete
+          ? "What exact message do you predict your first executable output statement should display?"
         : common.comprehensionCheck ?? conceptCheck,
     // Concept turns stay to three teaching beats: observation, explanation,
     // and one prediction/check. Extra examples are opt-in and pitfalls are
@@ -2149,6 +2929,7 @@ export function hasTutorTeachingValue(
   params: Pick<TutorPolicyParams, "question" | "files" | "lessonContext" | "lastRun">,
 ): boolean {
   const text = [
+    sections.conversationReply,
     sections.summary,
     sections.diagnose,
     sections.explain,
@@ -2161,6 +2942,18 @@ export function hasTutorTeachingValue(
     ...(sections.walkthrough ?? []).map((step) => step.body),
   ].filter((item): item is string => typeof item === "string" && item.trim().length > 0);
   if (text.length === 0) return false;
+
+  // Conversation moves are orthogonal to the server-selected teaching
+  // intent. A greeting remains a useful, complete turn whether it arrives at
+  // the initial Socratic stage or after progression selected concept/how-to.
+  // Requiring a teaching field for later-stage greetings caused a valid model
+  // response to be discarded and replaced with an irrelevant code fallback.
+  if (sections.conversationMove === "greeting") {
+    return Boolean(
+      sections.conversationReply?.trim() &&
+      sections.conversationReply.trim().length >= 12
+    );
+  }
 
   const anchored = Boolean(
     sections.citations?.length ||

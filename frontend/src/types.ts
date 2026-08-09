@@ -90,6 +90,8 @@ export interface TutorWalkStep {
 // classified `intent` and leaves the rest null.
 export interface TutorSections {
   intent?: TutorIntent | null;
+  conversationMove?: "none" | "greeting" | "clarify" | "soft-boundary" | null;
+  conversationReply?: string | null;
   summary?: string | null;
   diagnose?: string | null;
   explain?: string | null;

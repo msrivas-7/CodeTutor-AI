@@ -20,6 +20,20 @@ import type { EditorSelection, ProjectFile, AIMessage } from "../types";
 import { computeDiffSinceLast } from "./diffSinceLast";
 import { parsePartialTutor } from "./partialJson";
 
+export const PLATFORM_TUTOR_MODEL = "gpt-5.6-luna";
+
+export function tutorRequestModel({
+  selectedModel,
+  onPlatform,
+  isAnon,
+}: {
+  selectedModel: string | null;
+  onPlatform: boolean;
+  isAnon: boolean;
+}): string | null {
+  return onPlatform || isAnon ? PLATFORM_TUTOR_MODEL : selectedModel;
+}
+
 // Shape passed to each panel's buildBody callback. The hook owns the
 // snapshot/diff/history lifecycle and hands the caller exactly the values it
 // needs to compose a request body — the caller is responsible only for the
@@ -159,6 +173,17 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
       if (!isAnon && aiStatus?.source === "platform") invalidateAIStatus();
     });
   }, [aiStatus?.source, isAnon]);
+  // Quota/status hydration is allowed to finish while a tutor request is in
+  // flight. Keep the latest refund implementation available without making
+  // its changing identity look like a project-context change: when
+  // /ai-status resolves after the learner presses Ask, `aiStatus.source`
+  // changes and therefore recreates the callback above. Depending on that
+  // callback in the invalidation effect used to abort a perfectly current
+  // answer with the misleading "Code changed" recovery card.
+  const refundDiscardedRequestRef = useRef(refundDiscardedRequest);
+  useEffect(() => {
+    refundDiscardedRequestRef.current = refundDiscardedRequest;
+  }, [refundDiscardedRequest]);
 
   // An edit or context switch makes every in-flight tutor chunk stale. Abort
   // promptly to avoid spending tokens on a response that is no longer allowed
@@ -169,7 +194,7 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
     setAskError("TUTOR_CONTEXT_CHANGED");
     const requestId = activeRequestIdRef.current;
     activeRequestIdRef.current = null;
-    if (requestId) refundDiscardedRequest(requestId);
+    if (requestId) refundDiscardedRequestRef.current(requestId);
     abortRef.current.abort();
   }, [
     projectRevision,
@@ -177,19 +202,19 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
     chatContext,
     inputRevision,
     conversationRevision,
-    refundDiscardedRequest,
     setAskError,
   ]);
 
-  // Platform (free-tier) users have no BYOK key and no selectedModel — the
-  // backend picks `gpt-4.1-nano` for them. Mirror the panel-level gate here
-  // so submitAsk doesn't early-return for every platform user.
+  // Platform (free-tier) users do not need a BYOK model. An older account may
+  // still carry a persisted selection, but the backend owns the funded model.
+  // Mirror the panel-level gate here so submitAsk cannot early-return.
   // Anon: always configured. The /api/anon/ai/ask/stream endpoint accepts
   // unauthenticated callers (subject to the L_anon per-IP cap); there's no
   // BYOK / selectedModel concept for anon, and we must NOT early-return
   // submitAsk on isAnon paths.
   const onPlatform = !hasKey && aiStatus?.source === "platform";
   const configured = isAnon || onPlatform || (hasKey && !!selectedModel);
+  const effectiveModel = tutorRequestModel({ selectedModel, onPlatform, isAnon });
 
   const submitAsk = async (
     question: string,
@@ -279,14 +304,19 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
       // calls submitAsk again with a fresh UUID.
       const requestId = crypto.randomUUID();
       activeRequestIdRef.current = requestId;
-      const body: AskStreamRequest = {
-        ...opts.buildBody({
+      const requestedBody = opts.buildBody({
           question: trimmed,
           files,
           diffSinceLastTurn,
           historyForSend,
           selection: selectionForTurn,
-        }),
+        });
+      const body: AskStreamRequest = {
+        ...requestedBody,
+        // Platform funding owns its model. Normalize at the shared transport
+        // boundary as well as in each panel so a stale persisted BYOK model
+        // can never leak into an anonymous or platform-funded request.
+        model: effectiveModel ?? requestedBody.model,
         requestId,
         tutorProgressToken: tutorProgressToken ?? undefined,
         evalSamplingConsent: isAnon

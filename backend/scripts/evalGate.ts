@@ -1,6 +1,7 @@
-export const EVAL_DATASET_VERSION = "2.4.0";
-export const EVAL_EVALUATOR_VERSION = "2.12.0";
-export const EXPECTED_EVAL_CASE_COUNT = 60;
+export const EVAL_DATASET_VERSION = "2.7.0";
+export const EVAL_EVALUATOR_VERSION = "2.13.0";
+export const EXPECTED_EVAL_CASE_COUNT = 66;
+export const EXPECTED_EVAL_CASES_PER_INTENT = 11;
 export const REQUIRED_EVAL_TAGS = [
   "multi-turn",
   "stale-context",
@@ -117,8 +118,13 @@ export function evaluateGate(
     reasons.push("gate requires the complete versioned dataset; cases are missing or duplicated");
   }
   for (const intent of EVAL_INTENTS) {
-    if (summary.results.filter((result) => result.intent === intent).length !== 10) {
-      reasons.push(`gate requires exactly 10 ${intent} cases`);
+    if (
+      summary.results.filter((result) => result.intent === intent).length !==
+      EXPECTED_EVAL_CASES_PER_INTENT
+    ) {
+      reasons.push(
+        `gate requires exactly ${EXPECTED_EVAL_CASES_PER_INTENT} ${intent} cases`,
+      );
     }
   }
   if (summary.tutorModel !== baseline.approvedModel) {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { HOUSE_EASE } from "./cinema/easing";
 import { api, type OwnerShare } from "../api/client";
@@ -16,6 +16,7 @@ import type { Persona } from "../types";
 import { useThemePref, type ThemePref } from "../util/theme";
 import { DeleteAccountModal } from "./DeleteAccountModal";
 import { useAIStatus } from "../state/useAIStatus";
+import { locationReplayReturnTarget } from "../auth/returnTarget";
 
 // Phase 24A: tab structure simplified to three user-facing surfaces.
 // "AI" → "Tutor" (the word a beginner uses when they think about this
@@ -950,6 +951,7 @@ function AccountTab({
   }) => void;
 }) {
   const nav = useNavigate();
+  const location = useLocation();
 
   const [showDelete, setShowDelete] = useState(false);
   const [replaying, setReplaying] = useState(false);
@@ -958,10 +960,14 @@ function AccountTab({
     // Replay is presentation-only. Resetting welcome/coach preferences here
     // made an innocent "watch again" action enter the destructive first-run
     // lesson path and overwrite real work. The explicit replay route returns
-    // to Start without changing any learner state.
+    // to the current internal page without changing any learner state.
     setReplaying(true);
     onClose?.();
-    nav("/welcome?replay=1");
+    const params = new URLSearchParams({
+      replay: "1",
+      returnTo: locationReplayReturnTarget(location),
+    });
+    nav(`/welcome?${params.toString()}`);
   };
 
   return (
@@ -1376,6 +1382,14 @@ function DataExportSection() {
   const [exporting, setExporting] = useState(false);
   const [exportErr, setExportErr] = useState<string | null>(null);
   const [exportSuccess, setExportSuccess] = useState<string | null>(null);
+  const downloadButtonRef = useRef<HTMLButtonElement>(null);
+  const restoreDownloadFocusRef = useRef(false);
+
+  useEffect(() => {
+    if (exporting || !restoreDownloadFocusRef.current) return;
+    restoreDownloadFocusRef.current = false;
+    downloadButtonRef.current?.focus({ preventScroll: true });
+  }, [exporting]);
 
   const handleDownloadData = async () => {
     setExportErr(null);
@@ -1388,6 +1402,7 @@ function DataExportSection() {
     } catch (e) {
       setExportErr((e as Error).message);
     } finally {
+      restoreDownloadFocusRef.current = true;
       setExporting(false);
     }
   };
@@ -1413,6 +1428,7 @@ function DataExportSection() {
         </div>
       )}
       <button
+        ref={downloadButtonRef}
         type="button"
         onClick={handleDownloadData}
         disabled={exporting}

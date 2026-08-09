@@ -156,6 +156,104 @@ describe("detectSuspectApis — JavaScript", () => {
     })).toEqual([]);
   });
 
+  it("accepts a fabricated call named once as an example of a non-existent method", () => {
+    expect(detectSuspectApis({
+      responseText: "Avoid non-existent methods like `printAll()`.",
+      userFiles: [{ path: "index.js", content: "const values = [1, 2, 3];" }],
+      userQuestion: "Is array.printAll() how I show each value?",
+      language: "javascript",
+    })).toEqual([]);
+  });
+
+  it("accepts a fabricated call rejected through a do-not-assume warning", () => {
+    expect(detectSuspectApis({
+      responseText:
+        "Don't assume custom methods like `printAll()` exist unless you've defined them.",
+      userFiles: [{ path: "index.js", content: "const values = [1, 2, 3];" }],
+      userQuestion: "Is array.printAll() how I show each value?",
+      language: "javascript",
+    })).toEqual([]);
+  });
+
+  it("accepts a fabricated call rejected through an avoid-assuming warning", () => {
+    expect(detectSuspectApis({
+      responseText:
+        "Avoid assuming arrays have a method like `printAll()`; use a loop or a standard iteration method instead.",
+      userFiles: [{ path: "index.js", content: "const values = [1, 2, 3];" }],
+      userQuestion: "Is array.printAll() how I show each value?",
+      language: "javascript",
+    })).toEqual([]);
+  });
+
+  it("still flags an invented call when avoid-assuming language does not reject it", () => {
+    expect(detectSuspectApis({
+      responseText:
+        "Avoid assuming the setup is complete; call `printAll()` after the data loads.",
+      userFiles: [{ path: "index.js", content: "const values = [1, 2, 3];" }],
+      userQuestion: "How do I show each value?",
+      language: "javascript",
+    })).toEqual(["printAll"]);
+  });
+
+  it("accepts a fabricated call rejected through an avoid-calling warning", () => {
+    expect(detectSuspectApis({
+      responseText:
+        "Avoid trying to call `printAll()` directly on an array, as it is not a standard JavaScript method.",
+      userFiles: [{ path: "index.js", content: "const values = [1, 2, 3];" }],
+      userQuestion: "Is array.printAll() how I show each value?",
+      language: "javascript",
+    })).toEqual([]);
+  });
+
+  it("still flags an invented call when an avoid instruction precedes an endorsement", () => {
+    expect(detectSuspectApis({
+      responseText:
+        "Avoid unnecessary delay; call `printAll()` after loading because it is a standard helper.",
+      userFiles: [{ path: "index.js", content: "const values = [1, 2, 3];" }],
+      userQuestion: "How do I show each value?",
+      language: "javascript",
+    })).toEqual(["printAll"]);
+  });
+
+  it("accepts a comprehension check that challenges why a fabricated call fails", () => {
+    expect(detectSuspectApis({
+      responseText:
+        "Can you explain why `printAll()` doesn't work as an array method in JavaScript?",
+      userFiles: [{ path: "index.js", content: "const values = [1, 2, 3];" }],
+      userQuestion: "Is array.printAll() how I show each value?",
+      language: "javascript",
+    })).toEqual([]);
+  });
+
+  it("accepts a common-mistake warning that rejects a fabricated built-in", () => {
+    expect(detectSuspectApis({
+      responseText:
+        "A common mistake is expecting `printAll()` to be a built-in method; it is not.",
+      userFiles: [{ path: "index.js", content: "const values = [1, 2, 3];" }],
+      userQuestion: "Is array.printAll() how I show each value?",
+      language: "javascript",
+    })).toEqual([]);
+  });
+
+  it("still flags a merely unfinished fabricated call", () => {
+    expect(detectSuspectApis({
+      responseText:
+        "The problem is expecting `printAll()` to work before setup; call it after loading.",
+      userFiles: [{ path: "index.js", content: "const values = [1, 2, 3];" }],
+      userQuestion: "How do I show each value?",
+      language: "javascript",
+    })).toEqual(["printAll"]);
+  });
+
+  it("still flags an invented call in a positive do-not-forget instruction", () => {
+    expect(detectSuspectApis({
+      responseText: "Don't forget to call `printAll()` before you finish.",
+      userFiles: [{ path: "index.js", content: "const values = [1, 2, 3];" }],
+      userQuestion: "How do I show each value?",
+      language: "javascript",
+    })).toEqual(["printAll"]);
+  });
+
   it("still flags a fabricated method when another sentence endorses it", () => {
     expect(detectSuspectApis({
       responseText:

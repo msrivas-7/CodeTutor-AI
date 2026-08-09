@@ -13,6 +13,7 @@ import {
 } from "./prompts/renderContext.js";
 import { TUTOR_RESPONSE_SCHEMA } from "./prompts/schema.js";
 import { SUMMARIZE_SYSTEM_PROMPT, buildSummarizeInput } from "./prompts/summarize.js";
+import { buildLearnerProfileBlock } from "./prompts/learnerProfile.js";
 
 export { studentSeemsStuck, TUTOR_RESPONSE_SCHEMA, SUMMARIZE_SYSTEM_PROMPT, buildSummarizeInput };
 
@@ -21,6 +22,7 @@ export interface SystemPromptOptions {
   editsSinceLastTurn?: number;
   persona?: Persona;
   tutorStage?: TutorStage;
+  learnerName?: string | null;
 }
 
 export function buildSystemPrompt(
@@ -36,7 +38,12 @@ export function buildSystemPrompt(
     tutorStage: opts.tutorStage,
   });
   const personaBlock = opts.persona ? PERSONA_BLOCK[opts.persona] : null;
-  return [TUTOR_CORE_PROMPT, situation, personaBlock].filter(Boolean).join("\n\n");
+  return [
+    TUTOR_CORE_PROMPT,
+    situation,
+    buildLearnerProfileBlock(opts.learnerName),
+    personaBlock,
+  ].filter(Boolean).join("\n\n");
 }
 
 export interface BuildUserTurnParams {

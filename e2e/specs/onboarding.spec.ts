@@ -153,11 +153,24 @@ test.describe("onboarding", () => {
 
     const gotIt = page.getByRole("button", { name: /^got it$/i });
     await expect(gotIt).toBeVisible({ timeout: AUTO_OPEN_MS + 5_000 });
-    for (let step = 0; step < 6; step += 1) {
+    for (let step = 0; step < 5; step += 1) {
       await gotIt.click();
     }
+    const focusWhenTourLeaves = page.evaluate(() => new Promise<string>((resolve) => {
+      const observer = new MutationObserver(() => {
+        const tourStillOpen = [...document.querySelectorAll("button")]
+          .some((button) => button.textContent?.trim() === "Skip tour");
+        if (tourStillOpen) return;
+        const active = document.activeElement as HTMLElement | null;
+        observer.disconnect();
+        resolve(active?.getAttribute("aria-label") ?? active?.tagName ?? "none");
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+    }));
+    await gotIt.click();
 
     await expect(page.getByRole("button", { name: /^skip tour$/i })).toHaveCount(0);
+    expect(await focusWhenTourLeaves).toMatch(/ask the tutor/i);
     await expect(page.getByRole("textbox", { name: /ask the tutor/i })).toBeFocused();
   });
 
@@ -168,9 +181,21 @@ test.describe("onboarding", () => {
 
     const skipTour = page.getByRole("button", { name: /^skip tour$/i });
     await expect(skipTour).toBeVisible({ timeout: AUTO_OPEN_MS + 5_000 });
+    const focusWhenTourLeaves = page.evaluate(() => new Promise<string>((resolve) => {
+      const observer = new MutationObserver(() => {
+        const tourStillOpen = [...document.querySelectorAll("button")]
+          .some((button) => button.textContent?.trim() === "Skip tour");
+        if (tourStillOpen) return;
+        const active = document.activeElement as HTMLElement | null;
+        observer.disconnect();
+        resolve(active?.textContent?.trim() ?? active?.tagName ?? "none");
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+    }));
     await skipTour.click();
 
     await expect(skipTour).toHaveCount(0);
+    expect(await focusWhenTourLeaves).toBe("Editor");
     await expect(page.getByRole("heading", { name: "Editor", exact: true })).toBeFocused();
   });
 

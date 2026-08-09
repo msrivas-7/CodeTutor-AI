@@ -58,6 +58,8 @@ export interface TutorWalkStep {
 // null. The UI renders only non-null fields, in an intent-aware order.
 export interface TutorSections {
   intent?: TutorIntent | null;
+  conversationMove?: "none" | "greeting" | "clarify" | "soft-boundary" | null;
+  conversationReply?: string | null;
   summary?: string | null;
   diagnose?: string | null;
   explain?: string | null;
@@ -129,6 +131,9 @@ export interface AIAskParams {
   // much prior knowledge the tutor assumes. Omitted → model uses its default
   // (a reasonable middle ground).
   persona?: Persona;
+  // Optional presentation-only first name from sanitized auth metadata.
+  // Never use it for authorization, ownership, quota, or model routing.
+  learnerName?: string | null;
   // Phase 5 — optional span of the editor the student wants the tutor to
   // focus on (captured via Cmd+K in Monaco).
   selection?: EditorSelection | null;

@@ -15,7 +15,10 @@ export function FileTree({ onCollapse }: { onCollapse?: () => void }) {
   const [renameValue, setRenameValue] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const [deleteFocusPath, setDeleteFocusPath] = useState<string | null>(null);
   const fileButtonRefs = useRef(new Map<string, HTMLButtonElement>());
+  const newFileButtonRef = useRef<HTMLButtonElement>(null);
+  const deleteReturnFocusRef = useRef<HTMLElement | null>(null);
 
   const entrypoint = LANGUAGE_ENTRYPOINT[language];
 
@@ -71,6 +74,7 @@ export function FileTree({ onCollapse }: { onCollapse?: () => void }) {
             <span aria-hidden="true">?</span>
           </button>
           <button
+            ref={newFileButtonRef}
             title="New file"
             aria-label="New file"
             onClick={() => {
@@ -166,17 +170,26 @@ export function FileTree({ onCollapse }: { onCollapse?: () => void }) {
                   </span>
                 )}
                 <button
-                  onClick={() => {
+                  onClick={(event) => {
                     if (order.length <= 1) {
                       setErr("Keep at least one file — it's the entrypoint.");
                       return;
                     }
                     setErr(null);
+                    setDeleteFocusPath(p);
+                    deleteReturnFocusRef.current = event.currentTarget;
                     setPendingDelete(p);
+                  }}
+                  onBlur={() => {
+                    if (!pendingDelete) setDeleteFocusPath(null);
                   }}
                   title={`Delete ${p}`}
                   aria-label={`Delete ${p}`}
-                  className="ml-0.5 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted transition hover:bg-danger/20 hover:text-danger focus:outline-none focus-visible:ring-2 focus-visible:ring-danger md:hidden md:group-hover:inline-flex md:group-focus-within:inline-flex"
+                  className={`ml-0.5 h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted transition hover:bg-danger/20 hover:text-danger focus:outline-none focus-visible:ring-2 focus-visible:ring-danger ${
+                    deleteFocusPath === p
+                      ? "inline-flex"
+                      : "inline-flex md:hidden md:group-hover:inline-flex md:group-focus-within:inline-flex"
+                  }`}
                 >
                   ✕
                 </button>
@@ -215,6 +228,7 @@ export function FileTree({ onCollapse }: { onCollapse?: () => void }) {
       {pendingDelete && (
         <Modal
           onClose={() => setPendingDelete(null)}
+          returnFocusRef={deleteReturnFocusRef}
           role="alertdialog"
           labelledBy="delete-file-title"
           position="center"
@@ -237,11 +251,12 @@ export function FileTree({ onCollapse }: { onCollapse?: () => void }) {
               onClick={() => {
                 const deletedPath = pendingDelete;
                 deleteFile(deletedPath);
+                setDeleteFocusPath(null);
+                const nextPath = useProjectStore.getState().activeFile;
+                deleteReturnFocusRef.current = nextPath
+                  ? fileButtonRefs.current.get(nextPath) ?? newFileButtonRef.current
+                  : newFileButtonRef.current;
                 setPendingDelete(null);
-                requestAnimationFrame(() => {
-                  const nextPath = useProjectStore.getState().activeFile;
-                  if (nextPath) fileButtonRefs.current.get(nextPath)?.focus();
-                });
               }}
               className="min-h-11 flex-1 rounded-lg bg-danger/20 px-4 py-2 text-sm font-semibold text-danger ring-1 ring-danger/40 transition hover:bg-danger/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-danger"
             >

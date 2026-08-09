@@ -1,4 +1,6 @@
+import { Children, Fragment, type ReactNode } from "react";
 import { motion } from "framer-motion";
+import ReactMarkdown from "react-markdown";
 import { useProjectStore } from "../state/projectStore";
 import { linkifyRefs } from "../util/linkifyRefs";
 import { HOUSE_EASE } from "./cinema/easing";
@@ -24,6 +26,63 @@ function StreamingCaret() {
       aria-hidden="true"
     />
   );
+}
+
+const STREAMING_MARKER = "\uE000";
+
+function StructuredTutorText({
+  text,
+  isStreamingTail,
+  inline = false,
+}: {
+  text: string;
+  isStreamingTail?: boolean;
+  inline?: boolean;
+}) {
+  const order = useProjectStore((s) => s.order);
+  const revealAt = useProjectStore((s) => s.revealAt);
+  const source = isStreamingTail ? `${text}${STREAMING_MARKER}` : text;
+  const renderChildren = (children: ReactNode) => Children.map(children, (child, index) => {
+    if (typeof child !== "string") return child;
+    const parts = child.split(STREAMING_MARKER);
+    return parts.map((part, partIndex) => (
+      <Fragment key={`${index}-${partIndex}`}>
+        {linkifyRefs(part, order, revealAt)}
+        {partIndex < parts.length - 1 && <StreamingCaret />}
+      </Fragment>
+    ));
+  });
+  const markdown = (
+    <ReactMarkdown
+      skipHtml
+      unwrapDisallowed
+      allowedElements={inline
+        ? ["p", "strong", "em", "code", "br"]
+        : ["p", "ul", "ol", "li", "strong", "em", "code", "br"]}
+      components={{
+        p: ({ children }) => inline
+          ? <span>{renderChildren(children)}</span>
+          : <p className="whitespace-pre-wrap break-words">{renderChildren(children)}</p>,
+        ul: ({ children }) => <ul className="ml-5 list-disc space-y-1">{children}</ul>,
+        ol: ({ children }) => <ol className="ml-5 list-decimal space-y-1">{children}</ol>,
+        li: ({ children }) => <li className="break-words">{renderChildren(children)}</li>,
+        strong: ({ children }) => <strong className="font-semibold text-ink">{renderChildren(children)}</strong>,
+        em: ({ children }) => <em className="italic text-ink/90">{renderChildren(children)}</em>,
+        code: ({ children }) => (
+          <code className="break-words rounded bg-bg/70 px-1 py-0.5 font-mono text-[0.92em] text-accent">
+            {children}
+          </code>
+        ),
+        br: () => <br />,
+      }}
+    >
+      {source}
+    </ReactMarkdown>
+  );
+
+  return inline
+    ? <span className="text-xs leading-relaxed text-ink/90">{markdown}</span>
+    : <div className="space-y-2 text-xs leading-relaxed text-ink/90">{markdown}</div>;
 }
 
 export type Tone =
@@ -115,8 +174,6 @@ export function SectionView({
   isStreamingTail?: boolean;
 }) {
   const t = TONE[tone];
-  const order = useProjectStore((s) => s.order);
-  const revealAt = useProjectStore((s) => s.revealAt);
   // Cinema Kit Continuity Pass — section arrival. Each section
   // (intent / explain / example / etc.) fades in from a 6 px lift
   // as it lands so the response feels assembled in real time, not
@@ -134,10 +191,7 @@ export function SectionView({
           {label}
         </span>
       </div>
-      <div className="whitespace-pre-wrap text-xs leading-relaxed text-ink/90">
-        {linkifyRefs(text, order, revealAt)}
-        {isStreamingTail && <StreamingCaret />}
-      </div>
+      <StructuredTutorText text={text} isStreamingTail={isStreamingTail} />
     </motion.div>
   );
 }
@@ -200,9 +254,7 @@ export function WalkthroughView({ steps }: { steps: TutorWalkStep[] }) {
           <li key={i} className="flex gap-2">
             <span className="mt-[1px] shrink-0 font-mono text-[10px] text-faint">{i + 1}.</span>
             <div className="min-w-0 flex-1">
-              <span className="whitespace-pre-wrap">
-                {linkifyRefs(s.body, order, revealAt)}
-              </span>
+              <StructuredTutorText text={s.body} inline />
               {s.path && s.line != null && order.includes(s.path) && (
                 <button
                   onClick={() => revealAt(s.path!, s.line!)}
@@ -268,10 +320,10 @@ export function CheckQuestionsView({
                 className="flex-1 cursor-pointer rounded px-1 py-0 text-left transition hover:bg-success/10 hover:text-success disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent disabled:hover:text-inherit"
                 title="Ask this directly"
               >
-                {q}
+                <StructuredTutorText text={q} inline />
               </button>
             ) : (
-              <span>{q}</span>
+              <StructuredTutorText text={q} inline />
             )}
           </li>
         ))}
@@ -294,9 +346,7 @@ export function ComprehensionCheckView({
   onCompose?: (q: string) => void;
   disabled?: boolean;
 }) {
-  const body = (
-    <div className="text-xs leading-relaxed text-ink/90">{text}</div>
-  );
+  const body = <StructuredTutorText text={text} inline />;
   return (
     <motion.div
       initial={{ opacity: 0, y: 6 }}
@@ -356,7 +406,8 @@ export function CitationsStrip({ citations }: { citations: TutorCitation[] }) {
 
 export function hasTutorContent(s: TutorSections): boolean {
   return Boolean(
-    s.summary ||
+    s.conversationReply ||
+      s.summary ||
       s.diagnose ||
       s.explain ||
       s.example ||
@@ -421,6 +472,14 @@ export function TutorResponseView({
     );
   }
 
+  if (sections.conversationMove === "greeting" && sections.conversationReply) {
+    return (
+      <div className="py-1 text-[13px] leading-relaxed text-ink">
+        <StructuredTutorText text={sections.conversationReply} />
+      </div>
+    );
+  }
+
   // Determine which section (if any) should host the caret — reverse of
   // the render order so later sections win. JSON streams top-to-bottom
   // so the latest-mounted section is the tail.
@@ -444,12 +503,19 @@ export function TutorResponseView({
 
   return (
     <div className="flex flex-col gap-2">
+      {sections.conversationReply && (
+        <div className="text-[13px] leading-relaxed text-ink">
+          <StructuredTutorText text={sections.conversationReply} />
+        </div>
+      )}
       {(sections.intent || sections.summary || sections.stuckness) && (
         <div className="flex flex-wrap items-start gap-2">
           <IntentBadge intent={sections.intent} />
           <StucknessBadge level={sections.stuckness} />
           {sections.summary && (
-            <span className="flex-1 text-xs italic text-ink/80">{sections.summary}</span>
+            <span className="flex-1 italic text-ink/80">
+              <StructuredTutorText text={sections.summary} inline />
+            </span>
           )}
         </div>
       )}

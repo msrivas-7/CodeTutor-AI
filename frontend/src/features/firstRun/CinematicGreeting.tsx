@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, useReducedMotion, AnimatePresence } from "framer-motion";
 import { AmbientGlyphField } from "../../components/AmbientGlyphField";
 import { HOUSE_EASE } from "../../components/cinema/easing";
@@ -242,7 +242,7 @@ export function CinematicGreeting(props: CinematicGreetingProps) {
   // user hitting Esc at second 14.19 of the cinematic would
   // otherwise race the natural onComplete timer and double-nav /
   // double-patch preferences.
-  const handleSkipOnce = () => {
+  const handleSkipOnce = useCallback(() => {
     if (terminalFiredRef.current) return;
     if (!onSkipRef.current) return;
     terminalFiredRef.current = true;
@@ -250,16 +250,32 @@ export function CinematicGreeting(props: CinematicGreetingProps) {
     // Required for the anon /try/ path (Phase 27-v2.1 Part 3+) where the
     // cinematic dissolves OVER an already-mounted LessonPage(mode="anon")
     // and the iris reveal needs cinematicExitingAt set to fire the
-    // "circle opening up" continuity beat. The authed /welcome Esc-skip
-    // navs to /start, not a lesson, so its 1.5s freshness window stales
-    // out before any lesson mount — no behavior change for Alex's path.
+    // "circle opening up" continuity beat. An authenticated replay may now
+    // return to a lesson, so the same full-mode continuity marker applies.
     // Only on full mode (minimal-mode is the welcome-back overlay which
     // dissolves over its own surface, not into a lesson).
     if (props.mode === "full") {
       useFirstRunStore.getState().markCinematicExiting();
     }
     onSkipRef.current();
-  };
+  }, [props.mode]);
+
+  // The full-screen cinematic owns Escape while it is visible. Capture the
+  // key before global shortcuts or an underlying workspace can react, prevent
+  // the browser-facing default, and route through the same single-fire guard
+  // as the visible Skip action.
+  useEffect(() => {
+    if (!props.onSkip) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      handleSkipOnce();
+    };
+    window.addEventListener("keydown", onKeyDown, { capture: true });
+    return () =>
+      window.removeEventListener("keydown", onKeyDown, { capture: true });
+  }, [handleSkipOnce, props.onSkip]);
 
   // Reduced-motion short-circuit: one opacity fade-up of just the hero
   // line + subtitle, no typewriter, no blur, no theatre. Still

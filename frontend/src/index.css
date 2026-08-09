@@ -63,7 +63,7 @@
 }
 
 [data-theme="light"] .ambient-glyph-field [data-floating-glyph] {
-  color: rgb(var(--color-accent) / 0.38);
+  color: rgb(var(--color-accent) / 0.55);
 }
 
 /* Content that sits over the moving atmosphere needs a real paint layer.
@@ -260,6 +260,25 @@ code, pre, .font-mono {
 @media (max-width: 639px) and (max-height: 820px) {
   .lesson-complete-panel .completion-feedback {
     display: none;
+  }
+}
+
+/* A 320×568 screen cannot carry the full recap + share promotion and keep the
+   continuation actions reachable without recreating the nested-scroll defect.
+   Preserve the celebration, optional practice, and both continuation choices;
+   the lesson header still exposes Share after dismissal. */
+@media (max-width: 639px) and (max-height: 600px) {
+  .lesson-complete-panel .completion-tags,
+  .lesson-complete-panel .completion-time,
+  .lesson-complete-panel .completion-recap,
+  .lesson-complete-panel .completion-share,
+  .lesson-complete-panel .completion-post-credits,
+  .lesson-complete-panel .completion-feedback {
+    display: none;
+  }
+
+  .lesson-complete-panel .completion-celebration {
+    margin-bottom: 0.25rem;
   }
 }
 

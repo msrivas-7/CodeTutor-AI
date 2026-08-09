@@ -85,8 +85,11 @@ Before a phase commit, push, pull request update, or handoff:
    phase. The tracked pre-commit hook reruns `agent-harness.mjs pre-commit` and
    rejects any different or unfinished staged change.
 8. Update the long-running PR description with the phase, findings, live-browser
-   evidence, checks, deployment state, and review resolution. A phase is not
-   complete until CI is green and every actionable PR comment is resolved.
+   evidence, checks, deployment state, and review resolution. Every user-journey
+   change needs a short before-to-now explanation and its originating phase or
+   commit; audit the complete PR diff for journey changes before readiness. A
+   phase is not complete until CI is green and every actionable PR comment is
+   resolved.
 9. Leave the worktree in a state another engineer can understand from Git,
    tracked docs, and the harness handoff without conversation history.
 

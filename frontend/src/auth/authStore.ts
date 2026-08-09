@@ -39,6 +39,12 @@ interface AuthState {
    * input change if they want to hide stale messages sooner.
    */
   error: string | null;
+  /**
+   * Set only when an established signed-in tab loses its session without the
+   * learner choosing Sign out. RequireAuth carries this into Login so the
+   * interruption is explained instead of looking like a random redirect.
+   */
+  sessionEndedUnexpectedly: boolean;
 
   signInWithPassword: (email: string, password: string) => Promise<void>;
   signUpWithPassword: (
@@ -65,11 +71,25 @@ interface AuthState {
   isAdmin: () => boolean;
 }
 
+export function shouldExplainSessionEnd(
+  previousUser: User | null,
+  explicitSignOutRequested: boolean,
+): boolean {
+  return previousUser !== null && !explicitSignOutRequested;
+}
+
+// Supabase emits SIGNED_OUT while the explicit signOut promise is resolving.
+// Keep a short-lived marker rather than treating that expected event as an
+// expired-session interruption. A timestamp is robust to the callback landing
+// just after the promise resolves.
+let explicitSignOutUntil = 0;
+
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   session: null,
   loading: true,
   error: null,
+  sessionEndedUnexpectedly: false,
 
   signInWithPassword: async (email, password) => {
     set({ error: null });
@@ -194,8 +214,10 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   signOut: async () => {
     set({ error: null });
+    explicitSignOutUntil = Date.now() + 5_000;
     const { error } = await supabase.auth.signOut();
     if (error) {
+      explicitSignOutUntil = 0;
       set({ error: error.message });
       throw error;
     }
@@ -280,6 +302,13 @@ export function initAuth(): void {
   let lastUserId: string | null = null;
   supabase.auth.onAuthStateChange((event, session) => {
     const u = session?.user ?? null;
+    const previousUser = useAuthStore.getState().user;
+    const sessionEndedUnexpectedly = event === "SIGNED_OUT"
+      ? shouldExplainSessionEnd(previousUser, Date.now() <= explicitSignOutUntil)
+      : false;
+    if (event === "SIGNED_OUT" || event === "SIGNED_IN") {
+      explicitSignOutUntil = 0;
+    }
 
     const userChanged = u !== null && u.id !== lastUserId;
     if (u && (event === "SIGNED_IN" || userChanged)) {
@@ -318,6 +347,10 @@ export function initAuth(): void {
       user: u,
       session,
       loading: false,
+      sessionEndedUnexpectedly:
+        event === "SIGNED_OUT" && previousUser === null
+          ? useAuthStore.getState().sessionEndedUnexpectedly
+          : sessionEndedUnexpectedly,
     });
   });
 }

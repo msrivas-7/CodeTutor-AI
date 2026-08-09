@@ -186,7 +186,7 @@ export function LessonInstructionsPanel({
                   key={obj}
                   className="rounded-full bg-violet/10 px-2 py-1 text-meta font-medium text-violet"
                 >
-                  {obj}
+                  {renderInline(obj, "chip")}
                 </span>
               ))}
             </div>
@@ -371,12 +371,22 @@ export function readFencedCodeBlock(
   return { code: codeLines.join("\n"), endIndex: i };
 }
 
-function renderInline(text: string): React.ReactNode {
+export function renderInline(
+  text: string,
+  variant: "body" | "chip" = "body",
+): React.ReactNode {
   const parts = text.split(/(`[^`]+`)/g);
   return parts.map((part, i) => {
     if (part.startsWith("`") && part.endsWith("`")) {
       return (
-        <code key={i} className="rounded bg-elevated px-1 py-0.5 text-sm text-accent">
+        <code
+          key={i}
+          className={
+            variant === "chip"
+              ? "font-mono text-[0.95em] font-semibold text-violet"
+              : "rounded bg-elevated px-1 py-0.5 text-sm text-accent"
+          }
+        >
           {part.slice(1, -1)}
         </code>
       );

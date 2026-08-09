@@ -19,8 +19,11 @@ export function normalizeReturnTarget(
   }
 
   try {
-    const parsed = new URL(value, window.location.origin);
-    if (parsed.origin !== window.location.origin || isAuthLoop(parsed.pathname)) {
+    const origin = typeof window === "undefined"
+      ? "https://codetutor.invalid"
+      : window.location.origin;
+    const parsed = new URL(value, origin);
+    if (parsed.origin !== origin || isAuthLoop(parsed.pathname)) {
       return fallback;
     }
     return `${parsed.pathname}${parsed.search}${parsed.hash}`;
@@ -31,6 +34,33 @@ export function normalizeReturnTarget(
 
 export function locationReturnTarget(location: Pick<Location, "pathname" | "search" | "hash">): string {
   return normalizeReturnTarget(
+    `${location.pathname}${location.search}${location.hash}`,
+  );
+}
+
+/**
+ * Welcome replay is presentation-only. The true first-run flag intentionally
+ * resets lesson progress and starter code, so it can never survive inside a
+ * replay return target. Other internal query state and fragments remain exact.
+ */
+export function normalizeReplayReturnTarget(
+  value: string | null | undefined,
+  fallback = FALLBACK,
+): string {
+  const target = normalizeReturnTarget(value, fallback);
+  const origin = typeof window === "undefined"
+    ? "https://codetutor.invalid"
+    : window.location.origin;
+  const parsed = new URL(target, origin);
+  if (parsed.pathname === "/welcome") return fallback;
+  parsed.searchParams.delete("firstRun");
+  return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+}
+
+export function locationReplayReturnTarget(
+  location: Pick<Location, "pathname" | "search" | "hash">,
+): string {
+  return normalizeReplayReturnTarget(
     `${location.pathname}${location.search}${location.hash}`,
   );
 }
@@ -73,9 +103,14 @@ export function consumeReturnTarget(search: string): string {
   return normalizeReturnTarget(queryTarget ?? stored);
 }
 
-export function authPath(path: "/login" | "/signup", returnTo: string): string {
+export function authPath(
+  path: "/login" | "/signup",
+  returnTo: string,
+  reason?: "session-ended",
+): string {
   const params = new URLSearchParams({
     returnTo: normalizeReturnTarget(returnTo),
   });
+  if (reason) params.set("reason", reason);
   return `${path}?${params.toString()}`;
 }

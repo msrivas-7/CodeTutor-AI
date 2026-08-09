@@ -5,6 +5,7 @@ import type { TutorSections } from "../types";
 // once the full JSON parses, because partial array extraction is fragile.
 const STRING_KEYS = [
   "intent",
+  "conversationReply",
   "summary",
   "diagnose",
   "explain",
