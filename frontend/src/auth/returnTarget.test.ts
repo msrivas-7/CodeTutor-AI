@@ -57,4 +57,11 @@ describe("auth return targets", () => {
       "/editor?file=main.py#output",
     );
   });
+
+  it("carries an unexpected session-end explanation without changing the return target", () => {
+    const path = authPath("/login", "/editor?file=main.py", "session-ended");
+    const parsed = new URL(path, window.location.origin);
+    expect(parsed.searchParams.get("reason")).toBe("session-ended");
+    expect(authReturnTarget(parsed.search, null)).toBe("/editor?file=main.py");
+  });
 });

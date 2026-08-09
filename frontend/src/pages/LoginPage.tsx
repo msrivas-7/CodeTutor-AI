@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { isAuthError } from "@supabase/supabase-js";
 import { AuthShell } from "../auth/AuthShell";
@@ -21,13 +21,23 @@ export default function LoginPage() {
   const resendSignupConfirmation = useAuthStore((s) => s.resendSignupConfirmation);
   const clearError = useAuthStore((s) => s.clearError);
   const returnTo = authReturnTarget(location.search, location.state);
-
+  const sessionEnded =
+    new URLSearchParams(location.search).get("reason") === "session-ended";
+  const sessionEndedRef = useRef<HTMLDivElement>(null);
 
   const [mode, setMode] = useState<Mode>("password");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!sessionEnded) return;
+    const frame = window.requestAnimationFrame(() => {
+      sessionEndedRef.current?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [sessionEnded]);
 
   // If the user is already authenticated (eg. came here by typing the URL)
   // bounce straight through. Preserve `from` if present for symmetry with
@@ -160,6 +170,22 @@ export default function LoginPage() {
         </>
       }
     >
+      {sessionEnded && (
+        <div
+          ref={sessionEndedRef}
+          role="alert"
+          tabIndex={-1}
+          className="mb-4 rounded-lg border border-accent/40 bg-accent/10 px-3 py-2.5 text-sm leading-relaxed text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          <p className="font-semibold">
+            Your session ended while CodeTutor was open.
+          </p>
+          <p className="mt-1 text-muted">
+            Sign in again and we’ll return you to the page you were using.
+          </p>
+        </div>
+      )}
+
       {/* Phase 20-P1: OAuth is the happy path now that verified email is
           off the free SMTP tier — show providers above the email form with a
           divider, so first-time visitors don't scan past the 2-click option. */}

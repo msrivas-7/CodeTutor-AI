@@ -37,6 +37,20 @@ function uniqueEmail(tag: string): string {
 }
 
 test.describe("auth flow", () => {
+  test("an unexpected session end is explained and keeps the exact return target", async ({ page }) => {
+    const target = "/learn/course/python-fundamentals/lesson/variables?mode=practice";
+    await page.goto(
+      `/login?returnTo=${encodeURIComponent(target)}&reason=session-ended`,
+    );
+    const notice = page.getByRole("alert");
+    await expect(notice).toBeVisible();
+    await expect(notice).toContainText(
+      /your session ended while codetutor was open/i,
+    );
+    await expect(notice).toBeFocused();
+    expect(new URL(page.url()).searchParams.get("returnTo")).toBe(target);
+  });
+
   test("protected deep links preserve path, query, and fragment through sign-in", async ({ page }) => {
     const target =
       "/learn/course/python-fundamentals/lesson/variables?from=audit#practice";

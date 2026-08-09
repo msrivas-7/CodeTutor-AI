@@ -19,8 +19,11 @@ export function normalizeReturnTarget(
   }
 
   try {
-    const parsed = new URL(value, window.location.origin);
-    if (parsed.origin !== window.location.origin || isAuthLoop(parsed.pathname)) {
+    const origin = typeof window === "undefined"
+      ? "https://codetutor.invalid"
+      : window.location.origin;
+    const parsed = new URL(value, origin);
+    if (parsed.origin !== origin || isAuthLoop(parsed.pathname)) {
       return fallback;
     }
     return `${parsed.pathname}${parsed.search}${parsed.hash}`;
@@ -73,9 +76,14 @@ export function consumeReturnTarget(search: string): string {
   return normalizeReturnTarget(queryTarget ?? stored);
 }
 
-export function authPath(path: "/login" | "/signup", returnTo: string): string {
+export function authPath(
+  path: "/login" | "/signup",
+  returnTo: string,
+  reason?: "session-ended",
+): string {
   const params = new URLSearchParams({
     returnTo: normalizeReturnTarget(returnTo),
   });
+  if (reason) params.set("reason", reason);
   return `${path}?${params.toString()}`;
 }

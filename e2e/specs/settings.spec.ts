@@ -818,24 +818,36 @@ test.describe("settings panel", () => {
     // Modal closes and the explicit replay route renders the cinematic. The
     // Skip control is stable while the typewriter text is mid-animation.
     await expect(page.locator('[role="dialog"]')).toHaveCount(0);
-    await expect(page).toHaveURL(/\/welcome\?replay=1$/);
+    await expect(page).toHaveURL(/\/welcome\?replay=1&returnTo=%2Flearn$/);
     await expect(
       page.getByRole("button", { name: /skip introduction/i }),
     ).toBeVisible({ timeout: 5_000 });
     expect(destructivePreferenceWrites).toHaveLength(0);
 
     // Reload remains an explicit replay, and Skip returns the existing
-    // learner to Start instead of seeding lesson-one first-run state.
+    // learner to the captured origin instead of seeding lesson-one state.
     await page.reload();
-    await expect(page).toHaveURL(/\/welcome\?replay=1$/);
+    await expect(page).toHaveURL(/\/welcome\?replay=1&returnTo=%2Flearn$/);
     const skipIntroduction = page.getByRole("button", {
       name: /skip introduction/i,
     });
     await expect(skipIntroduction).toBeVisible({ timeout: 5_000 });
     await skipIntroduction.click();
-    await expect(page).toHaveURL(/\/start$/);
-    await expect(page.getByRole("heading", { level: 1, name: "CodeTutor AI" })).toBeFocused();
+    await expect(page).toHaveURL(/\/learn$/);
+    await expect(page.getByRole("heading", { level: 1, name: "Guided Learning" })).toBeFocused();
     expect(destructivePreferenceWrites).toHaveLength(0);
+
+    // Escape is the keyboard equivalent of Skip and must preserve the same
+    // exact origin instead of leaking to global shortcuts or the browser.
+    await openSettings(page, "account");
+    await page.getByRole("button", { name: /^watch the moment again$/i }).click();
+    await expect(page).toHaveURL(/\/welcome\?replay=1&returnTo=%2Flearn$/);
+    await expect(
+      page.getByRole("button", { name: /skip introduction/i }),
+    ).toBeVisible({ timeout: 5_000 });
+    await page.keyboard.press("Escape");
+    await expect(page).toHaveURL(/\/learn$/);
+    await expect(page.getByRole("heading", { level: 1, name: "Guided Learning" })).toBeFocused();
   });
 
   test("Escape closes the settings modal cleanly", async ({ page }) => {

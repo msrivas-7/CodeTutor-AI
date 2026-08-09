@@ -9,6 +9,7 @@ import { RequireAuth } from "./auth/RequireAuth";
 import { RequireAdmin } from "./auth/RequireAdmin";
 import { HydrationGate } from "./auth/HydrationGate";
 import { WelcomeBackOverlay } from "./features/firstRun/WelcomeBackOverlay";
+import { ReplayReturnFocus } from "./auth/ReplayReturnFocus";
 const MarketingPage = lazy(() => import("./pages/MarketingPage"));
 const WhyNotChatGPTPage = lazy(() => import("./pages/WhyNotChatGPTPage"));
 const StartPage = lazy(() => import("./pages/StartPage"));
@@ -107,6 +108,7 @@ function AuthedLayout() {
       <HydrationGate>
         <FrozenAccountBanner />
         <Outlet />
+        <ReplayReturnFocus />
         {/* Mounted alongside every authenticated route. Renders null
             unless the trigger rule in useWelcomeBack says fire — so
             deep links to lessons don't pay any render cost. The
