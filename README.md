@@ -14,7 +14,7 @@ Hands-on Python and JavaScript courses for beginner-to-intermediate learners, pl
 </div>
 
 <p align="center">
-  <a href="docs/assets/readme/product-experience.jpg?raw=1"><img src="docs/assets/readme/product-experience.jpg" alt="CodeTutor AI Task Tracker CLI capstone showing the lesson instructions, a multi-function Python program and successful output, and a structured AI tutor discussion about stable task IDs." width="1200" /></a>
+  <a href="https://raw.githubusercontent.com/msrivas-7/CodeTutor-AI/refs/heads/main/docs/assets/readme/product-experience.jpg"><img src="docs/assets/readme/product-experience.jpg" alt="CodeTutor AI Task Tracker CLI capstone showing the lesson instructions, a multi-function Python program and successful output, and a structured AI tutor discussion about stable task IDs." width="1200" /></a>
   <br />
   <sub><b>Task Tracker CLI capstone</b> — the lesson, the learner's code, real execution, and a contextual engineering discussion in one workspace. Select the image for the full-size view.</sub>
 </p>
@@ -50,7 +50,7 @@ The learner keeps the keyboard. The tutor can use the current lesson, code, run 
 ## A course, not a prompt collection
 
 <p align="center">
-  <a href="docs/assets/readme/course-library.jpg?raw=1"><img src="docs/assets/readme/course-library.jpg" alt="CodeTutor AI public course library showing the Read, Make, and Ask learning loop above complete cards for Python Fundamentals, JavaScript Fundamentals, and Python Intermediate." width="1200" /></a>
+  <a href="https://raw.githubusercontent.com/msrivas-7/CodeTutor-AI/refs/heads/main/docs/assets/readme/course-library.jpg"><img src="docs/assets/readme/course-library.jpg" alt="CodeTutor AI public course library showing the Read, Make, and Ask learning loop above complete cards for Python Fundamentals, JavaScript Fundamentals, and Python Intermediate." width="1200" /></a>
   <br />
   <sub><b>Three guided trails</b> — from a first program to intermediate Python and real-world capstones.</sub>
 </p>
