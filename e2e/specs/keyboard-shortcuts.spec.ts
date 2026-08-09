@@ -73,6 +73,36 @@ test.describe("keyboard shortcuts + schema-error branch", () => {
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
     await expect(help).toBeFocused();
+
+    const collapseFiles = page.getByRole("button", {
+      name: "Collapse files",
+      exact: true,
+    });
+    await collapseFiles.click();
+    const showFiles = page.getByRole("button", {
+      name: "Show files panel",
+      exact: true,
+    });
+    await expect(showFiles).toBeFocused();
+
+    const hiddenHelp = page.locator('button[aria-label="Show keyboard shortcuts"]');
+    const collapsedHitTest = await hiddenHelp.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return {
+        visibility: getComputedStyle(element).visibility,
+        topElementIsHelp:
+          document.elementFromPoint(
+            rect.left + rect.width / 2,
+            rect.top + rect.height / 2,
+          ) === element,
+      };
+    });
+    expect(collapsedHitTest.visibility).toBe("hidden");
+    expect(collapsedHitTest.topElementIsHelp).toBe(false);
+
+    await showFiles.click();
+    await expect(help).toBeVisible();
+    await expect(collapseFiles).toBeFocused();
   });
 
   test("pressing '?' inside a textarea does NOT open the cheatsheet", async ({ page }) => {

@@ -315,8 +315,8 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
   }, [pendingAsk, configured, asking, anonQuotaExhausted]);
 
   return (
-    <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between border-b border-border px-3 py-2">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      <header className="flex shrink-0 items-center justify-between border-b border-border px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">
           <svg className="h-4 w-4 shrink-0 text-violet" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="10" />
@@ -405,7 +405,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
         aria-relevant="additions text"
         aria-atomic="false"
         aria-label="Tutor conversation"
-        className="flex-1 space-y-3 overflow-auto p-3"
+        className="min-h-0 flex-1 space-y-3 overflow-auto p-3"
       >
         {statusLoading && (
           <div role="status" className="rounded-lg border border-border bg-elevated/40 p-3 text-sm text-muted">Checking your tutor access…</div>
@@ -597,7 +597,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
         )}
       </div>
 
-      <div className="border-t border-border bg-panel p-2">
+      <div className="shrink-0 border-t border-border bg-panel p-2">
         {exhausted && !exhaustionDismissed ? (
           <ExhaustionCard
             resetAtUtc={aiStatus?.resetAtUtc ?? null}

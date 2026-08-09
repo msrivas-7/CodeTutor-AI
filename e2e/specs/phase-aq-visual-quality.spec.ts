@@ -59,7 +59,7 @@ test.describe("Phase A-Q — visual viewport matrix", () => {
       );
     const initialMotion = await sample();
     await expect
-      .poll(async () => JSON.stringify(await sample()), { timeout: 2_000 })
+      .poll(async () => JSON.stringify(await sample()), { timeout: 5_000 })
       .not.toBe(JSON.stringify(initialMotion));
 
     const contentLayer = page
@@ -86,7 +86,7 @@ test.describe("Phase A-Q — visual viewport matrix", () => {
     const lightGlyphColor = await glyphs.first().evaluate(
       (element) => getComputedStyle(element).color,
     );
-    expect(lightGlyphColor).toMatch(/rgba?\(2, 132, 199(?:, 0\.38)?\)/);
+    expect(lightGlyphColor).toMatch(/rgba?\(2, 132, 199(?:, 0\.55)?\)/);
     const centerMask = await field.evaluate((element) => {
       const style = getComputedStyle(element);
       return style.maskImage || style.webkitMaskImage;
@@ -94,12 +94,19 @@ test.describe("Phase A-Q — visual viewport matrix", () => {
     expect(centerMask).toMatch(/transparent|rgba\(0, 0, 0, 0\)/);
     const lightMotion = await sample();
     await expect
-      .poll(async () => JSON.stringify(await sample()), { timeout: 2_000 })
+      .poll(async () => JSON.stringify(await sample()), { timeout: 5_000 })
       .not.toBe(JSON.stringify(lightMotion));
 
     await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
     await page.reload();
     await expect(field).toBeVisible();
+    await expect
+      .poll(
+        async () =>
+          (await sample()).every((value) => value === "none|0.35"),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
     const stillStart = await sample();
     await page.waitForTimeout(400);
     expect(await sample()).toEqual(stillStart);
@@ -338,6 +345,44 @@ test.describe("Phase A-Q — visual viewport matrix", () => {
     await expectNoHorizontalOverflow(page);
   });
 
+  test("rapid breakpoint cycling preserves focus and a usable real editor width", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 901, height: 863 });
+    await openStableLesson(page);
+
+    const showInstructions = page.getByRole("button", {
+      name: "Show instructions panel",
+      exact: true,
+    });
+    const collapseInstructions = page.getByRole("button", {
+      name: "Collapse instructions",
+      exact: true,
+    });
+    if (await collapseInstructions.isVisible()) await collapseInstructions.click();
+    await showInstructions.click();
+    await expect(collapseInstructions).toBeFocused();
+
+    // Exercise the production failure sequence: a pane closes and reopens,
+    // then its focused control is replaced repeatedly by compact/desktop DOM.
+    await collapseInstructions.click();
+    await showInstructions.click();
+    for (const width of [781, 901, 781, 901, 781, 901, 781, 901]) {
+      await page.setViewportSize({ width, height: 863 });
+    }
+    await page.setViewportSize({ width: 1159, height: 863 });
+
+    await expect(collapseInstructions).toBeFocused();
+    const editContext = page.getByRole("textbox", {
+      name: /^Code editor for /,
+    });
+    await expect(editContext).toBeVisible();
+    await expect
+      .poll(async () => (await editContext.boundingBox())?.width ?? 0)
+      .toBeGreaterThan(200);
+    await expectNoHorizontalOverflow(page);
+  });
+
   test("light theme preserves hierarchy and contrast", async ({ page }) => {
     await page.emulateMedia({ colorScheme: "light", reducedMotion: "reduce" });
     await page.setViewportSize({ width: 390, height: 844 });
@@ -420,6 +465,34 @@ test.describe("Phase A-Q — visual viewport matrix", () => {
     });
     await expect(page.getByRole("button", { name: /run/i }).first()).toBeVisible();
     await expect(page.getByRole("button", { name: /check/i }).first()).toBeVisible();
+    const tutorGeometry = await page
+      .getByRole("log", { name: "Tutor conversation" })
+      .evaluate((conversation) => {
+        const root = conversation.parentElement;
+        const header = root?.querySelector(":scope > header");
+        const footer = conversation.nextElementSibling;
+        if (!(header instanceof HTMLElement) || !(footer instanceof HTMLElement)) {
+          return null;
+        }
+        const headerRect = header.getBoundingClientRect();
+        const conversationRect = conversation.getBoundingClientRect();
+        const footerRect = footer.getBoundingClientRect();
+        return {
+          headerBottom: headerRect.bottom,
+          conversationTop: conversationRect.top,
+          conversationBottom: conversationRect.bottom,
+          conversationHeight: conversationRect.height,
+          footerTop: footerRect.top,
+        };
+      });
+    expect(tutorGeometry).not.toBeNull();
+    expect(tutorGeometry!.conversationTop).toBeGreaterThanOrEqual(
+      tutorGeometry!.headerBottom - 1,
+    );
+    expect(tutorGeometry!.conversationBottom).toBeLessThanOrEqual(
+      tutorGeometry!.footerTop + 1,
+    );
+    expect(tutorGeometry!.conversationHeight).toBeGreaterThan(40);
     await expectNoHorizontalOverflow(page);
   });
 

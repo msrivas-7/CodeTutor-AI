@@ -144,6 +144,8 @@ export function MonacoPane({
   const scheduledFocusRequest = useRef(0);
   const focusRequestRaf = useRef<number | null>(null);
   const contentCommitRaf = useRef<number | null>(null);
+  const layoutReadinessRaf = useRef<number | null>(null);
+  const layoutObserverRef = useRef<ResizeObserver | null>(null);
   const settledContentCommit = useRef(0);
   const theme = useEffectiveTheme();
 
@@ -296,6 +298,9 @@ export function MonacoPane({
     () => () => {
       if (focusRequestRaf.current !== null) cancelAnimationFrame(focusRequestRaf.current);
       if (contentCommitRaf.current !== null) cancelAnimationFrame(contentCommitRaf.current);
+      if (layoutReadinessRaf.current !== null) cancelAnimationFrame(layoutReadinessRaf.current);
+      layoutObserverRef.current?.disconnect();
+      layoutObserverRef.current = null;
       attentionDecorationsRef.current?.clear();
       attentionDecorationsRef.current = null;
     },
@@ -304,6 +309,45 @@ export function MonacoPane({
 
   const handleMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
+    layoutObserverRef.current?.disconnect();
+    if (layoutReadinessRaf.current !== null) {
+      cancelAnimationFrame(layoutReadinessRaf.current);
+      layoutReadinessRaf.current = null;
+    }
+
+    // The lesson owns separate compact and desktop DOM branches. During a
+    // rapid breakpoint swap Monaco can mount while its wrapper is temporarily
+    // zero-width; its internal automaticLayout observer has occasionally
+    // retained that first measurement even after the shell recovered. Observe
+    // the real wrapper ourselves and keep a short readiness handshake alive
+    // until both dimensions are usable.
+    const container = editor.getContainerDomNode();
+    const layoutHost = container.parentElement ?? container;
+    const layoutFromHost = () => {
+      if (editorRef.current !== editor || !layoutHost.isConnected) return false;
+      const rect = layoutHost.getBoundingClientRect();
+      if (rect.width < 1 || rect.height < 1) return false;
+      editor.layout({
+        width: Math.floor(rect.width),
+        height: Math.floor(rect.height),
+      });
+      return true;
+    };
+    layoutObserverRef.current = new ResizeObserver(() => {
+      layoutFromHost();
+    });
+    layoutObserverRef.current.observe(layoutHost);
+    let layoutAttempts = 0;
+    const layoutWhenReady = () => {
+      layoutReadinessRaf.current = null;
+      const ready = layoutFromHost();
+      layoutAttempts += 1;
+      if (!ready && layoutAttempts < 120) {
+        layoutReadinessRaf.current = requestAnimationFrame(layoutWhenReady);
+      }
+    };
+    layoutReadinessRaf.current = requestAnimationFrame(layoutWhenReady);
+
     attentionDecorationsRef.current = editor.createDecorationsCollection();
     syncAttentionDecoration();
     // A conflict decision can replace the active file and remount Monaco.

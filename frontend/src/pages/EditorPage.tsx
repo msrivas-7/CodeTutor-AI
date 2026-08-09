@@ -351,7 +351,7 @@ export default function EditorPage() {
               other three asides in this app already follow this
               pattern; this one was the odd one out. */}
           <div
-            className="h-full p-3"
+            className={`h-full p-3 ${filesCollapsed ? "invisible" : "visible"}`}
             style={{ width: filesPaneWidth, minWidth: filesPaneWidth }}
           >
             <FileTree onCollapse={() => {

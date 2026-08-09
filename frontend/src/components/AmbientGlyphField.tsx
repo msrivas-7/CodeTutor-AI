@@ -44,7 +44,7 @@ function buildGlyphField(count: number, seedBase: number): FloatingGlyph[] {
 
 export function AmbientGlyphField({
   density = "ambient",
-  opacityClass = "text-accent/8",
+  opacityClass = "text-accent/10",
   occludeCenter = false,
 }: {
   density?: "ambient" | "hero";

@@ -851,7 +851,12 @@ export default function LessonPage({
         layout.tutorRef.current?.contains(target)
       ) {
         responsiveFocusSurfaceRef.current = "tutor";
-      } else {
+      } else if (target !== document.body && target !== document.documentElement) {
+        // A breakpoint swap or collapsing pane can leave BODY focused for one
+        // render while the equivalent control mounts. Preserve the last
+        // semantic workspace owner through that transient gap. A real control
+        // outside the workspace (Settings, feedback, a dialog, navigation)
+        // still clears ownership so responsive layout never steals its focus.
         responsiveFocusSurfaceRef.current = null;
       }
     };

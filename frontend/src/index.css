@@ -63,7 +63,7 @@
 }
 
 [data-theme="light"] .ambient-glyph-field [data-floating-glyph] {
-  color: rgb(var(--color-accent) / 0.38);
+  color: rgb(var(--color-accent) / 0.55);
 }
 
 /* Content that sits over the moving atmosphere needs a real paint layer.
