@@ -82,14 +82,20 @@ export function FirstRunGreeting() {
     // is read-only and returns existing learners to Start without preference
     // or progress writes.
     if (!replay) await persistOrTimeout();
-    nav(target, { replace: true });
+    nav(target, {
+      replace: true,
+      state: replay ? { focusStartHeading: true } : undefined,
+    });
   };
 
   const handleSkip = async () => {
     if (!replay) await persistOrTimeout();
     // Skip changes only the duration: new learners still enter lesson 1,
     // while replay learners return to their existing Start destination.
-    nav(target, { replace: true });
+    nav(target, {
+      replace: true,
+      state: replay ? { focusStartHeading: true } : undefined,
+    });
   };
 
   // Subtitle + support line are the SAME regardless of whether this

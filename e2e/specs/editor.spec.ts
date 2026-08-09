@@ -251,9 +251,14 @@ test.describe("editor", () => {
     const emptyFile = page.getByRole("button", { name: "delete-empty.py", exact: true });
     await expect(emptyFile).toBeVisible();
     await emptyFile.focus();
-    await page.getByRole("button", { name: "Delete delete-empty.py" }).click();
+    const deleteEmpty = page.getByRole("button", { name: "Delete delete-empty.py" });
+    await deleteEmpty.click();
 
     const confirm = page.getByRole("alertdialog", { name: "Delete file?" });
+    await expect(confirm).toBeVisible();
+    await confirm.getByRole("button", { name: "Cancel" }).click();
+    await expect(deleteEmpty).toBeFocused();
+    await deleteEmpty.click();
     await expect(confirm).toBeVisible();
     const saved = page.waitForResponse(
       (response) => {
@@ -281,6 +286,35 @@ test.describe("editor", () => {
     await page.reload();
     await waitForMonacoReady(page);
     await expect(page.getByRole("button", { name: "delete-empty.py", exact: true })).toHaveCount(0);
+  });
+
+  test("runner capacity recovery returns focus to Run", async ({ page }) => {
+    await page.route("**/api/session", async (route) => {
+      await route.fulfill({
+        status: 429,
+        headers: { "Retry-After": "0" },
+        contentType: "text/plain",
+        body: "runner capacity reached",
+      });
+    });
+    await page.route("**/api/session/resume", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ sessionId: "focus-recovered-session" }),
+      });
+    });
+
+    await page.goto("/editor");
+    await waitForMonacoReady(page);
+    await expect(page.getByText("Runner capacity reached", { exact: true })).toBeVisible();
+
+    await page.getByRole("button", { name: "Use active runner" }).click();
+
+    const run = S.runButton(page);
+    await expect(page.getByText("Runner capacity reached", { exact: true })).toHaveCount(0);
+    await expect(run).toBeEnabled();
+    await expect(run).toBeFocused();
   });
 
   test("both cross-tab conflict choices return focus to the code editor", async ({

@@ -153,6 +153,8 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
   const [clearConfirm, setClearConfirm] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const clearButtonRef = useRef<HTMLButtonElement>(null);
+  const keepButtonRef = useRef<HTMLButtonElement>(null);
   // QA-C1: hint-counter rollback. The Hint button stages intent here at
   // click-time instead of incrementing the counter directly. If the ask
   // succeeds (onAskComplete ok=true) we commit the bump; on error / cancel /
@@ -202,6 +204,26 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
     if (focusComposerNonce === 0) return;
     textareaRef.current?.focus();
   }, [focusComposerNonce]);
+
+  useEffect(() => {
+    if (clearConfirm) keepButtonRef.current?.focus({ preventScroll: true });
+  }, [clearConfirm]);
+
+  const cancelClear = () => {
+    setClearConfirm(false);
+    window.requestAnimationFrame(() => {
+      clearButtonRef.current?.focus({ preventScroll: true });
+    });
+  };
+
+  const confirmClear = () => {
+    clearConversation();
+    setDraft("");
+    setClearConfirm(false);
+    window.requestAnimationFrame(() => {
+      textareaRef.current?.focus({ preventScroll: true });
+    });
+  };
 
   useEffect(() => {
     if (mode !== "anon") return;
@@ -327,6 +349,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
           )}
           {!clearHidden && !clearConfirm && (
           <button
+            ref={clearButtonRef}
             onClick={() => setClearConfirm(true)}
             className="min-h-11 rounded-lg px-3 py-2 text-sm text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-40"
             disabled={history.length === 0 || asking}
@@ -336,9 +359,18 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
           </button>
           )}
           {clearConfirm && (
-            <div className="flex items-center gap-1" role="group" aria-label="Confirm clearing conversation">
-              <button type="button" onClick={() => setClearConfirm(false)} className="min-h-11 rounded-lg px-2 text-sm text-muted">Keep</button>
-              <button type="button" onClick={() => { clearConversation(); setDraft(""); setClearConfirm(false); }} className="min-h-11 rounded-lg px-2 text-sm font-semibold text-danger">Clear chat</button>
+            <div
+              className="flex items-center gap-1"
+              role="group"
+              aria-label="Confirm clearing conversation"
+              onKeyDown={(event) => {
+                if (event.key !== "Escape") return;
+                event.preventDefault();
+                cancelClear();
+              }}
+            >
+              <button ref={keepButtonRef} type="button" onClick={cancelClear} className="min-h-11 rounded-lg px-2 text-sm text-muted">Keep</button>
+              <button type="button" onClick={confirmClear} className="min-h-11 rounded-lg px-2 text-sm font-semibold text-danger">Clear chat</button>
             </div>
           )}
           {onCollapse && (

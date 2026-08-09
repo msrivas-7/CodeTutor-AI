@@ -586,6 +586,11 @@ export default function LessonPage({
     if (tutorOpenNonce <= handledTutorOpenNonceRef.current) return;
     handledTutorOpenNonceRef.current = tutorOpenNonce;
     layout.setTutorCollapsed(false);
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        layout.tutorRef.current?.focus({ preventScroll: true });
+      });
+    });
   }, [tutorOpenNonce, layout.setTutorCollapsed]);
   useEffect(() => {
     // A stale device-level layout preference must not hide the surface that
@@ -1090,6 +1095,10 @@ export default function LessonPage({
     resolvePraiseName:
       mode === "anon" ? resolvePraiseNameRef.current : undefined,
   });
+  const skipWelcomeAndFocusTutor = () => {
+    skipChoreography();
+    useAIStore.getState().bumpFocusComposer();
+  };
 
   // Phase 21C: ShareDialog mount state. Lifted here so the dialog can
   // close cleanly even after LessonCompletePanel dismisses, and so the
@@ -1511,7 +1520,7 @@ export default function LessonPage({
         </div>
       </header>
 
-      <SessionErrorBanner />
+      <SessionErrorBanner recoveryFocusRef={layout.runBtnRef} />
       <SessionRestartBanner />
       <SessionReplacedModal />
       {practiceMode && (
@@ -1813,7 +1822,7 @@ export default function LessonPage({
                 inputLocked={tutorInputLocked}
                 onSkipWelcome={
                   isChoreographed && firstRunStep !== "done"
-                    ? skipChoreography
+                    ? skipWelcomeAndFocusTutor
                     : undefined
                 }
                 clearHidden={tutorClearHidden}
@@ -2562,7 +2571,7 @@ export default function LessonPage({
               inputLocked={tutorInputLocked}
               onSkipWelcome={
                 isChoreographed && firstRunStep !== "done"
-                  ? skipChoreography
+                  ? skipWelcomeAndFocusTutor
                   : undefined
               }
               clearHidden={tutorClearHidden}

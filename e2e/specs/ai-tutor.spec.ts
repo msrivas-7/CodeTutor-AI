@@ -613,10 +613,16 @@ test.describe("AI tutor", () => {
     // explicit decision on the editor surface as well as in lessons.
     await page.getByRole("button", { name: "Clear conversation" }).click();
     await expect(page.getByRole("group", { name: /confirm clearing conversation/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Keep" })).toBeFocused();
     await page.getByRole("button", { name: "Keep" }).click();
+    await expect(page.getByRole("button", { name: "Clear conversation" })).toBeFocused();
     await expect(page.getByText(/a function groups reusable steps/i).first()).toBeVisible();
     await page.getByRole("button", { name: "Clear conversation" }).click();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("button", { name: "Clear conversation" })).toBeFocused();
+    await page.getByRole("button", { name: "Clear conversation" }).click();
     await page.getByRole("button", { name: "Clear chat" }).click();
+    await expect(S.tutorInput(page)).toBeFocused();
     await expect(page.getByText(/a function groups reusable steps/i)).toHaveCount(0);
   });
 
@@ -632,6 +638,7 @@ test.describe("AI tutor", () => {
     await expect(page.getByRole("button", { name: "Show tutor panel" })).toBeFocused();
     await page.getByRole("button", { name: /walk me through main\.py/i }).click();
     await expect(page.getByRole("button", { name: "Show tutor panel" })).toHaveCount(0);
+    await expect(page.getByRole("complementary", { name: "AI tutor" })).toBeFocused();
     await expect(page.getByText("Walk me through main.py, one step at a time.")).toHaveCount(1);
     await expect(page.getByText(/a function groups reusable steps/i).first()).toBeVisible();
   });
@@ -762,6 +769,9 @@ test.describe("AI tutor", () => {
     await page.getByRole("button", { name: "Remove from saved" }).first().click();
     await expect(page.getByRole("button", { name: "Undo" })).toBeVisible();
     await page.getByRole("button", { name: "Undo" }).click();
+    await expect(
+      page.getByRole("button", { name: /^saved for this lesson · 1$/i }).first(),
+    ).toBeFocused();
     await expect(page.getByText(/code has changed since this was saved/i)).toBeVisible();
 
     await page.getByRole("button", { name: /user menu for/i }).click();

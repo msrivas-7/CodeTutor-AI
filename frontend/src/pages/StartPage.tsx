@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion"; // still used on the landing cards
 import { UserMenu } from "../components/UserMenu";
 import { FeedbackButton } from "../components/FeedbackButton";
@@ -78,6 +78,7 @@ interface ResumeTarget {
 
 export default function StartPage() {
   const nav = useNavigate();
+  const location = useLocation();
   const welcomeDone = usePreferencesStore((s) => s.welcomeDone);
   const prefsHydrated = usePreferencesStore((s) => s.hydrated);
   const courseProgressMap = useProgressStore((s) => s.courseProgress);
@@ -381,9 +382,19 @@ export default function StartPage() {
   // render" on the failure path. Hoisting all hooks here means
   // every render runs them, and the conditional returns at the end
   // of the function only switch which JSX comes back.
-  const headerRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLHeadingElement>(null);
   const editorRef = useRef<HTMLButtonElement>(null);
   const guidedRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!(location.state as { focusStartHeading?: boolean } | null)?.focusStartHeading) {
+      return;
+    }
+    window.requestAnimationFrame(() => {
+      headerRef.current?.focus({ preventScroll: true });
+      nav(location.pathname + location.search, { replace: true, state: null });
+    });
+  }, [location.pathname, location.search, location.state, nav]);
 
   // Pick the most-recently-updated in-progress course id from the
   // already-hydrated progress store. HydrationGate guarantees this map
@@ -523,8 +534,10 @@ export default function StartPage() {
       </div>
       <StaggerReveal className="relative z-10 flex flex-1 flex-col items-center justify-center px-5 pb-8 pt-20 sm:px-6">
         <StaggerItem>
-          <div ref={headerRef} className="ambient-content-occluder relative mb-10 flex flex-col items-center gap-4">
-            <Wordmark size="hero" className="text-[38px] sm:text-[48px]" />
+          <div className="ambient-content-occluder relative mb-10 flex flex-col items-center gap-4">
+            <h1 ref={headerRef} tabIndex={-1} className="focus:outline-none">
+              <Wordmark size="hero" className="text-[38px] sm:text-[48px]" />
+            </h1>
             <p className="max-w-lg text-center text-base leading-relaxed text-muted sm:text-[15px]">
               Learn to code with a tutor who has all day for you. Write real
               Python, JavaScript, or Go in your browser — run it in a sandbox,

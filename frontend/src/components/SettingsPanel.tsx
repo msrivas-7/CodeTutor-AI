@@ -1376,6 +1376,14 @@ function DataExportSection() {
   const [exporting, setExporting] = useState(false);
   const [exportErr, setExportErr] = useState<string | null>(null);
   const [exportSuccess, setExportSuccess] = useState<string | null>(null);
+  const downloadButtonRef = useRef<HTMLButtonElement>(null);
+  const restoreDownloadFocusRef = useRef(false);
+
+  useEffect(() => {
+    if (exporting || !restoreDownloadFocusRef.current) return;
+    restoreDownloadFocusRef.current = false;
+    downloadButtonRef.current?.focus({ preventScroll: true });
+  }, [exporting]);
 
   const handleDownloadData = async () => {
     setExportErr(null);
@@ -1388,6 +1396,7 @@ function DataExportSection() {
     } catch (e) {
       setExportErr((e as Error).message);
     } finally {
+      restoreDownloadFocusRef.current = true;
       setExporting(false);
     }
   };
@@ -1413,6 +1422,7 @@ function DataExportSection() {
         </div>
       )}
       <button
+        ref={downloadButtonRef}
         type="button"
         onClick={handleDownloadData}
         disabled={exporting}

@@ -177,13 +177,15 @@ test.describe("settings panel", () => {
     await page.goto("/start");
     await openSettings(page, "account");
 
+    const downloadData = page.getByRole("button", { name: /download my data/i });
     const [download] = await Promise.all([
       page.waitForEvent("download"),
-      page.getByRole("button", { name: /download my data/i }).click(),
+      downloadData.click(),
     ]);
     const filename = download.suggestedFilename();
     expect(filename).toMatch(/^codetutor-export-\d{4}-\d{2}-\d{2}\.json$/);
     await expect(page.getByRole("status")).toHaveText(`Downloaded ${filename}`);
+    await expect(downloadData).toBeFocused();
     expect(await download.path()).not.toBeNull();
   });
 
@@ -832,6 +834,7 @@ test.describe("settings panel", () => {
     await expect(skipIntroduction).toBeVisible({ timeout: 5_000 });
     await skipIntroduction.click();
     await expect(page).toHaveURL(/\/start$/);
+    await expect(page.getByRole("heading", { level: 1, name: "CodeTutor AI" })).toBeFocused();
     expect(destructivePreferenceWrites).toHaveLength(0);
   });
 

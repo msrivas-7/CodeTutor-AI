@@ -98,6 +98,8 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
   const [clearConfirm, setClearConfirm] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const clearButtonRef = useRef<HTMLButtonElement>(null);
+  const keepButtonRef = useRef<HTMLButtonElement>(null);
   const keys = useShortcutLabels();
 
   // Phase 20-P4: derive what kind of tutor funding is in play. `hasKey`
@@ -131,6 +133,26 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
     if (focusComposerNonce === 0) return;
     textareaRef.current?.focus();
   }, [focusComposerNonce]);
+
+  useEffect(() => {
+    if (clearConfirm) keepButtonRef.current?.focus({ preventScroll: true });
+  }, [clearConfirm]);
+
+  const cancelClear = () => {
+    setClearConfirm(false);
+    window.requestAnimationFrame(() => {
+      clearButtonRef.current?.focus({ preventScroll: true });
+    });
+  };
+
+  const confirmClear = () => {
+    clearConversation();
+    setDraft("");
+    setClearConfirm(false);
+    window.requestAnimationFrame(() => {
+      textareaRef.current?.focus({ preventScroll: true });
+    });
+  };
 
   // Configured = we have SOMETHING to ask against. Either the user pasted a
   // BYOK key (hasKey) AND the model list loaded (selectedModel), OR the
@@ -247,6 +269,7 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
         <div className="flex items-center gap-1">
           {!clearConfirm ? (
             <button
+              ref={clearButtonRef}
               onClick={() => setClearConfirm(true)}
               className="min-h-11 rounded-lg px-3 py-2 text-sm text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-40"
               disabled={history.length === 0 || asking}
@@ -256,21 +279,27 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
               Clear
             </button>
           ) : (
-            <div className="flex items-center gap-1" role="group" aria-label="Confirm clearing conversation">
+            <div
+              className="flex items-center gap-1"
+              role="group"
+              aria-label="Confirm clearing conversation"
+              onKeyDown={(event) => {
+                if (event.key !== "Escape") return;
+                event.preventDefault();
+                cancelClear();
+              }}
+            >
               <button
+                ref={keepButtonRef}
                 type="button"
-                onClick={() => setClearConfirm(false)}
+                onClick={cancelClear}
                 className="min-h-11 rounded-lg px-2 py-2 text-sm text-muted transition hover:bg-elevated hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
                 Keep
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  clearConversation();
-                  setDraft("");
-                  setClearConfirm(false);
-                }}
+                onClick={confirmClear}
                 className="min-h-11 rounded-lg px-2 py-2 text-sm font-semibold text-danger transition hover:bg-danger/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger/50"
               >
                 Clear chat

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type RefObject } from "react";
 import { api } from "../api/client";
 import { useSessionStore } from "../state/sessionStore";
 import { usePreferencesStore } from "../state/preferencesStore";
@@ -9,7 +9,11 @@ import { ApiError } from "../api/ApiError";
 // banner the learner has no idea why Run doesn't work or how to recover —
 // they just see a dead button. Rendered inline by EditorPage/LessonPage
 // below their headers.
-export function SessionErrorBanner() {
+export function SessionErrorBanner({
+  recoveryFocusRef,
+}: {
+  recoveryFocusRef?: RefObject<HTMLElement | null>;
+}) {
   const {
     phase,
     error,
@@ -23,6 +27,21 @@ export function SessionErrorBanner() {
   const accountFrozen = usePreferencesStore((s) => s.accountFrozen);
   const [retrying, setRetrying] = useState(false);
   const [now, setNow] = useState(Date.now());
+
+  const restoreRecoveryFocus = () => {
+    let attempts = 0;
+    const focusWhenReady = () => {
+      const target = recoveryFocusRef?.current;
+      const disabled = target instanceof HTMLButtonElement && target.disabled;
+      if (target?.isConnected && !disabled) {
+        target.focus({ preventScroll: true });
+        return;
+      }
+      attempts += 1;
+      if (attempts < 12) window.requestAnimationFrame(focusWhenReady);
+    };
+    window.requestAnimationFrame(focusWhenReady);
+  };
 
   useEffect(() => {
     if (!retryAvailableAt || retryAvailableAt <= Date.now()) return;
@@ -61,6 +80,7 @@ export function SessionErrorBanner() {
     try {
       const { sessionId } = await api.startSession();
       setSession(sessionId);
+      restoreRecoveryFocus();
     } catch (err) {
       // QA-C3: setError no longer flips phase; do both explicitly so the
       // banner stays up (phase==="error") instead of dropping back to
@@ -91,6 +111,7 @@ export function SessionErrorBanner() {
     try {
       const { sessionId } = await api.resumeSession();
       setSession(sessionId);
+      restoreRecoveryFocus();
     } catch (err) {
       setError((err as Error).message);
       setRecoveryOptions(retryAvailableAt, false);
