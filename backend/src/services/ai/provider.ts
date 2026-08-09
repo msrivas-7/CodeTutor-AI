@@ -58,7 +58,7 @@ export interface TutorWalkStep {
 // null. The UI renders only non-null fields, in an intent-aware order.
 export interface TutorSections {
   intent?: TutorIntent | null;
-  conversationMove?: "none" | "greeting" | "clarify" | "soft-boundary" | null;
+  conversationMove?: "none" | "greeting" | "redirect" | "clarify" | "soft-boundary" | null;
   conversationReply?: string | null;
   summary?: string | null;
   diagnose?: string | null;

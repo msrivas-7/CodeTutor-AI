@@ -291,7 +291,7 @@ function buildPromptInputs(params: AIAskParams): {
     history: params.history,
     tutorStage: params.tutorStage ?? "clarify",
   });
-  const instructions = `${baseInstructions}\n\nTRUSTED SERVER CLASSIFICATION:\nThe turn intent is ${intent}. This value is authoritative. Return intent=${intent} and fill only the ${intent.toUpperCase()} fields described above.\nThe CONVERSATIONAL INPUTS contract still applies inside this intent. Classify the learner's actual message before using code or run context. When it is only a greeting, conversationMove=greeting is authoritative and its no-code, no-run, no-error exception overrides the normal ${intent.toUpperCase()} grounding rules.`;
+  const instructions = `${baseInstructions}\n\nTRUSTED SERVER CLASSIFICATION:\nThe turn intent is ${intent}. Return intent=${intent}. This classification is authoritative only for choosing the shape of any teaching fields that the learner actually requested. It does not mean the learner asked for teaching.\nBefore using code or run context, classify the learner's actual message under the CONVERSATIONAL INPUTS contract. A pure greeting requires conversationMove=greeting. A harmless request unrelated to coding or the lesson requires conversationMove=redirect. Direct hostility or unacceptable content requires conversationMove=soft-boundary even when it asks no coding question. Never silently replace one of these conversational moves with an arbitrary code explanation. For a greeting, redirect, or boundary-only soft-boundary, the no-diagnosis exception overrides the normal ${intent.toUpperCase()} grounding rules and all teaching fields must be null.`;
 
   const priorTutorTurns = params.tutorStage === "approach" ? 1 : 0;
   const stuck = studentSeemsStuck(params.question);

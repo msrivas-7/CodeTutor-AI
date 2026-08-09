@@ -62,4 +62,42 @@ describe("Socratic tutor response", () => {
     expect(html).not.toContain("Fix the current line.");
     expect(html).not.toContain("Try first");
   });
+
+  it("renders an unrelated redirect without an intent badge or ambient teaching chrome", () => {
+    const html = renderToStaticMarkup(
+      <TutorResponseView
+        sections={{
+          intent: "howto",
+          conversationMove: "redirect",
+          conversationReply:
+            "I can’t write that poem here, but I can help with this coding lesson. Would you like a goal recap or a gentle hint?",
+          summary: "The names list has two entries.",
+          explain: "Inspect the list.",
+        }}
+      />,
+    );
+
+    expect(html).toContain("I can’t write that poem here");
+    expect(html).toContain("goal recap or a gentle hint");
+    expect(html).not.toContain("The names list has two entries.");
+    expect(html).not.toContain("Inspect the list.");
+    expect(html).not.toContain("How to");
+  });
+
+  it("renders a boundary-only turn without an intent badge or invented teaching chrome", () => {
+    const html = renderToStaticMarkup(
+      <TutorResponseView
+        sections={{
+          intent: "concept",
+          conversationMove: "soft-boundary",
+          conversationReply:
+            "Let’s keep this respectful. I can still help with your current coding lesson when you’re ready.",
+        }}
+      />,
+    );
+
+    expect(html).toContain("keep this respectful");
+    expect(html).not.toContain("Concept");
+    expect(html).not.toContain("Explanation");
+  });
 });

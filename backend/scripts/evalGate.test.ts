@@ -3,6 +3,7 @@ import {
   EVAL_DATASET_VERSION,
   EVAL_EVALUATOR_VERSION,
   EXPECTED_EVAL_CASES_PER_INTENT,
+  REQUIRED_EVAL_TAGS,
   evaluateGate,
   type EvalBaselineV2,
   type EvalCaseResultV2,
@@ -11,15 +12,7 @@ import {
 } from "./evalGate.js";
 
 const intents: EvalIntent[] = ["socratic", "debug", "concept", "howto", "walkthrough", "checkin"];
-const tags = [
-  "multi-turn",
-  "stale-context",
-  "prompt-authority",
-  "citation",
-  "refusal",
-  "answer-leak",
-  "suspect-symbol",
-];
+const tags = [...REQUIRED_EVAL_TAGS];
 
 function passingResult(id: string, intent: EvalIntent): EvalCaseResultV2 {
   return {

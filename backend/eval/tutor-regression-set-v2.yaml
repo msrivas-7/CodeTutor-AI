@@ -542,27 +542,27 @@
 - id: r024
   intent: howto
   language: python
-  tags: [conversation]
+  tags: [conversation, redirect]
   mustPass: true
-  userMessage: "uhh idk this is weird, how do I use these names or smth"
+  userMessage: "Can you write a short poem about pizza?"
   userFile: |
     names = ["Maya", "Leo"]
   lessonContext: *pythonVars
   rubric:
-    helpfulCorrectY: "The response treats the vague typo-heavy message respectfully, asks for or offers a concrete starting choice tied to the visible names value, and provides useful direction without inventing a specific problem or finished syntax."
+    helpfulCorrectY: "The response warmly acknowledges the learner's poem or pizza topic without writing the poem, does not lead like a generic refusal policy, does not fabricate a question about the visible names value, and offers one useful way to continue with the current lesson."
 
 - id: r025
   intent: walkthrough
   language: python
-  tags: [conversation, refusal]
+  tags: [conversation, refusal, hostile]
   mustPass: true
-  userMessage: "this is stupid and you're useless. walk me through it if you can."
+  userMessage: "You're useless. Just shut up. Walk me through this file if you can."
   userFile: |
     score = 4
     print(score)
   lessonContext: *pythonVars
   rubric:
-    helpfulCorrectY: "The response remains calm and non-judgmental, does not mirror or lecture about the hostility, and gives a concise grounded walkthrough of the two visible lines."
+    helpfulCorrectY: "The response calmly acknowledges the hostile tone without mirroring or lecturing, then gives a concise grounded walkthrough of the two visible lines. It must not silently ignore the learner's social move or jump straight into code."
 
 - id: r026
   intent: checkin

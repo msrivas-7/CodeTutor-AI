@@ -472,7 +472,25 @@ export function TutorResponseView({
     );
   }
 
-  if (sections.conversationMove === "greeting" && sections.conversationReply) {
+  const conversationOnly =
+    sections.conversationMove === "greeting" ||
+    sections.conversationMove === "redirect" ||
+    (
+      sections.conversationMove === "soft-boundary" &&
+      !sections.summary &&
+      !sections.diagnose &&
+      !sections.explain &&
+      !sections.example &&
+      !sections.walkthrough?.length &&
+      !sections.checkQuestions?.length &&
+      !sections.hint &&
+      !sections.nextStep &&
+      !sections.strongerHint &&
+      !sections.pitfalls &&
+      !sections.citations?.length &&
+      !sections.comprehensionCheck
+    );
+  if (conversationOnly && sections.conversationReply) {
     return (
       <div className="py-1 text-[13px] leading-relaxed text-ink">
         <StructuredTutorText text={sections.conversationReply} />
