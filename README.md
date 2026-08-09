@@ -111,7 +111,7 @@ The hosted product runs at [codetutor.msrivas.com](https://codetutor.msrivas.com
 
 ```mermaid
 flowchart TD
-    B -->|HTTPS + SSE| A[Express API<br/>Azure VM]
+    B[Browser] -->|HTTPS + SSE| A[Express API<br/>Azure VM]
     A --> P[Docker socket proxy<br/>endpoint allowlist]
     P --> R[Per-session runner<br/>no network · resource capped]
     B --> F[React frontend<br/>Azure Static Web Apps]
