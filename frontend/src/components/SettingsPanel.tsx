@@ -16,7 +16,7 @@ import type { Persona } from "../types";
 import { useThemePref, type ThemePref } from "../util/theme";
 import { DeleteAccountModal } from "./DeleteAccountModal";
 import { useAIStatus } from "../state/useAIStatus";
-import { locationReturnTarget } from "../auth/returnTarget";
+import { locationReplayReturnTarget } from "../auth/returnTarget";
 
 // Phase 24A: tab structure simplified to three user-facing surfaces.
 // "AI" → "Tutor" (the word a beginner uses when they think about this
@@ -965,7 +965,7 @@ function AccountTab({
     onClose?.();
     const params = new URLSearchParams({
       replay: "1",
-      returnTo: locationReturnTarget(location),
+      returnTo: locationReplayReturnTarget(location),
     });
     nav(`/welcome?${params.toString()}`);
   };

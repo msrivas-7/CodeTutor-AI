@@ -41,6 +41,26 @@ describe("estimateTokens", () => {
   });
 });
 
+describe("listModels", () => {
+  it("offers evaluated Luna and the still-supported Nano BYOK choice", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(JSON.stringify({
+      data: [
+        { id: "text-embedding-3-small" },
+        { id: "gpt-4.1-nano" },
+        { id: "gpt-5.6-luna" },
+      ],
+    }), { status: 200 }));
+
+    const models = await openaiProvider.listModels("sk-test-list-models");
+
+    expect(models.map((model) => model.id)).toEqual([
+      "gpt-5.6-luna",
+      "gpt-4.1-nano",
+    ]);
+    expect(models.every((model) => model.contextualTutorEligible)).toBe(true);
+  });
+});
+
 function minimalParams(overrides: Partial<AIAskParams> = {}): AIAskParams {
   return {
     key: "sk-test",
@@ -178,9 +198,13 @@ describe("structured stream safety", () => {
       expect.objectContaining({ path: "main.py", line: 1 }),
     ]);
     expect(sections.checkQuestions).toHaveLength(1);
+    expect(sections.conversationMove).toBe("soft-boundary");
+    expect(sections.conversationReply).toMatch(/can’t share protected instructions/i);
     expect(Object.keys(sections).sort()).toEqual([
       "checkQuestions",
       "citations",
+      "conversationMove",
+      "conversationReply",
       "hint",
       "intent",
       "summary",

@@ -7,7 +7,11 @@ import {
 import { useProjectStore } from "../../../state/projectStore";
 import { useRunStore } from "../../../state/runStore";
 import { useAIStatus } from "../../../state/useAIStatus";
-import { useTutorAsk } from "../../../util/useTutorAsk";
+import {
+  PLATFORM_TUTOR_MODEL,
+  tutorRequestModel,
+  useTutorAsk,
+} from "../../../util/useTutorAsk";
 import {
   TutorResponseView,
   ActionChips,
@@ -84,6 +88,20 @@ interface GuidedTutorPanelProps {
   onSkipWelcome?: () => void;
   /** Same-tab anonymous continuity, hydrated before the composer is enabled. */
   initialAnonTutorState?: AnonTutorStateV1 | null;
+}
+
+export function canSubmitGuidedTutorTurn({
+  configured,
+  asking,
+  inputLocked,
+  exhausted,
+}: {
+  configured: boolean;
+  asking: boolean;
+  inputLocked: boolean | undefined;
+  exhausted: boolean;
+}): boolean {
+  return configured && !asking && !inputLocked && !exhausted;
 }
 
 export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, priorConcepts, activePracticeExercise, onCollapse, onOpenSettings, resetNonce, inputLocked, clearHidden, mode = "authed", onAnonExhausted, onAnonTrialPaused, onAnonSaveRequested, onSkipWelcome, initialAnonTutorState }: GuidedTutorPanelProps) {
@@ -167,6 +185,11 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
   const effectiveSource: "byok" | "platform" | "none" =
     hasKey ? "byok" : (aiStatus?.source ?? "none");
   const onPlatform = effectiveSource === "platform";
+  const effectiveModel = tutorRequestModel({
+    selectedModel,
+    onPlatform,
+    isAnon: mode === "anon",
+  });
   const exhausted = effectiveSource === "none" && aiStatus?.reason === "free_exhausted";
   useEffect(() => {
     if (!exhausted) setExhaustionDismissed(false);
@@ -265,9 +288,8 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
       }
     },
     buildBody: ({ question, files, diffSinceLastTurn, historyForSend, selection }) => ({
-      // Platform users have no selectedModel — backend locks them to
-      // `gpt-4.1-nano` via the allowlist, so we pass that name verbatim.
-      model: selectedModel ?? "gpt-4.1-nano",
+      // Platform and anonymous funding ignore stale persisted BYOK choices.
+      model: effectiveModel ?? PLATFORM_TUTOR_MODEL,
       question,
       files,
       activeFile: activeFile ?? undefined,
@@ -292,7 +314,12 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
   });
 
   const handleSubmit = () => {
-    if (!draft.trim() || anonQuotaExhausted) return;
+    if (!draft.trim() || !canSubmitGuidedTutorTurn({
+      configured,
+      asking,
+      inputLocked,
+      exhausted: anonQuotaExhausted,
+    })) return;
     const q = draft.trim();
     setDraft("");
     submitAsk(q);
@@ -306,13 +333,18 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
   };
 
   useEffect(() => {
-    if (pendingAsk && configured && !asking && !anonQuotaExhausted) {
+    if (pendingAsk && canSubmitGuidedTutorTurn({
+      configured,
+      asking,
+      inputLocked,
+      exhausted: anonQuotaExhausted,
+    })) {
       const q = pendingAsk;
       setPendingAsk(null);
       submitAsk(q);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingAsk, configured, asking, anonQuotaExhausted]);
+  }, [pendingAsk, configured, asking, inputLocked, anonQuotaExhausted]);
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
@@ -324,7 +356,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
             <line x1="12" y1="17" x2="12.01" y2="17" />
           </svg>
           <span className="text-xs font-semibold">Lesson Tutor</span>
-          {selectedModel && !onPlatform && (
+          {selectedModel && effectiveSource === "byok" && (
             <span className="rounded border border-border bg-elevated px-1.5 py-[1px] font-mono text-[10px] text-muted">
               {selectedModel}
             </span>
@@ -427,18 +459,21 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
             <div className="mt-2.5 flex flex-wrap gap-1.5">
               <button
                 onClick={() => setPendingAsk("What should I do in this lesson?")}
+                disabled={!canSubmitGuidedTutorTurn({ configured, asking, inputLocked, exhausted: anonQuotaExhausted })}
                 className="min-h-11 rounded-lg border border-border bg-bg/60 px-3 py-2 text-sm text-ink/80 transition hover:border-accent/40 hover:bg-accent/10 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
                 What should I do?
               </button>
               <button
                 onClick={() => setPendingAsk("I don't understand the instructions. Can you explain?")}
+                disabled={!canSubmitGuidedTutorTurn({ configured, asking, inputLocked, exhausted: anonQuotaExhausted })}
                 className="min-h-11 rounded-lg border border-border bg-bg/60 px-3 py-2 text-sm text-ink/80 transition hover:border-accent/40 hover:bg-accent/10 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
                 Explain the task
               </button>
               <button
                 onClick={() => setPendingAsk("Give me a hint to get started.")}
+                disabled={!canSubmitGuidedTutorTurn({ configured, asking, inputLocked, exhausted: anonQuotaExhausted })}
                 className="min-h-11 rounded-lg border border-border bg-bg/60 px-3 py-2 text-sm text-ink/80 transition hover:border-accent/40 hover:bg-accent/10 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
                 Give me a hint
@@ -473,7 +508,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
                     files: useProjectStore.getState().snapshot(),
                   },
                 } as Record<string, unknown>,
-                model: selectedModel,
+                model: effectiveModel,
               });
             }
           };

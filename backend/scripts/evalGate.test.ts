@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   EVAL_DATASET_VERSION,
   EVAL_EVALUATOR_VERSION,
+  EXPECTED_EVAL_CASES_PER_INTENT,
   evaluateGate,
   type EvalBaselineV2,
   type EvalCaseResultV2,
@@ -36,7 +37,9 @@ function passingResult(id: string, intent: EvalIntent): EvalCaseResultV2 {
 
 function fixture(): { summary: EvalSummaryV2; baseline: EvalBaselineV2 } {
   const results = intents.flatMap((intent) =>
-    Array.from({ length: 10 }, (_, index) => passingResult(`${intent}-${index}`, intent)),
+    Array.from({ length: EXPECTED_EVAL_CASES_PER_INTENT }, (_, index) =>
+      passingResult(`${intent}-${index}`, intent),
+    ),
   );
   const rates = Object.fromEntries(intents.map((intent) => [intent, 1])) as Record<EvalIntent, number>;
   return {

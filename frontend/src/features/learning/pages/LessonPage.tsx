@@ -8,7 +8,12 @@ import {
   useRef,
   useState,
 } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import {
+  useLocation,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
 import { LessonInstructionsPanel } from "../components/LessonInstructionsPanel";
 import { PracticeInstructionsView } from "../components/PracticeInstructionsView";
 import { LessonActionsMenu } from "../components/LessonActionsMenu";
@@ -63,6 +68,7 @@ import { lessonWorkspaceContextKey as buildLessonWorkspaceContextKey } from "../
 import { useLessonRunner } from "../hooks/useLessonRunner";
 import { useLessonValidator } from "../hooks/useLessonValidator";
 import { useMemoryWarmup } from "../hooks/useMemoryWarmup";
+import { resolveEditorReadinessKey } from "../utils/workspaceReadiness";
 import { useFirstRunChoreography } from "../../firstRun/useFirstRunChoreography";
 import { resolveFirstName } from "../../firstRun/resolveFirstName";
 import { useFirstRunStore } from "../../firstRun/useFirstRunStore";
@@ -269,6 +275,7 @@ export default function LessonPage({
   const courseId = courseIdProp ?? params.courseId;
   const lessonId = lessonIdProp ?? params.lessonId;
   const [searchParams] = useSearchParams();
+  const location = useLocation();
   const nav = useNavigate();
   const user = useAuthStore((s) => s.user);
   // Phase 27-v2.1: learnerId is null on the anon path (no signed-in
@@ -328,6 +335,10 @@ export default function LessonPage({
     path: string;
     ticket: number;
   } | null>(null);
+  const [editorReadyContext, setEditorReadyContext] = useState<string | null>(null);
+  const handleEditorReadiness = useCallback((key: string) => {
+    setEditorReadyContext(key);
+  }, []);
   const editorFocusTicket = useRef(0);
   const savedLessonCode = useRef<Record<string, string> | null>(null);
 
@@ -337,13 +348,27 @@ export default function LessonPage({
   // locks before creating the runner so its global Cmd/Ctrl+Enter path obeys
   // the exact same gate as the visible Run button.
   const firstRunStep = useFirstRunStore((s) => s.step);
+  const clearCompletedFirstRunLocation = useCallback(() => {
+    const nextSearch = new URLSearchParams(location.search);
+    if (!nextSearch.has("firstRun")) return;
+    nextSearch.delete("firstRun");
+    const serializedSearch = nextSearch.toString();
+    nav(
+      {
+        pathname: location.pathname,
+        search: serializedSearch ? `?${serializedSearch}` : "",
+        hash: location.hash,
+      },
+      { replace: true },
+    );
+  }, [location.hash, location.pathname, location.search, nav]);
   const anonChoreographyAlreadyDone =
     mode === "anon" && hasChoreographyDoneAnon();
   const isChoreographed =
     !openingBlocked &&
     (isFirstRun || mode === "anon") &&
     !anonChoreographyAlreadyDone;
-  const tutorInputLocked = isChoreographed && firstRunStep !== "done";
+  const choreographyTutorInputLocked = isChoreographed && firstRunStep !== "done";
   const runButtonLocked =
     openingBlocked ||
     (isChoreographed && !["awaitRun", "awaitEdit"].includes(firstRunStep));
@@ -490,6 +515,29 @@ export default function LessonPage({
     }
     return lessonWorkspaceContextKey;
   }, [courseId, lessonId, practiceMode, practiceIndex, loader.lesson?.practiceExercises, lessonWorkspaceContextKey]);
+  // Do not let Monaco acknowledge a new chat identity while the project store
+  // still contains the previous lesson's same-named files. The handshake only
+  // begins after both loader and project ownership have reached this context.
+  const editorReadinessKey = resolveEditorReadinessKey({
+    chatContextKey: chatCtxKey,
+    courseId,
+    lessonId,
+    loading: loader.loading,
+    loadedLessonId: loader.lesson?.id,
+    initializedFor: loader.initializedFor,
+    projectContext,
+  });
+  const lessonWorkspaceReady = Boolean(
+    courseId &&
+      lessonId &&
+      chatCtxKey &&
+      !loader.loading &&
+      loader.lesson?.id === lessonId &&
+      loader.initializedFor === `${courseId}/${lessonId}` &&
+      projectContext === chatCtxKey &&
+      editorReadyContext === chatCtxKey,
+  );
+  const tutorInputLocked = choreographyTutorInputLocked || !lessonWorkspaceReady;
 
   const switchChatContext = useAIStore((s) => s.switchChatContext);
   const initialAnonTutorStateRef = useRef(
@@ -1102,8 +1150,21 @@ export default function LessonPage({
   });
   const skipWelcomeAndFocusTutor = () => {
     skipChoreography();
+    // `firstRun=1` is a one-shot handoff marker, not durable lesson state.
+    // Clearing it here makes Skip release every choreography-derived lock even
+    // if an async preference write or hook cleanup is still settling, while
+    // preserving unrelated query state and the learner's exact page anchor.
+    clearCompletedFirstRunLocation();
     useAIStore.getState().bumpFocusComposer();
   };
+
+  useEffect(() => {
+    // Natural completion must close the same reload/re-entry hole as Skip.
+    // The replay return-target sanitizer remains a defensive boundary for old
+    // bookmarked URLs that predate this route cleanup.
+    if (!isFirstRun || firstRunStep !== "done") return;
+    clearCompletedFirstRunLocation();
+  }, [clearCompletedFirstRunLocation, firstRunStep, isFirstRun]);
 
   // Phase 21C: ShareDialog mount state. Lifted here so the dialog can
   // close cleanly even after LessonCompletePanel dismisses, and so the
@@ -1787,6 +1848,8 @@ export default function LessonPage({
                     contentCommitRequest={editorContentCommit}
                     onContentCommitSettled={handleEditorContentCommitSettled}
                     readOnly={editorInteractionLocked}
+                    readinessKey={editorReadinessKey}
+                    onReadinessConfirmed={handleEditorReadiness}
                   />
                 </Suspense>
               </div>
@@ -2135,6 +2198,8 @@ export default function LessonPage({
                   contentCommitRequest={editorContentCommit}
                   onContentCommitSettled={handleEditorContentCommitSettled}
                   readOnly={editorInteractionLocked}
+                  readinessKey={editorReadinessKey}
+                  onReadinessConfirmed={handleEditorReadiness}
                 />
               </Suspense>
             </div>

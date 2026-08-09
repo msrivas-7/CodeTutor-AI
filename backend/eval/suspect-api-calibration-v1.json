@@ -1,5 +1,5 @@
 {
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Human-labeled B7 suspect-symbol telemetry calibration. Positive cases are plausible fabricated calls; negative cases are runtime, learner-owned, concretely response-defined, or explicitly rejected calls.",
   "thresholds": {
     "precision": 0.95,
@@ -358,6 +358,38 @@
       "responseText": "Arrays do not have a `printAll()` method; use `items.forEach(console.log)` instead.",
       "userFiles": [{ "path": "index.js", "content": "const items = [1, 2];" }],
       "userQuestion": "print these",
+      "expectedSuspects": []
+    },
+    {
+      "id": "py-positive-qualified-endorsement",
+      "language": "python",
+      "responseText": "The problem is expecting `values.flatten()` to work before setup; call it after loading.",
+      "userFiles": [{ "path": "main.py", "content": "values = [[1], [2]]" }],
+      "userQuestion": "flatten this",
+      "expectedSuspects": ["flatten"]
+    },
+    {
+      "id": "py-negative-challenged-fabrication",
+      "language": "python",
+      "responseText": "Can you explain why `values.flatten()` doesn't work as a list method in Python?",
+      "userFiles": [{ "path": "main.py", "content": "values = [[1], [2]]" }],
+      "userQuestion": "flatten this",
+      "expectedSuspects": []
+    },
+    {
+      "id": "js-positive-qualified-endorsement",
+      "language": "javascript",
+      "responseText": "Avoid unnecessary delay; call `printAll()` after loading because it is a standard helper.",
+      "userFiles": [{ "path": "index.js", "content": "const values = [1, 2, 3];" }],
+      "userQuestion": "show every value",
+      "expectedSuspects": ["printAll"]
+    },
+    {
+      "id": "js-negative-common-mistake-rejection",
+      "language": "javascript",
+      "responseText": "A common mistake is expecting `printAll()` to be a built-in method; it is not.",
+      "userFiles": [{ "path": "index.js", "content": "const values = [1, 2, 3];" }],
+      "userQuestion": "show every value",
       "expectedSuspects": []
     }
   ]

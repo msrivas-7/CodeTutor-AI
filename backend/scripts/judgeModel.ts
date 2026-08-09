@@ -1,9 +1,9 @@
-// Phase A — A4 eval substrate: strict Y/N grader. B3 deliberately uses a
-// model outside the control/candidate pair so gpt-4.1-mini never grades its
-// own promotion against gpt-4.1-nano.
+// Phase A — A4 eval substrate: strict Y/N grader. The judge deliberately uses
+// a model outside the production tutor candidate so it never grades its own
+// promotion.
 //
-// The judge model bypasses PLATFORM_ALLOWED_MODELS (which is locked to
-// gpt-4.1-nano in production). Eval grading needs a stricter, independent
+// The judge model bypasses PLATFORM_ALLOWED_MODELS (which is locked to the
+// evaluated platform tutor in production). Eval grading needs an independent
 // grader than either production candidate. The complete learner question,
 // code, run evidence, and authored rubric are included so the judge can
 // detect confident-but-wrong explanations rather than grading prose alone.

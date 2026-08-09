@@ -1,24 +1,23 @@
 {
-  "datasetVersion": "2.4.0",
-  "datasetFingerprint": "98919f21f20dc68548acdbcce81ff7e85db21c82b70066c0a4fd867e139bc0e3",
-  "evaluatorVersion": "2.12.0",
-  "approvedModel": "platform-tutor-b3.v1",
+  "datasetVersion": "2.7.0",
+  "datasetFingerprint": "bcaf5aa80cb17a1b5ed094d71812e4a41b66b0a5ce98616f629583a624519c1c",
+  "evaluatorVersion": "2.13.0",
+  "approvedModel": "platform-tutor-luna.v1",
   "approvedJudgeModel": "gpt-4.1",
-  "approvedRoutingPolicyVersion": "platform-tutor-b3.v1",
+  "approvedRoutingPolicyVersion": "platform-tutor-luna.v1",
   "approvedModels": [
-    "gpt-4.1-mini",
-    "gpt-4.1-nano"
+    "gpt-5.6-luna"
   ],
   "approvedModelByIntent": {
-    "socratic": "gpt-4.1-nano",
-    "debug": "gpt-4.1-nano",
-    "concept": "gpt-4.1-nano",
-    "howto": "gpt-4.1-nano",
-    "walkthrough": "gpt-4.1-nano",
-    "checkin": "gpt-4.1-mini"
+    "socratic": "gpt-5.6-luna",
+    "debug": "gpt-5.6-luna",
+    "concept": "gpt-5.6-luna",
+    "howto": "gpt-5.6-luna",
+    "walkthrough": "gpt-5.6-luna",
+    "checkin": "gpt-5.6-luna"
   },
-  "approvedAt": "2026-08-08T12:45:50.073Z",
-  "qualityContractFingerprint": "527b6533c17f20ccccbf54354300dc63a0941646cffe9666c1fcd7cadf538c8d",
+  "approvedAt": "2026-08-09T14:25:19.831Z",
+  "qualityContractFingerprint": "f488b131cdf2d58749163ff4b094523b2c67c36ccdc27de0b195cffcb3478d2c",
   "postureOverall": 1,
   "postureByIntent": {
     "socratic": 1,

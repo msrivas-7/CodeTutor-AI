@@ -6,6 +6,7 @@ import { buildSituationBlock } from "./prompts/situation.js";
 import { buildUserTurn } from "./editorPromptBuilder.js";
 import type { LessonContext } from "./prompts/lessonContext.js";
 import { buildLessonContextBlock } from "./prompts/lessonContext.js";
+import { buildLearnerProfileBlock } from "./prompts/learnerProfile.js";
 
 const GUIDED_ADDENDUM = `
 
@@ -24,6 +25,7 @@ export interface GuidedSystemPromptOptions {
   editsSinceLastTurn?: number;
   persona?: Persona;
   tutorStage?: TutorStage;
+  learnerName?: string | null;
 }
 
 export function buildGuidedSystemPrompt(
@@ -46,6 +48,7 @@ export function buildGuidedSystemPrompt(
     TUTOR_CORE_PROMPT + GUIDED_ADDENDUM,
     situation,
     lessonBlock,
+    buildLearnerProfileBlock(opts.learnerName),
     personaBlock,
   ]
     .filter(Boolean)

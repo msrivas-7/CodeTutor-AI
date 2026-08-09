@@ -111,7 +111,7 @@ export function StatusBar() {
           ) : (
             <span className="text-faint">not set</span>
           )}
-          {selectedModel && (
+          {hasKey && selectedModel && (
             <span className="font-mono text-ink">{selectedModel}</span>
           )}
         </div>

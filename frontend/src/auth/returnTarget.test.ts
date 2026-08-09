@@ -4,6 +4,9 @@ import {
   authReturnTarget,
   callbackUrl,
   consumeReturnTarget,
+  locationReplayReturnTarget,
+  locationReturnTarget,
+  normalizeReplayReturnTarget,
   normalizeReturnTarget,
   rememberReturnTarget,
 } from "./returnTarget";
@@ -32,6 +35,21 @@ describe("auth return targets", () => {
     expect(
       authReturnTarget(`?returnTo=${encodeURIComponent(target)}`, null),
     ).toBe(target);
+  });
+
+  it("removes destructive first-run state only from welcome replay targets", () => {
+    const location = {
+      pathname: "/learn/course/python-fundamentals/lesson/hello-world",
+      search: "?firstRun=1&contextGuide=1&mode=practice",
+      hash: "#editor",
+    };
+    expect(locationReturnTarget(location)).toBe(
+      "/learn/course/python-fundamentals/lesson/hello-world?firstRun=1&contextGuide=1&mode=practice#editor",
+    );
+    expect(locationReplayReturnTarget(location)).toBe(
+      "/learn/course/python-fundamentals/lesson/hello-world?contextGuide=1&mode=practice#editor",
+    );
+    expect(normalizeReplayReturnTarget("/welcome?replay=1")).toBe("/start");
   });
 
   it("rejects external, protocol-relative, and auth-loop destinations", () => {

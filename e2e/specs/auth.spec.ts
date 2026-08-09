@@ -436,7 +436,13 @@ test.describe("auth flow", () => {
     // independent sign-out contract.
     const skipLessonWelcome = page.getByRole("button", { name: /skip welcome/i });
     await skipLessonWelcome.waitFor({ state: "visible", timeout: 10_000 }).catch(() => {});
-    if (await skipLessonWelcome.isVisible()) await skipLessonWelcome.click();
+    if (await skipLessonWelcome.isVisible()) {
+      await skipLessonWelcome.click();
+      await expect(page).toHaveURL(
+        /\/learn\/course\/python-fundamentals\/lesson\/hello-world$/,
+      );
+      await expect(page.getByRole("button", { name: /run code/i })).toBeEnabled();
+    }
 
     // Sign out from the UserMenu (avatar in the top-right corner).
     await page.getByRole("button", { name: /user menu/i }).click();

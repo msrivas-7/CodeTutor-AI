@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { StatusBadge } from "../components/StatusBadge";
@@ -63,7 +63,15 @@ export default function EditorPage() {
   const nav = useNavigate();
   const switchChatContext = useAIStore((s) => s.switchChatContext);
   const bumpFocusComposer = useAIStore((s) => s.bumpFocusComposer);
+  const [tutorComposerElement, setTutorComposerElement] = useState<HTMLTextAreaElement | null>(null);
   const switchProjectContext = useProjectStore((s) => s.switchProjectContext);
+  const editorProjectContext = useProjectStore((s) => s.projectContext);
+  const [editorReadyContext, setEditorReadyContext] = useState<string | null>(null);
+  const handleEditorReadiness = useCallback((key: string) => {
+    setEditorReadyContext(key);
+  }, []);
+  const editorContextReady =
+    editorProjectContext === "editor" && editorReadyContext === "editor";
   const switchRunContext = useRunStore((s) => s.switchRunContext);
   useSessionLifecycle();
   useGlobalShortcuts();
@@ -379,6 +387,8 @@ export default function EditorPage() {
               <MonacoPane
                 focusRequest={editorFocusRequest}
                 onFocusRequestSettled={handleEditorFocusRequestSettled}
+                readinessKey={editorProjectContext}
+                onReadinessConfirmed={handleEditorReadiness}
               />
             </Suspense>
           </div>
@@ -445,7 +455,7 @@ export default function EditorPage() {
           aria-hidden={tutorCollapsed ? "true" : undefined}
           {...((tutorCollapsed ? { inert: "" } : {}) as Record<string, unknown>)}
         >
-          <AssistantPanel onCollapse={() => {
+          <AssistantPanel inputLocked={!editorContextReady} onComposerElement={setTutorComposerElement} onCollapse={() => {
             setTutorCollapsed(true);
             requestAnimationFrame(() => tutorRestoreRef.current?.focus());
           }} onOpenSettings={() => setShowSettings(true)} />
@@ -465,11 +475,14 @@ export default function EditorPage() {
             tutorPanel: tutorRef.current,
           }}
           onComplete={(outcome) => {
+            const destination = outcome === "completed"
+              ? tutorComposerElement
+              : editorHeadingRef.current;
+            destination?.focus({ preventScroll: true });
             setShowCoach(false);
-            requestAnimationFrame(() => {
-              if (outcome === "completed") bumpFocusComposer();
-              else editorHeadingRef.current?.focus({ preventScroll: true });
-            });
+            if (!destination && outcome === "completed") {
+              requestAnimationFrame(() => bumpFocusComposer());
+            }
           }}
         />
       )}

@@ -9,6 +9,7 @@ import {
 import { useAIStore } from "../state/aiStore";
 import { monacoLangFor } from "../types";
 import { useEffectiveTheme } from "../util/theme";
+import { pollForEditorReadiness } from "./monacoReadiness";
 
 // Custom themes tuned to the app palette so the editor feels like part of the
 // product. Dark maps to bg/panel/elevated tokens; light uses the inverse
@@ -117,6 +118,9 @@ interface MonacoPaneProps {
   contentCommitRequest?: { ticket: number; path: string; content: string } | null;
   onContentCommitSettled?: (ticket: number, matched: boolean) => void;
   readOnly?: boolean;
+  /** Stable workspace identity whose store buffer must be present in Monaco. */
+  readinessKey?: string | null;
+  onReadinessConfirmed?: (key: string) => void;
 }
 
 export function MonacoPane({
@@ -126,6 +130,8 @@ export function MonacoPane({
   contentCommitRequest = null,
   onContentCommitSettled,
   readOnly = false,
+  readinessKey = null,
+  onReadinessConfirmed,
 }: MonacoPaneProps = {}) {
   // P-C1: scoped selectors — a no-arg `useProjectStore()` re-renders on every
   // file-tree reorder / tab change, dragging Monaco through a full re-render
@@ -201,6 +207,20 @@ export function MonacoPane({
   useEffect(() => {
     syncAttentionDecoration();
   }, [attentionTarget?.path, attentionTarget?.line, activeFile]);
+
+  useEffect(() => {
+    if (!readinessKey || !activeFile || !onReadinessConfirmed) return;
+    const expected = files[activeFile] ?? "";
+    // Monaco is lazy-loaded and can take longer than a couple of seconds on a
+    // cold device. Keep the lock fail-closed until this component unmounts or
+    // the exact store buffer owns the editor; never time out into a
+    // permanently disabled tutor.
+    return pollForEditorReadiness({
+      expected,
+      readCurrent: () => editorRef.current?.getModel()?.getValue() ?? null,
+      onReady: () => onReadinessConfirmed(readinessKey),
+    });
+  }, [activeFile, files, readinessKey, onReadinessConfirmed]);
 
   const applyFocusRequest = () => {
     if (

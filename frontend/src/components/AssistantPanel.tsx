@@ -8,7 +8,11 @@ import { useProjectStore } from "../state/projectStore";
 import { useRunStore } from "../state/runStore";
 import { useAIStatus } from "../state/useAIStatus";
 import { planSend } from "../util/summarizeHistory";
-import { useTutorAsk } from "../util/useTutorAsk";
+import {
+  PLATFORM_TUTOR_MODEL,
+  tutorRequestModel,
+  useTutorAsk,
+} from "../util/useTutorAsk";
 import {
   TutorResponseView,
   ActionChips,
@@ -26,7 +30,18 @@ import { SavedTutorAccordion } from "./SavedTutorAccordion";
 import { useSavedTutorMessages } from "../features/learning/hooks/useSavedTutorMessages";
 import { useShortcutLabels } from "../util/platform";
 
-export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: () => void; onOpenSettings?: () => void }) {
+export function AssistantPanel({
+  onCollapse,
+  onOpenSettings,
+  onComposerElement,
+  inputLocked = false,
+}: {
+  onCollapse?: () => void;
+  onOpenSettings?: () => void;
+  onComposerElement?: (element: HTMLTextAreaElement | null) => void;
+  /** Prevent asks while EditorPage is still switching to its final project context. */
+  inputLocked?: boolean;
+}) {
   // P-C1: scoped selector + shallow equality. A no-arg `useAIStore()` re-renders
   // on every store mutation (noteEdit/noteRun each run fires the whole panel
   // tree). Shallow-comparing only the slice we actually consume keeps the
@@ -97,7 +112,7 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
   const [exhaustionDismissed, setExhaustionDismissed] = useState(false);
   const [clearConfirm, setClearConfirm] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const clearButtonRef = useRef<HTMLButtonElement>(null);
   const keepButtonRef = useRef<HTMLButtonElement>(null);
   const keys = useShortcutLabels();
@@ -110,6 +125,11 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
   const effectiveSource: "byok" | "platform" | "none" =
     hasKey ? "byok" : (aiStatus?.source ?? "none");
   const onPlatform = effectiveSource === "platform";
+  const effectiveModel = tutorRequestModel({
+    selectedModel,
+    onPlatform,
+    isAnon: false,
+  });
   const exhausted = effectiveSource === "none" && aiStatus?.reason === "free_exhausted";
   // Drop stale "dismissed" state whenever the counter refreshes (new day,
   // BYOK added, etc.) so the next exhaustion re-shows the card.
@@ -156,8 +176,8 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
 
   // Configured = we have SOMETHING to ask against. Either the user pasted a
   // BYOK key (hasKey) AND the model list loaded (selectedModel), OR the
-  // backend is willing to fund us on the platform key (onPlatform — the
-  // model is implicit, server-picked `gpt-4.1-nano`).
+  // backend is willing to fund us on the platform key. Platform model choice
+  // is implicit and server-owned even if an old preference remains stored.
   const configured = onPlatform || (hasKey && !!selectedModel);
 
   const prepareAnswer = (value: string) => {
@@ -182,7 +202,7 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
         // next ask, so the CURRENT ask doesn't block on it.
         api
           .summarizeHistory({
-            model: selectedModel ?? "gpt-4.1-nano",
+            model: effectiveModel ?? PLATFORM_TUTOR_MODEL,
             history: plan.summarizeSlice.map((m) => ({
               role: m.role,
               content: m.content,
@@ -199,9 +219,8 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
       return plan.historyForSend;
     },
     buildBody: ({ question, files, diffSinceLastTurn, historyForSend, selection }) => ({
-      // Platform users have no selectedModel — backend locks them to
-      // `gpt-4.1-nano` via the allowlist, so we pass that name verbatim.
-      model: selectedModel ?? "gpt-4.1-nano",
+      // Platform funding ignores any stale persisted BYOK preference.
+      model: effectiveModel ?? PLATFORM_TUTOR_MODEL,
       question,
       files,
       activeFile: activeFile ?? undefined,
@@ -235,7 +254,7 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
   // "walk me through this" header button all set `pendingAsk`. We consume it
   // here and fire immediately — no composer detour.
   useEffect(() => {
-    if (pendingAsk && configured && !asking) {
+    if (pendingAsk && configured && !asking && !inputLocked) {
       const q = pendingAsk;
       setPendingAsk(null);
       submitAsk(q);
@@ -243,13 +262,13 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
     // submitAsk closes over a lot of state; we intentionally depend only on
     // the trigger + readiness gates so we don't re-fire on unrelated re-renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingAsk, configured, asking]);
+  }, [pendingAsk, configured, asking, inputLocked]);
 
   return (
     <div className="flex h-full flex-col border-l border-border">
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">
-          {selectedModel && !onPlatform && (
+          {selectedModel && effectiveSource === "byok" && (
             <span className="rounded border border-border bg-elevated px-1.5 py-[1px] font-mono text-[10px] text-muted">
               {selectedModel}
             </span>
@@ -391,7 +410,7 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
                     files: useProjectStore.getState().snapshot(),
                   },
                 } as Record<string, unknown>,
-                model: selectedModel,
+                model: effectiveModel,
               });
             }
           };
@@ -411,7 +430,7 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
                   sections={m.sections}
                   onAsk={isLatestAssistant ? setPendingAsk : undefined}
                   onCompose={isLatestAssistant ? prepareAnswer : undefined}
-                  disabled={asking}
+                  disabled={asking || inputLocked}
                   scripted={m.meta?.scripted}
                 />
               ) : (
@@ -422,7 +441,7 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
               {showChrome && (
                 <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
                   {isLatestAssistant ? (
-                    <ActionChips onAsk={setPendingAsk} disabled={asking} />
+                    <ActionChips onAsk={setPendingAsk} disabled={asking || inputLocked} />
                   ) : (
                     <span />
                   )}
@@ -478,7 +497,7 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
                 void submitAsk(lastUser.content, { appendUser: false });
               }
             }}
-            retryDisabled={asking || !configured}
+            retryDisabled={asking || !configured || inputLocked}
           />
         )}
       </div>
@@ -499,7 +518,10 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
           />
         )}
         <textarea
-          ref={textareaRef}
+          ref={(node) => {
+            textareaRef.current = node;
+            onComposerElement?.(node);
+          }}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={handleKey}
@@ -524,7 +546,7 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
                   ? "Configure API key first"
                   : "Ask about your project…"
           }
-          disabled={statusLoading || !configured}
+          disabled={statusLoading || !configured || inputLocked}
           rows={3}
           aria-label="Ask the tutor"
           className="w-full resize-none rounded-md border border-border bg-elevated px-2.5 py-2 text-xs text-ink transition placeholder:text-faint focus:border-accent/60 disabled:cursor-not-allowed disabled:bg-elevated/40 disabled:opacity-50"
@@ -556,7 +578,7 @@ export function AssistantPanel({ onCollapse, onOpenSettings }: { onCollapse?: ()
           ) : (
             <button
               onClick={handleAsk}
-              disabled={!draft.trim() || !configured}
+              disabled={!draft.trim() || !configured || inputLocked}
               className="min-h-11 rounded-md bg-accent px-3 py-2 text-[11px] font-semibold text-bg transition hover:bg-accentMuted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:bg-elevated disabled:text-faint"
             >
               Ask

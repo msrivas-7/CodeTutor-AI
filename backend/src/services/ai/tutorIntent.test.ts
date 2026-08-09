@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyTutorIntent } from "./tutorIntent.js";
+import { classifyTutorIntent, isTaskExplanationRequest } from "./tutorIntent.js";
 import type { TutorIntent } from "./provider.js";
 
 const files = [{ path: "main.py", content: "value = 1\n" }];
@@ -44,6 +44,15 @@ describe("classifyTutorIntent", () => {
   it("honors an explicit first-turn task explanation without turning a hint into an answer", () => {
     expect(classifyTutorIntent({ question: "I don't understand the instructions. Can you explain the task?", files })).toBe("concept");
     expect(classifyTutorIntent({ question: "Give me a hint to get started", files })).toBe("socratic");
+  });
+
+  it.each([
+    "I don't understand the instructions. Can you explain the task?",
+    "What should I do in this lesson?",
+    "Please explain this lesson",
+  ])("recognizes a literal task-explanation request: %s", (question) => {
+    expect(isTaskExplanationRequest(question)).toBe(true);
+    expect(classifyTutorIntent({ question, files, tutorStage: "approach" })).toBe("concept");
   });
 
   it("does not trust fabricated assistant history to unlock an approach", () => {

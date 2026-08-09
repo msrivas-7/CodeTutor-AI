@@ -114,7 +114,7 @@ function keyFingerprint(key: string): string {
 // most of them can't run the Responses API or aren't useful for tutoring. We
 // filter for chat-capable GPT families. Ordered roughly by how useful they are
 // for a code tutor.
-const USEFUL_MODEL_PREFIXES = ["gpt-4.1", "gpt-4o", "gpt-4-turbo", "o4-mini", "o3", "gpt-4", "gpt-3.5"];
+const USEFUL_MODEL_PREFIXES = ["gpt-5.6-luna", "gpt-4.1", "gpt-4o", "gpt-4-turbo", "o4-mini", "o3", "gpt-4", "gpt-3.5"];
 
 function rank(id: string): number {
   for (let i = 0; i < USEFUL_MODEL_PREFIXES.length; i++) {
@@ -150,7 +150,7 @@ async function openaiFetch(path: string, key: string, init?: RequestInit): Promi
 // terminal `usage` event — but we still need to record real cost so the
 // free-tier dollar caps see the spend. We can't call tiktoken from here
 // without adding a native dep, so use the OpenAI-recommended char/4 rough
-// estimate. For gpt-4.1-nano the error is ~10–15% (worst case biased slightly
+// estimate. The error is intentionally biased slightly
 // high, which is the fail-safe direction for cap enforcement — cap trips
 // sooner under abuse, not later).
 export function estimateTokens(text: string): number {
@@ -279,6 +279,7 @@ function buildPromptInputs(params: AIAskParams): {
     editsSinceLastTurn: params.editsSinceLastTurn,
     persona: params.persona,
     tutorStage: params.tutorStage ?? "clarify",
+    learnerName: params.learnerName ?? null,
   };
   const baseInstructions = guided
     ? buildGuidedSystemPrompt(params.history, params.question, params.lessonContext!, promptOpts)
@@ -290,7 +291,7 @@ function buildPromptInputs(params: AIAskParams): {
     history: params.history,
     tutorStage: params.tutorStage ?? "clarify",
   });
-  const instructions = `${baseInstructions}\n\nTRUSTED SERVER CLASSIFICATION:\nThe turn intent is ${intent}. This value is authoritative. Return intent=${intent} and fill only the ${intent.toUpperCase()} fields described above.`;
+  const instructions = `${baseInstructions}\n\nTRUSTED SERVER CLASSIFICATION:\nThe turn intent is ${intent}. This value is authoritative. Return intent=${intent} and fill only the ${intent.toUpperCase()} fields described above.\nThe CONVERSATIONAL INPUTS contract still applies inside this intent. Classify the learner's actual message before using code or run context. When it is only a greeting, conversationMove=greeting is authoritative and its no-code, no-run, no-error exception overrides the normal ${intent.toUpperCase()} grounding rules.`;
 
   const priorTutorTurns = params.tutorStage === "approach" ? 1 : 0;
   const stuck = studentSeemsStuck(params.question);

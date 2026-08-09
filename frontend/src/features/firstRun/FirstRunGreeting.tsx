@@ -6,13 +6,7 @@ import {
 } from "../../state/preferencesStore";
 import { resolveFirstName } from "./resolveFirstName";
 import { CinematicGreeting } from "./CinematicGreeting";
-import { normalizeReturnTarget } from "../../auth/returnTarget";
-
-export function normalizeReplayReturnTarget(value: string | null): string {
-  const target = normalizeReturnTarget(value, "/start");
-  const pathname = new URL(target, "https://codetutor.invalid").pathname;
-  return pathname === "/welcome" ? "/start" : target;
-}
+import { normalizeReplayReturnTarget } from "../../auth/returnTarget";
 
 export function resolveWelcomeHandoff(
   explicitReplay: boolean,

@@ -393,7 +393,7 @@ export async function resolveAICredential(
 //   per-request output cap (Phase 27 §3b: anonMaxOutputTokens=512)
 //   × per-IP daily count (anonDailyQuestionsPerIp=8)
 //   ≤ 4K output tokens / IP / day
-//   ≤ ~$0.002 / IP / day at gpt-4.1-nano rates
+//   ≤ ~$0.004 / IP / day at gpt-5.6-luna rates
 // And L4 ($15/day default) is the global ceiling regardless of IP count.
 
 export async function resolveAnonAICredential(

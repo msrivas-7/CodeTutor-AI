@@ -10,6 +10,11 @@ import { getWorkerUser } from "../fixtures/auth";
 
 import { mockAllAI } from "../fixtures/aiMocks";
 import {
+  getMonacoValue,
+  setMonacoValue,
+  waitForMonacoReady,
+} from "../fixtures/monaco";
+import {
   loadProfile,
   markOnboardingDone,
   seedApiKey,
@@ -848,6 +853,78 @@ test.describe("settings panel", () => {
     await page.keyboard.press("Escape");
     await expect(page).toHaveURL(/\/learn$/);
     await expect(page.getByRole("heading", { level: 1, name: "Guided Learning" })).toBeFocused();
+  });
+
+  test("welcome replay strips a stale first-run flag and preserves progress plus draft", async ({
+    page,
+  }) => {
+    const firstRunOrigin =
+      "/learn/course/python-fundamentals/lesson/hello-world?firstRun=1&from=settings#editor";
+    const safeReturn =
+      "/learn/course/python-fundamentals/lesson/hello-world?from=settings#editor";
+    const lessonResets: string[] = [];
+    page.on("request", (request) => {
+      if (
+        request.method() === "DELETE" &&
+        new URL(request.url()).pathname ===
+          "/api/user/lessons/python-fundamentals/hello-world"
+      ) {
+        lessonResets.push(request.url());
+      }
+    });
+
+    // The assertion below is about the welcome choreography releasing the
+    // tutor, so establish a configured tutor explicitly. CI intentionally
+    // runs without the platform key; inheriting that unrelated environment
+    // state would leave the composer correctly disabled after welcome exits.
+    await seedApiKey(page, {
+      key: "sk-test-e2e-padding-12345",
+      model: "gpt-4o-mini",
+    });
+
+    // This is the real post-onboarding state reported in review: the original
+    // handoff URL still carries firstRun=1 even after its choreography ends.
+    await page.goto(firstRunOrigin);
+    const skipWelcome = page.getByRole("button", { name: /skip welcome/i });
+    await expect(skipWelcome).toBeVisible({ timeout: 15_000 });
+    await skipWelcome.click();
+    await expect(page).toHaveURL(safeReturn);
+    await expect(page.getByRole("button", { name: /run code/i })).toBeEnabled();
+    await expect(
+      page.getByRole("button", { name: /check my work/i }),
+    ).toBeEnabled();
+    await expect(
+      page.getByRole("textbox", { name: "Ask the tutor" }),
+    ).toBeEnabled();
+    await waitForMonacoReady(page);
+    await expect.poll(() => lessonResets.length, { timeout: 10_000 }).toBe(1);
+
+    const preservedDraft = '# replay-safe draft\nprint("still mine")\n';
+    const saved = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PUT" &&
+        new URL(response.url()).pathname.endsWith(
+          "/api/user/lessons/python-fundamentals/hello-world/draft",
+        ) && response.ok(),
+      { timeout: 15_000 },
+    );
+    await setMonacoValue(page, preservedDraft);
+    await saved;
+
+    await openSettings(page, "account");
+    await page.getByRole("button", { name: /^watch the moment again$/i }).click();
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get("returnTo"))
+      .toBe(safeReturn);
+    await page.getByRole("button", { name: /skip introduction/i }).click();
+    await expect(page).toHaveURL(safeReturn);
+    await waitForMonacoReady(page);
+
+    expect(await getMonacoValue(page)).toBe(preservedDraft);
+    expect(lessonResets, "replay never repeats destructive first-run reset").toHaveLength(1);
+    await expect(
+      page.getByRole("heading", { level: 1, name: /Hello, World!/i }),
+    ).toBeFocused({ timeout: 6_000 });
   });
 
   test("Escape closes the settings modal cleanly", async ({ page }) => {

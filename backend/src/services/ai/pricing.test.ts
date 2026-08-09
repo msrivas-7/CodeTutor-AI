@@ -21,6 +21,16 @@ describe("priceUsd", () => {
     expect(r.priceVersion).toBe(PRICE_VERSION);
   });
 
+  it.each([
+    ["gpt-5-mini", 0.00275],
+    ["gpt-5.4-mini", 0.00675],
+    ["gpt-5.6-luna", 0.0018],
+  ])("computes cost for tutor migration candidate %s", (model, expected) => {
+    const r = priceUsd(model, 3000, 1000);
+    expect(r.costUsd).toBe(expected);
+    expect(r.priceVersion).toBe(PRICE_VERSION);
+  });
+
   it("returns 0 cost when both token counts are 0", () => {
     const r = priceUsd("gpt-4.1-nano", 0, 0);
     expect(r.costUsd).toBe(0);
@@ -46,13 +56,15 @@ describe("priceUsd", () => {
 });
 
 describe("isPlatformAllowedModel", () => {
-  it("accepts gpt-4.1-nano", () => {
-    expect(isPlatformAllowedModel("gpt-4.1-nano")).toBe(true);
+  it("accepts the evaluated Luna platform model", () => {
+    expect(isPlatformAllowedModel("gpt-5.6-luna")).toBe(true);
   });
 
   it("rejects anything else", () => {
-    // Mini is priced for trusted server routing but is not client-selectable.
+    // Migration candidates and retired models can remain priced for historical
+    // ledger interpretation without becoming client-selectable.
     expect(isPlatformAllowedModel("gpt-4.1-mini")).toBe(false);
+    expect(isPlatformAllowedModel("gpt-4.1-nano")).toBe(false);
     expect(isPlatformAllowedModel("gpt-4o")).toBe(false);
     expect(isPlatformAllowedModel("gpt-4.1-nano-super")).toBe(false);
     expect(isPlatformAllowedModel("")).toBe(false);

@@ -12,7 +12,7 @@
 
 import { aiPlatformAbuseSignals } from "../metrics.js";
 
-export const SUSPECT_API_DETECTOR_VERSION = "b7.3";
+export const SUSPECT_API_DETECTOR_VERSION = "b7.4";
 
 // Python builtins plus the standard-library and common object surfaces that a
 // beginner tutor can legitimately name. This is intentionally explicit and
@@ -190,6 +190,42 @@ function explicitlyRejectsCall(sentence: string, symbol: string): boolean {
     new RegExp(
       "(?:\\bno\\b|\\bnot\\s+(?:(?:a|an)\\s+)?(?:valid|real|supported))" +
         "[^.!?\\n]{0,40}" + formattedCall,
+      "i",
+    ),
+    new RegExp(
+      "(?:non[- ]?existent|unknown|invented|fabricated|made[- ]?up|invalid)" +
+        "\\s+(?:methods?|calls?|apis?)\\s+(?:like|such\\s+as)\\s+" + formattedCall,
+      "i",
+    ),
+    new RegExp(
+      "(?:do\\s+not|don't|never)\\s+assume[^.!?\\n]{0,80}" + formattedCall +
+        "[^.!?\\n]{0,40}(?:exist|available|supported|standard|built[- ]?in|real|valid)",
+      "i",
+    ),
+    new RegExp(
+      "(?:avoid|stop|refrain\\s+from|do\\s+not|don't|never)\\s+" +
+        "(?:from\\s+)?assum(?:e|ing)\\b[^.!?\\n]{0,80}" +
+        "(?:have|has|include|provide|support|offer)\\b[^.!?\\n]{0,48}" +
+        formattedCall,
+      "i",
+    ),
+    new RegExp(
+      "(?:avoid|do\\s+not|don't|never)\\s+(?:trying\\s+to\\s+)?" +
+        "(?:call|use|invoke|run)\\s+" + formattedCall +
+        "[^.!?\\n]{0,80}(?:is\\s+not|isn't|not)\\s+" +
+        "(?:(?:a|an)\\s+)?(?:built[- ]?in|native|standard|valid|real|supported)",
+      "i",
+    ),
+    new RegExp(
+      formattedCall + "[^.!?\\n]{0,32}(?:does\\s+not|doesn't|cannot|can't)\\s+" +
+        "(?:work|run|exist)(?:\\s+as)?[^.!?\\n]{0,32}(?:methods?|calls?|apis?)?",
+      "i",
+    ),
+    new RegExp(
+      "(?:mistake|error|pitfall|problem)[^.!?\\n]{0,48}" +
+        "(?:expecting|assuming)[^.!?\\n]{0,32}" + formattedCall +
+        "[^.!?\\n]{0,48}(?:built[- ]?in|native|standard|valid|real|supported)" +
+        "[^.!?\\n]{0,20}(?:is\\s+not|isn't|not)",
       "i",
     ),
   ].some((pattern) => pattern.test(sentence));

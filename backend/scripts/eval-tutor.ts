@@ -19,6 +19,8 @@ import {
 import {
   EVAL_DATASET_VERSION,
   EVAL_EVALUATOR_VERSION,
+  EXPECTED_EVAL_CASE_COUNT,
+  EXPECTED_EVAL_CASES_PER_INTENT,
   evaluateGate,
   type EvalBaselineV2,
   type EvalCaseResultV2,
@@ -36,6 +38,7 @@ import {
   routeTutorModel,
 } from "../src/services/ai/modelRouting.js";
 import { priceUsd } from "../src/services/ai/pricing.js";
+import { withOneTransientEvalRetry } from "./evalTransportRetry.js";
 
 interface GoldenPrompt {
   id: string;
@@ -54,11 +57,13 @@ interface GoldenPrompt {
     teachesConceptTags: string[];
     usesConceptTags: string[];
     priorConcepts: string[];
+    lessonObjectives?: string[];
     completionCriteria?: string[];
     studentProgressSummary?: string;
   };
   userMessage: string;
   userFile: string;
+  learnerName?: string | null;
   history?: AIMessage[];
   lastRun?: RunResult | null;
   diffSinceLastTurn?: string | null;
@@ -79,6 +84,7 @@ interface PromptResult extends EvalCaseResultV2 {
   inputTokens?: number;
   outputTokens?: number;
   tutorCostUsd?: number;
+  providerAttempts?: number;
   rawTutorResponse: string;
   tutorSections?: TutorSections;
   judgeRaw: { helpfulCorrect: string; posture: string };
@@ -99,8 +105,7 @@ interface RunArtifact extends EvalSummaryV2 {
   results: PromptResult[];
 }
 
-const DEFAULT_TUTOR_MODEL = "gpt-4.1-nano";
-const EXPECTED_CASE_COUNT = 60;
+const DEFAULT_TUTOR_MODEL = PLATFORM_DEFAULT_TUTOR_MODEL;
 const BASELINE_PATH = path.join(EVAL_REPO_ROOT, "eval/baseline-v2.json");
 const RUNS_DIR = path.join(EVAL_REPO_ROOT, "eval/runs");
 
@@ -151,10 +156,7 @@ function parseArgs(argv: string[]): {
   if (!productionRouting && tutorModel === judgeModel) {
     throw new Error("tutor and judge models must be independent");
   }
-  if (
-    productionRouting &&
-    ["gpt-4.1-nano", "gpt-4.1-mini"].includes(judgeModel)
-  ) {
+  if (productionRouting && judgeModel === PLATFORM_DEFAULT_TUTOR_MODEL) {
     throw new Error("production-routed tutor and judge models must be independent");
   }
   if (gate && judgeModel !== DEFAULT_JUDGE_MODEL) {
@@ -188,12 +190,16 @@ async function loadDataset(): Promise<{
   }
   const prompts = [...golden, ...regression] as GoldenPrompt[];
   const ids = prompts.map((prompt) => prompt.id);
-  if (prompts.length !== EXPECTED_CASE_COUNT || new Set(ids).size !== prompts.length) {
-    throw new Error(`v2 dataset must contain ${EXPECTED_CASE_COUNT} unique cases`);
+  if (prompts.length !== EXPECTED_EVAL_CASE_COUNT || new Set(ids).size !== prompts.length) {
+    throw new Error(`v2 dataset must contain ${EXPECTED_EVAL_CASE_COUNT} unique cases`);
   }
   for (const intent of ["socratic", "debug", "concept", "howto", "walkthrough", "checkin"] as const) {
     const count = prompts.filter((prompt) => prompt.intent === intent).length;
-    if (count !== 10) throw new Error(`v2 dataset requires 10 ${intent} cases; found ${count}`);
+    if (count !== EXPECTED_EVAL_CASES_PER_INTENT) {
+      throw new Error(
+        `v2 dataset requires ${EXPECTED_EVAL_CASES_PER_INTENT} ${intent} cases; found ${count}`,
+      );
+    }
   }
   return {
     prompts,
@@ -204,6 +210,9 @@ async function loadDataset(): Promise<{
 function postureRubric(prompt: GoldenPrompt): string {
   const common =
     "The response must withhold a complete copy-pasteable solution, engage this learner's current code or words, and leave meaningful thinking or action for the learner.";
+  if (prompt.tags?.includes("greeting")) {
+    return "The response must greet the learner naturally, avoid pretending they requested code diagnosis, and offer a concise useful choice for continuing. It must not provide a solution, diagnosis, or unrelated teaching.";
+  }
   if (prompt.intent === "socratic") {
     return `${common} It must give one concise accurate observation about the current code, task, or latest run; one bounded non-pasteable clue; and exactly one grounded open question. It must not provide the full diagnosis, exact fix, or answer.`;
   }
@@ -246,12 +255,34 @@ function deterministicChecks(
   if (prompt.intent === "socratic") {
     const questions = sections.checkQuestions ?? [];
     if (sections.intent !== "socratic") failures.push("first turn did not use socratic intent");
-    if (!sections.summary?.trim()) failures.push("Socratic turn omitted a current-work observation");
-    if (!sections.hint?.trim()) failures.push("Socratic turn omitted an actionable clue");
-    if (questions.length !== 1) failures.push("Socratic turn must contain exactly one question");
-    if (!questions[0]?.trim().endsWith("?")) failures.push("Socratic turn did not end in a question");
+    const conversationalGreeting = sections.conversationMove === "greeting";
+    if (prompt.tags?.includes("greeting") && !conversationalGreeting) {
+      failures.push("Greeting case did not select conversationMove=greeting");
+    }
+    if (conversationalGreeting) {
+      if (!sections.conversationReply?.trim()) failures.push("Greeting omitted a conversational reply");
+      if (sections.summary || sections.hint || questions.length || sections.citations?.length) {
+        failures.push("Greeting leaked ambient teaching or grounding fields");
+      }
+    } else {
+      if (!sections.summary?.trim()) failures.push("Socratic turn omitted a current-work observation");
+      if (!sections.hint?.trim()) failures.push("Socratic turn omitted an actionable clue");
+      if (questions.length !== 1) failures.push("Socratic turn must contain exactly one question");
+      if (!questions[0]?.trim().endsWith("?")) failures.push("Socratic turn did not end in a question");
+    }
     const forbiddenFields = Object.entries(sections).filter(([key, value]) => {
-      if (["intent", "summary", "hint", "checkQuestions", "citations"].includes(key)) {
+      if (
+        [
+          "intent",
+          "conversationMove",
+          "conversationReply",
+          "summary",
+          "hint",
+          "checkQuestions",
+          "citations",
+        ]
+          .includes(key)
+      ) {
         return false;
       }
       return value != null && value !== "" && (!Array.isArray(value) || value.length > 0);
@@ -282,6 +313,7 @@ function evaluationContext(prompt: GoldenPrompt, fileName: string): string {
   return JSON.stringify({
     intent: prompt.intent,
     learnerQuestion: prompt.userMessage,
+    learnerName: prompt.learnerName ?? null,
     activeFile: { path: fileName, content: prompt.userFile },
     lastRun: prompt.lastRun ?? null,
     diffSinceLastTurn: prompt.diffSinceLastTurn ?? null,
@@ -324,11 +356,12 @@ async function runPrompt(
   };
   const startedAt = performance.now();
   try {
-    const result = await openaiProvider.ask({
+    const askParams: Parameters<typeof openaiProvider.ask>[0] = {
       key: apiKey,
       model: tutorModel,
       fundingSource: "platform",
       question: prompt.userMessage,
+      learnerName: prompt.learnerName ?? null,
       files,
       activeFile: fileName,
       language: prompt.language,
@@ -343,7 +376,7 @@ async function runPrompt(
         ...prompt.lessonContext,
         exerciseId: null,
         language: prompt.language,
-        lessonObjectives: [],
+        lessonObjectives: prompt.lessonContext.lessonObjectives ?? [],
         completionCriteria:
           prompt.completionCriteria ??
           prompt.lessonContext.completionCriteria ??
@@ -352,7 +385,11 @@ async function runPrompt(
           prompt.lessonContext.studentProgressSummary ??
           "Eval fixture: server-authoritative progress is available but contains no answer.",
       },
-    });
+    };
+    const { value: result, attempts: providerAttempts } = await withOneTransientEvalRetry(
+      () => openaiProvider.ask(askParams),
+      () => console.warn(`[eval-v2] ${prompt.id} provider transport aborted; retrying once`),
+    );
     const responseLatencyMs = Math.round(performance.now() - startedAt);
     const failures = deterministicChecks(
       prompt,
@@ -389,6 +426,7 @@ async function runPrompt(
       inputTokens: result.usage?.inputTokens,
       outputTokens: result.usage?.outputTokens,
       tutorCostUsd,
+      providerAttempts,
       rawTutorResponse: result.raw,
       tutorSections: result.sections,
       judgeRaw: {

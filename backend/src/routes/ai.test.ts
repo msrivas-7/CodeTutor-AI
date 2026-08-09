@@ -114,6 +114,24 @@ vi.mock("../services/ai/openaiProvider.js", () => ({
   },
 }));
 
+vi.mock("../services/ai/canonicalTutorContext.js", () => ({
+  resolveCanonicalTutorContext: vi.fn(async () => ({
+    courseId: "python-fundamentals",
+    lessonId: "hello-world",
+    exerciseId: null,
+    lessonTitle: "Hello, World!",
+    language: "python",
+    lessonObjectives: ["Run a program"],
+    teachesConceptTags: ["print"],
+    usesConceptTags: [],
+    priorConcepts: [],
+    completionCriteria: ["Program runs"],
+    studentProgressSummary: "No attempts yet.",
+    lessonOrder: 1,
+    totalLessons: 12,
+  })),
+}));
+
 vi.mock("../services/ai/suspectApi.js", () => ({ flagSuspectApis: vi.fn() }));
 
 const { aiRouter } = await import("./ai.js");
@@ -150,7 +168,7 @@ const platformCredential = {
   key: "sk-platform-test",
   remainingToday: 30,
   capToday: 30,
-  allowedModels: ["gpt-4.1-nano"] as const,
+  allowedModels: ["gpt-5.6-luna"] as const,
   resetAtUtc: new Date("2026-08-01T00:00:00.000Z"),
 };
 
@@ -375,7 +393,7 @@ describe("POST /api/ai/ask — schema validation", () => {
 
     const res = await req("u-1", "/api/ai/ask", {
       method: "POST",
-      body: JSON.stringify(validAskBody({ model: "gpt-4.1-nano" })),
+      body: JSON.stringify(validAskBody({ model: "gpt-5.6-luna" })),
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
@@ -457,21 +475,28 @@ describe("POST /api/ai/ask — schema validation", () => {
   });
 });
 
-describe("POST /api/ai/ask — B3 platform model routing", () => {
-  it("rejects a direct Mini request before admission or provider work", async () => {
+describe("POST /api/ai/ask — platform model routing", () => {
+  it("canonicalizes a stale client model before admission and provider work", async () => {
     vi.mocked(resolveAICredential).mockResolvedValueOnce(platformCredential);
+    vi.mocked(openaiProvider.ask).mockResolvedValueOnce({
+      sections: { summary: "ok" },
+      raw: "{\"summary\":\"ok\"}",
+    });
     const res = await req("u-1", "/api/ai/ask", {
       method: "POST",
       body: JSON.stringify(validAskBody({ model: "gpt-4.1-mini" })),
     });
 
-    expect(res.status).toBe(403);
-    expect(await res.json()).toEqual({ error: "MODEL_NOT_ALLOWED" });
-    expect(vi.mocked(reserveAIRequest)).not.toHaveBeenCalled();
-    expect(vi.mocked(openaiProvider.ask)).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(vi.mocked(reserveAIRequest)).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "gpt-5.6-luna", priceVersion: 3 }),
+    );
+    expect(vi.mocked(openaiProvider.ask)).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "gpt-5.6-luna" }),
+    );
   });
 
-  it("routes only a signed, progressed check-in to Mini and meters Mini", async () => {
+  it("routes every platform turn to Luna and meters Luna", async () => {
     vi.mocked(resolveAICredential)
       .mockResolvedValueOnce(platformCredential)
       .mockResolvedValueOnce(platformCredential);
@@ -483,37 +508,37 @@ describe("POST /api/ai/ask — B3 platform model routing", () => {
     const first = await req("u-1", "/api/ai/ask", {
       method: "POST",
       body: JSON.stringify(validAskBody({
-        model: "gpt-4.1-nano",
+        model: "gpt-5.6-luna",
         question: "Is my loop approach okay?",
       })),
     });
     const { tutorProgressToken } = await first.json() as { tutorProgressToken: string };
-    expect(vi.mocked(openaiProvider.ask).mock.calls[0][0].model).toBe("gpt-4.1-nano");
+    expect(vi.mocked(openaiProvider.ask).mock.calls[0][0].model).toBe("gpt-5.6-luna");
 
     const second = await req("u-1", "/api/ai/ask", {
       method: "POST",
       body: JSON.stringify(validAskBody({
         requestId: "00000000-0000-4000-8000-000000000022",
-        model: "gpt-4.1-nano",
+        model: "gpt-5.6-luna",
         question: "Is my loop approach okay?",
         tutorProgressToken,
       })),
     });
     expect(second.status).toBe(200);
-    expect(vi.mocked(openaiProvider.ask).mock.calls[1][0].model).toBe("gpt-4.1-mini");
+    expect(vi.mocked(openaiProvider.ask).mock.calls[1][0].model).toBe("gpt-5.6-luna");
     expect(vi.mocked(reserveAIRequest).mock.calls[1][0]).toEqual(
       expect.objectContaining({
-        model: "gpt-4.1-mini",
-        reservedCostUsd: 0.00012,
-        priceVersion: 2,
+        model: "gpt-5.6-luna",
+        reservedCostUsd: 0.00008,
+        priceVersion: 3,
       }),
     );
     expect(vi.mocked(finalizeAIRequest).mock.calls[1][0]).toEqual(
-      expect.objectContaining({ costUsd: 0.00012, ledgerStatus: "finish" }),
+      expect.objectContaining({ costUsd: 0.00008, ledgerStatus: "finish" }),
     );
   });
 
-  it("keeps a progressed walkthrough on Nano", async () => {
+  it("keeps a progressed walkthrough on Luna", async () => {
     vi.mocked(resolveAICredential)
       .mockResolvedValueOnce(platformCredential)
       .mockResolvedValueOnce(platformCredential);
@@ -523,21 +548,52 @@ describe("POST /api/ai/ask — B3 platform model routing", () => {
     });
     const first = await req("u-1", "/api/ai/ask", {
       method: "POST",
-      body: JSON.stringify(validAskBody({ model: "gpt-4.1-nano" })),
+      body: JSON.stringify(validAskBody({ model: "gpt-5.6-luna" })),
     });
     const { tutorProgressToken } = await first.json() as { tutorProgressToken: string };
     await req("u-1", "/api/ai/ask", {
       method: "POST",
       body: JSON.stringify(validAskBody({
         requestId: "00000000-0000-4000-8000-000000000023",
-        model: "gpt-4.1-nano",
+        model: "gpt-5.6-luna",
         question: "Walk me through this code",
         tutorProgressToken,
       })),
     });
-    expect(vi.mocked(openaiProvider.ask).mock.calls[1][0].model).toBe("gpt-4.1-nano");
+    expect(vi.mocked(openaiProvider.ask).mock.calls[1][0].model).toBe("gpt-5.6-luna");
     expect(vi.mocked(reserveAIRequest).mock.calls[1][0]).toEqual(
-      expect.objectContaining({ model: "gpt-4.1-nano" }),
+      expect.objectContaining({ model: "gpt-5.6-luna" }),
+    );
+  });
+});
+
+describe("POST /api/ai/ask — BYOK contextual compatibility", () => {
+  it("preserves a qualified Nano selection for a guided lesson request", async () => {
+    vi.mocked(getOpenAIKey).mockResolvedValueOnce("sk-user-nano");
+    vi.mocked(openaiProvider.ask).mockResolvedValueOnce({
+      sections: { summary: "ok" },
+      raw: "{\"summary\":\"ok\"}",
+    });
+
+    const res = await req("u-1", "/api/ai/ask", {
+      method: "POST",
+      body: JSON.stringify(validAskBody({
+        model: "gpt-4.1-nano",
+        lessonContext: {
+          courseId: "python-fundamentals",
+          lessonId: "hello-world",
+          exerciseId: null,
+        },
+      })),
+    });
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(openaiProvider.ask)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fundingSource: "byok",
+        model: "gpt-4.1-nano",
+        lessonContext: expect.objectContaining({ lessonId: "hello-world" }),
+      }),
     );
   });
 });
@@ -588,7 +644,7 @@ describe("POST /api/ai/ask/stream — tutor progression", () => {
     expect(vi.mocked(openaiProvider.askStream).mock.calls[1][0].model).toBe("gpt-4.1");
   });
 
-  it("applies the same trusted check-in routing on the platform stream", async () => {
+  it("applies the same Luna routing on the platform stream", async () => {
     vi.mocked(resolveAICredential)
       .mockResolvedValueOnce(platformCredential)
       .mockResolvedValueOnce(platformCredential);
@@ -605,7 +661,7 @@ describe("POST /api/ai/ask/stream — tutor progression", () => {
     const first = await req("u-1", "/api/ai/ask/stream", {
       method: "POST",
       body: JSON.stringify(validAskBody({
-        model: "gpt-4.1-nano",
+        model: "gpt-5.6-luna",
         question: "Is this on the right track?",
       })),
     });
@@ -613,22 +669,22 @@ describe("POST /api/ai/ask/stream — tutor progression", () => {
     const firstDone = JSON.parse(
       firstText.split("\n").find((line) => line.startsWith("data: "))!.slice(6),
     ) as { tutorProgressToken: string };
-    expect(vi.mocked(openaiProvider.askStream).mock.calls[0][0].model).toBe("gpt-4.1-nano");
+    expect(vi.mocked(openaiProvider.askStream).mock.calls[0][0].model).toBe("gpt-5.6-luna");
 
     const second = await req("u-1", "/api/ai/ask/stream", {
       method: "POST",
       body: JSON.stringify(validAskBody({
         requestId: "00000000-0000-4000-8000-000000000024",
-        model: "gpt-4.1-nano",
+        model: "gpt-5.6-luna",
         question: "Is this on the right track?",
         tutorProgressToken: firstDone.tutorProgressToken,
       })),
     });
     expect(second.status).toBe(200);
     await second.text();
-    expect(vi.mocked(openaiProvider.askStream).mock.calls[1][0].model).toBe("gpt-4.1-mini");
+    expect(vi.mocked(openaiProvider.askStream).mock.calls[1][0].model).toBe("gpt-5.6-luna");
     expect(vi.mocked(reserveAIRequest).mock.calls[1][0]).toEqual(
-      expect.objectContaining({ model: "gpt-4.1-mini", priceVersion: 2 }),
+      expect.objectContaining({ model: "gpt-5.6-luna", priceVersion: 3 }),
     );
   });
 
@@ -653,7 +709,7 @@ describe("POST /api/ai/ask/stream — tutor progression", () => {
 
     const res = await req("u-1", "/api/ai/ask/stream", {
       method: "POST",
-      body: JSON.stringify(validAskBody({ model: "gpt-4.1-nano" })),
+      body: JSON.stringify(validAskBody({ model: "gpt-5.6-luna" })),
     });
     const text = await res.text();
     const done = JSON.parse(
@@ -782,6 +838,30 @@ describe("POST /api/ai/summarize — empty history short-circuit", () => {
         ledgerStatus: "finish",
         providerOutcomeUncertain: true,
       }),
+    );
+  });
+
+  it("canonicalizes a stale platform model for hidden summary work", async () => {
+    vi.mocked(resolveAICredential).mockResolvedValueOnce(platformCredential);
+    vi.mocked(openaiProvider.summarize).mockResolvedValueOnce({
+      summary: "Earlier context",
+      usage: { inputTokens: 10, outputTokens: 5 },
+    });
+    const res = await req("u-1", "/api/ai/summarize", {
+      method: "POST",
+      body: JSON.stringify({
+        requestId: "00000000-0000-4000-8000-000000000004",
+        model: "gpt-4.1-nano",
+        history: [{ role: "user", content: "Explain variables." }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(reserveAIRequest)).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "gpt-5.6-luna" }),
+    );
+    expect(vi.mocked(openaiProvider.summarize)).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "gpt-5.6-luna" }),
     );
   });
 });

@@ -5,6 +5,18 @@ import { TUTOR_RESPONSE_SCHEMA } from "./prompts/schema.js";
 const files = [{ path: "main.py", content: "first\nsecond\nthird\n" }];
 
 describe("parseTutorOutput", () => {
+  it("accepts the model-authored conversational move metadata", () => {
+    const parsed = parseTutorOutput(JSON.stringify({
+      intent: "concept",
+      conversationMove: "greeting",
+      conversationReply: "Hello — glad you’re here. What would you like help with?",
+      summary: "Hey there — glad you’re here.",
+    }), []);
+
+    expect(parsed.conversationMove).toBe("greeting");
+    expect(parsed.conversationReply).toBe("Hello — glad you’re here. What would you like help with?");
+  });
+
   it("publishes the parser's array bounds in the provider schema", () => {
     expect(TUTOR_RESPONSE_SCHEMA.properties.walkthrough.maxItems).toBe(6);
     expect(TUTOR_RESPONSE_SCHEMA.properties.checkQuestions.maxItems).toBe(3);

@@ -86,7 +86,10 @@ import {
 import { closeTutorTurnAtAllowanceBoundary } from "../services/ai/tutorPolicy.js";
 import { resolveCanonicalAnonTutorContext } from "../services/ai/canonicalTutorContext.js";
 import { isContextualTutorModel } from "../services/ai/modelRegistry.js";
-import { routeTutorModel } from "../services/ai/modelRouting.js";
+import {
+  canonicalTutorRequestModel,
+  routeTutorModel,
+} from "../services/ai/modelRouting.js";
 import type {
   AIAskParams,
   TutorIntent,
@@ -552,8 +555,14 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
       );
       return res.status(403).json({ error: "LESSON_NOT_ALLOWED_ANON" });
     }
-    // Platform model allowlist: anon never overrides the curated list.
-    if (!isPlatformAllowedModel(parsed.data.model)) {
+    // Anonymous tutoring is always platform-funded. Canonicalize the model
+    // before validation so old tabs cannot fail and handcrafted requests
+    // cannot promote themselves to a costlier operator-funded model.
+    const requestModel = canonicalTutorRequestModel({
+      requestedModel: parsed.data.model,
+      fundingSource: "platform",
+    });
+    if (!isPlatformAllowedModel(requestModel)) {
       aiPlatformRequests.inc({ outcome: "model_rejected", route: "ask_stream" });
       aiPlatformAbuseSignals.inc({ signal: "model_rejection" });
       console.warn(
@@ -561,12 +570,12 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
           level: "warn",
           evt: "anon_abuse_signal",
           signal: "model_rejection",
-          model: parsed.data.model,
+          model: requestModel,
         }),
       );
       return res.status(403).json({ error: "MODEL_NOT_ALLOWED" });
     }
-    if (!isContextualTutorModel(parsed.data.model)) {
+    if (!isContextualTutorModel(requestModel)) {
       return res.status(403).json({ error: "MODEL_NOT_EVALUATED_FOR_CONTEXTUAL_TUTOR" });
     }
     let ctx;
@@ -616,7 +625,7 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
 
     const providerParams: AIAskParams = {
       key: cred.key,
-      model: parsed.data.model,
+      model: requestModel,
       fundingSource: "platform" as const,
       question: parsed.data.question,
       files: parsed.data.files,
@@ -642,7 +651,7 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
     let routedIntent: TutorIntent;
     try {
       const route = routeTutorModel({
-        requestedModel: parsed.data.model,
+        requestedModel: requestModel,
         fundingSource: "platform",
         question: parsed.data.question,
         files: parsed.data.files,
@@ -688,6 +697,7 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
         requestId: parsed.data.requestId,
         requestFingerprint: fingerprintAIRequest({
           ...parsed.data,
+          model: requestModel,
           lessonContext: ctx,
         }),
         fundingSource: "platform",

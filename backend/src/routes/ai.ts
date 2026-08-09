@@ -21,6 +21,7 @@ import {
 } from "../services/ai/credential.js";
 import { flagSuspectApis } from "../services/ai/suspectApi.js";
 import { AIProviderError, type AIAskParams } from "../services/ai/provider.js";
+import { learnerFirstNameFromClaims } from "../services/ai/learnerName.js";
 import {
   isPlatformAllowedModel,
   PRICE_VERSION,
@@ -55,7 +56,10 @@ import {
 } from "../services/ai/effectiveCaps.js";
 import { resolveCanonicalTutorContext } from "../services/ai/canonicalTutorContext.js";
 import { isContextualTutorModel } from "../services/ai/modelRegistry.js";
-import { routeTutorModel } from "../services/ai/modelRouting.js";
+import {
+  canonicalTutorRequestModel,
+  routeTutorModel,
+} from "../services/ai/modelRouting.js";
 import {
   mintTutorProgressToken,
   resolveTutorStage,
@@ -219,10 +223,10 @@ async function resolveCredentialOrRespond(
 }
 
 // Server-side model gate. The `byok` path is permissive — the user owns
-// their bill. The `platform` path is locked to the curated allowlist
-// (gpt-4.1-nano), so there's no "request gpt-4 on the operator's key"
-// escalation. Returns true if the route should proceed; false if it
-// already responded with a 403.
+// their bill. Platform callers are canonicalized to the server-owned model
+// before this check, so stale clients cannot fail and untrusted clients cannot
+// promote themselves to a costlier operator-funded model. Returns true if the
+// route should proceed; false if the server policy is internally inconsistent.
 function enforceModelAllowlist(
   cred: AICredential,
   model: string,
@@ -488,12 +492,16 @@ aiRouter.post("/ask", async (req, res, next) => {
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.issues.map((i) => i.message).join("; ") });
   }
-  if (!enforceModelAllowlist(cred, parsed.data.model, res, "ask")) return;
+  const requestModel = canonicalTutorRequestModel({
+    requestedModel: parsed.data.model,
+    fundingSource: cred.source,
+  });
+  if (!enforceModelAllowlist(cred, requestModel, res, "ask")) return;
 
   let canonicalLessonContext = null;
   try {
     if (parsed.data.lessonContext) {
-      if (!isContextualTutorModel(parsed.data.model)) {
+      if (!isContextualTutorModel(requestModel)) {
         return res.status(403).json({ error: "MODEL_NOT_EVALUATED_FOR_CONTEXTUAL_TUTOR" });
       }
       canonicalLessonContext = await resolveCanonicalTutorContext(
@@ -511,7 +519,7 @@ aiRouter.post("/ask", async (req, res, next) => {
 
   const providerParams: AIAskParams = {
     key: cred.key,
-    model: parsed.data.model,
+    model: requestModel,
     fundingSource: cred.source,
     question: parsed.data.question,
     files: parsed.data.files,
@@ -524,6 +532,7 @@ aiRouter.post("/ask", async (req, res, next) => {
     runsSinceLastTurn: parsed.data.runsSinceLastTurn,
     editsSinceLastTurn: parsed.data.editsSinceLastTurn,
     persona: parsed.data.persona,
+    learnerName: learnerFirstNameFromClaims(req.authClaims),
     selection: parsed.data.selection ?? null,
     lessonContext: canonicalLessonContext,
     tutorStage: "clarify" as const,
@@ -538,7 +547,7 @@ aiRouter.post("/ask", async (req, res, next) => {
   );
   try {
     providerParams.model = routeTutorModel({
-      requestedModel: parsed.data.model,
+      requestedModel: requestModel,
       fundingSource: cred.source,
       question: parsed.data.question,
       files: parsed.data.files,
@@ -561,7 +570,11 @@ aiRouter.post("/ask", async (req, res, next) => {
       userId,
       cred,
       requestId: parsed.data.requestId,
-      fingerprint: fingerprintAIRequest({ ...parsed.data, lessonContext: canonicalLessonContext }),
+      fingerprint: fingerprintAIRequest({
+        ...parsed.data,
+        model: requestModel,
+        lessonContext: canonicalLessonContext,
+      }),
       model: providerParams.model,
       route: "ask",
       countsTowardQuota: cred.source === "platform",
@@ -680,12 +693,16 @@ aiRouter.post("/ask/stream", async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.issues.map((i) => i.message).join("; ") });
   }
-  if (!enforceModelAllowlist(cred, parsed.data.model, res, "ask_stream")) return;
+  const requestModel = canonicalTutorRequestModel({
+    requestedModel: parsed.data.model,
+    fundingSource: cred.source,
+  });
+  if (!enforceModelAllowlist(cred, requestModel, res, "ask_stream")) return;
 
   let canonicalLessonContext = null;
   try {
     if (parsed.data.lessonContext) {
-      if (!isContextualTutorModel(parsed.data.model)) {
+      if (!isContextualTutorModel(requestModel)) {
         return res.status(403).json({ error: "MODEL_NOT_EVALUATED_FOR_CONTEXTUAL_TUTOR" });
       }
       canonicalLessonContext = await resolveCanonicalTutorContext(
@@ -703,7 +720,7 @@ aiRouter.post("/ask/stream", async (req, res) => {
 
   const providerParams: AIAskParams = {
     key: cred.key,
-    model: parsed.data.model,
+    model: requestModel,
     fundingSource: cred.source,
     question: parsed.data.question,
     files: parsed.data.files,
@@ -716,6 +733,7 @@ aiRouter.post("/ask/stream", async (req, res) => {
     runsSinceLastTurn: parsed.data.runsSinceLastTurn,
     editsSinceLastTurn: parsed.data.editsSinceLastTurn,
     persona: parsed.data.persona,
+    learnerName: learnerFirstNameFromClaims(req.authClaims),
     selection: parsed.data.selection ?? null,
     lessonContext: canonicalLessonContext,
     tutorStage: "clarify" as const,
@@ -730,7 +748,7 @@ aiRouter.post("/ask/stream", async (req, res) => {
   );
   try {
     providerParams.model = routeTutorModel({
-      requestedModel: parsed.data.model,
+      requestedModel: requestModel,
       fundingSource: cred.source,
       question: parsed.data.question,
       files: parsed.data.files,
@@ -754,7 +772,11 @@ aiRouter.post("/ask/stream", async (req, res) => {
       userId,
       cred,
       requestId: parsed.data.requestId,
-      fingerprint: fingerprintAIRequest({ ...parsed.data, lessonContext: canonicalLessonContext }),
+      fingerprint: fingerprintAIRequest({
+        ...parsed.data,
+        model: requestModel,
+        lessonContext: canonicalLessonContext,
+      }),
       model: providerParams.model,
       route: "ask_stream",
       countsTowardQuota: cred.source === "platform",
@@ -994,7 +1016,11 @@ aiRouter.post("/summarize", async (req, res, next) => {
   if (parsed.data.history.length === 0) {
     return res.json({ summary: "" });
   }
-  if (!enforceModelAllowlist(cred, parsed.data.model, res, "summarize")) return;
+  const requestModel = canonicalTutorRequestModel({
+    requestedModel: parsed.data.model,
+    fundingSource: cred.source,
+  });
+  if (!enforceModelAllowlist(cred, requestModel, res, "summarize")) return;
   let estimate;
   try {
     estimate = estimateReservationForSummary(parsed.data.history);
@@ -1007,8 +1033,8 @@ aiRouter.post("/summarize", async (req, res, next) => {
       userId,
       cred,
       requestId: parsed.data.requestId,
-      fingerprint: fingerprintAIRequest(parsed.data),
-      model: parsed.data.model,
+      fingerprint: fingerprintAIRequest({ ...parsed.data, model: requestModel }),
+      model: requestModel,
       route: "summarize",
       countsTowardQuota: false,
       reservedInputTokens: estimate.reservedInputTokens,
@@ -1026,7 +1052,7 @@ aiRouter.post("/summarize", async (req, res, next) => {
   try {
     const result = await openaiProvider.summarize({
       key: cred.key,
-      model: parsed.data.model,
+      model: requestModel,
       fundingSource: cred.source,
       history: parsed.data.history,
       signal: abort.signal,
@@ -1035,7 +1061,7 @@ aiRouter.post("/summarize", async (req, res, next) => {
     const inTok = result.usage?.inputTokens ?? estimate.reservedInputTokens;
     const outTok = result.usage?.outputTokens ?? estimate.reservedOutputTokens;
     const { costUsd } = safePrice(
-      parsed.data.model,
+      requestModel,
       inTok,
       outTok,
       cred.source,
@@ -1065,7 +1091,7 @@ aiRouter.post("/summarize", async (req, res, next) => {
       markPlatformAuthFailed();
     }
     const reservedPrice = safePrice(
-      parsed.data.model,
+      requestModel,
       estimate.reservedInputTokens,
       estimate.reservedOutputTokens,
       cred.source,
