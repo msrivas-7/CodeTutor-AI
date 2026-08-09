@@ -31,6 +31,13 @@ state_set() {
   mv "$next" "$MOCK_STATE_FILE"
 }
 
+state_delete() {
+  local key="$1" next
+  next="\${MOCK_STATE_FILE}.next"
+  awk -F '|' -v key="$key" '$1 != key' "$MOCK_STATE_FILE" > "$next"
+  mv "$next" "$MOCK_STATE_FILE"
+}
+
 command_name="$(basename "$0")"
 case "$command_name" in
   sudo)
@@ -46,6 +53,13 @@ case "$command_name" in
     exit 0
     ;;
   docker)
+    printf '%s\\n' "$*" >> "$MOCK_DOCKER_LOG"
+    if [[ "\${1:-}" == "ps" && "\${2:-}" == "-aq" ]]; then
+      if [[ "\${MOCK_FAIL_PS:-0}" == "1" ]]; then exit 1; fi
+      printf '%s\\n' backend-container
+      if [[ -n "\${MOCK_CONTAINER_IMAGE:-}" ]]; then printf '%s\\n' retained-container; fi
+      exit 0
+    fi
     if [[ "\${1:-}" == "pull" ]]; then
       ref="$2"
       if [[ "\${MOCK_FAIL_PULL:-}" == "$ref" ]]; then exit 1; fi
@@ -60,13 +74,36 @@ case "$command_name" in
     fi
     if [[ "\${1:-}" == "image" && "\${2:-}" == "inspect" ]]; then
       ref="\${@: -1}"
+      if [[ "$*" == *"RepoTags"* ]]; then
+        awk -F '|' -v id="$ref" '$2 == id { print $1 }' "$MOCK_STATE_FILE"
+        exit 0
+      fi
       id="$(state_get "$ref")"
       [[ -n "$id" ]] || exit 1
       if [[ "$*" == *"--format"* ]]; then printf '%s\\n' "$id"; fi
       exit 0
     fi
+    if [[ "\${1:-}" == "image" && "\${2:-}" == "ls" ]]; then
+      repo="\${@: -1}"
+      awk -F '|' -v tag_prefix="$repo:" -v digest_prefix="$repo@" \
+        'index($1, tag_prefix) == 1 || index($1, digest_prefix) == 1 { print $2 }' \
+        "$MOCK_STATE_FILE" | sort -u
+      exit 0
+    fi
+    if [[ "\${1:-}" == "image" && "\${2:-}" == "rm" ]]; then
+      ref="$3"
+      [[ -n "$(state_get "$ref")" ]] || exit 1
+      state_delete "$ref"
+      exit 0
+    fi
     if [[ "\${1:-}" == "inspect" ]]; then
-      cat "$MOCK_RUNNING_FILE"
+      if [[ "\${@: -1}" == "backend-container" ]]; then
+        cat "$MOCK_RUNNING_FILE"
+      elif [[ "\${@: -1}" == "retained-container" && -n "\${MOCK_CONTAINER_IMAGE:-}" ]]; then
+        printf '%s\\n' "$MOCK_CONTAINER_IMAGE"
+      else
+        exit 1
+      fi
       exit 0
     fi
     if [[ "\${1:-}" == "compose" ]]; then
@@ -92,6 +129,20 @@ case "$command_name" in
   sleep)
     exit 0
     ;;
+  df)
+    available="\${MOCK_AVAILABLE_KB:-9000000}"
+    if [[ -n "\${MOCK_AVAILABLE_KB_WITH_STALE:-}" ]] \
+      && grep -q 'stale-' "$MOCK_STATE_FILE"; then
+      available="$MOCK_AVAILABLE_KB_WITH_STALE"
+    fi
+    if [[ -n "\${MOCK_AVAILABLE_KB_WITH_CANDIDATE:-}" ]] \
+      && grep -q 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' \
+        "$MOCK_STATE_FILE"; then
+      available="$MOCK_AVAILABLE_KB_WITH_CANDIDATE"
+    fi
+    printf '%s\\n' 'Filesystem 1024-blocks Used Available Capacity Mounted on'
+    printf '/dev/mock 30000000 10000000 %s 34%% /\\n' "$available"
+    ;;
 esac
 `;
 
@@ -102,6 +153,7 @@ async function setup(extraEnv = {}) {
   const state = join(root, "docker-state");
   const reset = join(root, "git-reset");
   const running = join(root, "running-image");
+  const dockerLog = join(root, "docker-commands");
   const refreshTarget = join(root, "refresh-env");
   await mkdir(mockBin);
   await mkdir(join(repo, "infra", "scripts"), { recursive: true });
@@ -120,8 +172,9 @@ async function setup(extraEnv = {}) {
     "utf8",
   );
   await writeFile(running, "sha256:old-backend\n", "utf8");
+  await writeFile(dockerLog, "", "utf8");
 
-  for (const name of ["sudo", "git", "docker", "curl", "install", "sleep"]) {
+  for (const name of ["sudo", "git", "docker", "curl", "install", "sleep", "df"]) {
     const target = join(mockBin, name);
     await writeFile(target, MOCK, "utf8");
     await chmod(target, 0o755);
@@ -132,6 +185,7 @@ async function setup(extraEnv = {}) {
     state,
     reset,
     running,
+    dockerLog,
     env: {
       ...process.env,
       PATH: `${mockBin}:${process.env.PATH}`,
@@ -140,7 +194,9 @@ async function setup(extraEnv = {}) {
       MOCK_STATE_FILE: state,
       MOCK_RESET_FILE: reset,
       MOCK_RUNNING_FILE: running,
+      MOCK_DOCKER_LOG: dockerLog,
       MOCK_NEW_SHA: CANDIDATE_SHA,
+      VM_PROMOTION_MIN_FREE_KB: "1000",
       ...extraEnv,
     },
   };
@@ -158,6 +214,8 @@ test("promotes the exact backend and runner digests", async () => {
   const state = await readFile(fixture.state, "utf8");
 
   assert.match(stdout, /PROMOTION_OK/);
+  assert.match(stdout, /DISK_HEADROOM phase=pre-pull/);
+  assert.match(stdout, /DISK_HEADROOM phase=post-promotion/);
   assert.match(state, new RegExp(`codetutor-backend:latest\\|sha256:${BACKEND_DIGEST}`));
   assert.match(state, new RegExp(`codetutor-runner:latest\\|sha256:${RUNNER_DIGEST}`));
   assert.equal((await readFile(fixture.running, "utf8")).trim(), `sha256:${BACKEND_DIGEST}`);
@@ -171,6 +229,8 @@ test("restores repository and both aliases when deep health fails", async () => 
   assert.equal((await readFile(fixture.reset, "utf8")).trim(), PREVIOUS_SHA);
   assert.match(state, /codetutor-backend:latest\|sha256:old-backend/);
   assert.match(state, /codetutor-runner:latest\|sha256:old-runner/);
+  assert.doesNotMatch(state, new RegExp(`sha256:${BACKEND_DIGEST}`));
+  assert.doesNotMatch(state, new RegExp(`sha256:${RUNNER_DIGEST}`));
 });
 
 test("leaves both aliases on the last-known-good images when a candidate pull fails", async () => {
@@ -181,5 +241,95 @@ test("leaves both aliases on the last-known-good images when a candidate pull fa
   assert.equal((await readFile(fixture.reset, "utf8")).trim(), PREVIOUS_SHA);
   assert.match(state, /codetutor-backend:latest\|sha256:old-backend/);
   assert.match(state, /codetutor-runner:latest\|sha256:old-runner/);
+  assert.doesNotMatch(state, new RegExp(`sha256:${RUNNER_DIGEST}`));
+});
+
+test("removes only superseded CodeTutor references and keeps the live and rollback pair", async () => {
+  const fixture = await setup();
+  const initial = await readFile(fixture.state, "utf8");
+  await writeFile(
+    fixture.state,
+    `${initial}ghcr.io/msrivas-7/codetutor-backend@sha256:${"c".repeat(64)}|sha256:stale-backend\n` +
+      `ghcr.io/msrivas-7/codetutor-runner@sha256:${"d".repeat(64)}|sha256:stale-runner\n` +
+      "example.invalid/unrelated:latest|sha256:unrelated\n",
+    "utf8",
+  );
+
+  const { stdout } = await runPromotion(fixture.env);
+  const state = await readFile(fixture.state, "utf8");
+  const commands = await readFile(fixture.dockerLog, "utf8");
+
+  assert.match(stdout, /IMAGE_RETENTION phase=pre-pull removed_refs=2 blocked_refs=0/);
+  assert.doesNotMatch(state, /stale-backend|stale-runner/);
+  assert.match(state, /example\.invalid\/unrelated:latest\|sha256:unrelated/);
+  assert.match(state, /codetutor-backend:rollback\|sha256:old-backend/);
+  assert.match(state, /codetutor-runner:rollback\|sha256:old-runner/);
+  assert.match(state, new RegExp(`codetutor-backend:latest\\|sha256:${BACKEND_DIGEST}`));
+  assert.match(state, new RegExp(`codetutor-runner:latest\\|sha256:${RUNNER_DIGEST}`));
+  assert.doesNotMatch(commands, /system prune|image prune|image rm -f/);
+});
+
+test("never removes a CodeTutor image referenced by any existing container", async () => {
+  const retainedId = "sha256:stale-in-use";
+  const fixture = await setup({ MOCK_CONTAINER_IMAGE: retainedId });
+  const initial = await readFile(fixture.state, "utf8");
+  await writeFile(
+    fixture.state,
+    `${initial}ghcr.io/msrivas-7/codetutor-backend@sha256:${"f".repeat(64)}|${retainedId}\n`,
+    "utf8",
+  );
+
+  await runPromotion(fixture.env);
+  const state = await readFile(fixture.state, "utf8");
+  assert.match(state, /stale-in-use/);
+});
+
+test("cleanup can recover required headroom before any candidate pull", async () => {
+  const fixture = await setup({
+    MOCK_AVAILABLE_KB: "9000000",
+    MOCK_AVAILABLE_KB_WITH_STALE: "500",
+  });
+  const initial = await readFile(fixture.state, "utf8");
+  await writeFile(
+    fixture.state,
+    `${initial}ghcr.io/msrivas-7/codetutor-backend@sha256:${"e".repeat(64)}|sha256:stale-recoverable\n`,
+    "utf8",
+  );
+
+  const { stdout } = await runPromotion(fixture.env);
+  assert.match(
+    stdout,
+    /DISK_HEADROOM phase=pre-pull before_kb=500 after_kb=9000000 required_kb=1000/,
+  );
+  assert.match(stdout, /PROMOTION_OK/);
+});
+
+test("refuses to pull when protected images still leave inadequate disk headroom", async () => {
+  const fixture = await setup({ MOCK_AVAILABLE_KB: "500" });
+
+  await assert.rejects(runPromotion(fixture.env), /Command failed/);
+  const commands = await readFile(fixture.dockerLog, "utf8");
+  assert.doesNotMatch(commands, /^pull /m);
+  assert.equal((await readFile(fixture.reset, "utf8")).trim(), PREVIOUS_SHA);
+});
+
+test("fails closed before pull when the protected container inventory is unavailable", async () => {
+  const fixture = await setup({ MOCK_FAIL_PS: "1" });
+
+  await assert.rejects(runPromotion(fixture.env), /Command failed/);
+  const commands = await readFile(fixture.dockerLog, "utf8");
+  assert.doesNotMatch(commands, /^pull /m);
+  assert.equal((await readFile(fixture.reset, "utf8")).trim(), PREVIOUS_SHA);
+});
+
+test("rolls back and removes the candidate when post-promotion headroom is inadequate", async () => {
+  const fixture = await setup({ MOCK_AVAILABLE_KB_WITH_CANDIDATE: "500" });
+
+  await assert.rejects(runPromotion(fixture.env), /Command failed/);
+  const state = await readFile(fixture.state, "utf8");
+  assert.equal((await readFile(fixture.reset, "utf8")).trim(), PREVIOUS_SHA);
+  assert.match(state, /codetutor-backend:latest\|sha256:old-backend/);
+  assert.match(state, /codetutor-runner:latest\|sha256:old-runner/);
+  assert.doesNotMatch(state, new RegExp(`sha256:${BACKEND_DIGEST}`));
   assert.doesNotMatch(state, new RegExp(`sha256:${RUNNER_DIGEST}`));
 });
