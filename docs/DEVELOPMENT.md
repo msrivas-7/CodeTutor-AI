@@ -1,72 +1,315 @@
 # Development
 
-Internal developer reference for running CodeTutor AI locally. The hosted product lives at [codetutor.msrivas.com](https://codetutor.msrivas.com); this doc is about the dev loop that feeds it.
+This is the working guide for building and validating CodeTutor AI. It favors reproducible commands, the production-shaped local stack, and explicit quality evidence. For system design and trust boundaries, read [Architecture](./ARCHITECTURE.md). For lesson construction, read [Content authoring](./CONTENT_AUTHORING.md).
 
-## First-time setup (auth stack)
+## Before you change code
 
-The project uses **Supabase cloud** for auth + Postgres — no local Supabase CLI install, no local stack to boot. There are two Supabase projects on one cloud account: `codetutor-dev` (dev + CI/E2E) and `codetutor-prod` (production). Real credentials are gitignored; committed `.example` files document the shape.
+CodeTutor AI has independent frontend, backend, and E2E packages; there is no root `package.json`. Run package commands from the owning directory or pass the harness an explicit `--cwd`.
 
-Credentials for `codetutor-dev` are held by the project owner. The production project (`codetutor-prod`) is only reachable from the CI deploy pipeline and the VM's managed-identity-sourced Key Vault — never populate a local env file with prod keys.
-
-**Populate env files on disk (all gitignored):**
+Every feature, fix, migration, refactor, and review-driven change starts with the repository harness described in [`AGENTS.md`](../AGENTS.md):
 
 ```bash
-cp .env.example                       .env                              # docker compose + host-run playwright both read this
-cp frontend/.env.development.example  frontend/.env.development.local   # host-run Vite (cd frontend && npm run dev)
-# For prod builds only:
-cp .env.production.example            .env.production
-cp frontend/.env.production.example   frontend/.env.production.local
+git rev-parse --show-toplevel
+git status --short --branch
+
+node scripts/agent-harness.mjs start \
+  --feature "short description" \
+  --scope frontend,backend \
+  --findings UX-123
 ```
 
-Fill in the real values from the credential bundle. Root `.env` is the single source of truth for local dev — docker compose auto-loads it, and Playwright's dotenv in `e2e/playwright.config.ts` points at the same file.
+Browser-observable work is the default. A UX finding may not bypass actual-browser validation, and a material design or journey change requires the product owner's explicit approval before implementation. See [Agent harness workflow](#agent-harness-workflow) for the finish gates.
 
-## Local Setup
+This page is the operational summary; [`AGENTS.md`](../AGENTS.md) and the
+[agent harness strategy](./AGENT_HARNESS_STRATEGY.md) are normative. Important
+alternate paths are explicit rather than inferred:
 
 ```bash
-# Install dependencies for type-checks / hot-reload
-(cd frontend && npm install)
-(cd backend  && npm install)
+# Only when no user-visible browser flow can be affected.
+node scripts/agent-harness.mjs start \
+  --feature "non-browser change" \
+  --scope infra \
+  --browser-impact none \
+  --browser-bypass "concrete reason"
 
-# Type-check
-(cd frontend && npx tsc --noEmit)
-(cd backend  && npx tsc --noEmit)
+# Record approval that arrived after the session began.
+node scripts/agent-harness.mjs approve-design \
+  --session <session-id> \
+  --approval "product-owner-approved direction"
 
-# Unit tests
+# Keep newly discovered findings inside the active evidence boundary.
+node scripts/agent-harness.mjs add-findings \
+  --session <session-id> \
+  --findings UX-124,UX-125
+```
+
+## Prerequisites
+
+- Node.js 22 or newer (the SWA function package and CI require it)
+- npm with lockfile-aware `npm ci`
+- Docker Desktop or another Docker Engine with Compose v2
+- Git
+- Access to the shared `codetutor-dev` Supabase project for authenticated, database, and E2E work
+- Python 3 for Python golden-solution verification
+
+The development and production Supabase projects are separate. Local work, CI, and E2E use `codetutor-dev`; production uses `codetutor-prod`. There is no local Supabase stack.
+
+## First-time setup
+
+### 1. Install package dependencies
+
+```bash
+(cd frontend && npm ci)
+(cd backend && npm ci)
+(cd e2e && npm ci)
+(cd swa-api && npm ci)
+```
+
+Use `npm install` only when intentionally changing a package dependency and lockfile.
+
+### 2. Create local environment files
+
+```bash
+cp .env.example .env
+cp frontend/.env.development.example frontend/.env.development.local
+```
+
+Both destinations are gitignored. Populate them with the `codetutor-dev` credential bundle. Never copy production credentials into local files.
+
+The root `.env` is the source for Docker Compose and host-run Playwright. Host-run Vite reads `frontend/.env.development.local`.
+
+Important URL distinction:
+
+| Variable | Meaning |
+| --- | --- |
+| `VITE_BACKEND_URL` | Vite development proxy target. Compose uses `http://backend:4000`; host-run Vite uses `http://localhost:4000`. It is not the production browser API origin. |
+| `VITE_API_BASE_URL` | Absolute API origin compiled into a production client. Leave it unset for local same-origin `/api` requests through Vite. Release CI sets the production VM/Caddy URL. |
+
+The browser-safe Supabase URL and publishable key use `VITE_` variables. `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`, BYOK encryption keys, and platform provider keys are server-only. The service-role key is required by controlled backend Auth administration and E2E setup in both environments; it must never enter the browser bundle.
+
+### 3. Install a local Playwright browser
+
+```bash
+(cd e2e && npx playwright install chromium)
+```
+
+`--with-deps` is useful on a fresh Linux/CI host but is not the normal macOS development command.
+
+## Choose a local run loop
+
+### Full-fidelity Compose
+
+Use this for integration work, execution changes, backend changes, and browser evidence:
+
+```bash
+docker compose up -d --build
+docker compose ps
+curl --fail http://localhost:4000/api/health
+```
+
+Open [http://localhost:5173](http://localhost:5173).
+
+The stack contains:
+
+- the Vite frontend on `127.0.0.1:5173`;
+- the Express API on `127.0.0.1:4000`;
+- a prebuilt polyglot runner image;
+- an allowlisted Docker socket proxy; and
+- ephemeral runner containers created per active coding session.
+
+Source directories are not bind-mounted into the application containers. After changing frontend, backend, runner, or build configuration code, rebuild the affected service before treating browser results as evidence:
+
+```bash
+docker compose up -d --build frontend
+docker compose up -d --build backend
+docker compose up -d --build runner-image backend
+```
+
+If the backend container is recreated, restart the Compose frontend as well. Vite's proxy may otherwise retain the old backend container address:
+
+```bash
+docker compose restart frontend
+```
+
+### Fast frontend loop with Docker backend
+
+Use this for frontend-only iteration when the backend and runner are unchanged:
+
+```bash
+docker compose up -d --build backend
+(cd frontend && npm run dev)
+```
+
+Set `VITE_BACKEND_URL=http://localhost:4000` in `frontend/.env.development.local`. The host Vite server still runs at [http://localhost:5173](http://localhost:5173).
+
+Before final browser evidence, return to the full-fidelity Compose build so the tested artifact matches the branch.
+
+### Stop and inspect
+
+```bash
+docker compose logs --tail=200 backend frontend
+docker compose down
+```
+
+Do not add `-v` unless deleting local Compose volumes is intentional.
+
+## Common validation commands
+
+### Frontend
+
+```bash
+(cd frontend && npm run typecheck)
 (cd frontend && npm test)
-(cd backend  && npm test)
-
-# Content validation (frontend)
-(cd frontend && npm run lint:content)       # schema + structural + concept graph
-(cd frontend && npm run verify:solutions)   # runs every golden solution against its completion rules
-
-# End-to-end tests (Playwright, mocked OpenAI; see e2e/README.md)
-# Uses codetutor-dev cloud — the auth fixture admin-creates per-worker
-# test users via the service_role key from .env.
-docker compose up -d
-(cd e2e && npm install && npx playwright install --with-deps chromium && npm test)
-
-# Frontend only (backend in Docker)
-docker compose up -d backend
-cd frontend && npm run dev
+(cd frontend && npm run build)
+(cd frontend && npm run lint:content)
+(cd frontend && npm run verify:solutions)
 ```
 
-## Dev test users (manual QA)
-
-Replacement for the old `__dev__/profiles.ts` localStorage seeder — now that state lives in Postgres, the equivalent is a handful of real Supabase users on `codetutor-dev`, each seeded to a different progress state (fresh, mid-course, stuck, capstone-stuck, all-complete). Sign in with any of them through the normal `/login` form.
+### Backend
 
 ```bash
-cd backend
-ALLOW_DEV_SEED=yes npm run seed:dev-users
+(cd backend && npm run typecheck)
+(cd backend && npm test)
+(cd backend && npm run build)
 ```
 
-Idempotent — re-run anytime to reset a drifted user. Credentials list (email/password/scenario) lives in the gitignored `.dev-users.md` at the repo root. Script source: [backend/scripts/seed-dev-users.ts](../backend/scripts/seed-dev-users.ts).
+### End to end
+
+With the Compose stack healthy:
+
+```bash
+(cd e2e && npm test)
+(cd e2e && npx playwright test specs/learning.spec.ts --project=chromium --retries=0)
+(cd e2e && npm run test:ui)
+```
+
+The default E2E suite mocks OpenAI but uses the real application, execution path, and `codetutor-dev` state. Real-provider cases under `e2e/specs/real-api` are opt-in:
+
+```bash
+(cd e2e && E2E_REAL_OPENAI=1 npm run test:real)
+```
+
+Never print, record, or commit provider keys. See [`e2e/README.md`](../e2e/README.md) for fixtures, test metadata, traces, and flake diagnosis.
+
+## Agent harness workflow
+
+The harness makes repository knowledge and browser proof part of the development cycle rather than optional chat history. Its detailed evidence and promotion rules live in [Agent harness strategy](./AGENT_HARNESS_STRATEGY.md).
+
+### Run validations through the session
+
+```bash
+node scripts/agent-harness.mjs run \
+  --session <session-id> \
+  --scope frontend \
+  --cwd frontend \
+  -- npm run typecheck
+```
+
+If a harnessed command fails, diagnose and resolve the generated incident. Do not rerun until green and forget the original evidence. Reusable, verified failure lessons belong in the harness memory; the strongest outcome is an executable test, lint, type, or CI guard.
+
+### Browser evidence
+
+After each named UX finding is fixed, interact with the actual product using the Browser control skill and record a finding-level audit. Before the phase finishes, repeat the complete slice together against the final rebuilt code:
+
+```bash
+node scripts/agent-harness.mjs browser-audit \
+  --session <session-id> \
+  --level phase \
+  --tool "browser control skill" \
+  --browser "Codex in-app Browser" \
+  --environment local \
+  --url "http://localhost:5173/..." \
+  --entrypoint "how the user reached the flow" \
+  --happy "happy-path result" \
+  --failure-recovery "failure and recovery exercised" \
+  --adversarial "repeats, interruption, collision, stale state, misuse, and boundaries relevant to this change" \
+  --viewports "desktop/mobile and light/dark coverage" \
+  --focus "keyboard and resulting focus state" \
+  --screenshots ".agent-harness/browser-evidence/<session>/..." \
+  --result pass
+```
+
+Playwright supports this evidence but does not replace it. A browser audit must cover the actual entry point, happy path, failure and recovery, risk-relevant adversarial interactions, responsive/theme states, and keyboard/focus behavior—not one token interaction.
+
+### Finish
+
+```bash
+git add <exact-intended-phase-files>
+git diff --cached --stat
+git diff --cached --check
+
+node scripts/agent-harness.mjs doctor
+node scripts/agent-harness.mjs finish \
+  --session <session-id> \
+  --summary "what changed" \
+  --tests "deterministic and browser evidence"
+```
+
+The finish gate fingerprints the staged slice. The tracked pre-commit hook rejects a changed or unfinished staged set. Update the pull request with the phase, user-journey before/now summary, evidence, deployment state, and review resolution; the phase is not complete until CI is green and actionable review threads are resolved.
+
+If a harnessed command or browser audit fails, diagnose it and close the
+generated incident with `agent-harness.mjs resolve`; a rerun does not erase the
+original failure.
+
+## Dev test users
+
+Development profiles are real users in `codetutor-dev`, seeded to fresh, mid-course, stuck, capstone, and completed scenarios. The source is [`backend/scripts/seed-dev-users.ts`](../backend/scripts/seed-dev-users.ts); credentials and scenario mapping live in gitignored `.dev-users.md`.
+
+```bash
+(cd backend && ALLOW_DEV_SEED=yes npm run seed:dev-users)
+```
+
+The command is idempotent and intentionally blocked unless `ALLOW_DEV_SEED=yes` is present. It must never target production. E2E creates isolated per-worker identities through its own authenticated fixture rather than sharing these manual accounts.
+
+## Database and migrations
+
+Ordered files in [`supabase/migrations`](../supabase/migrations) are the schema and RLS source of truth. Already-applied migrations are immutable; create a forward migration for every change.
+
+Use the repository-pinned CLI invocation and verify the target before any remote operation:
+
+```bash
+npx --yes supabase@2.110.0 projects list
+npx --yes supabase@2.110.0 link --project-ref <codetutor-dev-project-ref>
+npx --yes supabase@2.110.0 migration list --linked
+```
+
+Linking is a one-time fresh-clone step, not permission to mutate the remote
+project. Confirm that the selected reference is `codetutor-dev` before every
+write and keep production out of local workflows.
+
+Create and validate a database change as an ordered forward migration:
+
+```bash
+npx --yes supabase@2.110.0 migration new descriptive_change_name
+
+# Edit the generated SQL, then validate its linked plan without applying it.
+npx --yes supabase@2.110.0 db push --dry-run --linked
+```
+
+Test the migration and its ownership/denial cases against disposable Postgres
+or the approved development integration environment. After review and explicit
+approval to update the shared development project, apply and verify it:
+
+```bash
+npx --yes supabase@2.110.0 db push --linked
+npx --yes supabase@2.110.0 migration list --linked
+```
+
+Database changes require:
+
+1. the forward migration;
+2. privileges and RLS policies appropriate to each role;
+3. backend ownership predicates even when RLS also applies;
+4. real Postgres integration evidence for isolation and denial cases; and
+5. verified migration state before release promotion.
+
+The backend uses the Supabase transaction pooler and disables prepared statements because pooled connections are recycled. User-scoped helpers may enter an authenticated RLS context for defense in depth; privileged administration stays server-side and explicit.
 
 ## Authoring lessons
 
-See [CONTENT_AUTHORING.md](./CONTENT_AUTHORING.md) for the full guide. Quick reference:
+Read [Content authoring](./CONTENT_AUTHORING.md) before changing course material. Public learner content lives under `frontend/public/courses`; protected scoring or pre-answer material must stay in backend-only content paths.
 
 ```bash
-# Scaffold a new lesson
 (cd frontend && npm run new:lesson -- \
   --course python-fundamentals \
   --id my-lesson \
@@ -75,7 +318,6 @@ See [CONTENT_AUTHORING.md](./CONTENT_AUTHORING.md) for the full guide. Quick ref
   --minutes 15 \
   --prereq previous-lesson)
 
-# Add a practice exercise to an existing lesson
 (cd frontend && npm run new:practice -- \
   --course python-fundamentals \
   --lesson my-lesson \
@@ -83,119 +325,118 @@ See [CONTENT_AUTHORING.md](./CONTENT_AUTHORING.md) for the full guide. Quick ref
   --title "Exercise title" \
   --prompt "Learner-facing prompt" \
   --goal "What this reinforces" \
-  --rule-style function)     # or stdout | file
+  --rule-style function)
 ```
 
-Both scaffolders run `npm run lint:content` at the end — expect a few warnings on a fresh scaffold while you fill in objectives, concept tags, and completion rules.
-
-CI runs `lint:content` and `verify:solutions` on every push. The `solutions-pass` job depends on `content-lint` and uses `python3` directly (no Docker), so it completes in ~15 seconds.
-
-## Dev-only content health dashboard
-
-When the frontend is running in dev mode (`npm run dev`), visit **http://localhost:5173/dev/content** for a per-lesson overview: order / rules summary / teaches + uses concept counts / content + solution presence / concept-graph issues. The route is gated on `import.meta.env.DEV` and tree-shaken out of production bundles.
-
-## Configuration
-
-All optional — defaults work for local use. See [.env.example](../.env.example).
-
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `SESSION_IDLE_TIMEOUT_MS` | `120000` | Reap idle sessions after this |
-| `SESSION_SWEEP_INTERVAL_MS` | `45000` | Sweeper interval |
-| `RUN_TIMEOUT_MS` | `10000` | Wall-clock per `docker exec` |
-| `RUNNER_MEMORY_BYTES` | `536870912` | Per-container memory (512 MB) |
-| `RUNNER_NANO_CPUS` | `1000000000` | Per-container CPU (1 CPU) |
-| `CORS_ORIGIN` | `http://localhost:5173` | Canonical frontend origin. Production also accepts only this CodeTutor Azure Static Web Apps resource's exact primary and numeric PR-preview hostnames; it does not wildcard `azurestaticapps.net`. |
-| `EXECUTION_BACKEND` | `local-docker` | Execution backend impl (future: cloud variants) |
-| `DOCKER_HOST` | `tcp://socket-proxy:2375` | Docker endpoint — set by compose so dockerode talks to the allowlisted socket proxy, not the raw socket |
-| `AI_RATE_LIMIT_WINDOW_MS` | `60000` | Rate-limit window for `/api/ai/*` |
-| `AI_RATE_LIMIT_MAX` | `60` | Max AI requests per window per `user:<id>` (authenticated) or `sid\|ip` (public) bucket |
-| `SESSION_CREATE_RATE_LIMIT_WINDOW_MS` | `60000` | Window for `/api/session*` per-user bucket |
-| `SESSION_CREATE_RATE_LIMIT_MAX` | `30` | Max session lifecycle calls per window per user (IP floor prevents account-churn bypass) |
-| `MUTATION_RATE_LIMIT_WINDOW_MS` | `60000` | Window for `/api/project/snapshot` + `/api/execute*` per-user bucket |
-| `MUTATION_RATE_LIMIT_MAX` | `120` | Max mutation calls per window per user |
-| `SUPABASE_URL` | **required** | Supabase API root — `https://<project-ref>.supabase.co`. Same value for backend (env) and browser (VITE_SUPABASE_URL). |
-| `VITE_SUPABASE_URL` | **required** | Browser-side Supabase URL. In dev, docker-compose surfaces it as a runtime env var on the frontend service (sourced from the root `.env`) and Vite picks it up into `import.meta.env`. For prod, `vite build` inlines it from the build env. |
-| `VITE_SUPABASE_ANON_KEY` | **required** | Public `sb_publishable_...` key from the Supabase project's API settings. Browser-safe; committed `.example` carries placeholder only. |
-| `SUPABASE_SERVICE_ROLE_KEY` | **required for E2E** | `sb_secret_...` key. The e2e auth helper uses it to admin-create per-worker test users. **Never** set in prod; the backend only verifies tokens, it has no need for the service role. |
-| `DATABASE_URL` | **required** | Postgres transaction pooler URL from the Supabase project's database settings (port 6543). The backend sets `prepare: false` on the postgres.js pool because the transaction pooler recycles connections between transactions and does not support prepared statements. Pool `max` is 25 per backend replica (see `backend/src/db/client.ts`, adversarial-audit bucket 4a / P-H5). |
-| `BYOK_ENCRYPTION_KEY` | **required** | Master key used to encrypt each user's saved OpenAI API key at rest in `user_preferences` (AES-256-GCM envelope, per-row random nonce). 32 bytes, base64-encoded — generate with `openssl rand -base64 32`. Backend refuses to boot without it. Rotating invalidates every stored key; dev and prod MUST use different values. |
-| `ENABLE_FREE_TIER` | `0` | When `1`, signed-in learners without a BYOK key fall through to the operator's OpenAI key; when `0`, only BYOK callers reach the tutor. Acts as the nuclear kill-switch. |
-| `FREE_TIER_DAILY_QUESTIONS` | see `.env.example` | Per-user daily quota on operator-funded `/api/ai/ask` calls. `/api/ai/summarize` is metered for spend but excluded from this counter. |
-| `FREE_TIER_DAILY_USD_PER_USER` | see `.env.example` | Per-user daily spend cap on operator-funded calls. |
-| `FREE_TIER_LIFETIME_USD_PER_USER` | see `.env.example` | Per-user lifetime spend cap on operator-funded calls. |
-| `FREE_TIER_DAILY_USD_CAP` | see `.env.example` | Global daily spend circuit-breaker across all operator-funded callers. |
-| `PLATFORM_OPENAI_API_KEY` | required when `ENABLE_FREE_TIER=1` | Operator's OpenAI key. `assertConfigValid` refuses to boot if the flag is on and this is absent. |
-| `AI_REQUEST_TIMEOUT_MS` | `90000` | Deadline for a single `/ask` or `/ask/stream` call; shared between BYOK and operator-funded paths. |
-| `MAX_SESSIONS_PER_USER` | see `.env.example` | Ceiling on concurrent runner containers per user. Hitting it returns HTTP 429 with `Retry-After: 2`; a background zombie-reaper frees any dead containers so the next retry (after 2 s) typically succeeds (see adversarial-audit bucket 4a / P-M3). |
-| `MAX_SESSIONS_GLOBAL` | see `.env.example` | Global ceiling on concurrent runner containers, sized to the VM's RAM budget. |
-| `DOCKER_EXEC_CONCURRENCY` | see `.env.example` | Semaphore on concurrent `docker exec` calls to keep interactive latency stable under load. |
-| `METRICS_TOKEN` | unset | When set, `/api/metrics` requires `Authorization: Bearer <token>`. When unset, `/api/metrics` accepts only loopback callers. |
-| `SHARE_PREVIEW_HMAC_CURRENT_KEY_ID` | `v1` | Identifier for the SWA → backend share-preview signing key. Must match the SWA `SHARE_PREVIEW_HMAC_KEY_ID` application setting when a current secret is configured. |
-| `SHARE_PREVIEW_HMAC_CURRENT_SECRET` | unset | Dedicated 32-byte base64 HMAC key for the non-counting internal preview route. Empty means that route fails closed while public share reads remain available. |
-| `SHARE_PREVIEW_HMAC_PREVIOUS_KEY_ID` / `SHARE_PREVIEW_HMAC_PREVIOUS_SECRET` | unset | Optional prior pair accepted only during zero-downtime rotation overlap. Both or neither must be set. |
-| `SHARE_PREVIEW_DISABLED` | `0` | Backend preview-only kill switch. `1` drains crawler metadata without disabling human public share reads. |
-| `SHARE_PREVIEW_RATE_LIMIT_MAX` | `600` | Authenticated preview admissions per key per minute; independent of public reader limits. |
-| `DEBUG_PROMPTS` | unset | When `1`, the AI provider logs full system + user turn text. Leave unset; learner code would otherwise reach the backend log. |
-
-## Direct Docker Compose
+Then run both content gates:
 
 ```bash
-docker compose up --build    # start (Ctrl-C to stop)
-docker compose down           # teardown
+(cd frontend && npm run lint:content)
+(cd frontend && npm run verify:solutions)
 ```
 
-## Shared utilities
+The generated `frontend/public/courses/registry.json` is a cache, not authored content, and is ignored. In Vite development mode, `/dev/content` provides the content-health dashboard; it is removed from production builds.
 
-Reach for these before copy-pasting — each one exists because the same pattern was duplicated across ≥2 call sites.
+## Configuration guide
 
-### Frontend
+Use [`.env.example`](../.env.example) and [`.env.production.example`](../.env.production.example) as the variable inventories. The categories matter more than memorizing individual names:
 
-| Module | What it gives you |
+| Category | Notes |
 | --- | --- |
-| `frontend/src/util/layoutPrefs.ts` | `usePersistedNumber(key, default)` and `usePersistedFlag(key, default)` — drop-in `useState` replacements that read/write `preferencesStore.uiLayout` (debounced `PATCH /api/user/preferences` under the hood — see [preferencesStore.ts:215](../frontend/src/state/preferencesStore.ts#L215)). `clamp(n, [min, max])` + `clampSide(n, [min, max])` for splitter/panel sizing. |
-| `frontend/src/util/timings.ts` | Named durations for values shared across files (`COACH_AUTO_OPEN_MS`, `RESUME_TOAST_MS`). Only add here when ≥2 callsites want the same semantic value. |
-| `frontend/src/state/preferencesStore.ts` | Single source of truth for per-user preferences (persona, theme, openaiModel, onboarding flags, `uiLayout` bucket, `hasOpenaiKey` flag). Hydrates on sign-in from `GET /api/user/preferences`; `patch(body)` is optimistic-with-rollback. Use `useTheme()`, `usePersona()`, `useUiLayoutValue(path, fallback)`, `setUiLayoutValue(path, v)`, `markOnboardingDone(flag)` rather than reaching into the store directly. |
-| `frontend/src/state/useAIStatus.ts` | Module-scoped cache (30 s TTL) around `/api/user/ai-status`. `useAIStatus()` returns `{ status, refetch }`; `invalidateAIStatus()` is the imperative escape hatch for non-React callers (called after BYOK save/forget so the tutor surfaces pick up the new credential source immediately). `notePlatformQuestionConsumed()` is called from `useTutorAsk` after a successful platform ask — it mirrors a local `remainingToday - 1` and broadcasts to subscribers, saving one `/ai-status` round-trip per turn. The 0-crossing case refetches instead, because only the server knows the full exhausted-shape (`source:"none"`, `reason:"free_exhausted"`) that the `ExhaustionCard` gates on. Multi-tab drift is UI-only; the backend ledger is always authoritative, so no cap-bypass is possible. |
-| `frontend/src/components/SelectionPreview.tsx` | Shared "selected code context" chip used by the editor and guided tutor panels. |
-| `frontend/src/features/learning/stores/progressStore.ts` → `updateLesson(lessonId, patch)` | Merge-patch a lesson's progress record. Prefer this over hand-rolled spreads. |
+| Frontend public config | Supabase project URL/publishable key, local proxy target, production API base, build SHA. Anything prefixed `VITE_` can enter the client bundle. |
+| Database and Auth administration | `DATABASE_URL`, Supabase service key, JWT/JWKS settings. Server only. |
+| Execution | runner image, time/resource limits, session caps, Docker proxy, local/ACI/hybrid controls. |
+| Tutor and usage | BYOK encryption keyring, platform provider key, model routing, quotas, reservations, timeouts, kill switches. |
+| Shares and email | preview HMAC rotation, share switches, ACS connection, unsubscribe signing. |
+| Operations | metrics token, Azure targets, Key Vault/managed identity, alert and budget thresholds. |
 
-### Backend
+Backend configuration is validated in [`backend/src/config.ts`](../backend/src/config.ts), frozen at startup, and sensitive values are removed from `process.env` afterward. New settings need a safe default or an explicit boot-time requirement, an example-file entry, and tests for invalid combinations.
 
-| Module | What it gives you |
+## Shared implementation seams
+
+Use the existing abstraction before creating another version of the same behavior.
+
+### Frontend shared seams
+
+| Module | Use it for |
 | --- | --- |
-| `backend/src/services/execution/commands.ts` → `languageSchema` | The canonical `z.enum` over supported languages. Routes that accept a language parameter should import this rather than re-declaring the enum inline. |
-| `backend/src/services/session/requireActiveSession.ts` | Route helper: `const session = requireActiveSession(res, sessionId); if (!session) return;`. Handles the 404 / 409 responses and returns a narrowed `ActiveSession` type (`containerId: string`, not `string \| null`) so downstream code reads the field without re-asserting. |
-| `backend/src/services/execution/harness/registry.ts` | Per-language harness plug-in point for `function_tests`. Python and JavaScript registered today; new languages add a `HarnessBackend` implementation and register it. The harness runs learner code as a child subprocess and returns results inside an HMAC-signed envelope verified by `runHarness.ts` — see the "Harness trust model" bullet in [ARCHITECTURE.md](./ARCHITECTURE.md#guided-learning-system). |
+| [`frontend/src/api/client.ts`](../frontend/src/api/client.ts) | Authenticated API requests, refresh retry, cancellation, and consistent error behavior |
+| [`frontend/src/state/preferencesStore.ts`](../frontend/src/state/preferencesStore.ts) | Durable preferences, theme, persona, layout, onboarding, and optimistic rollback |
+| [`frontend/src/util/layoutPrefs.ts`](../frontend/src/util/layoutPrefs.ts) | Persisted panel sizing/flags and shared clamping |
+| [`frontend/src/state/useAIStatus.ts`](../frontend/src/state/useAIStatus.ts) | Cached tutor access/quota presentation and invalidation |
+| [`frontend/src/util/useTutorAsk.ts`](../frontend/src/util/useTutorAsk.ts) | Shared tutor request and streaming lifecycle |
+| [`frontend/src/components/TutorResponseViews.tsx`](../frontend/src/components/TutorResponseViews.tsx) | Structured tutor-response rendering across workspace modes |
+| [`frontend/src/components/SelectionPreview.tsx`](../frontend/src/components/SelectionPreview.tsx) | Shared selected-code context presentation |
 
-## Design Tokens
+### Backend shared seams
 
-All colors in the frontend use semantic Tailwind tokens, never raw palette names:
-
-| Semantic | Use for |
+| Module | Use it for |
 | --- | --- |
-| `bg` / `panel` / `elevated` | Surface layers (page, panel, raised card) |
-| `ink` / `muted` / `faint` | Primary / secondary / tertiary text |
-| `border` / `borderSoft` | Dividers and outlines |
-| `accent` / `accentMuted` | Primary interactive elements (focus rings, CTAs) |
-| `success` | Completion, validation pass, "OK" states |
-| `warn` | Compile errors, "worth your attention" nudges |
-| `danger` | Runtime errors, destructive actions |
-| `violet` | Guided learning, practice mode, tutor walkthroughs |
+| [`backend/src/services/session/requireActiveSession.ts`](../backend/src/services/session/requireActiveSession.ts) | Owned active-session validation and narrowed session types |
+| [`backend/src/services/execution/commands.ts`](../backend/src/services/execution/commands.ts) | Canonical language and execution command definitions |
+| [`backend/src/services/execution/backends`](../backend/src/services/execution/backends) | Local, ACI, and hybrid execution implementations |
+| [`backend/src/services/execution/harness/registry.ts`](../backend/src/services/execution/harness/registry.ts) | Language-specific protected function-test harness registration |
+| [`backend/src/services/ai/canonicalTutorContext.ts`](../backend/src/services/ai/canonicalTutorContext.ts) | Server-authoritative guided tutor context |
+| [`backend/src/db/aiReservations.ts`](../backend/src/db/aiReservations.ts) | Atomic platform AI admission and settlement |
 
-These resolve to CSS variables in [`src/index.css`](../frontend/src/index.css) and switch automatically between dark and light themes. **Do not** use `text-green-400`, `bg-red-500/15`, or any raw `{color}-{shade}` class — always use the semantic token so light-theme and re-theming stay correct.
+Frontend color and surface styling uses semantic Tailwind tokens (`bg`, `panel`, `elevated`, `ink`, `muted`, `border`, `accent`, `success`, `warn`, `danger`, `violet`) backed by CSS variables in [`frontend/src/index.css`](../frontend/src/index.css). Do not introduce raw palette shades into product components; semantic tokens preserve contrast across light and dark themes.
 
-Contrast floor: all text on `panel` / `bg` meets WCAG AA (4.5:1). If you introduce a new foreground/background combination, check it with a contrast tool before shipping.
+## CI and release gates
 
-## Demoing / manual QA
+The repository's workflow files are the source of truth:
 
-Per-user state lives in Postgres, so the canonical way to land on a specific progress state is to sign in as one of the pre-seeded `codetutor-dev` users. See the "Dev test users" section at the top of this doc and the gitignored [`.dev-users.md`](../.dev-users.md) for the per-user scenarios.
+- [CI](../.github/workflows/ci.yml) runs release-contract checks, harness doctor, secret scanning, cross-platform builds/tests, content and solution gates, share-function tests, performance budgets, and shell/PowerShell validation.
+- [E2E](../.github/workflows/e2e.yml) runs exhaustive Chromium in six balanced shards with two workers each, an advisory metadata-owned critical shadow, and focused Firefox/WebKit journeys.
+- [Security](../.github/workflows/security.yml) runs isolated execution and abuse scenarios on relevant pull requests, on schedule, and as a release-callable gate.
+- [Production release](../.github/workflows/release.yml) builds immutable candidate artifacts, invokes the validation workflows against those artifacts, verifies migration state, then promotes the VM and Static Web App surfaces.
 
-`backend/scripts/seed-dev-users.ts` is the source of truth. To add a scenario, edit the `SCENARIOS` array in that script and re-run `ALLOW_DEV_SEED=yes npm run seed:dev-users`.
+A single flaky E2E shard may be rerun once after preserving its trace and logs. If the same shard repeats the failure, treat it as a product, isolation, or test defect; do not weaken the assertion or rerun the full matrix blindly.
 
-For free-play demos across reloads, sign in as `user2@test.com` (mid-course healthy) or `user5@test.com` (both courses complete) and interact freely — the next seed run resets their state.
+AI teaching changes additionally require deterministic safety coverage and the complete model evaluation gate. Focused eval cases are iteration tools and cannot establish model eligibility.
 
-The dev-only **content-health dashboard** at `/dev/content` is still live (gated on `import.meta.env.DEV`, tree-shaken from prod). That is the only `__dev__/` surface that survived the Postgres migration.
+### Production rollback
+
+Production rollback is an explicit operator workflow, not a local Git reset.
+Run [`rollback-release.yml`](../.github/workflows/rollback-release.yml) with:
+
+- the run ID of a successful **Production release**;
+- the full lowercase candidate Git SHA recorded by that run; and
+- the exact acknowledgement `ROLLBACK_PRODUCTION`.
+
+The workflow proves that run and SHA match, verifies the retained immutable
+candidate manifest, promotes its recorded backend and runner digests plus its
+SWA bundle, and then checks backend readiness and deployed frontend identity.
+Preserve the workflow evidence when diagnosing an incident.
+
+This process does not reverse Postgres migrations. Every production migration
+must be backward compatible with the previous application version, or recovery
+must use a reviewed forward compensating migration.
+
+## Troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| `localhost:5173` is unavailable | `docker compose ps`, then rebuild/start `frontend`; confirm port 5173 is free. |
+| Frontend returns API 502 after backend rebuild | `curl http://localhost:4000/api/health`, then `docker compose restart frontend` to refresh the Vite proxy target. |
+| Browser shows old code | Rebuild the changed service and verify the live container contains the changed asset before testing. Playwright reachability does not rebuild containers. |
+| Backend is running but marked unhealthy | Probe `/api/health`, not `/health`; inspect backend logs and required configuration. |
+| Auth works but product requests fail | Confirm both local env files target the same `codetutor-dev` project and the browser token is reaching `/api`. |
+| Database integration tests skip | A skip is not integration evidence. Load the gitignored development environment without printing it and verify the linked dev project. |
+| Monaco or browser test flakes | Use the shared Monaco fixture, retain the trace/video, rerun only the affected shard once, and classify repeated failures. |
+| Node behavior differs inside a harness composite | Use a non-login shell, check `node --version`, and keep package `--cwd` explicit. |
+| ACI does not activate locally | Expected unless the flag and complete Azure target configuration are present; the factory falls back to local-only mode. |
+
+## Manual QA entry points
+
+- Product: [http://localhost:5173](http://localhost:5173)
+- Backend readiness: [http://localhost:4000/api/health](http://localhost:4000/api/health)
+- Content health in Vite development: [http://localhost:5173/dev/content](http://localhost:5173/dev/content)
+- Progress scenarios: seed and sign in with the documented `codetutor-dev` users
+- Free editor: `/editor`
+- First guided lesson: `/learn/course/python-fundamentals/lesson/hello-world`
+- Anonymous trial: `/try/lesson/python-fundamentals/hello-world`
+
+Manual QA is not complete because a page loaded. Exercise entry, success, failure/recovery, interruption, stale state, responsive layout, both themes, keyboard focus, and the adjacent surfaces the change could affect. Record the result through the harness before committing.
 
 ---
 

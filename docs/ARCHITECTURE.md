@@ -1,262 +1,589 @@
 # Architecture
 
-```
-                           +-------------------------------------------------------+
-                           |                  Docker Desktop (host)                |
-                           |                                                       |
-+------------------+  HTTP/JSON  +------------------+  tcp:2375   +---------------+
-|     Frontend     | ----------> |     Backend      | ----------> |  socket-proxy |
-|                  |             |                  |  allowlist  |  (tecnativa)  |
-|  React + Vite    |             |  Express + TS    |             |               |
-|  React Router    | <---------- |  ExecutionBackend| <---------- |  docker.sock  |
-|  Monaco + Zustand|   SSE/JSON  |  (localDocker)   |             |   (read-only) |
-|  Tailwind CSS    |             |  prompt builders |             +-------+-------+
-+------------------+             |  OpenAI proxy    |                     | CONTAINERS + EXEC + IMAGES
-      :5173                      +------------------+                     v
-                                        :4000                    +------------------+
-                                                                 |  Runner (1:1)    |
-                                                                 |  Python, Node,   |
-                                                                 |  gcc, JDK, Go,   |
-                                                                 |  Rust, Ruby      |
-                                                                 |  --network none  |
-                                                                 +------------------+
-                                                            bind: ./temp/sessions/{id}
-```
+CodeTutor AI is a browser-based learning system, not a thin chat wrapper. A learner reads a lesson, edits and runs real code in an isolated workspace, proves the result against server-owned completion rules, and receives context-aware teaching help without exposing answer keys or trusting browser-supplied progress.
 
-## ExecutionBackend abstraction
+This document explains the current production design and the code that implements it. For local setup and validation commands, see [Development](./DEVELOPMENT.md). For product behavior and screenshots, see the [README](../README.md).
 
-The backend never touches dockerode directly at the call-site layer. `backend/src/services/execution/backends/types.ts` defines an `ExecutionBackend` interface (`createSession`, `exec`, `writeFiles`, `fileExists`, `replaceSnapshot`, `destroy`, …) that returns opaque `SessionHandle` values. Routes and the harness dispatcher accept an injected backend; `backend/src/index.ts` picks the impl at boot via the `EXECUTION_BACKEND` env (factory in `backends/index.ts`).
+The structure follows industry architecture-description practice without
+claiming formal certification. [ISO/IEC/IEEE 42010:2022](https://www.iso.org/standard/74393.html)
+informs the separation of stakeholders, concerns, and views;
+[arc42](https://docs.arc42.org/home/) informs the selective use of context,
+runtime, deployment, cross-cutting, decision, quality, and risk sections; and
+[C4](https://c4model.com/diagrams) informs diagram scope and zoom level. The
+result starts with a system-context view, opens the production deployment, then
+uses focused integration and dynamic views where sequence and trust matter.
+Code-level detail stays in the adjacent module map rather than crowding the
+picture.
 
-Today only `LocalDockerBackend` ships. The interface is deliberately shaped so each cloud provider is a single additional file plus one switch case:
+## Stakeholders, concerns, and quality drivers
 
-| Impl (future) | Provider primitive | IAM scope |
+| Stakeholder | Architectural concerns |
+| --- | --- |
+| Learners | Fast, understandable feedback; durable progress; accessible and private learning; no leaked answer keys |
+| Curriculum and product owners | Canonical lessons and completion; consistent tutoring behavior; safe anonymous-to-account conversion |
+| Engineers and content authors | Clear ownership boundaries, reproducible development, stable extension seams, actionable validation |
+| Operators and SRE | Bounded spend and capacity, observable failure, safe deployment, rollback, recoverable background work |
+| Security and privacy reviewers | Untrusted-browser containment, arbitrary-code isolation, least privilege, auditable data and AI controls |
+
+The design optimizes for these quality drivers, in order:
+
+1. **Learning correctness:** progress, mastery evidence, and completion come
+   from canonical server-owned rules.
+2. **Execution safety:** arbitrary learner code stays outside the API process
+   and inside a resource-bounded, network-disabled runner.
+3. **Teaching value:** tutor responses are contextual, useful, bounded, and
+   checked for answer leakage before usage is finalized.
+4. **State integrity and privacy:** identity, ownership, quota, shares, and
+   personal state survive reloads without trusting client assertions.
+5. **Operational control:** artifacts, spend, capacity, migrations, failure
+   recovery, and rollback remain observable and bounded.
+6. **Product experience:** the workspace remains responsive, accessible, and
+   coherent across anonymous, authenticated, responsive, and theme states.
+
+## Architecture views and navigation
+
+The diagrams deliberately zoom rather than repeat one overloaded picture. The
+first view treats CodeTutor AI as a single system in its environment; the next
+opens that boundary into the production topology; focused runtime views then
+explain the interactions where ordering, authority, or failure behavior matter.
+Simple modules remain in tables and prose instead of receiving decorative
+component diagrams.
+
+| View | Scope and intended reader | Question it answers |
 | --- | --- | --- |
-| `EcsFargateBackend` | `RunTask` / `StopTask` / `ExecuteCommand` | task-definition ARNs only |
-| `AksBackend` | `Job.create` / `Pod.exec` (K8s API) | namespace-scoped ServiceAccount |
-| `AciBackend` | `ContainerInstances.create` / `exec` | resource-group-scoped Azure role |
+| System context | One software system; any product or technical reader | Who uses CodeTutor AI, and which external systems does it depend on? |
+| Production topology | Deployable applications and compute boundaries; engineers and operators | Where do the web, API, and execution responsibilities run? |
+| API integrations | Data, provider, and operational dependencies; backend, security, and operations engineers | Which managed services does the API use beyond identity and execution? |
+| Authentication runtime | One protected-request journey; application and security engineers | Where is identity established and verified? |
+| Execution runtime | One code-run journey; backend and security engineers | How does untrusted code reach an isolated runner and return safely? |
+| Tutor pipeline | One AI-turn journey; product, AI, backend, and finance owners | Where are context, admission, policy, and spend controlled? |
+| Release and rollback | One production change; maintainers and operators | How is an exact candidate validated, promoted, verified, and recovered? |
 
-A second impl does not change routes, the harness, or session-manager code.
+### System context
 
-## Local-dev cloud-IAM mirror (socket-proxy)
+This is the deliberately small entry diagram. CodeTutor AI is one system here;
+the production topology below opens that box.
 
-To stop the backend from holding the raw Docker socket (which equals root on the host), `docker-compose.yml` runs `tecnativa/docker-socket-proxy` as a sidecar. The backend has `DOCKER_HOST=tcp://socket-proxy:2375`; dockerode honors that transparently. The proxy enforces an endpoint allowlist matching what `LocalDockerBackend` actually calls:
+```mermaid
+%%{init: {"flowchart":{"curve":"basis","htmlLabels":true}}}%%
+flowchart LR
+  accTitle: CodeTutor AI system context
+  accDescr: Shows learners and maintainers using CodeTutor AI and its dependencies on Supabase, OpenAI, and Azure platform services.
+  learner["Learner<br/>reads, writes, runs, and asks"]
+  operator["Maintainer<br/>authors, releases, and operates"]
+  system["CodeTutor AI<br/>browser learning, execution, and tutoring"]
+  supabase["Supabase<br/>identity, Postgres, and object storage"]
+  openai["OpenAI<br/>tutor generation"]
+  azure["Azure platform services<br/>hosting, overflow compute, email, and telemetry"]
 
-- `CONTAINERS=1` — create/start/stop/inspect/remove + self-inspect for host-path discovery
-- `EXEC=1` — exec create/start/inspect for running learner code
-- `IMAGES=1` — runner-image inspect in `ensureReady()`
-- `POST=1` — required for any non-GET request
+  learner -->|"learns through"| system
+  operator -->|"develops and operates"| system
+  system -->|"stores identity and product state"| supabase
+  system -->|"requests bounded tutor turns"| openai
+  system -->|"runs and observes production"| azure
 
-Everything else (`VOLUMES`, `NETWORKS`, `INFO`, `BUILD`, `SERVICES`, `SECRETS`, `CONFIGS`, …) returns `403` at the proxy. This is the same "tightly-scoped API credential" pattern the cloud impls above will use — local dev now mirrors that posture exactly.
-
-## Frontend
-
-- **React Router** — `/`, `/editor`, `/learn`, `/learn/course/:id`, `/learn/course/:id/lesson/:id`. Lazy-loaded with Suspense.
-- **Zustand stores** — `projectStore`, `aiStore`, `sessionStore`, `runStore`, `preferencesStore`, `storageStore`, and `progressStore` (under `features/learning/stores/`). Editor + lesson contexts swap the first four in lockstep; `preferencesStore` is the single source of truth for every per-user preference (persona, OpenAI model, theme, onboarding flags, `uiLayout` bucket for panel widths). `useAIStatus` is a hook-level cache around `/api/user/ai-status`, subscribed by the tutor surfaces to show remaining-questions + source chips.
-- **Server-backed per-user state** — preferences, progress, editor project, BYOK ciphertext, concept exposure/evidence, and retrieval episodes live in Supabase Postgres. The memory tables use `auth.users(id)` cascades and own-user SELECT RLS; authenticated browser roles cannot write retrieval/evidence rows, while backend-owned transactions bind `user_id` explicitly. Canonical warm-up answers stay in the backend-only `content/memory-warmups/` catalog rather than learner rows or public frontend assets. Stores hydrate via `GET /api/user/…` on sign-in; sign-out clears in-memory state.
-- **Shared tutor rendering** — `TutorResponseViews.tsx` is the single rendering surface for the tutor, reused by both the editor (`AssistantPanel`) and lessons (`GuidedTutorPanel`).
-- **Course content** — learner-safe static JSON + Markdown lives in `frontend/public/courses/`. The interactive app loads it at runtime; the Vite build derives static public course/lesson documents, sitemap entries, a public-only registry, and per-lesson OG images from the same source. Retrieval answer banks are the deliberate exception and live under backend-only `content/memory-warmups/`.
-- **Distribution surface** — `/learn-to-code/`, `/learn-to-code/:courseId/`, and `/lessons/:courseId/:lessonId/` are raw, crawlable HTML rather than SPA fallbacks. Unknown reserved paths return 404, internal courses are removed from production assets, and CTA attribution is reduced to allowlisted first-touch enums/slugs before the URL is cleaned.
-- **Theme system** — `ThemePref` lives on `user_preferences.theme` and is read via `usePreferencesStore` → `data-theme` + `color-scheme` on `<html>`. Semantic Tailwind tokens resolve to CSS variables, so the app (Monaco included) swaps in lockstep.
-
-## Backend
-
-- **Sibling-container pattern** — the backend spawns isolated runner containers via `LocalDockerBackend`. Cross-platform host-path discovery via Docker API self-inspection. Dockerode calls are routed through `socket-proxy` — see [ExecutionBackend abstraction](#executionbackend-abstraction) above.
-- **Modular prompt pipeline** — composable modules under `prompts/` assembled by two builders: `editorPromptBuilder` (free-form) and `guidedPromptBuilder` (adds lesson context + "never solve" constraints). The guided builder is selected automatically when a request carries `lessonContext`.
-- **Structured JSON responses** — OpenAI Responses API with strict `json_schema`. An intent classifier (`debug`/`concept`/`howto`/`walkthrough`/`checkin`) decides which sections get filled.
-- **Provider abstraction** — prompt building and API calls sit behind a `Provider` interface so the LLM vendor is swappable without touching callers.
-- **AI credential resolver** — `resolveAICredential` in `services/ai/credential.ts` is the single gate every AI route calls before touching OpenAI. It resolves `byok | platform | none` in that order, applies the operator-funded tier's caps and kill-switch, and returns the key the downstream provider will use. Platform callers are restricted to a server-side model allowlist. Usage is metered row-by-row into `ai_usage_ledger` on every call; Prometheus counters track request outcomes, BYOK decrypt failures, and unhandled promise rejections. A DCR `ContainerLog` stream forwards structured-log markers (`byok_decrypt_failed`, `unhandledRejection`, `platform_cost_hourly`) into Log Analytics so alert rules can key off the same signals without the Prom scraper stack.
-
-## Guided Learning System
-
-- **File-based courses** — `frontend/public/courses/{courseId}/lessons/{lessonId}/` with `lesson.json`, `content.md`, and `starter/`.
-- **Completion rules** — three kinds: `expected_stdout`, `required_file_contains`, `function_tests`. The first two validate client-side against the latest `RunResult`; `function_tests` round-trips through the backend.
-- **Progress persistence** — `course_progress` + `lesson_progress` rows in Postgres, scoped by `auth.users(id)` FK with `ON DELETE CASCADE`. `LearningRepository` wraps the fetch/patch calls so callers treat progress as a synchronous in-memory read against the Zustand snapshot; writes are optimistic + fire-and-forget, and a hydrate on sign-in reconciles. No localStorage bucket.
-- **Coach rail** — priority-ordered deterministic rule engine that surfaces one contextual nudge at a time. No AI, no API calls.
-- **Practice mode** — exercises attach to a lesson but are tracked independently of lesson completion; entering practice swaps the starter, exiting restores the lesson snapshot.
-- **Concept memory read-side** — `learner_concept_ledger` remains exposure history. `learner_concept_evidence` separates client-observed practice from server-verified retrieval; `learner_retrieval_episodes` and `learner_retrieval_answers` make scoring bounded, retry-safe, and auditable. Authenticated clients have own-row read access only; all writes cross the backend trust boundary. Exposure becomes `encountered`, practice/feedback-supported recall becomes `practiced`, one independent retrieval becomes `remembered`, and `retained` requires independent retrieval on days at least five days apart. The learner-visible graph remains Phase C.
-- **Retrieval warm-up** — before an authenticated lesson, the server compares its canonical `usesConceptTags` with the learner's latest exposure/evidence and returns at most one deterministic authored question after five full days without meaningful contact. Unseen and just-taught concepts are not due. Answer banks are baked only into the backend image; the public course tree and client receive no `correctIndex` or pre-answer explanation. Scoring and evidence writes happen server-side. Read/check failure offers retry plus a fail-open continuation so the editor is never held hostage by the memory service.
-- **Function-test harness** — lessons can declare visible + hidden test cases. `POST /api/execute/tests` generates a per-run harness that loads learner code and evaluates each test in an isolated scope using the language's literal parser for `expected`. Hidden test names/inputs never leave the backend; an author-tagged `category` string is revealed only after two consecutive fails on the same hidden test.
-- **Per-language harness layer** — `HarnessBackend { language, prepareFiles, execCommand }` + a `language → HarnessBackend` registry is the extension seam. New languages plug in without changing route or validator code. `content-lint` consults the same registry so authoring a `function_tests` block for an unsupported language fails at author-time, and each language carries an authoring-order floor below which `function_tests` is rejected.
-- **Harness trust model (subprocess + HMAC envelope)** — learner code runs in a child subprocess spawned by the harness, never in the harness's own interpreter. The backend generates a per-run 256-bit nonce, passes it via `HARNESS_NONCE` in the exec env, and the harness scrubs that env var before spawning any user subprocess. The harness reads the test specs into memory and `unlink`s `__codetutor_tests.json` on startup — by the time user code runs, the expected values are not on disk and not in the child's env. The child receives only `{setup, call}` via argv; expected values stay with the parent harness. The harness emits a sentinel-wrapped `base64(JSON.stringify({body, sig}))` envelope where `sig = HMAC-SHA256(nonce, body)`. `runHarness.ts` verifies the signature with `timingSafeEqual`; any missing, malformed, or forged envelope → generic "Test run failed" (fail-closed, no signal back to cheating learner). Fake-pass and hidden-test leakage are both blocked by the same isolation: user code cannot read the nonce, cannot read the tests file, and cannot forge a valid envelope.
-- **Dev surfaces (DEV-only, tree-shaken)** — `frontend/src/__dev__/ContentHealthPage.tsx` renders a per-lesson authoring dashboard at `/dev/content`, gated on `import.meta.env.DEV` so it tree-shakes out of production bundles. Scenario-specific starting states are exercised by seeded Supabase users on the dev project (see `backend/scripts/seed-dev-users.ts` + the gitignored `.dev-users.md`) rather than any client-side profile switcher.
-
-## Content Validation Pipeline
-
-The `frontend/public/courses/` tree is plain JSON + Markdown + per-language starter code, but three layers keep it honest:
-
-- **Zod schema** — one set of schemas shared between the TypeScript types and the runtime validator so compile-time and runtime agree on a single source of truth.
-- **Concept graph** — each lesson declares `teachesConceptTags` and `usesConceptTags`. A graph-walker flags used-before-taught, overlap, and duplicate-teach issues. The accumulated vocabulary feeds the guided prompt so the tutor knows which concepts are in scope.
-- **Content lint** — Zod validation plus structural invariants (id parity, order contiguity, prereq ordering, per-language `function_tests` literal-parse + authoring-order floor). Private public-course memory banks must cover every lesson with prior concepts, each warm-up may target only declared `usesConceptTags`, and any answer bank under the frontend public tree fails the build. CI-gated.
-- **Golden solutions + verify-solutions** — every lesson and practice exercise has a committed correct solution; the verifier runs each through the same engine production uses. Verification runs `python3`/`node` directly rather than the runner sandbox — the trust boundary sits around learner code, not our own. CI-gated.
-- **Authoring CLIs** — `new-lesson` and `new-practice` scaffold from templates, update `course.lessonOrder`, and auto-run the lint. See [CONTENT_AUTHORING.md](./CONTENT_AUTHORING.md).
-
-## Testing
-
-Three layers, each catching a different class of bug:
-
-- **Unit tests (`frontend`/`backend`, Vitest)** — pure functions, store reducers, prompt builders, validators, per-language harness generators (Python + JavaScript). Run on every commit. No network, no Docker.
-- **Content validation (`npm run lint:content` + `verify:solutions`)** — see the pipeline section above. Keeps course JSON honest and every golden solution passing against the same engine production uses.
-- **End-to-end (`e2e/`, Playwright)** — drives the real product: Vite dev server + Dockerized backend + polyglot runner. The 341-test Chromium inventory catches integration regressions unit tests miss (Monaco focus, modal portals, SSE streaming, database hydration, router navigation, retrieval, and server trust boundaries); a 41-test metadata-owned critical lane and focused Firefox/WebKit journeys run beside the exhaustive six-shard release gate. OpenAI is mocked by default; `E2E_REAL_OPENAI=1` enables an opt-in real-key suite for release-gate smoke. Starting states come from the same server-backed seed fixtures used by the test identities. CI job: `.github/workflows/e2e.yml`.
-
-## API Surface
-
-Every route requires `Authorization: Bearer <supabase-access-token>` — `authMiddleware` verifies it via JWKS and attaches `req.userId` downstream — unless explicitly listed as public or service-authenticated. Public exceptions are the health probes, bounded anonymous lesson/share flows, strict fire-and-forget funnel/share telemetry, public share reads, and `/api/metrics` (loopback-only unless `METRICS_TOKEN` is set, in which case it takes a scraper token rather than a user JWT). The sole service-authenticated exception is the purpose-bound, replay-protected share-preview route described in `ADR_0A_SHARE_PREVIEW_AUTH.md`; it is not a general internal bypass.
-
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `GET`  | `/api/health` | Liveness probe — always `{ok:true}` |
-| `GET`  | `/api/health/deep` | Readiness probe — exercises Postgres + docker socket-proxy; 503 on either failure. Also returns `platformAuth: "ok" \| "failed"` so alerts can distinguish "backend is dead" from "free tier is paused on a bad key" without flipping to 503 |
-| `POST` | `/api/admin/platform-auth/unstick` | Production path — admin-JWT gated, phrase-confirmed, audit-logged. Clears the provider-auth kill flag set by a 401 on `/api/ai/ask` (auto-clears after 30 min otherwise) |
-| `POST` | `/api/admin/unstick-platform-auth` | Loopback-only break-glass (SSH onto VM and curl 127.0.0.1) for the case where the admin is locked out / JWT expired. Phase 26 dropped the prior `METRICS_TOKEN` dual-use to avoid trust-tier conflation |
-| `GET`  | `/api/metrics` | Prometheus exposition (loopback-only by default; Bearer-gated when `METRICS_TOKEN` is set) |
-| `POST` | `/api/telemetry/event` | Public, rate-limited anonymous journey signal. Accepts six allowlisted events plus privacy-bounded direct/organic/share first-touch fields; raw referrers, share tokens, arbitrary dimensions, and request failures never enter product UX. |
-| `POST` | `/api/telemetry/share-outcome` | Public, fire-and-forget share signal. Accepts only copied/completed/cancelled/dismissed × authenticated/anonymous; no token, code, user ID, or arbitrary dimensions. |
-| `GET` | `/api/internal/share-previews/:token` | SWA-only non-counting metadata read. Purpose-specific HMAC, freshness/replay checks, independent budget, minimal DTO, and dedicated kill switch; never consumes public reader buckets or increments views. |
-| `POST` | `/api/session` | Create session + runner container (owner = `req.userId`). Returns `backendBootId` — a per-process `nanoid` the frontend caches so a later 404 can be diagnosed as "individual session reaped" vs "whole process restarted" |
-| `POST` | `/api/session/ping` | Heartbeat — 404 for "not found" and "not yours" (privacy). 404 body carries `backendBootId` so the frontend can detect a process restart and show a replaced-session modal instead of storming rebind |
-| `POST` | `/api/session/rebind` | Reuse same ID after expiry — 403 on owner mismatch. Returns `backendBootId` refresh |
-| `POST` | `/api/session/end` | Destroy session + container — 403 on owner mismatch |
-| `POST` | `/api/project/snapshot` | Write project into workspace |
-| `POST` | `/api/execute` | Compile (if needed) and run |
-| `POST` | `/api/execute/tests` | Run a lesson's `function_tests` harness and return a `TestReport` |
-| `POST` | `/api/ai/validate-key` | Check an OpenAI key (authed + rate-limited; no provider calls for the public) |
-| `GET`  | `/api/ai/models` | List chat-capable models (BYOK only) |
-| `POST` | `/api/ai/ask/stream` | Tutor turn (SSE stream, supports `lessonContext`) — routed through `resolveAICredential` |
-| `POST` | `/api/ai/ask` | Tutor turn (non-streaming) — routed through `resolveAICredential` |
-| `POST` | `/api/ai/summarize` | Compress older history (metered for $, NOT counted against the visible 30/day quota) |
-| `GET`  | `/api/user/preferences` | Hydrate `preferencesStore` (persona, theme, openai model, onboarding flags, uiLayout) |
-| `PATCH`| `/api/user/preferences` | Optimistic write for any preference subset |
-| `PUT`  | `/api/user/openai-key` | Store a BYOK OpenAI key (AES-256-GCM at rest, per-row nonce) |
-| `DELETE`| `/api/user/openai-key` | Forget the stored BYOK key |
-| `GET`  | `/api/user/courses` | List course-level progress rows |
-| `PATCH`| `/api/user/courses/:courseId` | Upsert course-level progress |
-| `DELETE`| `/api/user/courses/:courseId` | Drop a course and all its lesson rows (cascade) |
-| `GET`  | `/api/user/lessons[?courseId=…]` | List lesson-level progress |
-| `PATCH`| `/api/user/lessons/:courseId/:lessonId` | Upsert lesson-level progress (code snapshots, counters, practice state) |
-| `GET`  | `/api/user/memory?courseId=…` | Read the authenticated learner's server-scoped concept memory model for one canonical public course |
-| `GET`  | `/api/user/memory/warmup?courseId=…&lessonId=…` | Return at most one due authored retrieval prompt; never returns its answer |
-| `POST` | `/api/user/memory/warmup/:episodeId/answer` | Check one choice against server-owned content and record first-attempt versus feedback-supported evidence idempotently |
-| `GET`  | `/api/user/editor-project` | Read the persisted editor project (files, active file, tabs, stdin) |
-| `PUT`  | `/api/user/editor-project` | Replace the persisted editor project |
-| `DELETE`| `/api/user/account` | Self-service wipe — email-confirm; tears down live runners + cascades public.* rows |
-| `GET`  | `/api/user/ai-status` | Source (byok / platform / none), remaining questions, reset time, paid-interest flag |
-| `POST` | `/api/user/ai-exhaustion-click` | Telemetry counter — `dismissed` / `clicked_byok` / `clicked_paid_interest` |
-| `POST` | `/api/user/paid-access-interest` | User signals willingness-to-pay; flagged if denylisted-at-click |
-| `DELETE`| `/api/user/paid-access-interest` | User withdraws the paid-interest signal |
-| `POST` | `/api/feedback` | Bug / idea / other + optional mood; opt-in diagnostics cap ≤8 KB |
-
-## Project Layout
-
-```
-codetutor-ai/
-├── backend/                 Express + TypeScript
-│   └── src/
-│       ├── routes/          session, project, execution, executeTests, ai, aiStatus, userData, feedback, metrics
-│       ├── middleware/      authMiddleware, csrfGuard, bodyLimit, requestId, requestLogger, rate limits, errorHandler
-│       ├── db/              Postgres clients for preferences, progress, editor project, usage ledger, denylist, paid-access, feedback
-│       ├── services/
-│       │   ├── ai/          Provider, prompt builders, credential resolver, pricing, metrics counters, prompts/ modules
-│       │   ├── execution/
-│       │   │   ├── backends/  ExecutionBackend interface + LocalDocker impl (cloud impls slot in here)
-│       │   │   └── harness/   Per-language function-tests harness registry (Python + JavaScript today)
-│       │   └── session/     sessionManager, requireActiveSession, sweeper
-│       └── scripts/         seed-dev-users.ts (codetutor-dev starting states)
-├── frontend/                React + Vite + Tailwind
-│   ├── public/courses/      Course content (JSON + Markdown + starter + golden solutions)
-│   ├── scripts/             content-lint, verify-solutions, new-lesson, new-practice
-│   └── src/
-│       ├── api/             client.ts — typed fetch wrappers, Bearer attach, global 401 handler
-│       ├── auth/            supabaseClient, generation token, HydrationGate
-│       ├── components/      Shared UI (Monaco, tutor views, settings, splitters)
-│       ├── features/learning/
-│       │   ├── pages/       Dashboard, CourseOverview, LessonPage
-│       │   ├── components/  GuidedTutorPanel, LessonInstructions, CoachRail, WorkspaceCoach, etc.
-│       │   ├── content/     Zod schema, conceptGraph, courseLoader
-│       │   ├── stores/      progressStore (server-backed, optimistic)
-│       │   ├── repositories/ LearningRepository interface + implementations
-│       │   └── utils/       Lesson validator
-│       ├── __dev__/         ContentHealthPage only — profile switcher retired with localStorage removal
-│       ├── pages/           StartPage, EditorPage
-│       └── state/           projectStore, aiStore, sessionStore, runStore, preferencesStore, storageStore, useAIStatus
-├── runner-image/            Polyglot Dockerfile (Python, Node+tsx, GCC, G++, JDK, Go, Rust, Ruby)
-├── samples/                 Starter projects per language
-├── infra/azure/             Bicep for prod VM + KV + SWA + Caddy + monitoring + backups
-├── supabase/                Migrations + email templates for the two cloud projects
-├── e2e/                     Playwright specs + fixtures + seed JSONs
-├── docker-compose.yml       socket-proxy sidecar + backend + runner + (dev-only) frontend
-├── start.sh / stop.sh       macOS/Linux launcher
-└── start.ps1 / stop.ps1     Windows launcher
+  classDef person fill:#eef2ff,stroke:#4f46e5,color:#0f172a,stroke-width:2px;
+  classDef product fill:#f5f3ff,stroke:#7c3aed,color:#0f172a,stroke-width:3px;
+  classDef external fill:#f8fafc,stroke:#64748b,color:#0f172a,stroke-width:2px;
+  class learner,operator person;
+  class system product;
+  class supabase,openai,azure external;
 ```
 
-## Shipping posture
+**Legend:** blue boxes are people, purple is the CodeTutor AI system boundary,
+and gray boxes are external software systems or platforms. Every arrow is a
+labeled dependency directed from its user to its provider.
 
-The product ships as a hosted SaaS at **[codetutor.msrivas.com](https://codetutor.msrivas.com)**. Frontend is served by Azure Static Web Apps at the custom domain; backend + runner sandbox run on an Azure VM in the prod resource group, fronted by Caddy with Let's Encrypt TLS. Auth + data live in a dedicated prod Supabase cloud project. All runtime secrets sit in an Azure Key Vault and are delivered to the VM under its system-assigned managed identity — nothing sensitive lives on disk in the repo, and rotation is a single KV write + env-refresh. Images are hosted on GHCR and rolled out by CI via OIDC. See `infra/azure/` for the Bicep templates and operator runbook.
+### Production topology
 
-The backend never holds the raw Docker socket; it talks to `socket-proxy` over TCP (dockerode via `DOCKER_HOST`), and the proxy enforces an API allowlist. `ExecutionBackend` is the seam future cloud-runner impls (ACI / ECS Fargate / AKS) drop into without touching routes or session code — the current posture runs the runner pool on the same VM but can split out horizontally when concurrent sessions grow past single-host capacity.
+Three boundaries shape the system:
 
-**Operator-funded tutor allowance** — signed-in learners without a BYOK key get a bounded daily quota of tutor questions on an operator-held OpenAI key, limited to a single approved model. Every AI route runs through `resolveAICredential`, which applies per-user and global spend caps, a manual denylist, a burst rate-limit, and a nuclear kill-switch before the downstream provider call. Usage is metered per-call into `ai_usage_ledger`. Specific cap values, rotation commands, and the operator runbook live in a private ops doc, not the repo.
+1. **The browser is an untrusted learning client.** It owns interaction state and renders the workspace, but it does not authorize access, award completion, set quota, or define canonical lesson context.
+2. **The API is the application authority.** It authenticates requests, resolves curriculum and learner state, meters AI usage, manages execution sessions, and persists product data.
+3. **Learner code runs outside the API process.** Each active workspace receives an isolated runner. A socket proxy exposes only the Docker operations the session manager needs; optional Azure Container Instances provide bounded overflow capacity.
 
-## Security posture
+This deployment view opens the CodeTutor AI system boundary into the actual
+production applications and compute planes. The following integration view
+separates the API's managed-service dependencies so neither picture becomes a
+wall of small boxes.
+Arrows describe a request, data, configuration, or telemetry relationship; they
+do not imply shared trust.
 
-Defense-in-depth on top of the `ExecutionBackend` + socket-proxy seam. The table below names each control and the cloud primitive it maps to — a port to a managed runner (Fargate / AKS / ACI) lands as configuration, not refactor work.
+```mermaid
+%%{init: {"flowchart":{"curve":"basis","htmlLabels":true}}}%%
+flowchart TB
+  accTitle: CodeTutor AI production topology
+  accDescr: Shows the browser, static web edge, authentication, API ingress, application authority, and local or overflow execution planes.
+  learner["Learner<br/>uses a web browser"]
+  swa["Azure Static Web Apps<br/>application and prerendered catalog"]
+  sharefn["SWA managed Function<br/>crawler share metadata"]
+  auth["Supabase Auth<br/>browser session identity"]
+  caddy["Azure VM · Caddy<br/>TLS and API routing"]
+  api["Azure VM · Express API<br/>application authority and orchestration"]
+  local["VM execution plane<br/>socket proxy and local runners"]
+  aci["ACI overflow subnet<br/>runner group and sidecar"]
 
-### Sandbox (runner containers)
+  learner -->|"loads HTML, JS, CSS"| swa
+  learner <-->|"authenticates and refreshes"| auth
+  learner -->|"calls HTTPS /api"| caddy
+  caddy -->|"forwards authenticated API traffic"| api
+  sharefn -->|"HMAC-signed preview request"| caddy
+  api -->|"runs learner code by default"| local
+  api -->|"bursts when enabled and at capacity"| aci
 
-| Area | Local impl | Cloud equivalent |
+  classDef client fill:#eef2ff,stroke:#4f46e5,color:#0f172a,stroke-width:2px;
+  classDef edgeNode fill:#ecfeff,stroke:#0891b2,color:#0f172a,stroke-width:2px;
+  classDef app fill:#f5f3ff,stroke:#7c3aed,color:#0f172a,stroke-width:2px;
+  classDef compute fill:#fff7ed,stroke:#ea580c,color:#0f172a,stroke-width:2px;
+  classDef managed fill:#f8fafc,stroke:#64748b,color:#0f172a,stroke-width:2px;
+  class learner client;
+  class swa,sharefn,caddy edgeNode;
+  class api app;
+  class auth managed;
+  class local,aci compute;
+```
+
+**Legend:** blue is the learner; cyan is the public edge/ingress; purple is
+CodeTutor application authority; orange is isolated execution; and gray is an
+external identity system. Solid arrows are runtime request/data paths.
+
+### API integration view
+
+The API is the only product-authority box in this view. Identity and execution
+are already covered by the topology; this view names the intent of each data,
+provider, and operational dependency without exposing those services directly
+to the browser.
+
+```mermaid
+%%{init: {"flowchart":{"curve":"basis","htmlLabels":true}}}%%
+flowchart TB
+  accTitle: Express API managed-service integrations
+  accDescr: Shows the application API using Postgres, object storage, OpenAI, transactional email, Key Vault, and Azure Monitor.
+  api["Express API<br/>application authority"]
+  postgres["Supabase Postgres<br/>canonical state and RLS"]
+  storage["Supabase Storage<br/>share and Open Graph assets"]
+  openai["OpenAI Responses API<br/>structured tutor output"]
+  acs["Azure Communication Services<br/>transactional email"]
+  vault["Azure Key Vault<br/>managed-identity secrets"]
+  monitor["Azure Monitor<br/>logs, metrics, probes, alerts"]
+
+  api -->|"reads and writes product state"| postgres
+  api -->|"stores generated assets"| storage
+  api -->|"requests bounded tutor turns"| openai
+  api -->|"sends transactional email"| acs
+  vault -. "supplies secrets" .-> api
+  api -. "emits telemetry" .-> monitor
+
+  classDef app fill:#f5f3ff,stroke:#7c3aed,color:#0f172a,stroke-width:3px;
+  classDef dataNode fill:#ecfdf5,stroke:#059669,color:#0f172a,stroke-width:2px;
+  classDef managed fill:#f8fafc,stroke:#64748b,color:#0f172a,stroke-width:2px;
+  class api app;
+  class postgres,storage dataNode;
+  class openai,acs,vault,monitor managed;
+```
+
+**Legend:** purple is CodeTutor application authority, green is managed product
+data, and gray is another managed dependency. Solid arrows are runtime calls or
+data paths; dashed arrows are configuration or telemetry.
+
+### Production building-block map
+
+| Layer | Owns | Primary implementation |
 | --- | --- | --- |
-| Non-root execution | Runner image has a dedicated non-root user; backend spawns containers as that user | `runAsNonRoot: true` + numeric `runAsUser` |
-| Kernel capabilities | `CapDrop: ["ALL"]` on every runner container | `capabilities.drop: ["ALL"]` |
-| Privilege escalation | `SecurityOpt: ["no-new-privileges"]` | `allowPrivilegeEscalation: false` |
-| Filesystem isolation | `ReadonlyRootfs` + tmpfs `/tmp`; compiler cache dirs redirected into it via env | `readOnlyRootFilesystem` + emptyDir `medium: Memory` volume |
-| Network egress | `NetworkMode: "none"` on every runner | NetworkPolicy `egress: []` / VPC-isolated subnet |
-| Resource exhaustion | Per-container `PidsLimit`, `NanoCpus`, `Memory`, `Ulimits.nofile`; fork-bomb protection is cgroup-scoped via `PidsLimit` | Resource requests/limits + `hostPID: false` |
-| Concurrency budget | Per-user + global ceilings on concurrent runner containers (429 with `Retry-After` when exceeded); semaphore on in-flight `docker exec` calls keeps interactive latency stable under load | Same ceilings; semaphore becomes a worker-pool knob on the runner control plane |
-| Workspace symlink writes | `writeFiles` opens with `O_NOFOLLOW \| O_EXCL \| O_CREAT` after `lstat`-walking every parent; `replaceSnapshot` uses `withFileTypes` + explicit `unlink` for symlinks before recursive delete | Host filesystem goes away under a cloud runner backend |
-| Filename→flag injection | `./`-prefixed compiler globs; `safeResolve` rejects dash-prefixed path segments | Same impl |
-| Host API surface | `socket-proxy` allowlist: CONTAINERS / EXEC / IMAGES / POST. Everything else 403s | IAM role scoped to RunTask/StopTask/ExecuteCommand (Fargate) or Job.create/Pod.exec (K8s) |
+| Web client | Routes, lesson/workspace presentation, Monaco, tutor rendering, optimistic interaction state | [`frontend/src/App.tsx`](../frontend/src/App.tsx), [`frontend/src/api/client.ts`](../frontend/src/api/client.ts), [`frontend/src/state`](../frontend/src/state) |
+| Static web edge | SPA/static assets, prerendered catalog and lesson pages, crawler share adapter | [`frontend/vite.config.ts`](../frontend/vite.config.ts), [`swa-api/src/sharePage.js`](../swa-api/src/sharePage.js) |
+| Application API | Authentication boundary, canonical state, execution orchestration, AI admission and policy | [`backend/src/index.ts`](../backend/src/index.ts), [`backend/src/routes`](../backend/src/routes) |
+| Execution plane | Session ownership, local runner lifecycle, optional ACI overflow, function-test harness | [`backend/src/services/session`](../backend/src/services/session), [`backend/src/services/execution`](../backend/src/services/execution) |
+| Data plane | Auth, durable learner/product state, RLS, share assets | [`backend/src/db`](../backend/src/db), [`supabase/migrations`](../supabase/migrations) |
+| Delivery and operations | Immutable images, candidate validation, promotion, rollback, telemetry | [`.github/workflows/release.yml`](../.github/workflows/release.yml), [`infra/azure`](../infra/azure), [`docker-compose.prod.yml`](../docker-compose.prod.yml) |
 
-### Application & API
+## Constraints and solution strategy
 
-| Area | Control |
+The production shape is constrained intentionally:
+
+- the learning workspace must run in a standard browser with no local toolchain;
+- the public application is static-edge hosted while stateful authority remains
+  in the API;
+- Supabase provides identity, Postgres, and object storage, but product
+  authorization still belongs to the API;
+- arbitrary code needs Docker-compatible isolation locally and on the VM, with
+  Azure Container Instances as optional overflow;
+- tutoring depends on the OpenAI Responses API but remains wrapped in
+  provider-independent admission, context, output-policy, and settlement
+  boundaries; and
+- database and release changes must be forward, reviewable, and recoverable.
+
+The strategy follows from those constraints: a React static client, an Express
+application authority, server-owned learning state, ephemeral per-session
+runners behind an execution abstraction, structured AI output with atomic
+reservations, forward Postgres migrations with RLS, and immutable candidate
+artifacts promoted through reusable gates.
+
+## Runtime flows
+
+### Authentication and application hydration
+
+Supabase Auth is the identity provider. The browser uses the public Supabase client only for authentication and session refresh. Product reads and writes go through the API, which validates the bearer token and applies its own authorization and ownership rules.
+
+```mermaid
+%%{init: {"sequence":{"mirrorActors":false,"useMaxWidth":true,"wrap":true}}}%%
+sequenceDiagram
+  accTitle: Authentication and application hydration
+  accDescr: Shows browser authentication, local JWT verification with cached JWKS, canonical state loading, and protected rendering.
+  autonumber
+  actor L as Learner
+  participant F as React frontend
+  participant A as Supabase Auth
+  participant B as Express API
+  participant D as Postgres
+
+  L->>F: Sign in or return with a session
+  F->>A: Authenticate or refresh
+  A-->>F: Access token
+  F->>B: Product request with Bearer token
+  B->>B: Verify JWT with cached JWKS
+  B->>D: Read canonical user-owned state
+  D-->>B: Preferences, progress, project, usage
+  B-->>F: Hydration response
+  F-->>L: Render protected experience
+```
+
+The route and hydration boundary begins in [`frontend/src/App.tsx`](../frontend/src/App.tsx). API calls pass through [`frontend/src/api/client.ts`](../frontend/src/api/client.ts), which attaches the active bearer token, identifies browser mutations, cancels stale requests, and performs one bounded refresh retry. Server authentication and route composition begin in [`backend/src/index.ts`](../backend/src/index.ts).
+
+### Code execution
+
+The browser never talks to Docker or ACI directly. It submits a project snapshot or execution request to the API. The server checks session ownership, resolves the assigned backend handle, validates paths and limits, then executes inside the learner's runner.
+
+```mermaid
+%%{init: {"sequence":{"mirrorActors":false,"useMaxWidth":true,"wrap":true}}}%%
+sequenceDiagram
+  accTitle: Isolated code execution request
+  accDescr: Shows a workspace request crossing the API and session manager into an isolated runner before normalized results return.
+  autonumber
+  participant W as Workspace UI
+  participant B as Express API
+  participant S as Session manager
+  participant E as Execution backend
+  participant R as Isolated runner
+
+  W->>B: Snapshot and execute
+  B->>B: Validate request
+  B->>S: Require owned active session
+  S->>E: Dispatch by session handle
+  E->>R: Write files and launch command
+  R-->>E: stdout, stderr, status, test envelope
+  E-->>B: Normalized execution result
+  B-->>W: Output or canonical result
+```
+
+The execution abstraction is defined in [`backend/src/services/execution/backends/types.ts`](../backend/src/services/execution/backends/types.ts):
+
+- [`localDocker.ts`](../backend/src/services/execution/backends/localDocker.ts) creates one local runner per active session through the allowlisted socket proxy.
+- [`aci.ts`](../backend/src/services/execution/backends/aci.ts) controls Azure Container Instances through managed Azure APIs and the authenticated sidecar.
+- [`hybrid.ts`](../backend/src/services/execution/backends/hybrid.ts) keeps work local until configured capacity or operating rules direct overflow to ACI, then dispatches later calls by the stored handle kind.
+- [`index.ts`](../backend/src/services/execution/backends/index.ts) always constructs the local backend first. It returns that backend directly when overflow is disabled or incomplete, and otherwise wraps local plus ACI in the hybrid router.
+
+There are therefore two effective runtime shapes: **local-only**, and
+**hybrid local plus ACI overflow**. ACI is an implementation inside the hybrid
+shape, not a separately selected operating mode. The current factory does not
+read `config.executionBackend`; the legacy `EXECUTION_BACKEND` setting remains
+in configuration but is not an active routing selector. Treating that setting
+as operational control would be incorrect until the code either removes it or
+wires and validates it explicitly.
+
+### Guided completion and protected tests
+
+Completion rules are curriculum authority, so the browser does not receive private expected values. Public lesson content supplies presentation and safe rule metadata; protected function-test data lives under [`content/memory-warmups`](../content/memory-warmups) and backend-owned lesson sources.
+
+For `function_tests`, the runner harness:
+
+1. loads expectations into memory and removes the tests file before learner code starts;
+2. launches learner code in a child process inside the already isolated runner;
+3. emits a sentinel-wrapped result envelope signed with a per-run HMAC nonce; and
+4. lets [`runHarness.ts`](../backend/src/services/execution/harness/runHarness.ts) verify the signature with a timing-safe comparison before the API trusts the result.
+
+The JavaScript `vm` context narrows the driver environment but is not treated as the security boundary. The container boundary, process isolation, resource controls, and signed envelope form the trust model.
+
+### Contextual tutor request
+
+Tutor turns combine deterministic admission and output policy with model-generated teaching. The browser may submit code, selection, run output, history, and lesson identifiers, but all of those are untrusted evidence. For guided lessons, the backend resolves canonical course content, learner progress, and teaching stage before building the prompt.
+
+```mermaid
+%%{init: {"flowchart":{"curve":"basis","htmlLabels":true}}}%%
+flowchart TB
+  accTitle: Contextual tutor request pipeline
+  accDescr: Shows authority and admission, bounded model generation, output policy, usage settlement, and shared response rendering.
+  subgraph admission["1 · Establish authority and admit the turn"]
+    direction LR
+    request["Tutor request<br/>question plus untrusted workspace evidence"]
+    authz["Credential and access<br/>platform allowance or learner BYOK"]
+    context["Canonical context<br/>lesson, progress, evidence, stage"]
+    route["Model route<br/>allowlist and evaluated eligibility"]
+    request --> authz --> context --> route
+  end
+
+  subgraph generation["2 · Generate bounded teaching output"]
+    direction LR
+    reserve["Atomic reservation<br/>quota and spend caps"]
+    prompt["Prompt builder<br/>intent, pedagogy, bounded context"]
+    model["OpenAI Responses API<br/>strict structured output"]
+    reserve --> prompt --> model
+  end
+
+  subgraph delivery["3 · Validate, settle, and render"]
+    direction LR
+    policy["Output policy<br/>value, safety, answer leakage"]
+    settle["Usage settlement<br/>ledger and cancellation recovery"]
+    render["Shared tutor renderer<br/>streamed or JSON response"]
+    policy --> settle --> render
+  end
+
+  route --> reserve
+  model --> policy
+
+  classDef input fill:#eef2ff,stroke:#4f46e5,color:#0f172a,stroke-width:2px;
+  classDef authority fill:#f5f3ff,stroke:#7c3aed,color:#0f172a,stroke-width:2px;
+  classDef provider fill:#fff7ed,stroke:#ea580c,color:#0f172a,stroke-width:2px;
+  classDef result fill:#ecfdf5,stroke:#059669,color:#0f172a,stroke-width:2px;
+  class request input;
+  class authz,context,route,reserve,prompt,policy,settle authority;
+  class model provider;
+  class render result;
+```
+
+**Legend:** blue is untrusted request evidence, purple is CodeTutor-owned
+authority or policy, orange is the external model provider, and green is the
+validated response boundary delivered to the learner.
+
+Key modules:
+
+- [`backend/src/routes/ai.ts`](../backend/src/routes/ai.ts) is the request and streaming composition boundary.
+- [`canonicalTutorContext.ts`](../backend/src/services/ai/canonicalTutorContext.ts) resolves server-authoritative lesson and learner context.
+- [`tutorIntent.ts`](../backend/src/services/ai/tutorIntent.ts), [`tutorProgress.ts`](../backend/src/services/ai/tutorProgress.ts), and the prompt builders turn that context into teaching instructions.
+- [`modelRouting.ts`](../backend/src/services/ai/modelRouting.ts) and [`modelRegistry.ts`](../backend/src/services/ai/modelRegistry.ts) control platform model eligibility; BYOK remains a learner-owned credential path with server safety checks.
+- [`aiReservations.ts`](../backend/src/db/aiReservations.ts) makes platform admission atomic and reconciles abandoned reservations.
+- [`openaiProvider.ts`](../backend/src/services/ai/openaiProvider.ts) calls the Responses API with bounded output and structured schemas.
+- [`tutorOutput.ts`](../backend/src/services/ai/tutorOutput.ts) and [`tutorPolicy.ts`](../backend/src/services/ai/tutorPolicy.ts) validate usefulness and safety before visible usage is finalized.
+- [`frontend/src/util/useTutorAsk.ts`](../frontend/src/util/useTutorAsk.ts) is the shared client request path; [`TutorResponseViews.tsx`](../frontend/src/components/TutorResponseViews.tsx) is the shared visual renderer.
+
+Only a turn that passes the product's teaching-value contract counts as a visible question. Reservations fail closed under uncertainty, while cancellation and crash reconciliation prevent abandoned work from silently consuming capacity forever.
+
+### Learning state and public shares
+
+Course and lesson progress, editor snapshots, preferences, saved tutor messages, streak history, concept evidence, usage, and public-share ownership are durable server-side state. Frontend stores provide responsive local interaction but reconcile against the API.
+
+Public shares have two read paths:
+
+- A human opens `/s/:token` in the React application and reads through the bounded public API.
+- A crawler reaches the managed SWA function, which signs a purpose-bound request to the backend's internal preview endpoint. That path returns metadata without counting a human view and fails closed if the dedicated HMAC configuration is absent.
+
+Share story and Open Graph images live in Supabase Storage. Durable schema and policy truth lives exclusively in ordered forward migrations under [`supabase/migrations`](../supabase/migrations).
+
+## Frontend architecture
+
+The frontend is React, TypeScript, Vite, React Router, Zustand, Monaco, and Tailwind with semantic design tokens.
+
+### Route families
+
+- **Public product:** landing, comparison, privacy, terms, support, login/signup/reset, auth callback, and public share.
+- **Anonymous trial:** `/try/lesson/:courseId/:lessonId`; the product boundary limits anonymous learning to the supported first-lesson experience even if a different URL is supplied.
+- **Authenticated learning:** start/welcome, free editor, course library, saved tutor messages, course and lesson workspaces.
+- **Internal:** development content health and authenticated admin routes, each guarded at the route and server boundary.
+
+### State ownership
+
+| State | Owner |
 | --- | --- |
-| Auth | Supabase Auth (GoTrue). Backend verifies access tokens via JWKS with `jose.createRemoteJWKSet` and attaches `req.userId` from `sub`. Asymmetric — no shared secret. Frontend wraps every non-public route in `<RequireAuth>`; `api/client.ts` attaches `Bearer` on every call; global 401 → signOut + redirect to `/login`. |
-| Session ownership | Every routed handler that takes `sessionId` goes through `requireOwnedSession(id, req.userId)`. `/ping` returns 404 for both "not found" and "not yours" (no ownership oracle); `/rebind` + `/end` return 403. |
-| Rate limiting | `express-rate-limit` on `/api/ai/*`, `/api/session*`, `/api/project/snapshot`, `/api/execute*`, keyed per-user. Session-create keeps an IP floor alongside the user bucket so account-churn can't bypass it. |
-| CSRF | Every mutating route requires `X-Requested-With: codetutor` (forces CORS preflight) **plus** an `Origin` that matches the canonical frontend or this CodeTutor SWA resource's exact production/PR-preview hostname pattern — blocks cross-origin POSTs from other sites and other SWA tenants. |
-| HTTP headers | `helmet()` with a strict CSP. |
-| Error leakage | 500 fallback returns `{error: "Internal error"}`; full stack logged server-side only. |
-| LAN exposure | Ports bound to `127.0.0.1` only. |
+| Authentication session | Supabase client plus the application auth boundary |
+| Durable preferences, progress, project, shares, saved messages | API/Postgres; frontend stores cache and reconcile |
+| Editor buffers and layout interaction | Project and preference stores, synchronized at explicit persistence boundaries |
+| Run lifecycle and output | Run/session stores, backed by server execution sessions |
+| Tutor availability and quota presentation | `useAIStatus` cache; backend ledger and reservations remain authoritative |
 
-### Tutor & AI surface
+Course JSON under [`frontend/public/courses`](../frontend/public/courses) is browser-safe curriculum content. Build-time scripts generate the course registry, prerendered public pages, sitemap, and Open Graph assets. Generated registry caches are not authored sources and should not be committed.
 
-| Area | Control |
+## Backend architecture
+
+[`backend/src/index.ts`](../backend/src/index.ts) is the Express composition root. Its order is intentional:
+
+1. CORS, Helmet, JSON parsing, request identifiers, structured logging, and metrics;
+2. narrowly scoped public endpoints such as health and email unsubscribe;
+3. authenticated session, project, execution, AI, user-data, feedback, and share endpoints;
+4. anonymous trial and anonymous-to-account handoff boundaries;
+5. admin-only and internal HMAC-protected routes; and
+6. not-found and error handling.
+
+Route-specific middleware owns body-size limits, CSRF/mutation checks, rate limits, token verification, admin authorization, and response redaction. The route tree in the composition root is the authoritative API inventory; individual route modules define their schemas and ownership rules.
+
+The server begins listening before asynchronous readiness completes so health reporting can distinguish liveness from readiness. Background services start only after the required dependencies are ready. They include session cleanup, cost and capacity sampling, ACI health and warm-pool control, platform-budget monitoring, email digest processing, orphan-share cleanup, invariant validation, AI-reservation reconciliation, and abandoned-progress repair.
+
+## Data architecture and trust boundaries
+
+The backend uses a privileged server connection where an operation genuinely requires it, including controlled Supabase Auth administration. For user-scoped reads and writes, explicit `user_id` predicates and RLS-context helpers provide defense in depth. The browser receives only the public Supabase URL and publishable key; the service-role key and database credentials are server-only secrets.
+
+Representative durable domains include:
+
+- user preferences, editor projects, course and lesson progress;
+- usage ledgers, atomic AI reservations, overrides, deny lists, and audit events;
+- saved tutor messages, streaks, streak days, shares, and view telemetry;
+- concept ledger, evidence, retrieval, and memory-warmup state;
+- system configuration, release/operations state, and evaluation governance.
+
+Server boundaries own authorization, quota, protected curriculum data, mastery evidence, and completion. A client-provided identifier narrows a request; it never proves ownership or truth.
+
+## Security invariants
+
+| Boundary | Invariant |
 | --- | --- |
-| Credential resolution | `resolveAICredential` is the single gate every AI route traverses. Resolves BYOK first, then operator-funded tier (if enabled), applies per-user and global spend caps + a manual denylist + a nuclear kill-switch, and returns the key the downstream provider will use. |
-| Model allowlist | Operator-funded calls are restricted to a server-side `PLATFORM_ALLOWED_MODELS` allowlist — BYOK callers are not. |
-| Prompt injection | Untrusted content wrapped in `<user_file>` / `<user_selection>` tags so the tutor prompt classifies it as data, not instructions. Path attribute is XML-escaped and the Zod schema restricts paths to `^[A-Za-z0-9._/-]+$`. |
-| Request logging | `/api/project/snapshot` and `/api/execute*` bodies redact to shape-only (file count, stdin length, test count); `/api/ai/*` prompts redact to length + intent. Full prompts are gated behind `DEBUG_PROMPTS=1` — left unset in prod. |
-| Output bounding | Server-side `max_output_tokens` bounds per-call size so a single request cannot burn an outsized chunk of the spend budget. |
+| Browser to API | Bearer identity is verified server-side; mutations use origin/CSRF defenses, bounded bodies, and route-specific rate limits. |
+| Learner project paths | Paths are normalized and allowlisted; traversal, protected-file collision, and symlink escape fail closed. |
+| Runner isolation | Non-root process, read-only root filesystem, dropped capabilities, `no-new-privileges`, disabled network, PID/CPU/memory/time limits. |
+| Docker control | API reaches an allowlisted socket proxy, not a broadly exposed Docker socket. |
+| Function tests | Expected values are removed before learner code; results require a per-run HMAC envelope. |
+| Tutor context | Browser content is untrusted evidence; canonical lesson/progress context is resolved by the server. |
+| Platform AI | Server-controlled model allowlist, atomic admission, per-user/global caps, deny list, and kill switch. |
+| BYOK | Keys are encrypted with AES-256-GCM using a server-held master key and are never returned to the browser. |
+| Logging | Project, execution, and AI payloads redact to bounded metadata unless an explicit local-only debugging switch is enabled. |
+| Secrets | Production secrets are sourced through Key Vault/managed identity and removed from `process.env` after validated configuration is built. |
+| Account deletion | Live sessions and user-owned product data are removed before the controlled Supabase Auth admin deletion completes. |
 
-### Harness (function-tests)
+## Observability and operations
 
-| Area | Control |
+The API exposes `/api/health` for readiness and `/api/health/deep` for dependency-aware production probes. `/api/metrics` is loopback-only unless a bearer token is explicitly configured.
+
+Structured logs and metrics feed Azure Monitor, Application Insights, and Log Analytics. The infrastructure defines resource health, CPU, memory, disk, OOM, email-delivery, key-decryption, unhandled-rejection, spend, and availability alerts. Cost controls include bounded log ingestion, resource budgets, platform AI circuit breakers, and ACI daily limits.
+
+## Architecture decisions and trade-offs
+
+These decisions explain the current shape. A decision that needs a longer
+history or migration plan belongs in a dedicated ADR; the public-share preview
+boundary is documented in
+[`ADR_0A_SHARE_PREVIEW_AUTH.md`](./ADR_0A_SHARE_PREVIEW_AUTH.md).
+
+| Decision | Why | Consequence and trade-off |
+| --- | --- | --- |
+| Treat the browser as untrusted and the API as product authority | Learner state, answer keys, quota, and ownership cannot safely depend on mutable client data | More server round trips and canonical resolvers, in exchange for consistent authorization and progress |
+| Give each active coding session an ephemeral isolated runner | Arbitrary learner code must not share the API process or another learner's workspace | Strong containment and cleanup boundaries, with startup and capacity overhead |
+| Use local execution first and ACI only as optional hybrid overflow | Local runners are predictable and economical; burst capacity should remain bounded | The VM is the normal capacity ceiling unless both operational and cost gates admit overflow |
+| Require structured tutor output plus deterministic policy | Model output must render consistently, teach rather than leak answers, and produce value per charged turn | Additional schemas, policy checks, and eval gates around a nondeterministic provider |
+| Reserve platform AI usage atomically before generation | Concurrent requests must not overspend per-user or global allowance | Reservation reconciliation is required after cancellation, timeout, or crash |
+| Use ordered forward migrations and RLS defense in depth | Applied database history must remain auditable and user-owned rows need an independent database boundary | App rollbacks cannot reverse schema history; migrations must remain backward compatible or be followed by compensation |
+| Promote immutable release candidates by digest and manifest | Validation should cover the exact backend, runner, and web artifacts that reach production | Release metadata and artifact retention become operational dependencies, but rollback is reproducible |
+
+## Risks and technical debt
+
+| Risk or debt | Current control | Remaining concern |
+| --- | --- | --- |
+| Stateful API and local runner capacity concentrate on one production VM | Health probes, resource alerts, session caps, restart-safe cleanup, and optional ACI overflow | A VM outage or saturation still has a wider blast radius than a horizontally replicated authority plane |
+| Supabase, OpenAI, Azure control planes, and ACS are managed dependencies | Timeouts, bounded retries, fail-closed admission, readiness signals, and learner-facing recovery | Regional or provider outages can still degrade auth, tutoring, execution overflow, email, or persistence |
+| Tutor behavior is nondeterministic | Structured output, deterministic policy, model allowlist, complete evaluation gate, and usage settlement | Model updates can change teaching tone or quality without a code-shape change |
+| Shared development data is a finite integration resource | Isolated E2E identities, cleanup, sharding discipline, and real-database ownership tests | Parallel local and CI activity can still create contention if fixtures bypass isolation rules |
+| ACI overflow adds cold-start, networking, and spend variability | Feature flag, runtime switch, capacity cap, daily cost reservation, warm-pool and health controls | It increases operational complexity and is not a substitute for tested local capacity planning |
+| `EXECUTION_BACKEND` is configured but not consumed by the factory | Documentation names the two effective shapes and tests exercise the factory | The unused setting can mislead operators until removed or intentionally wired |
+
+## Release architecture
+
+Production promotion validates the exact artifacts that are deployed.
+
+```mermaid
+%%{init: {"flowchart":{"curve":"basis","htmlLabels":true}}}%%
+flowchart TB
+  accTitle: Production release and rollback
+  accDescr: Shows immutable candidate creation, validation, promotion, verification, retention, and explicit rollback of a prior successful candidate.
+  change["Main branch change"]
+  scope["Resolve affected release surfaces"]
+  build["Build backend and runner images"]
+  ghcr["GHCR immutable digests"]
+  web["Build frontend and SWA function bundle"]
+  manifest["Candidate manifest<br/>artifact digests and release metadata"]
+  gates["Reusable CI, E2E, security, migration, and contract gates"]
+  selected["Selected verified candidate<br/>manifest and immutable artifacts"]
+  promotevm["VM promotion<br/>Caddy, API, runner digest"]
+  promoteswa["SWA promotion<br/>static client and share function"]
+  probes["Production synthetic and health verification"]
+  retained["Prior successful candidate<br/>manifest, digests, and SWA bundle"]
+  rollback["Explicit rollback workflow<br/>verify run, SHA, and manifest"]
+
+  change --> scope
+  scope --> build --> ghcr --> manifest
+  scope --> web --> manifest
+  manifest --> gates
+  gates --> selected
+  promotevm --> probes
+  promoteswa --> probes
+  manifest -. "retained after success" .-> retained
+  retained --> rollback
+  rollback --> selected
+  selected --> promotevm
+  selected --> promoteswa
+
+  classDef source fill:#eef2ff,stroke:#4f46e5,color:#0f172a,stroke-width:2px;
+  classDef artifact fill:#f5f3ff,stroke:#7c3aed,color:#0f172a,stroke-width:2px;
+  classDef gate fill:#fff7ed,stroke:#ea580c,color:#0f172a,stroke-width:2px;
+  classDef deploy fill:#ecfdf5,stroke:#059669,color:#0f172a,stroke-width:2px;
+  classDef safety fill:#f8fafc,stroke:#64748b,color:#0f172a,stroke-width:2px;
+  class change,scope source;
+  class build,ghcr,web,manifest,selected artifact;
+  class gates gate;
+  class promotevm,promoteswa,probes deploy;
+  class retained,rollback safety;
+```
+
+**Legend:** blue is source/scope, purple is an immutable artifact, orange is a
+release gate, green is a production action or verification, and gray is retained
+rollback evidence or explicit recovery control. Dotted flow is retention; solid
+flow selects and promotes a verified candidate.
+
+[`release.yml`](../.github/workflows/release.yml) uses GitHub OIDC for Azure access, builds immutable backend and runner images, creates the SWA candidate, invokes reusable validation workflows against the candidate, verifies database migration state, and promotes only after gates succeed. [`vm-promote-candidate.sh`](../infra/scripts/vm-promote-candidate.sh) and the release manifest contracts preserve rollback information rather than relying on mutable tags.
+
+[`rollback-release.yml`](../.github/workflows/rollback-release.yml) accepts only a
+successful prior production release run, its full recorded Git SHA, and an
+explicit acknowledgement. It verifies that immutable manifest, promotes its VM
+image digests and SWA bundle, then probes deployed identity and readiness.
+Rollback does **not** reverse database migrations; forward migrations must stay
+compatible with the previous application or be repaired by a new compensating
+migration.
+
+## Validation architecture
+
+Quality is layered deliberately:
+
+- **Unit, type, build, content, solution, policy, and contract tests** run in CI across the supported host matrix.
+- **Chromium E2E** runs exhaustively in six balanced shards with two workers each; metadata-owned critical coverage also runs as advisory shadow evidence.
+- **Firefox and WebKit** run focused core journeys to catch engine-specific behavior without tripling the entire suite.
+- **Security scenarios** run in a separate path-gated, scheduled, and reusable workflow.
+- **AI teaching changes** use deterministic policy tests plus the complete model evaluation gate; focused cases help iteration but cannot establish model eligibility.
+- **Actual-browser UX audits** are mandatory for browser-observable work under the repository harness. Playwright is supporting evidence, not a substitute for experiencing the final flow.
+
+See [Development](./DEVELOPMENT.md#common-validation-commands) and the [agent harness strategy](./AGENT_HARNESS_STRATEGY.md) for the working loop.
+
+## Codebase map
+
+```text
+frontend/                 React application, public curriculum, build-time public pages
+backend/                  Express API, persistence, tutor policy, session/execution control
+content/                  Backend-only protected learning and memory-warmup material
+e2e/                      Playwright journeys, fixtures, and security scenarios
+swa-api/                  Managed crawler share-metadata adapter
+supabase/migrations/      Ordered database and RLS source of truth
+infra/                    Azure Bicep, VM bootstrap, promotion, operations scripts
+.github/workflows/        CI, E2E, security, production release, synthetic monitoring
+scripts/                  Cross-package governance, harness, release, and audit tooling
+docs/                     Product, architecture, development, quality, and authoring truth
+```
+
+When extending the system, prefer the existing seams: a route module rather than a second server, a registered harness backend rather than inline language branching, a shared tutor renderer rather than per-panel parsing, a forward migration rather than editing history, and an execution-backend implementation rather than leaking infrastructure details into routes.
+
+## Glossary
+
+| Term | Meaning in this system |
 | --- | --- |
-| Subprocess isolation | Learner code runs in a child subprocess spawned by the harness, never in the harness interpreter itself. |
-| HMAC envelope | Per-run 256-bit nonce; harness emits a sentinel-wrapped envelope with `HMAC-SHA256(nonce, body)`; `runHarness.ts` verifies with `timingSafeEqual`. Missing, malformed, or forged envelopes fail closed — no signal back to cheating learners. |
-| Nonce secrecy | Nonce handed to the harness via stdin only; harness drains stdin to EOF before spawning user code so `/proc/<ppid>/environ` can't leak it. |
-| Tests-file isolation | Harness reads expected values into memory and `unlink`s the tests file on startup; by the time user code runs, expectations are neither on disk nor in the child's env. |
-| JS driver sandbox | `vm.createContext` with a minimal globals set (no `require`, `process`, `Buffer`, `module`). This is a module loader, *not* a security boundary — the runner container is. |
-
-### Secrets & data at rest
-
-| Area | Control |
-| --- | --- |
-| Secrets management | All runtime secrets in Azure Key Vault, delivered to the VM under the system-assigned managed identity via a refresh script. Nothing sensitive committed to the repo; `.env.example` siblings document shape only. |
-| BYOK encryption | User OpenAI keys encrypted at rest with AES-256-GCM envelope encryption, per-row random nonce, master key sourced from KV. Rotating the master key invalidates every stored BYOK row (users re-enter theirs). |
-| process.env scrubbing | Sensitive values are read into the frozen `config` object at boot, then deleted from `process.env` so a later `console.log(process.env)` or accidental env-dump finds nothing. |
-| Metrics endpoint | `/api/metrics` is loopback-only by default; when a scraper token is configured it requires a Bearer header. Unauthenticated exposure was a BI leak (live session count + per-model token totals) and a DoS-pressure oracle. |
-| Account deletion | `DELETE /api/user/account` is email-confirmed, tears down live runner containers, and cascades `public.*` rows via FK `ON DELETE CASCADE` before `supabase.auth.admin.deleteUser`. Fails closed if the admin path is unavailable. |
-| Alerting | Azure Monitor action group emails on: VM resource health, memory ≥90% / CPU ≥85% / disk ≥70% (warning) and ≥80% (paging), OOM-killer syslog, ACS email delivery failures, BYOK decrypt failures, sustained unhandled-promise rejections, hourly platform AI spend > 2× daily cap, and App Insights availability probes against `/api/health/deep` + SWA root from 5 US regions. Backed by a daily 1 GB Log Analytics ingest cap + a resource-group monthly budget so a log-storm or runaway service can't cost-surprise the operator. |
+| ACI | Azure Container Instances, used only as optional overflow inside the hybrid execution shape |
+| BYOK | Bring your own OpenAI key; encrypted server-side and distinct from platform-funded usage |
+| Canonical context | Lesson, progress, and teaching state resolved from server-owned sources rather than trusted from the browser |
+| RLS | Postgres row-level security, used as defense in depth for user-scoped data |
+| Runner | Ephemeral isolated container that executes one learner session's project |
+| SWA | Azure Static Web Apps, which hosts the web client and the crawler-facing share function |
 
 ---
 
