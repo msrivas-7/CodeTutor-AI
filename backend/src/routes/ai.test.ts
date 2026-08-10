@@ -114,6 +114,17 @@ vi.mock("../services/ai/openaiProvider.js", () => ({
   },
 }));
 
+vi.mock("../services/ai/platformTutorModel.js", () => ({
+  getEffectivePlatformTutorModel: vi.fn(async () => ({
+    model: "gpt-5.6-luna",
+    source: "fallback" as const,
+    setBy: null,
+    setAt: null,
+    reason: null,
+    invalidOverride: null,
+  })),
+}));
+
 vi.mock("../services/ai/canonicalTutorContext.js", () => ({
   resolveCanonicalTutorContext: vi.fn(async () => ({
     courseId: "python-fundamentals",
@@ -140,6 +151,7 @@ const { openaiProvider } = await import("../services/ai/openaiProvider.js");
 const { cancelAIRequest, reserveAIRequest, finalizeAIRequest } = await import("../db/aiReservations.js");
 const { resolveAICredential } = await import("../services/ai/credential.js");
 const { flagSuspectApis } = await import("../services/ai/suspectApi.js");
+const { getEffectivePlatformTutorModel } = await import("../services/ai/platformTutorModel.js");
 const { errorHandler } = await import("../middleware/errorHandler.js");
 
 let srv: Server;
@@ -229,6 +241,15 @@ beforeEach(() => {
   vi.mocked(cancelAIRequest).mockReset();
   vi.mocked(cancelAIRequest).mockResolvedValue("reserved");
   vi.mocked(flagSuspectApis).mockReset();
+  vi.mocked(getEffectivePlatformTutorModel).mockReset();
+  vi.mocked(getEffectivePlatformTutorModel).mockResolvedValue({
+    model: "gpt-5.6-luna",
+    source: "fallback",
+    setBy: null,
+    setAt: null,
+    reason: null,
+    invalidOverride: null,
+  });
 });
 
 describe("POST /api/ai/ask — KEY_MISSING", () => {
@@ -282,13 +303,15 @@ describe("POST /api/ai/ask — schema validation", () => {
     expect(vi.mocked(openaiProvider.ask)).not.toHaveBeenCalled();
   });
 
-  it("returns 400 when model is missing", async () => {
+  it("requires an explicit learner-selected model for BYOK", async () => {
     vi.mocked(getOpenAIKey).mockResolvedValueOnce("sk-test");
     const res = await req("u-1", "/api/ai/ask", {
       method: "POST",
       body: JSON.stringify(validAskBody({ model: undefined })),
     });
     expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "BYOK_MODEL_REQUIRED" });
+    expect(vi.mocked(openaiProvider.ask)).not.toHaveBeenCalled();
   });
 
   it("returns 400 when the caller omits the accepted-action id", async () => {
@@ -480,6 +503,51 @@ describe("POST /api/ai/ask — schema validation", () => {
 });
 
 describe("POST /api/ai/ask — platform model routing", () => {
+  it("uses the server-owned model when a platform caller omits model", async () => {
+    vi.mocked(resolveAICredential).mockResolvedValueOnce(platformCredential);
+    vi.mocked(openaiProvider.ask).mockResolvedValueOnce({
+      sections: { summary: "ok" },
+      raw: "{\"summary\":\"ok\"}",
+    });
+    const res = await req("u-1", "/api/ai/ask", {
+      method: "POST",
+      body: JSON.stringify(validAskBody({ model: undefined })),
+    });
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(openaiProvider.ask)).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "gpt-5.6-luna" }),
+    );
+  });
+
+  it("honors a server-side operator override and ignores a stale client model", async () => {
+    vi.mocked(resolveAICredential).mockResolvedValueOnce(platformCredential);
+    vi.mocked(getEffectivePlatformTutorModel).mockResolvedValueOnce({
+      model: "gpt-5.6-terra",
+      source: "override",
+      setBy: "admin-1",
+      setAt: "2026-08-09T12:00:00.000Z",
+      reason: "quality comparison",
+      invalidOverride: null,
+    });
+    vi.mocked(openaiProvider.ask).mockResolvedValueOnce({
+      sections: { summary: "ok" },
+      raw: "{\"summary\":\"ok\"}",
+    });
+    const res = await req("u-1", "/api/ai/ask", {
+      method: "POST",
+      body: JSON.stringify(validAskBody({ model: "gpt-5.6-luna" })),
+    });
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(openaiProvider.ask)).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "gpt-5.6-terra" }),
+    );
+    expect(vi.mocked(reserveAIRequest)).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "gpt-5.6-terra", priceVersion: 4 }),
+    );
+  });
+
   it("canonicalizes a stale client model before admission and provider work", async () => {
     vi.mocked(resolveAICredential).mockResolvedValueOnce(platformCredential);
     vi.mocked(openaiProvider.ask).mockResolvedValueOnce({
@@ -493,7 +561,7 @@ describe("POST /api/ai/ask — platform model routing", () => {
 
     expect(res.status).toBe(200);
     expect(vi.mocked(reserveAIRequest)).toHaveBeenCalledWith(
-      expect.objectContaining({ model: "gpt-5.6-luna", priceVersion: 3 }),
+      expect.objectContaining({ model: "gpt-5.6-luna", priceVersion: 4 }),
     );
     expect(vi.mocked(openaiProvider.ask)).toHaveBeenCalledWith(
       expect.objectContaining({ model: "gpt-5.6-luna" }),
@@ -533,12 +601,12 @@ describe("POST /api/ai/ask — platform model routing", () => {
     expect(vi.mocked(reserveAIRequest).mock.calls[1][0]).toEqual(
       expect.objectContaining({
         model: "gpt-5.6-luna",
-        reservedCostUsd: 0.00008,
-        priceVersion: 3,
+        reservedCostUsd: 0.0004,
+        priceVersion: 4,
       }),
     );
     expect(vi.mocked(finalizeAIRequest).mock.calls[1][0]).toEqual(
-      expect.objectContaining({ costUsd: 0.00008, ledgerStatus: "finish" }),
+      expect.objectContaining({ costUsd: 0.0004, ledgerStatus: "finish" }),
     );
   });
 
@@ -648,10 +716,18 @@ describe("POST /api/ai/ask/stream — tutor progression", () => {
     expect(vi.mocked(openaiProvider.askStream).mock.calls[1][0].model).toBe("gpt-5.6-luna");
   });
 
-  it("applies the same Luna routing on the platform stream", async () => {
+  it("applies the same server-side override on every platform stream turn", async () => {
     vi.mocked(resolveAICredential)
       .mockResolvedValueOnce(platformCredential)
       .mockResolvedValueOnce(platformCredential);
+    vi.mocked(getEffectivePlatformTutorModel).mockResolvedValue({
+      model: "gpt-5.6-terra",
+      source: "override",
+      setBy: "admin-1",
+      setAt: "2026-08-09T12:00:00.000Z",
+      reason: "quality comparison",
+      invalidOverride: null,
+    });
     vi.mocked(openaiProvider.askStream).mockImplementation(
       async (_params, handlers) => {
         await handlers.onDone(
@@ -673,7 +749,7 @@ describe("POST /api/ai/ask/stream — tutor progression", () => {
     const firstDone = JSON.parse(
       firstText.split("\n").find((line) => line.startsWith("data: "))!.slice(6),
     ) as { tutorProgressToken: string };
-    expect(vi.mocked(openaiProvider.askStream).mock.calls[0][0].model).toBe("gpt-5.6-luna");
+    expect(vi.mocked(openaiProvider.askStream).mock.calls[0][0].model).toBe("gpt-5.6-terra");
 
     const second = await req("u-1", "/api/ai/ask/stream", {
       method: "POST",
@@ -686,9 +762,9 @@ describe("POST /api/ai/ask/stream — tutor progression", () => {
     });
     expect(second.status).toBe(200);
     await second.text();
-    expect(vi.mocked(openaiProvider.askStream).mock.calls[1][0].model).toBe("gpt-5.6-luna");
+    expect(vi.mocked(openaiProvider.askStream).mock.calls[1][0].model).toBe("gpt-5.6-terra");
     expect(vi.mocked(reserveAIRequest).mock.calls[1][0]).toEqual(
-      expect.objectContaining({ model: "gpt-5.6-luna", priceVersion: 3 }),
+      expect.objectContaining({ model: "gpt-5.6-terra", priceVersion: 4 }),
     );
   });
 
@@ -845,8 +921,16 @@ describe("POST /api/ai/summarize — empty history short-circuit", () => {
     );
   });
 
-  it("canonicalizes a stale platform model for hidden summary work", async () => {
+  it("uses the server-side override for hidden platform summary work", async () => {
     vi.mocked(resolveAICredential).mockResolvedValueOnce(platformCredential);
+    vi.mocked(getEffectivePlatformTutorModel).mockResolvedValueOnce({
+      model: "gpt-5.6-terra",
+      source: "override",
+      setBy: "admin-1",
+      setAt: "2026-08-09T12:00:00.000Z",
+      reason: "quality comparison",
+      invalidOverride: null,
+    });
     vi.mocked(openaiProvider.summarize).mockResolvedValueOnce({
       summary: "Earlier context",
       usage: { inputTokens: 10, outputTokens: 5 },
@@ -862,10 +946,10 @@ describe("POST /api/ai/summarize — empty history short-circuit", () => {
 
     expect(res.status).toBe(200);
     expect(vi.mocked(reserveAIRequest)).toHaveBeenCalledWith(
-      expect.objectContaining({ model: "gpt-5.6-luna" }),
+      expect.objectContaining({ model: "gpt-5.6-terra" }),
     );
     expect(vi.mocked(openaiProvider.summarize)).toHaveBeenCalledWith(
-      expect.objectContaining({ model: "gpt-5.6-luna" }),
+      expect.objectContaining({ model: "gpt-5.6-terra" }),
     );
   });
 });

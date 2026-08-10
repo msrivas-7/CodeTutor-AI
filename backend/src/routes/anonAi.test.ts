@@ -96,6 +96,16 @@ vi.mock("../services/ai/openaiProvider.js", () => ({
   })),
   openaiProvider: { askStream: vi.fn() },
 }));
+vi.mock("../services/ai/platformTutorModel.js", () => ({
+  getEffectivePlatformTutorModel: vi.fn(async () => ({
+    model: "gpt-5.6-luna",
+    source: "fallback" as const,
+    setBy: null,
+    setAt: null,
+    reason: null,
+    invalidOverride: null,
+  })),
+}));
 
 const { createAnonRouter } = await import("./anon.js");
 const { openaiProvider } = await import("../services/ai/openaiProvider.js");
@@ -109,6 +119,7 @@ const {
 } = await import("../db/aiEvalSamples.js");
 const { isAnonLessonEnabled, isAiEvalSamplingEnabled } = await import("../services/share/killSwitches.js");
 const { shouldSampleEvalRequest } = await import("../services/ai/evalSampling.js");
+const { getEffectivePlatformTutorModel } = await import("../services/ai/platformTutorModel.js");
 
 let server: Server;
 let baseUrl: string;
@@ -183,6 +194,15 @@ beforeEach(() => {
   vi.mocked(deleteEvalSamplesForSubjectToken).mockResolvedValue(0);
   vi.mocked(isAnonLessonEnabled).mockResolvedValue(true);
   vi.mocked(isAiEvalSamplingEnabled).mockResolvedValue(true);
+  vi.mocked(getEffectivePlatformTutorModel).mockReset();
+  vi.mocked(getEffectivePlatformTutorModel).mockResolvedValue({
+    model: "gpt-5.6-luna",
+    source: "fallback",
+    setBy: null,
+    setAt: null,
+    reason: null,
+    invalidOverride: null,
+  });
   vi.mocked(openaiProvider.askStream).mockImplementation(
     async (_params, handlers) => {
       await handlers.onDone(
@@ -314,6 +334,24 @@ describe("B8 governed anonymous eval sampling", () => {
 });
 
 describe("POST /api/anon/ai/ask/stream — platform model routing", () => {
+  it("honors the server-side operator override for anonymous tutoring", async () => {
+    vi.mocked(getEffectivePlatformTutorModel).mockResolvedValueOnce({
+      model: "gpt-5.6-terra",
+      source: "override",
+      setBy: "admin-1",
+      setAt: "2026-08-09T12:00:00.000Z",
+      reason: "quality comparison",
+      invalidOverride: null,
+    });
+    const response = await post(validBody({ model: "gpt-5.6-luna" }));
+    expect(response.status).toBe(200);
+    await response.text();
+    expect(vi.mocked(openaiProvider.askStream)).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "gpt-5.6-terra" }),
+      expect.any(Object),
+    );
+  });
+
   it("canonicalizes a stale client model before admission and provider work", async () => {
     const response = await post(validBody({
       model: "gpt-4.1-mini",
@@ -322,7 +360,7 @@ describe("POST /api/anon/ai/ask/stream — platform model routing", () => {
     expect(response.status).toBe(200);
     await response.text();
     expect(vi.mocked(reserveAIRequest)).toHaveBeenCalledWith(
-      expect.objectContaining({ model: "gpt-5.6-luna", priceVersion: 3 }),
+      expect.objectContaining({ model: "gpt-5.6-luna", priceVersion: 4 }),
     );
     expect(vi.mocked(openaiProvider.askStream)).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -359,12 +397,12 @@ describe("POST /api/anon/ai/ask/stream — platform model routing", () => {
     expect(vi.mocked(reserveAIRequest).mock.calls[1][0]).toEqual(
       expect.objectContaining({
         model: "gpt-5.6-luna",
-        reservedCostUsd: 0.00008,
-        priceVersion: 3,
+        reservedCostUsd: 0.0004,
+        priceVersion: 4,
       }),
     );
     expect(vi.mocked(finalizeAIRequest).mock.calls[1][0]).toEqual(
-      expect.objectContaining({ costUsd: 0.000008, ledgerStatus: "finish" }),
+      expect.objectContaining({ costUsd: 0.00004, ledgerStatus: "finish" }),
     );
   });
 

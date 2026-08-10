@@ -81,6 +81,7 @@ const { getOpenAIKey } = await import("../../db/preferences.js");
 const { isDenylisted } = await import("../../db/denylist.js");
 const ledger = await import("../../db/usageLedger.js");
 const caps = await import("./effectiveCaps.js");
+const { PLATFORM_ALLOWED_MODELS } = await import("./pricing.js");
 const {
   resolveAICredential,
   resolveAnonAICredential,
@@ -195,7 +196,7 @@ describe("resolveAICredential", () => {
     if (c.source === "platform") {
       expect(c.remainingToday).toBe(27);
       expect(c.capToday).toBe(30);
-      expect(c.allowedModels).toEqual(["gpt-5.6-luna"]);
+      expect(c.allowedModels).toEqual(PLATFORM_ALLOWED_MODELS);
       expect(c.key).toBe("sk-platform-test");
       expect(c.resetAtUtc).toBeInstanceOf(Date);
     }
@@ -480,7 +481,7 @@ describe("resolveAnonAICredential", () => {
     if (c.source === "platform") {
       expect(c.remainingToday).toBe(8);
       expect(c.capToday).toBe(8);
-      expect(c.allowedModels).toEqual(["gpt-5.6-luna"]);
+      expect(c.allowedModels).toEqual(PLATFORM_ALLOWED_MODELS);
       expect(c.key).toBe("sk-platform-test");
       expect(c.resetAtUtc).toBeInstanceOf(Date);
     }

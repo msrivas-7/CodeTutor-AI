@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   PLATFORM_ALLOWED_MODELS,
   PRICE_VERSION,
+  maxTokenCostMultiplier,
   isPlatformAllowedModel,
   priceUsd,
 } from "./pricing.js";
@@ -24,7 +25,7 @@ describe("priceUsd", () => {
   it.each([
     ["gpt-5-mini", 0.00275],
     ["gpt-5.4-mini", 0.00675],
-    ["gpt-5.6-luna", 0.0018],
+    ["gpt-5.6-luna", 0.009],
   ])("computes cost for tutor migration candidate %s", (model, expected) => {
     const r = priceUsd(model, 3000, 1000);
     expect(r.costUsd).toBe(expected);
@@ -56,17 +57,19 @@ describe("priceUsd", () => {
 });
 
 describe("isPlatformAllowedModel", () => {
-  it("accepts the evaluated Luna platform model", () => {
+  it("accepts compatible, priced GPT-5+ platform models", () => {
     expect(isPlatformAllowedModel("gpt-5.6-luna")).toBe(true);
+    expect(isPlatformAllowedModel("gpt-5.6-terra")).toBe(true);
+    expect(isPlatformAllowedModel("gpt-5.4-mini")).toBe(true);
   });
 
-  it("rejects anything else", () => {
-    // Migration candidates and retired models can remain priced for historical
-    // ledger interpretation without becoming client-selectable.
+  it("rejects retired, specialized, and unpriced models", () => {
     expect(isPlatformAllowedModel("gpt-4.1-mini")).toBe(false);
     expect(isPlatformAllowedModel("gpt-4.1-nano")).toBe(false);
     expect(isPlatformAllowedModel("gpt-4o")).toBe(false);
     expect(isPlatformAllowedModel("gpt-4.1-nano-super")).toBe(false);
+    expect(isPlatformAllowedModel("gpt-5-pro")).toBe(false);
+    expect(isPlatformAllowedModel("gpt-5.99")).toBe(false);
     expect(isPlatformAllowedModel("")).toBe(false);
   });
 
@@ -74,5 +77,16 @@ describe("isPlatformAllowedModel", () => {
     for (const m of PLATFORM_ALLOWED_MODELS) {
       expect(isPlatformAllowedModel(m)).toBe(true);
     }
+  });
+});
+
+describe("maxTokenCostMultiplier", () => {
+  it("shows Terra as at most 2.5x Luna and Sol as at most 5x", () => {
+    expect(maxTokenCostMultiplier("gpt-5.6-terra", "gpt-5.6-luna")).toBe(2.5);
+    expect(maxTokenCostMultiplier("gpt-5.6-sol", "gpt-5.6-luna")).toBe(5);
+  });
+
+  it("returns null unless both models have registered prices", () => {
+    expect(maxTokenCostMultiplier("gpt-5.99", "gpt-5.6-luna")).toBeNull();
   });
 });

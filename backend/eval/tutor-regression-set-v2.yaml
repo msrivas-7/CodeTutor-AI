@@ -465,12 +465,12 @@
   userFile: |
     items = [1, 2]
     print(items)
-  diffSinceLastTurn: "Changed the list contents and ran again."
+  diffSinceLastTurn: "Changed the list contents; no current run result was captured."
   runsSinceLastTurn: 8
   editsSinceLastTurn: 12
   lessonContext: *pythonVars
   rubric:
-    helpfulCorrectY: "Even with high stuckness and activity, the response prioritizes the newest edit/run evidence, gives one bounded comparison clue, and asks exactly one open question about what changed or what the learner observed."
+    helpfulCorrectY: "Even with high stuckness and activity, the response prioritizes the newest edit and the absence of a current run result, gives one bounded run-and-compare clue, and asks exactly one open question about what changed or what the learner observed."
 
 - id: s010
   intent: socratic

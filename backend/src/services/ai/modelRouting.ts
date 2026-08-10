@@ -11,7 +11,7 @@ import {
 import { classifyTutorIntent } from "./tutorIntent.js";
 
 export const PLATFORM_DEFAULT_TUTOR_MODEL = "gpt-5.6-luna";
-export const PLATFORM_TUTOR_ROUTING_POLICY_VERSION = "platform-tutor-luna.v1";
+export const PLATFORM_TUTOR_ROUTING_POLICY_VERSION = "platform-tutor-config.v2";
 
 export interface TutorModelRoute {
   intent: TutorIntent;
@@ -27,20 +27,23 @@ export interface TutorModelRoute {
 export function canonicalTutorRequestModel({
   requestedModel,
   fundingSource,
+  platformModel = PLATFORM_DEFAULT_TUTOR_MODEL,
 }: {
-  requestedModel: string;
+  requestedModel: string | null | undefined;
   fundingSource: "byok" | "platform";
+  platformModel?: string;
 }): string {
-  if (fundingSource === "platform") return PLATFORM_DEFAULT_TUTOR_MODEL;
-  return isContextualTutorModel(requestedModel)
+  if (fundingSource === "platform") return platformModel;
+  return requestedModel && isContextualTutorModel(requestedModel)
     ? requestedModel
     : PLATFORM_DEFAULT_TUTOR_MODEL;
 }
 
 export function platformTutorModelForIntent(
   _intent: TutorIntent,
+  platformModel = PLATFORM_DEFAULT_TUTOR_MODEL,
 ): string {
-  return PLATFORM_DEFAULT_TUTOR_MODEL;
+  return platformModel;
 }
 
 /**
@@ -59,22 +62,28 @@ export function routeTutorModel({
   files,
   history,
   tutorStage,
+  platformModel = PLATFORM_DEFAULT_TUTOR_MODEL,
 }: {
-  requestedModel: string;
+  requestedModel: string | null | undefined;
   fundingSource: "byok" | "platform";
   question: string;
   files: ProjectFile[];
   history?: AIMessage[];
   tutorStage: TutorStage;
+  platformModel?: string;
 }): TutorModelRoute {
   const intent = classifyTutorIntent({ question, files, history, tutorStage });
-  const canonicalModel = canonicalTutorRequestModel({ requestedModel, fundingSource });
+  const canonicalModel = canonicalTutorRequestModel({
+    requestedModel,
+    fundingSource,
+    platformModel,
+  });
   if (fundingSource === "byok") return { intent, model: canonicalModel };
 
-  const model = platformTutorModelForIntent(intent);
-  if (!isModelEvaluatedForTutorIntent(model, intent)) {
+  const model = platformTutorModelForIntent(intent, platformModel);
+  if (!isContextualTutorModel(model)) {
     throw new Error(
-      `[model-routing] ${model} is not evaluated for server-classified ${intent}`,
+      `[model-routing] ${model} is not compatible with the contextual Tutor for ${intent}`,
     );
   }
   return { intent, model };

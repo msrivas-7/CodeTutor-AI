@@ -57,6 +57,11 @@ let refreshInFlight: Promise<string | null> | null = null;
 // Keep this longer than the normal 5 s polling cadence, while still short
 // enough to be useful during an outage.
 export const ADMIN_REQUEST_TIMEOUT_MS = 10_000;
+// Model changes deliberately combine live provider discovery, guarded config
+// storage, an authoritative reread, and audit logging. Keep the normal admin
+// read budget sharp, but do not let this longer mutation report failure while
+// the server is still completing an accepted change.
+export const TUTOR_MODEL_ADMIN_TIMEOUT_MS = 30_000;
 
 async function refreshAccessToken(): Promise<string | null> {
   if (refreshInFlight) return refreshInFlight;
@@ -80,6 +85,8 @@ async function refreshAccessToken(): Promise<string | null> {
  */
 async function authenticatedFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const isAdminRequest = path.startsWith("/api/admin/");
+  const isTutorModelMutation = path === "/api/admin/tutor-model" &&
+    init.method !== undefined && init.method.toUpperCase() !== "GET";
   const timeoutController = isAdminRequest ? new AbortController() : null;
   const callerSignal = init.signal;
   let timedOut = false;
@@ -92,7 +99,9 @@ async function authenticatedFetch(path: string, init: RequestInit = {}): Promise
     ? globalThis.setTimeout(() => {
         timedOut = true;
         timeoutController.abort();
-      }, ADMIN_REQUEST_TIMEOUT_MS)
+      }, isTutorModelMutation
+        ? TUTOR_MODEL_ADMIN_TIMEOUT_MS
+        : ADMIN_REQUEST_TIMEOUT_MS)
     : null;
 
   const send = async (tokenOverride?: string | null) => {
@@ -466,7 +475,8 @@ export interface EditorProjectResponse extends Omit<EditorProjectPayload, "expec
 export interface AskStreamRequest {
   /** One identifier per user-accepted action; never reused for a new action. */
   requestId: string;
-  model: string;
+  /** Omitted for platform-funded requests; the backend owns that choice. */
+  model?: string;
   question: string;
   tutorAction?: TutorAction;
   files: ProjectFile[];
@@ -618,6 +628,34 @@ export interface SystemConfigEntry {
 
 export interface SystemConfigResponse {
   config: Record<SystemConfigKey, SystemConfigEntry>;
+}
+
+export interface AdminTutorModelCandidate {
+  id: string;
+  label: string;
+  qualityStatus: "evaluated" | "unevaluated";
+  qualityLabel: string;
+  evalSetVersion: string | null;
+  availableToPlatform: boolean;
+  selectable: boolean;
+  recommended: boolean;
+  priceUsdPerMillion: { input: number; output: number } | null;
+  costMultiplierVsRecommended: number | null;
+  unavailableReason: string | null;
+}
+
+export interface AdminTutorModelState {
+  current: {
+    model: string;
+    source: "override" | "fallback";
+    setBy: string | null;
+    setAt: string | null;
+    reason: string | null;
+    invalidOverride: string | null;
+  };
+  fallbackModel: string;
+  candidates: AdminTutorModelCandidate[];
+  discoveryError: string | null;
 }
 
 export type AdminAuditEventType =
@@ -1405,7 +1443,7 @@ export const api = {
   deleteOpenAIKey: () => del<{ ok: boolean }>("/api/user/openai-key"),
   // Phase 18e: the key is stored server-side now; these routes look it up
   // via the authenticated userId, so the client no longer forwards one.
-  summarizeHistory: (body: { model: string; history: AIMessage[] }) =>
+  summarizeHistory: (body: { model?: string; history: AIMessage[] }) =>
     post<{ summary: string }>("/api/ai/summarize", {
       ...body,
       requestId: crypto.randomUUID(),
@@ -1696,6 +1734,25 @@ export const api = {
 
   adminGetSystemConfig: () =>
     get<SystemConfigResponse>("/api/admin/system-config"),
+
+  adminGetTutorModel: () =>
+    get<AdminTutorModelState>("/api/admin/tutor-model"),
+
+  adminSetTutorModel: (body: {
+    model: string;
+    reason: string;
+    expectedSetAt: string | null;
+    confirmCostImpact?: true;
+  }) => putJson<{ current: AdminTutorModelState["current"] }>(
+    "/api/admin/tutor-model",
+    body,
+  ),
+
+  adminClearTutorModel: (body: { reason: string; expectedSetAt: string | null }) =>
+    delJson<{ current: AdminTutorModelState["current"] }>(
+      "/api/admin/tutor-model",
+      body,
+    ),
 
   adminSetSystemConfig: (
     key: SystemConfigKey,

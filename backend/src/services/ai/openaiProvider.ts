@@ -22,13 +22,18 @@ import {
 import type { AIMessage } from "./provider.js";
 import { aiTokensConsumed } from "../metrics.js";
 import { parseTutorOutput } from "./tutorOutput.js";
-import { decorateModel, rankByTeachingQuality } from "./modelRegistry.js";
+import {
+  decorateModel,
+  isGptFiveOrLaterTutorModel,
+  rankByTeachingQuality,
+} from "./modelRegistry.js";
 import { classifyTutorIntent } from "./tutorIntent.js";
 import {
   applyTutorOutputPolicy,
   hasTutorTeachingValue,
   tutorValueRecovery,
 } from "./tutorPolicy.js";
+import { PLATFORM_DEFAULT_TUTOR_MODEL } from "./modelRouting.js";
 
 const OPENAI_BASE = "https://api.openai.com/v1";
 
@@ -129,16 +134,41 @@ function keyFingerprint(key: string): string {
   return `${key.slice(0, 4)}…${key.slice(-4)}`;
 }
 
-// BYOK should expose the same quality floor as the managed Tutor. OpenAI's
-// /models endpoint contains many unrelated and legacy models, so the picker
-// admits only GPT-5-or-later text models that have independently passed the
-// CodeTutor contextual gate in modelRegistry.
-function isGptFiveOrLaterTextModel(id: string): boolean {
-  const normalized = id.toLocaleLowerCase();
-  const excluded = ["audio", "realtime", "image", "transcribe", "tts"];
-  if (excluded.some((family) => normalized.includes(family))) return false;
-  const major = normalized.match(/^gpt-(\d+)(?:[.-]|$)/)?.[1];
-  return major !== undefined && Number(major) >= 5;
+// OpenAI's /models endpoint contains many unrelated and specialized models.
+// Both pickers admit only GPT-5+ models compatible with the Tutor's current
+// text Responses API contract. Luna remains the recommended, fully evaluated
+// choice; other compatible models carry an explicit unevaluated label.
+async function fetchGptFiveOrLaterModels(key: string): Promise<AIModel[]> {
+  const res = await openaiFetch("/models", key, {
+    method: "GET",
+    signal: AbortSignal.timeout(5_000),
+  });
+  if (!res.ok) {
+    const err = await parseError(res);
+    console.log(`[openai] list-models error=${clip(err, 120)}`);
+    throw new Error(err);
+  }
+  const body = (await res.json()) as { data: { id: string }[] };
+  const models = body.data
+    .filter((model) => isGptFiveOrLaterTutorModel(model.id))
+    .map((model) => decorateModel({
+      id: model.id,
+      label: model.id === PLATFORM_DEFAULT_TUTOR_MODEL
+        ? `${model.id} (recommended)`
+        : model.id,
+    }));
+  console.log(`[openai] list-models total=${body.data.length} gpt5-text=${models.length}`);
+  return rankByTeachingQuality(models).sort((a, b) => {
+    if (a.id === PLATFORM_DEFAULT_TUTOR_MODEL) return -1;
+    if (b.id === PLATFORM_DEFAULT_TUTOR_MODEL) return 1;
+    return a.id.localeCompare(b.id);
+  });
+}
+
+/** Admin discovery includes every compatible GPT-5+ model exposed by the key. */
+export async function listPlatformTutorModelCandidates(key: string): Promise<AIModel[]> {
+  console.log(`[openai] list-platform-tutor-candidates fingerprint=${keyFingerprint(key)}`);
+  return fetchGptFiveOrLaterModels(key);
 }
 
 async function openaiFetch(path: string, key: string, init?: RequestInit): Promise<Response> {
@@ -334,18 +364,9 @@ export const openaiProvider: AIProvider = {
 
   async listModels(key) {
     console.log(`[openai] list-models fingerprint=${keyFingerprint(key)}`);
-    const res = await openaiFetch("/models", key, { method: "GET" });
-    if (!res.ok) {
-      const err = await parseError(res);
-      console.log(`[openai] list-models error=${clip(err, 120)}`);
-      throw new Error(err);
-    }
-    const body = (await res.json()) as { data: { id: string }[] };
-    const models: AIModel[] = body.data
-      .filter((model) => isGptFiveOrLaterTextModel(model.id))
-      .map((model) => decorateModel({ id: model.id, label: model.id }))
+    const models = (await fetchGptFiveOrLaterModels(key))
       .filter((model) => model.contextualTutorEligible);
-    console.log(`[openai] list-models total=${body.data.length} supported-tutor=${models.length}`);
+    console.log(`[openai] list-models supported-tutor=${models.length}`);
     return rankByTeachingQuality(models);
   },
 

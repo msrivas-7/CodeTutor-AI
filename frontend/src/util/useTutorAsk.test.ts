@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   historyForTutor,
-  PLATFORM_TUTOR_MODEL,
   tutorRequestModel,
 } from "./useTutorAsk";
 
@@ -11,20 +10,25 @@ describe("tutorRequestModel", () => {
       selectedModel: "gpt-4.1-nano",
       onPlatform: true,
       isAnon: false,
-    })).toBe(PLATFORM_TUTOR_MODEL);
+    })).toBeNull();
     expect(tutorRequestModel({
       selectedModel: "gpt-4.1-mini",
       onPlatform: false,
       isAnon: true,
-    })).toBe(PLATFORM_TUTOR_MODEL);
+    })).toBeNull();
   });
 
-  it("canonicalizes a stale BYOK preference to the GPT-5 Tutor floor", () => {
+  it("does not invent a BYOK model when the saved choice is incompatible", () => {
     expect(tutorRequestModel({
       selectedModel: "gpt-4.1",
       onPlatform: false,
       isAnon: false,
-    })).toBe(PLATFORM_TUTOR_MODEL);
+    })).toBeNull();
+    expect(tutorRequestModel({
+      selectedModel: "gpt-5-pro",
+      onPlatform: false,
+      isAnon: false,
+    })).toBeNull();
   });
 
   it("preserves a GPT-5-or-later BYOK model selected from the supported list", () => {

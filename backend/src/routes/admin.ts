@@ -72,6 +72,18 @@ import { adminEmailLogRouter } from "./adminEmailLog.js";
 import { adminPlatformAuthRouter } from "./adminPlatformAuth.js";
 import { adminSessionsRouter } from "./adminSessions.js";
 import { adminEvalSamplesRouter } from "./adminEvalSamples.js";
+import { getModelPolicy } from "../services/ai/modelRegistry.js";
+import { listPlatformTutorModelCandidates } from "../services/ai/openaiProvider.js";
+import {
+  PLATFORM_TUTOR_MODEL_CONFIG_KEY,
+  getEffectivePlatformTutorModel,
+  isSelectablePlatformTutorModel,
+} from "../services/ai/platformTutorModel.js";
+import { PLATFORM_DEFAULT_TUTOR_MODEL } from "../services/ai/modelRouting.js";
+import {
+  maxTokenCostMultiplier,
+  modelTokenPrice,
+} from "../services/ai/pricing.js";
 
 // Phrase-confirm strings. Server-validated; the UI sends them verbatim
 // when the dangerous action is requested.
@@ -87,8 +99,13 @@ const PHRASE_DISABLE_ANON_LESSON =
   "I understand this stops the anon trial path for everyone";
 
 // Bounds per cap key. Out-of-range values rejected with 400.
+type ProjectConfigKey = Exclude<SystemConfigKey, typeof PLATFORM_TUTOR_MODEL_CONFIG_KEY>;
+const PROJECT_CONFIG_KEYS = KNOWN_KEYS.filter(
+  (key): key is ProjectConfigKey => key !== PLATFORM_TUTOR_MODEL_CONFIG_KEY,
+);
+
 const KEY_BOUNDS: Record<
-  SystemConfigKey,
+  ProjectConfigKey,
   { type: "number"; min: number; max: number; step: string } | { type: "boolean" }
 > = {
   free_tier_enabled: { type: "boolean" },
@@ -162,7 +179,7 @@ const KEY_BOUNDS: Record<
 
 // Env defaults exposed in GET /api/admin/system-config so the UI can
 // render the "revert to env" button with the correct fallback value.
-function envDefaultFor(key: SystemConfigKey): boolean | number {
+function envDefaultFor(key: ProjectConfigKey): boolean | number {
   switch (key) {
     case "free_tier_enabled":
       return config.freeTier.enabled;
@@ -408,6 +425,245 @@ adminRouter.delete("/users/:userId/override", async (req, res, next) => {
   }
 });
 
+// --- Platform Tutor model -------------------------------------------------
+
+const tutorModelMutationBody = z.object({
+  model: z.string().min(1).max(128),
+  reason: z.string().min(4).max(500),
+  expectedSetAt: z.string().datetime().nullable(),
+  confirmCostImpact: z.literal(true).optional(),
+}).strict();
+
+const tutorModelClearBody = z.object({
+  reason: z.string().min(4).max(500),
+  expectedSetAt: z.string().datetime().nullable(),
+}).strict();
+
+async function discoverPlatformTutorCandidates() {
+  const key = config.freeTier.platformOpenaiApiKey;
+  if (!key) {
+    throw Object.assign(new Error("platform OpenAI key is not configured"), {
+      code: "PLATFORM_KEY_MISSING",
+    });
+  }
+  const discovered = await listPlatformTutorModelCandidates(key);
+  return discovered.map((model) => {
+    const policy = getModelPolicy(model.id);
+    const selectable = isSelectablePlatformTutorModel(model.id);
+    const costMultiplierVsRecommended = maxTokenCostMultiplier(
+      model.id,
+      PLATFORM_DEFAULT_TUTOR_MODEL,
+    );
+    return {
+      id: model.id,
+      label: model.label,
+      qualityStatus: policy.qualityStatus,
+      qualityLabel: model.qualityLabel,
+      evalSetVersion: policy.evalSetVersion,
+      availableToPlatform: true,
+      selectable,
+      recommended: model.id === PLATFORM_DEFAULT_TUTOR_MODEL,
+      priceUsdPerMillion: modelTokenPrice(model.id),
+      costMultiplierVsRecommended,
+      unavailableReason: selectable
+        ? null
+        : "Register this model's current token prices before platform-funded activation.",
+    };
+  });
+}
+
+adminRouter.get("/tutor-model", async (_req, res, next) => {
+  try {
+    const current = await getEffectivePlatformTutorModel({
+      bypassCache: true,
+      throwOnDatabaseError: true,
+    });
+    let candidates: Awaited<ReturnType<typeof discoverPlatformTutorCandidates>> = [];
+    let discoveryError: string | null = null;
+    try {
+      candidates = await discoverPlatformTutorCandidates();
+    } catch (error) {
+      discoveryError = "Live OpenAI model discovery is temporarily unavailable.";
+      console.error(
+        JSON.stringify({
+          level: "error",
+          evt: "admin_tutor_model_discovery_failed",
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }
+
+    const seen = new Set(candidates.map((candidate) => candidate.id));
+    for (const model of [current.model, PLATFORM_DEFAULT_TUTOR_MODEL]) {
+      if (seen.has(model)) continue;
+      seen.add(model);
+      const policy = getModelPolicy(model);
+      candidates.push({
+        id: model,
+        label: model,
+        qualityStatus: policy.qualityStatus,
+        qualityLabel: policy.qualityStatus === "evaluated"
+          ? "Evaluated for CodeTutor"
+          : "Not evaluated for teaching quality",
+        evalSetVersion: policy.evalSetVersion,
+        availableToPlatform: false,
+        selectable: false,
+        recommended: model === PLATFORM_DEFAULT_TUTOR_MODEL,
+        priceUsdPerMillion: modelTokenPrice(model),
+        costMultiplierVsRecommended: maxTokenCostMultiplier(
+          model,
+          PLATFORM_DEFAULT_TUTOR_MODEL,
+        ),
+        unavailableReason: discoveryError
+          ? "Availability could not be confirmed while discovery is offline."
+          : "This model is not available to the platform credential.",
+      });
+    }
+
+    res.json({
+      current,
+      fallbackModel: PLATFORM_DEFAULT_TUTOR_MODEL,
+      candidates,
+      discoveryError,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+adminRouter.put("/tutor-model", async (req, res, next) => {
+  const actorId = req.userId!;
+  const parsed = tutorModelMutationBody.safeParse(req.body);
+  if (!parsed.success) {
+    await logAdminAction({
+      actorId,
+      eventType: "rejected_attempt",
+      targetKey: PLATFORM_TUTOR_MODEL_CONFIG_KEY,
+      after: req.body,
+      reason: `validation: ${parsed.error.message}`,
+    });
+    return res.status(400).json({ error: parsed.error.message });
+  }
+  try {
+    const before = await getSystemConfig(PLATFORM_TUTOR_MODEL_CONFIG_KEY, {
+      bypassCache: true,
+    });
+    const actualSetAt = before?.setAt ?? null;
+    if (parsed.data.expectedSetAt !== actualSetAt) {
+      await logAdminAction({
+        actorId,
+        eventType: "rejected_attempt",
+        targetKey: PLATFORM_TUTOR_MODEL_CONFIG_KEY,
+        before,
+        after: parsed.data,
+        reason: "stale Tutor model configuration",
+      });
+      return res.status(409).json({ error: "TUTOR_MODEL_CONFIG_STALE" });
+    }
+    const candidates = await discoverPlatformTutorCandidates();
+    const candidate = candidates.find((item) => item.id === parsed.data.model);
+    if (!candidate?.selectable) {
+      await logAdminAction({
+        actorId,
+        eventType: "rejected_attempt",
+        targetKey: PLATFORM_TUTOR_MODEL_CONFIG_KEY,
+        before,
+        after: parsed.data,
+        reason: candidate
+          ? "model does not have registered platform pricing"
+          : "model is unavailable to the platform credential",
+      });
+      return res.status(400).json({ error: "TUTOR_MODEL_UNAVAILABLE_OR_UNPRICED" });
+    }
+    if (
+      (candidate.costMultiplierVsRecommended ?? 0) > 1 &&
+      parsed.data.confirmCostImpact !== true
+    ) {
+      await logAdminAction({
+        actorId,
+        eventType: "rejected_attempt",
+        targetKey: PLATFORM_TUTOR_MODEL_CONFIG_KEY,
+        before,
+        after: parsed.data,
+        reason: `missing cost acknowledgement for ${candidate.costMultiplierVsRecommended}x ${PLATFORM_DEFAULT_TUTOR_MODEL} token price`,
+      });
+      return res.status(400).json({
+        error: "TUTOR_MODEL_COST_CONFIRMATION_REQUIRED",
+        costMultiplierVsRecommended: candidate.costMultiplierVsRecommended,
+      });
+    }
+    await setSystemConfig({
+      key: PLATFORM_TUTOR_MODEL_CONFIG_KEY,
+      value: parsed.data.model,
+      setBy: actorId,
+      reason: parsed.data.reason,
+    });
+    const after = await getEffectivePlatformTutorModel({
+      bypassCache: true,
+      throwOnDatabaseError: true,
+    });
+    await logAdminAction({
+      actorId,
+      eventType: "system_config_set",
+      targetKey: PLATFORM_TUTOR_MODEL_CONFIG_KEY,
+      before: before ?? { model: PLATFORM_DEFAULT_TUTOR_MODEL, source: "fallback" },
+      after,
+      reason: parsed.data.reason,
+    });
+    return res.json({ current: after });
+  } catch (error) {
+    next(error);
+  }
+});
+
+adminRouter.delete("/tutor-model", async (req, res, next) => {
+  const actorId = req.userId!;
+  const parsed = tutorModelClearBody.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    await logAdminAction({
+      actorId,
+      eventType: "rejected_attempt",
+      targetKey: PLATFORM_TUTOR_MODEL_CONFIG_KEY,
+      after: req.body,
+      reason: `validation: ${parsed.error.message}`,
+    });
+    return res.status(400).json({ error: parsed.error.message });
+  }
+  try {
+    const before = await getSystemConfig(PLATFORM_TUTOR_MODEL_CONFIG_KEY, {
+      bypassCache: true,
+    });
+    const actualSetAt = before?.setAt ?? null;
+    if (parsed.data.expectedSetAt !== actualSetAt) {
+      await logAdminAction({
+        actorId,
+        eventType: "rejected_attempt",
+        targetKey: PLATFORM_TUTOR_MODEL_CONFIG_KEY,
+        before,
+        after: parsed.data,
+        reason: "stale Tutor model configuration",
+      });
+      return res.status(409).json({ error: "TUTOR_MODEL_CONFIG_STALE" });
+    }
+    await clearSystemConfig(PLATFORM_TUTOR_MODEL_CONFIG_KEY);
+    const after = await getEffectivePlatformTutorModel({
+      bypassCache: true,
+      throwOnDatabaseError: true,
+    });
+    await logAdminAction({
+      actorId,
+      eventType: "system_config_cleared",
+      targetKey: PLATFORM_TUTOR_MODEL_CONFIG_KEY,
+      before,
+      after,
+      reason: parsed.data.reason,
+    });
+    return res.json({ current: after });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // --- GET /api/admin/system-config -----------------------------------------
 //
 // Returns current value + source + env default for each well-known key.
@@ -416,7 +672,7 @@ adminRouter.get("/system-config", async (_req, res, next) => {
   try {
     const all = await getAllSystemConfig();
     const config_ = Object.fromEntries(
-      KNOWN_KEYS.map((k) => {
+      PROJECT_CONFIG_KEYS.map((k) => {
         const row = all[k];
         return [
           k,
@@ -461,7 +717,7 @@ const systemConfigBody = z
 adminRouter.put("/system-config/:key", async (req, res, next) => {
   const actorId = req.userId!;
   const key = req.params.key;
-  if (!(KNOWN_KEYS as readonly string[]).includes(key)) {
+  if (!(PROJECT_CONFIG_KEYS as readonly string[]).includes(key)) {
     await logAdminAction({
       actorId,
       eventType: "rejected_attempt",
@@ -471,7 +727,7 @@ adminRouter.put("/system-config/:key", async (req, res, next) => {
     });
     return res.status(400).json({ error: "unknown system_config key" });
   }
-  const typedKey = key as SystemConfigKey;
+  const typedKey = key as ProjectConfigKey;
   const parsed = systemConfigBody.safeParse(req.body);
   if (!parsed.success) {
     await logAdminAction({
@@ -705,10 +961,10 @@ const deleteSystemConfigBody = z
 adminRouter.delete("/system-config/:key", async (req, res, next) => {
   const actorId = req.userId!;
   const key = req.params.key;
-  if (!(KNOWN_KEYS as readonly string[]).includes(key)) {
+  if (!(PROJECT_CONFIG_KEYS as readonly string[]).includes(key)) {
     return res.status(400).json({ error: "unknown system_config key" });
   }
-  const typedKey = key as SystemConfigKey;
+  const typedKey = key as ProjectConfigKey;
   const parsed = deleteSystemConfigBody.safeParse(req.body ?? {});
   const body = parsed.success ? parsed.data ?? {} : {};
   const envValue = envDefaultFor(typedKey);

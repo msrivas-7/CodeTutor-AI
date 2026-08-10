@@ -13,8 +13,12 @@ type TutorPolicyParams = Pick<
 
 const PROTECTED_REQUEST =
   /\b(?:system prompt|hidden tests?|hidden validator|another learner|compare my progress|correct (?:choice|answer)|answer is|exact final line|complete finished program|paste it)\b|\bprivate\s+(?:[A-Z0-9_]+\s+)?(?:mastery|record)\b|\b(?:reveal|show|quote|expose)\b[^.!?\n]{0,80}\b[A-Z][A-Z0-9]*_CANARY_[A-Z0-9_]+\b/i;
+const PROTECTED_ANSWER_REQUEST =
+  /\b(?:correct (?:choice|answer)|answer is|exact final line|complete finished program|paste it)\b/i;
 const ABUSIVE_CONTENT_REQUEST =
   /\b(?:insult|demean|humiliate|belittle|mock|verbally abuse)\s+(?:me|the learner|the user|them)\b/i;
+const SOCRATIC_CONCEPT_REQUEST =
+  /\b(?:what (?:does|is|are)|what['’]?s|mean(?:s|ing)?)\b/i;
 const CANARY = /\b[A-Z][A-Z0-9]*_CANARY_[A-Z0-9_]+\b/g;
 
 const INLINE_CODE = /`([^`\n]+)`/g;
@@ -179,15 +183,23 @@ function hasModelTeachingPayload(sections: TutorSections): boolean {
 
 function hardBoundaryReply({
   protectedRequest,
+  protectedAnswerRequest,
   abusiveRequest,
 }: {
   protectedRequest: boolean;
+  protectedAnswerRequest: boolean;
   abusiveRequest: boolean;
 }): string {
+  if (protectedAnswerRequest && abusiveRequest) {
+    return "I can’t give or confirm the exercise answer, and I won’t insult or demean you. I can still help you reason from the visible lesson.";
+  }
   if (protectedRequest && abusiveRequest) {
     return "I can’t share protected instructions, and I won’t insult or demean you. I can still help with the visible lesson in a respectful way.";
   }
   if (protectedRequest) {
+    if (protectedAnswerRequest) {
+      return "I can’t give or confirm the exercise answer, but I can help you reason from the visible code.";
+    }
     return "I can’t share protected instructions or hidden values, but I can still help with the visible lesson.";
   }
   return "I won’t insult or demean you, but I can still help with the lesson in a respectful way.";
@@ -211,7 +223,7 @@ const OPEN_CLARIFYING_QUESTION =
 const SOCRATIC_EVIDENCE_QUESTION =
   /\b(?:expect|observ|happen|result|output|errors?|tried|attempt|unclear|uncertain|confus|think|evidence|understand|noticed|changed)\w*\b/i;
 const PRESCRIPTIVE_SOCRATIC_HINT =
-  /^\s*(?:try\s+)?(?:convert|replace|add|remove|delete|insert|change|use|using|call|write|paste)\b/i;
+  /(?:^\s*(?:try\s+)?|\b(?:then|and)\s+)(?:convert|replace|add|remove|delete|insert|change|make|use|using|call|write|paste)\b/i;
 const ANSWER_BEARING_CLAIM =
   /\b(?:exact|complete|finished|final)\s+(?:fix|answer|solution|line|program)\b/i;
 const META_SOCRATIC_SUMMARY =
@@ -1348,6 +1360,145 @@ function visibleCollectionHowto(
         citation,
       };
     }
+    if (language === "javascript" && COLLECTION_ITERATION_REQUEST.test(params.question)) {
+      return {
+        summary: `The visible \`${variable}\` array is the collection the program needs to visit one item at a time.`,
+        explain: `Iterate over \`${variable}\` so one temporary item value is available on each pass; keep the first attempt focused on observing that current item.`,
+        hint: `Choose a clear name for one current item from \`${variable}\` before adding the action that should repeat.`,
+        nextStep: `Start one bounded iteration over \`${variable}\`, then predict the first item your loop should visit before adding more behavior.`,
+        citation,
+      };
+    }
+  }
+  return null;
+}
+
+function visibleJavaScriptEqualityConcept(
+  params: Pick<AIAskParams, "files" | "question" | "lessonContext">,
+): {
+  summary: string;
+  explain: string;
+  comprehensionCheck: string;
+  citations: NonNullable<TutorSections["citations"]>;
+} | null {
+  if (
+    params.lessonContext?.language !== "javascript" ||
+    !/(?:===\s*(?:vs\.?|or)\s*==|==\s*(?:vs\.?|or)\s*===|strict equality|loose equality)/i.test(
+      params.question,
+    )
+  ) {
+    return null;
+  }
+  for (const file of params.files) {
+    const lines = file.content.split("\n");
+    const looseLine = lines.findIndex((line) => /(^|[^=])==([^=]|$)/.test(line));
+    const strictLine = lines.findIndex((line) => /===/.test(line));
+    if (looseLine < 0 || strictLine < 0) continue;
+    const assigned = lines
+      .map((line) => line.match(/^\s*(?:(?:const|let|var)\s+)?([A-Za-z_$][\w$]*)\s*=\s*([^;]+);?\s*$/))
+      .find((match) => !!match);
+    const identifier = assigned?.[1] ?? "the visible value";
+    const assignedValue = assigned?.[2]?.trim().replace(/;$/, "") ?? null;
+    return {
+      summary: `The visible code compares \`${identifier}\` with both loose equality (\`==\`) and strict equality (\`===\`).`,
+      explain:
+        `Loose equality may convert operand types before comparing their values, while strict equality requires both the type and value to match.${assignedValue ? ` Here, \`${identifier}\` starts as \`${assignedValue}\`, so the two cited comparisons can produce different results against the number \`5\`.` : ""}`,
+      comprehensionCheck:
+        `If \`${identifier}\` held the number \`5\` instead, what would you predict for each cited comparison?`,
+      citations: [
+        {
+          path: file.path,
+          line: looseLine + 1,
+          column: null,
+          reason: "Visible loose-equality comparison",
+        },
+        {
+          path: file.path,
+          line: strictLine + 1,
+          column: null,
+          reason: "Visible strict-equality comparison",
+        },
+      ],
+    };
+  }
+  return null;
+}
+
+function isSingleIdentifierEdit(left: string, right: string): boolean {
+  if (left === right || Math.abs(left.length - right.length) > 1) return false;
+  let leftIndex = 0;
+  let rightIndex = 0;
+  let edits = 0;
+  while (leftIndex < left.length && rightIndex < right.length) {
+    if (left[leftIndex] === right[rightIndex]) {
+      leftIndex += 1;
+      rightIndex += 1;
+      continue;
+    }
+    edits += 1;
+    if (edits > 1) return false;
+    if (left.length > right.length) leftIndex += 1;
+    else if (right.length > left.length) rightIndex += 1;
+    else {
+      leftIndex += 1;
+      rightIndex += 1;
+    }
+  }
+  return edits + Number(leftIndex < left.length || rightIndex < right.length) === 1;
+}
+
+function visibleNameMismatchDebug(
+  params: Pick<AIAskParams, "files" | "lastRun">,
+): {
+  summary: string;
+  diagnose: string;
+  hint: string;
+  nextStep: string;
+  checkQuestion: string;
+  citations: NonNullable<TutorSections["citations"]>;
+} | null {
+  const missing = params.lastRun?.stderr?.match(
+    /NameError:\s+name\s+['"]([A-Za-z_]\w*)['"]\s+is not defined/i,
+  )?.[1];
+  if (!missing) return null;
+  for (const file of params.files) {
+    const lines = file.content.split("\n");
+    const useLine = lines.findIndex((line) =>
+      new RegExp(`(?:^|[^A-Za-z0-9_])${missing}(?=$|[^A-Za-z0-9_])`).test(line)
+    );
+    const assignment = lines
+      .map((line, index) => ({
+        index,
+        name: line.match(/^\s*([A-Za-z_]\w*)\s*=/)?.[1] ?? null,
+      }))
+      .find(({ name }) => !!name && isSingleIdentifierEdit(name, missing));
+    if (useLine < 0 || !assignment?.name) continue;
+    return {
+      summary:
+        `This looks like a small stray-keystroke typo: the name used on line ${useLine + 1} differs from the one created on line ${assignment.index + 1}.`,
+      diagnose:
+        `The latest run names \`${missing}\`, which appears on line ${useLine + 1}, while line ${assignment.index + 1} defines \`${assignment.name}\`. Python treats those spellings as different names, so the lookup stops with \`NameError\`.`,
+      hint:
+        "Compare the assignment and use-site names character by character before changing anything else.",
+      nextStep:
+        "Make the name at the use site match the name that is already defined, then run the file again.",
+      checkQuestion:
+        "Which spelling appears where the value is assigned, and which spelling appears where it is used?",
+      citations: [
+        {
+          path: file.path,
+          line: assignment.index + 1,
+          column: null,
+          reason: `Defines ${assignment.name}`,
+        },
+        {
+          path: file.path,
+          line: useLine + 1,
+          column: null,
+          reason: `Uses undefined name ${missing}`,
+        },
+      ],
+    };
   }
   return null;
 }
@@ -2516,8 +2667,18 @@ export function applyTutorOutputPolicy({
   const requiredConversationReply = requiresHardBoundary
     ? hardBoundaryReply({
         protectedRequest: protectedRequestEarly,
+        protectedAnswerRequest: PROTECTED_ANSWER_REQUEST.test(params.question),
         abusiveRequest: abusiveRequestEarly,
       })
+    : null;
+  // A model can mistake an instruction-like source comment for the learner's
+  // actual request and redirect the whole turn. When we can independently
+  // recover a source-grounded answer to the learner's explicit collection
+  // question, that trusted teaching path takes precedence over the model's
+  // conversational classification. The untrusted comment is never followed
+  // or repeated.
+  const visibleCollectionRequest = intent === "howto"
+    ? visibleCollectionHowto(params)
     : null;
   if (!requiresHardBoundary && intent === "concept") {
     const taskFollowUp = lessonTaskExplanationFollowUp(params);
@@ -2564,7 +2725,11 @@ export function applyTutorOutputPolicy({
       citations: null,
     };
   }
-  if (!requiresHardBoundary && sections.conversationMove === "redirect") {
+  if (
+    !requiresHardBoundary &&
+    !visibleCollectionRequest &&
+    sections.conversationMove === "redirect"
+  ) {
     return {
       intent,
       conversationMove: "redirect",
@@ -2615,7 +2780,10 @@ export function applyTutorOutputPolicy({
       !!directAnswerGrounding ||
       EXPLICIT_HINT_REQUEST.test(params.question) ||
       protectedRequestEarly ||
-      FINAL_VALUE_REQUEST.test(params.question);
+      FINAL_VALUE_REQUEST.test(params.question) ||
+      params.lastRun != null ||
+      SOCRATIC_CONCEPT_REQUEST.test(params.question) ||
+      hasActualFileDiff(params.diffSinceLastTurn);
     const grounded = collectionIterationGrounding ??
       directAnswerGrounding ?? (EXPLICIT_HINT_REQUEST.test(params.question)
       ? STRONGER_HINT_REQUEST.test(params.question) && priorTutorTurns > 0
@@ -2712,13 +2880,20 @@ export function applyTutorOutputPolicy({
     const delimiterSyntax = visibleDelimiterSyntaxDebug(params);
     const singleListAddition = pythonSingleListAddition(params);
     const noOutput = visibleNoOutputDebug(params);
+    const nameMismatch = visibleNameMismatchDebug(params);
     return {
       ...common,
-      summary: delimiterSyntax?.summary ?? noOutput?.summary ?? common.summary,
+      summary:
+        delimiterSyntax?.summary ??
+        noOutput?.summary ??
+        nameMismatch?.summary ??
+        common.summary,
       citations: delimiterSyntax
         ? [delimiterSyntax.citation]
         : noOutput
         ? [noOutput.citation]
+        : nameMismatch
+        ? nameMismatch.citations
         : singleListAddition
         ? [{
             path: singleListAddition.path,
@@ -2731,10 +2906,12 @@ export function applyTutorOutputPolicy({
         ? delimiterSyntax.comprehensionCheck
         : noOutput
         ? noOutput.checkQuestion
+        : nameMismatch
+        ? null
         : singleListAddition
         ? "Which standard list operation adds one item rather than expanding a collection?"
         : common.comprehensionCheck,
-      diagnose: delimiterSyntax?.diagnose ?? noOutput?.diagnose ?? (singleListAddition
+      diagnose: delimiterSyntax?.diagnose ?? noOutput?.diagnose ?? nameMismatch?.diagnose ?? (singleListAddition
         ? `\`${singleListAddition.variable}\` is a list, and \`${singleListAddition.method}()\` is not a standard list method. The visible call passes one item.`
         : safeProse(sections.diagnose, params) ?? "The current result points to the cited area."),
       explain: delimiterSyntax?.explain ?? (singleListAddition
@@ -2744,14 +2921,16 @@ export function applyTutorOutputPolicy({
         ? delimiterSyntax.checkQuestions
         : noOutput
         ? [noOutput.checkQuestion]
+        : nameMismatch
+        ? [nameMismatch.checkQuestion]
         : singleListAddition
         ? ["Are you adding one item, or expanding an existing collection?"]
         : sections.checkQuestions?.map((item) => safeAction(item, params)!).filter(Boolean) ?? null,
-      hint: delimiterSyntax?.hint ?? noOutput?.hint ?? (singleListAddition
+      hint: delimiterSyntax?.hint ?? noOutput?.hint ?? nameMismatch?.hint ?? (singleListAddition
         ? "Compare the standard single-item method with the method on the cited line."
         : safeAction(sections.hint, params)),
       nextStep:
-        (delimiterSyntax?.nextStep ?? noOutput?.nextStep ?? (singleListAddition
+        (delimiterSyntax?.nextStep ?? noOutput?.nextStep ?? nameMismatch?.nextStep ?? (singleListAddition
           ? "Change only the method name on the cited line, then run the code again."
           : safeAction(sections.nextStep, params))) ??
         "Inspect the cited line, make one small change, and run it again.",
@@ -2761,7 +2940,7 @@ export function applyTutorOutputPolicy({
           : priorTutorTurns > 0
             ? safeAction(sections.strongerHint, params)
             : null,
-      pitfalls: delimiterSyntax || singleListAddition
+      pitfalls: delimiterSyntax || nameMismatch || singleListAddition
         ? null
         : safeAction(sections.pitfalls, params),
     };
@@ -2769,7 +2948,7 @@ export function applyTutorOutputPolicy({
   if (intent === "howto") {
     const inputHowto = visiblePythonInputHowto(params);
     const rangeHowto = visiblePythonRangeHowto(params);
-    const collectionHowto = visibleCollectionHowto(params);
+    const collectionHowto = visibleCollectionRequest;
     return {
       ...common,
       // A source-grounded collection correction replaces the model turn as a
@@ -2923,7 +3102,11 @@ export function applyTutorOutputPolicy({
       walkthrough,
       comprehensionCheck: unsafeModelWalkthrough
         ? "What structural detail prevents the current line from completing its visible operation?"
-        : groundComprehensionLine(common.comprehensionCheck, params),
+        : groundComprehensionLine(
+            common.comprehensionCheck ??
+              "Before running it, what value or visible behavior do you predict at the final walkthrough step?",
+            params,
+          ),
       // Pitfalls are not a walkthrough field. Dropping them also prevents a
       // model aside from competing with the grounded ordered explanation.
       pitfalls: null,
@@ -2931,6 +3114,7 @@ export function applyTutorOutputPolicy({
   }
   if (intent === "checkin") {
     const visibleReview = visibleInputOutputCheckin(params);
+    const protectedAnswerRequest = PROTECTED_ANSWER_REQUEST.test(params.question);
     const recentHistory = (params.history ?? [])
       .slice(-3)
       .map((message) => message.content)
@@ -2956,11 +3140,13 @@ export function applyTutorOutputPolicy({
         ? "Changing the label text was not the relevant part; the type mismatch is still present."
         : common.summary,
       comprehensionCheck:
-        common.comprehensionCheck ??
+        protectedAnswerRequest
+          ? null
+          : common.comprehensionCheck ??
         "What result do you expect before you run the current code?",
       diagnose:
         visibleReview?.diagnose ??
-        (protectedRequest
+        (protectedAnswerRequest
           ? "I can review your reasoning, but I won’t confirm the requested answer."
           : irrelevantLabelEdit
             ? "The label edit leaves the incompatible operand types unchanged at the cited operation."
@@ -2969,14 +3155,14 @@ export function applyTutorOutputPolicy({
         "I couldn’t complete a reliable review of the cited code in this response.",
       nextStep:
         visibleReview?.nextStep ??
-        (protectedRequest
+        (protectedAnswerRequest
           ? "Predict the result from the cited line, then run it and compare what you observe."
           : safeAction(sections.nextStep, params)) ??
         (typeMismatch
           ? "Focus on making both sides of the cited operation compatible, then run it again."
           : null) ??
         "Run the current code once and compare its actual output or behavior with what you intended before making another edit.",
-      pitfalls: safeAction(sections.pitfalls, params),
+      pitfalls: protectedAnswerRequest ? null : safeAction(sections.pitfalls, params),
     };
   }
   const delimiterSyntax = visibleDelimiterSyntaxDebug(params);
@@ -3006,6 +3192,7 @@ export function applyTutorOutputPolicy({
   }
   const conditional = visibleConditionalChain(params);
   const constBinding = visibleJsConstBinding(params);
+  const equalityConcept = visibleJavaScriptEqualityConcept(params);
   const listSortCorrection = visiblePythonListSortCorrection(params);
   const anchor = visibleConceptAnchor(params);
   const asksForConcreteExample = params.tutorAction === "concrete-example";
@@ -3043,6 +3230,7 @@ export function applyTutorOutputPolicy({
   return {
     ...common,
     summary:
+      equalityConcept?.summary ??
       listSortCorrection?.summary ??
       constBinding?.summary ??
       (starterCommentConcrete
@@ -3050,7 +3238,9 @@ export function applyTutorOutputPolicy({
         : null) ??
       common.summary,
     citations:
-      listSortCorrection
+      equalityConcept
+        ? equalityConcept.citations
+        : listSortCorrection
         ? [listSortCorrection.citation]
         : conditional
         ? [conditional.citation]
@@ -3069,6 +3259,7 @@ export function applyTutorOutputPolicy({
           ? [anchor.citation]
           : sections.citations,
     explain:
+      equalityConcept?.explain ??
       listSortCorrection?.explain ??
       conditional?.explain ??
       constBinding?.explain ??
@@ -3095,7 +3286,9 @@ export function applyTutorOutputPolicy({
           : null) ??
       null,
     comprehensionCheck:
-      conditional || constBinding || listSortCorrection
+      equalityConcept
+        ? equalityConcept.comprehensionCheck
+        : conditional || constBinding || listSortCorrection
         ? conceptCheck
         : starterCommentConcrete
           ? "What exact message do you predict your first executable output statement should display?"

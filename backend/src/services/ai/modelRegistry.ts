@@ -43,17 +43,48 @@ const REGISTRY: Record<string, EvaluatedModelPolicy> = {
   },
 };
 
+const REQUIRED_PLATFORM_TUTOR_INTENTS: TutorIntent[] = [
+  "socratic",
+  "debug",
+  "concept",
+  "howto",
+  "walkthrough",
+  "checkin",
+];
+
 const UNEVALUATED: Omit<EvaluatedModelPolicy, "id"> = {
   qualityStatus: "unevaluated",
-  contextualTutorEligible: false,
+  contextualTutorEligible: true,
   evalSetVersion: null,
   evaluatedAt: null,
   evaluatedTutorIntents: [],
   supportedTutorBehaviors: ["editor-tutor"],
 };
 
+export function isGptFiveOrLaterTutorModel(modelId: string): boolean {
+  const normalized = modelId.trim().toLocaleLowerCase();
+  const excluded = [
+    "audio",
+    "realtime",
+    "image",
+    "transcribe",
+    "tts",
+    "search",
+    "codex",
+    "chat-latest",
+    "pro",
+  ];
+  if (excluded.some((family) => normalized.includes(family))) return false;
+  const major = normalized.match(/^gpt-(\d+)(?:[.-]|$)/)?.[1];
+  return major !== undefined && Number(major) >= 5;
+}
+
 export function getModelPolicy(modelId: string): EvaluatedModelPolicy {
-  return REGISTRY[modelId] ?? { id: modelId, ...UNEVALUATED };
+  return REGISTRY[modelId] ?? {
+    id: modelId,
+    ...UNEVALUATED,
+    contextualTutorEligible: isGptFiveOrLaterTutorModel(modelId),
+  };
 }
 
 export function isContextualTutorModel(modelId: string): boolean {
@@ -69,6 +100,26 @@ export function isModelEvaluatedForTutorIntent(
     policy.qualityStatus === "evaluated" &&
     policy.evaluatedTutorIntents.includes(intent)
   );
+}
+
+/**
+ * Platform-funded models must pass every teaching-intent gate. A model can be
+ * visible in OpenAI discovery or usable in a narrower BYOK context without
+ * being eligible for the operator-funded default.
+ */
+export function isApprovedPlatformTutorModel(modelId: string): boolean {
+  const policy = getModelPolicy(modelId);
+  return (
+    policy.qualityStatus === "evaluated" &&
+    policy.contextualTutorEligible &&
+    REQUIRED_PLATFORM_TUTOR_INTENTS.every((intent) =>
+      policy.evaluatedTutorIntents.includes(intent),
+    )
+  );
+}
+
+export function approvedPlatformTutorModels(): string[] {
+  return Object.keys(REGISTRY).filter(isApprovedPlatformTutorModel);
 }
 
 export function decorateModel(model: Pick<AIModel, "id" | "label">): AIModel {

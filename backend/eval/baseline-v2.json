@@ -1,10 +1,10 @@
 {
   "datasetVersion": "2.8.0",
-  "datasetFingerprint": "a99ec4daea402890cb84864693382cc61323adf95eb56fba5d9f4aebb65b8f92",
+  "datasetFingerprint": "a64cbdc96d890d9767ba8286b1bc2f85e9bf1e02aaf8538a88d469d2a8dead34",
   "evaluatorVersion": "2.14.0",
-  "approvedModel": "platform-tutor-luna.v1",
-  "approvedJudgeModel": "gpt-4.1",
-  "approvedRoutingPolicyVersion": "platform-tutor-luna.v1",
+  "approvedModel": "platform-tutor-config.v2",
+  "approvedJudgeModel": "gpt-5.6-terra",
+  "approvedRoutingPolicyVersion": "platform-tutor-config.v2",
   "approvedModels": [
     "gpt-5.6-luna"
   ],
@@ -16,8 +16,8 @@
     "walkthrough": "gpt-5.6-luna",
     "checkin": "gpt-5.6-luna"
   },
-  "approvedAt": "2026-08-10T01:26:51.554Z",
-  "qualityContractFingerprint": "ece7192d11018f195b346137e18757626bbd28faf3e7eb9bac94c51077a39433",
+  "approvedAt": "2026-08-10T03:50:25.122Z",
+  "qualityContractFingerprint": "8f8bfc3107ffe0ac2453251ca7dc897a04cb73bf2595c25cfc7964a88cf211ce",
   "postureOverall": 1,
   "postureByIntent": {
     "socratic": 1,

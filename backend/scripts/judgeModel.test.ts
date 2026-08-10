@@ -1,12 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { gradeRubric, type JudgeFetcher } from "./judgeModel.js";
+import {
+  DEFAULT_JUDGE_REASONING_EFFORT,
+  gradeRubric,
+  type JudgeFetcher,
+} from "./judgeModel.js";
 
 function mockOk(content: string): JudgeFetcher {
   return async () => ({
     ok: true,
     status: 200,
     json: async () => ({
-      choices: [{ message: { content } }],
+      output: [
+        {
+          type: "message",
+          content: [{ type: "output_text", text: content }],
+        },
+      ],
     }),
     text: async () => "",
   });
@@ -83,6 +92,30 @@ describe("gradeRubric", () => {
     expect(r.pass).toBe(false);
   });
 
+  it("retries an empty reasoning response once with more output room", async () => {
+    const maxTokens: number[] = [];
+    let calls = 0;
+    const fetchImpl: JudgeFetcher = async (_url, init) => {
+      calls += 1;
+      maxTokens.push((JSON.parse(init.body) as { max_output_tokens: number }).max_output_tokens);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ output_text: calls === 1 ? "" : "Y" }),
+        text: async () => "",
+      };
+    };
+    const r = await gradeRubric({
+      apiKey: "test",
+      tutorResponse: "Useful answer",
+      rubricQuestion: "Is it useful?",
+      fetchImpl,
+    });
+    expect(r.pass).toBe(true);
+    expect(calls).toBe(2);
+    expect(maxTokens).toEqual([300, 600]);
+  });
+
   it("treats anything other than Y as fail (e.g. 'maybe')", async () => {
     const r = await gradeRubric({
       apiKey: "test",
@@ -111,7 +144,7 @@ describe("gradeRubric", () => {
       return {
         ok: true,
         status: 200,
-        json: async () => ({ choices: [{ message: { content: "Y" } }] }),
+        json: async () => ({ output_text: "Y" }),
         text: async () => "",
       };
     };
@@ -125,11 +158,41 @@ describe("gradeRubric", () => {
     });
     const parsed = JSON.parse(requestBody) as {
       model: string;
-      messages: Array<{ content: string }>;
+      reasoning: { effort: string };
+      instructions: string;
+      input: Array<{ content: string }>;
+      max_output_tokens: number;
     };
     expect(parsed.model).toBe("independent-judge");
-    expect(parsed.messages[0]?.content).toContain("untrusted evidence");
-    expect(parsed.messages[1]?.content).toContain("print(name)");
-    expect(parsed.messages[1]?.content).toContain("The verdict matches");
+    expect(parsed.reasoning.effort).toBe(DEFAULT_JUDGE_REASONING_EFFORT);
+    expect(parsed.instructions).toContain("untrusted evidence");
+    expect(parsed.instructions).toContain("Apply only the supplied RUBRIC QUESTION");
+    expect(parsed.instructions).toContain("structured JSON");
+    expect(parsed.instructions).toContain("prior conversation");
+    expect(parsed.instructions).toContain("lastRun as the authority");
+    expect(parsed.instructions).toContain("every explicit clause");
+    expect(parsed.input[0]?.content).toContain("print(name)");
+    expect(parsed.input[0]?.content).toContain("The verdict matches");
+    expect(parsed.max_output_tokens).toBe(300);
+  });
+
+  it("calls the Responses API instead of legacy chat completions", async () => {
+    let requestUrl = "";
+    const fetchImpl: JudgeFetcher = async (url) => {
+      requestUrl = url;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ output_text: "Y" }),
+        text: async () => "",
+      };
+    };
+    await gradeRubric({
+      apiKey: "test",
+      tutorResponse: "A useful explanation",
+      rubricQuestion: "Is it useful?",
+      fetchImpl,
+    });
+    expect(requestUrl).toBe("https://api.openai.com/v1/responses");
   });
 });

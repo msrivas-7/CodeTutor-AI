@@ -20,10 +20,21 @@ import type { EditorSelection, ProjectFile, AIMessage, TutorAction } from "../ty
 import { computeDiffSinceLast } from "./diffSinceLast";
 import { parsePartialTutor } from "./partialJson";
 
-export const PLATFORM_TUTOR_MODEL = "gpt-5.6-luna";
-
-function isGptFiveOrLaterModel(model: string): boolean {
-  const major = model.trim().toLocaleLowerCase().match(/^gpt-(\d+)(?:[.-]|$)/)?.[1];
+export function isCompatibleTutorModel(model: string): boolean {
+  const normalized = model.trim().toLocaleLowerCase();
+  const excluded = [
+    "audio",
+    "realtime",
+    "image",
+    "transcribe",
+    "tts",
+    "search",
+    "codex",
+    "chat-latest",
+    "pro",
+  ];
+  if (excluded.some((family) => normalized.includes(family))) return false;
+  const major = normalized.match(/^gpt-(\d+)(?:[.-]|$)/)?.[1];
   return major !== undefined && Number(major) >= 5;
 }
 
@@ -36,10 +47,33 @@ export function tutorRequestModel({
   onPlatform: boolean;
   isAnon: boolean;
 }): string | null {
-  if (onPlatform || isAnon) return PLATFORM_TUTOR_MODEL;
-  return selectedModel && isGptFiveOrLaterModel(selectedModel)
+  if (onPlatform || isAnon) return null;
+  return selectedModel && isCompatibleTutorModel(selectedModel)
     ? selectedModel
-    : PLATFORM_TUTOR_MODEL;
+    : null;
+}
+
+/** Load a current compatible choice before an existing BYOK user can ask. */
+export function useByokTutorModelReady(enabled: boolean): boolean {
+  const selectedModel = useAIStore((state) => state.selectedModel);
+  const modelsStatus = useAIStore((state) => state.modelsStatus);
+  const setModels = useAIStore((state) => state.setModels);
+  const setModelsStatus = useAIStore((state) => state.setModelsStatus);
+
+  useEffect(() => {
+    if (!enabled || modelsStatus !== "idle") return;
+    setModelsStatus("loading");
+    api.listOpenAIModels()
+      .then(({ models }) => {
+        setModels(models);
+        setModelsStatus("loaded");
+      })
+      .catch((error) => {
+        setModelsStatus("error", (error as Error).message);
+      });
+  }, [enabled, modelsStatus, setModels, setModelsStatus]);
+
+  return enabled && selectedModel !== null && isCompatibleTutorModel(selectedModel);
 }
 
 // Shape passed to each panel's buildBody callback. The hook owns the
@@ -225,8 +259,8 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
   // BYOK / selectedModel concept for anon, and we must NOT early-return
   // submitAsk on isAnon paths.
   const onPlatform = !hasKey && aiStatus?.source === "platform";
-  const configured = isAnon || onPlatform || (hasKey && !!selectedModel);
   const effectiveModel = tutorRequestModel({ selectedModel, onPlatform, isAnon });
+  const configured = isAnon || onPlatform || (hasKey && effectiveModel !== null);
 
   const submitAsk = async (
     question: string,

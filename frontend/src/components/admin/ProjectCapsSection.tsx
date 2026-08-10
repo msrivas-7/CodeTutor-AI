@@ -6,6 +6,7 @@ import {
 } from "../../api/client";
 import { Modal } from "../Modal";
 import { AdminLoadFailure } from "./AdminLoadFailure";
+import { TutorModelControl } from "./TutorModelControl";
 
 // Phase 20-P5 / Phase 4.5 (safety guards): runtime-editable project caps.
 //
@@ -296,6 +297,7 @@ export function ProjectCapsSection() {
 
   return (
     <div className="flex flex-col gap-5">
+      <TutorModelControl />
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold text-ink">System configuration</h2>
