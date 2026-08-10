@@ -5,6 +5,7 @@ import {
   type AdminAuditLogEntry,
   type AdminAuditEventType,
 } from "../../api/client";
+import { AdminEmptyState, AdminPageHeader } from "./AdminPrimitives";
 
 // Phase 20-P5: read-only tail of admin actions. The audit_log table
 // records every successful write AND every rejected attempt — both
@@ -186,15 +187,12 @@ export function AuditLogSection() {
 
   return (
     <div className="flex flex-col gap-3">
-      <div>
-        <h2 className="text-sm font-semibold text-ink">Operational history</h2>
-        <p className="mt-0.5 max-w-3xl text-[11px] leading-relaxed text-muted">
-          Changes and safety events are shown first by default. Routine tab and
-          sample views live in Review activity, so they cannot bury a mutation
-          during an incident.
-        </p>
-      </div>
-      <div className="flex flex-wrap items-end justify-between gap-3 rounded-lg border border-border bg-elevated/20 p-3">
+      <AdminPageHeader
+        eyebrow="Governance trail"
+        title="Operational history"
+        description="Changes and safety events appear first by default. Routine tab and sample views live in Review activity so they cannot bury a mutation during an incident."
+      />
+      <div className="admin-command-bar flex flex-wrap items-end justify-between gap-3">
         <div className="flex flex-wrap items-end gap-3">
           <label className="flex flex-col gap-1 text-[10px] text-muted">
             Activity
@@ -291,16 +289,18 @@ export function AuditLogSection() {
         Last {entries.length} matching events, newest first.
       </p>
       {entries.length === 0 && (
-        <div className="rounded-md border border-border bg-elevated/30 p-3 text-[11px] text-muted">
-          No admin actions match the current filter.
-        </div>
+        <AdminEmptyState
+          title="No activity matches"
+          description="Try a broader activity category, event type, or search term."
+        />
       )}
-      <div className="flex flex-col gap-1.5">
+      <div className="admin-audit-timeline">
         {entries.map((e) => (
           <div
             key={e.id}
-            className="rounded-md border border-border bg-elevated/30 p-2 text-[11px]"
+            className="admin-audit-entry text-[11px]"
           >
+            <span className="admin-audit-node" aria-hidden="true" />
             <div className="flex items-baseline justify-between gap-2">
               <span
                 className={`rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider ring-1 ring-border/30 ${EVENT_TONE[e.eventType]}`}

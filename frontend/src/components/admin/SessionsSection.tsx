@@ -6,6 +6,7 @@ import {
 } from "../../api/client";
 import { useLivePolling } from "../../auth/useLivePolling";
 import { AdminLoadFailure } from "./AdminLoadFailure";
+import { AdminEmptyState, AdminPageHeader } from "./AdminPrimitives";
 import { useAdminDraft } from "./useAdminDraft";
 
 const POLL_MS = 5000;
@@ -30,15 +31,12 @@ export function SessionsSection() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h2 className="text-sm font-semibold text-ink">Active sessions</h2>
-          <p className="mt-0.5 text-[11px] leading-relaxed text-muted">
-            {data ? `${data.total} runner${data.total === 1 ? "" : "s"} live` : "Loading…"}
-            {" · "}auto-refreshes every 5 s
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
+      <AdminPageHeader
+        eyebrow="Runtime operations"
+        title="Active sessions"
+        description={data ? `${data.total} runner${data.total === 1 ? "" : "s"} live · auto-refreshes every 5 seconds` : "Loading the live runner inventory…"}
+        actions={(
+          <>
           <button
             type="button"
             onClick={() => setBulkOpen(true)}
@@ -53,8 +51,9 @@ export function SessionsSection() {
           >
             Refresh
           </button>
-        </div>
-      </div>
+          </>
+        )}
+      />
 
       {error && data && (
         <div
@@ -72,11 +71,12 @@ export function SessionsSection() {
           onRetry={() => void refresh()}
         />
       ) : sessions.length === 0 && data ? (
-        <div className="rounded-md border border-border bg-elevated/30 px-3 py-6 text-center text-[11px] text-muted">
-          No active sessions.
-        </div>
+        <AdminEmptyState
+          title="All runners are quiet"
+          description="There are no active learner sandboxes right now. This list will update automatically when a session starts."
+        />
       ) : (
-        <div className="overflow-x-auto rounded-md border border-border">
+        <div className="admin-data-panel overflow-x-auto">
           <table className="w-full text-left text-[11px]">
             <thead className="bg-elevated/50 text-[10px] uppercase tracking-wider text-muted">
               <tr>

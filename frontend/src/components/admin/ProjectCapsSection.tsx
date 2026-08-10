@@ -7,6 +7,7 @@ import {
 import { Modal } from "../Modal";
 import { AdminLoadFailure } from "./AdminLoadFailure";
 import { TutorModelControl } from "./TutorModelControl";
+import { AdminEmptyState, AdminPageHeader } from "./AdminPrimitives";
 
 // Phase 20-P5 / Phase 4.5 (safety guards): runtime-editable project caps.
 //
@@ -297,8 +298,13 @@ export function ProjectCapsSection() {
 
   return (
     <div className="flex flex-col gap-5">
+      <AdminPageHeader
+        eyebrow="Runtime policy"
+        title="Project"
+        description="Review the active AI model, budgets, safety gates, public surfaces, and runner capacity from one controlled workspace."
+      />
       <TutorModelControl />
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="admin-command-bar admin-command-bar-seamless flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold text-ink">System configuration</h2>
           <p className="mt-0.5 max-w-3xl text-[11px] leading-relaxed text-muted">
@@ -333,12 +339,13 @@ export function ProjectCapsSection() {
       )}
 
       {visibleGroups.length === 0 ? (
-        <div className="rounded-lg border border-border bg-elevated/20 px-4 py-8 text-center text-sm text-muted">
-          No controls match “{query}”.
-        </div>
+        <AdminEmptyState
+          title="No project controls match"
+          description={`Nothing matches “${query}”. Try a control name, impact, or configuration key.`}
+        />
       ) : visibleGroups.map((group) => (
-        <section key={group.id} aria-labelledby={`config-group-${group.id}`} className="space-y-2">
-          <div className="flex items-end justify-between gap-3 border-b border-border pb-2">
+        <section key={group.id} aria-labelledby={`config-group-${group.id}`} className="admin-policy-group space-y-2">
+          <div className="admin-policy-group-header flex items-end justify-between gap-3">
             <div>
               <h3 id={`config-group-${group.id}`} className="text-xs font-semibold text-ink">
                 {group.label}
@@ -347,7 +354,7 @@ export function ProjectCapsSection() {
             </div>
             <span className="text-[10px] text-faint">{group.keys.length} controls</span>
           </div>
-          <div className="space-y-2">
+          <div className="admin-policy-rows">
             {group.keys.map((key) => (
               <CapRow
                 key={key}
@@ -394,10 +401,10 @@ function CapRow({ configKey, entry, editing, onEdit, onCancel, onSaved }: CapRow
     <div
       role="group"
       aria-label={`${KEY_LABEL[configKey]} configuration`}
-      className="rounded-md border border-border bg-elevated/30 p-3"
+      className="admin-control-card"
     >
       <div className="flex items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0 flex-1">
           <div className="text-[12px] font-semibold text-ink">
             {KEY_LABEL[configKey]}
           </div>
@@ -406,8 +413,8 @@ function CapRow({ configKey, entry, editing, onEdit, onCancel, onSaved }: CapRow
               {KEY_DESCRIPTION[configKey]}
             </div>
           )}
-          <div className="mt-1 flex items-baseline gap-2 text-[11px]">
-            <span className="font-mono text-ink">{fmtValue(entry.value)}</span>
+          <div className="admin-control-value-row mt-3 flex flex-wrap items-center gap-2 text-[11px]">
+            <span className="admin-control-value font-mono text-ink">{fmtValue(entry.value)}</span>
             <span
               className={`rounded px-1.5 py-0.5 text-[10px] ${
                 entry.source === "override"
@@ -435,12 +442,12 @@ function CapRow({ configKey, entry, editing, onEdit, onCancel, onSaved }: CapRow
               Review the deployed environment before relying on this control.
             </div>
           )}
-          <div className="mt-2 grid gap-1.5 text-[10px] leading-relaxed sm:grid-cols-2">
-            <div className="rounded-md border border-border-soft bg-bg/40 px-2 py-1.5 text-muted">
+          <div className="admin-control-notes mt-3 grid gap-2 text-[10px] leading-relaxed sm:grid-cols-2">
+            <div className="admin-control-note text-muted">
               <span className="font-semibold text-ink">Impact: </span>
               {KEY_IMPACT[configKey]}
             </div>
-            <div className="rounded-md border border-border-soft bg-bg/40 px-2 py-1.5 text-muted">
+            <div className="admin-control-note text-muted">
               <span className="font-semibold text-ink">Rollback: </span>
               Revert to the deployed environment default ({fmtValue(entry.envDefault)}).
             </div>

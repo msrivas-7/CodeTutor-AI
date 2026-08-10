@@ -6,6 +6,7 @@ import {
   type AdminUserOverride,
 } from "../../api/client";
 import { AdminLoadFailure } from "./AdminLoadFailure";
+import { AdminEmptyState, AdminPageHeader } from "./AdminPrimitives";
 import { useAdminDraft } from "./useAdminDraft";
 
 // Phase 20-P5: paginated users table + per-user override editor.
@@ -93,8 +94,13 @@ export function UsersSection() {
 
   return (
     <div className="flex flex-col gap-3">
+      <AdminPageHeader
+        eyebrow="Learner operations"
+        title="Users"
+        description="Find a learner, understand current AI usage, and manage scoped limits or access without changing project-wide policy."
+      />
       <form
-        className="flex flex-col gap-2 sm:flex-row sm:items-end"
+        className="admin-command-bar flex flex-col gap-2 sm:flex-row sm:items-end"
         onSubmit={(event) => {
           event.preventDefault();
           onSearch();
@@ -143,22 +149,25 @@ export function UsersSection() {
         </div>
       )}
       {users && users.length === 0 && (
-        <div role="status" className="text-xs text-muted">
-          No users match this search.
+        <div role="status">
+          <AdminEmptyState
+            title="No learners found"
+            description="No account matches this email search. Check the spelling or clear the search to return to the full directory."
+          />
         </div>
       )}
 
       {users && users.length > 0 && (
-        <div className="overflow-x-auto rounded-md border border-border">
-          <table className="w-full min-w-[720px] text-left text-[11px]">
+        <div className="admin-data-panel overflow-x-auto">
+          <table className="w-full min-w-[700px] table-fixed text-left text-[11px]">
             <thead className="bg-elevated/50 text-[10px] uppercase tracking-wider text-muted">
               <tr>
-                <th className="px-2 py-1">Email</th>
-                <th className="px-2 py-1 text-right">Q today</th>
-                <th className="px-2 py-1 text-right">$ today</th>
-                <th className="px-2 py-1 text-right">$ lifetime</th>
-                <th className="px-2 py-1">Flags</th>
-                <th className="sticky right-0 z-10 border-l border-border bg-elevated px-2 py-1">
+                <th className="w-[46%] px-2 py-1">Email</th>
+                <th className="w-[9%] px-2 py-1 text-right">Q today</th>
+                <th className="w-[11%] px-2 py-1 text-right">$ today</th>
+                <th className="w-[12%] px-2 py-1 text-right">$ lifetime</th>
+                <th className="w-[11%] px-2 py-1">Flags</th>
+                <th className="sticky right-0 z-10 w-[11%] border-l border-border bg-elevated px-2 py-1">
                   <span className="sr-only">Actions</span>
                 </th>
               </tr>
@@ -171,7 +180,10 @@ export function UsersSection() {
                     selected === u.id ? "bg-accent/5" : ""
                   }`}
                 >
-                  <td className="min-w-[260px] whitespace-nowrap px-2 py-1.5 font-mono text-ink">
+                  <td
+                    className="max-w-0 truncate whitespace-nowrap px-2 py-1.5 font-mono text-ink"
+                    title={u.email ?? undefined}
+                  >
                     {u.email ?? <span className="text-faint">(no email)</span>}
                   </td>
                   <td className="whitespace-nowrap px-2 py-1.5 text-right tabular-nums text-ink">

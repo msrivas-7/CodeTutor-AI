@@ -5,6 +5,7 @@ import {
   type AdminEmailLogResponse,
 } from "../../api/client";
 import { Modal } from "../Modal";
+import { AdminEmptyState, AdminPageHeader } from "./AdminPrimitives";
 
 // Phase 25: read-only viewer for email_sent_log. Cursor pagination, kind +
 // email substring filters, click-row to inspect rendered body.
@@ -73,15 +74,11 @@ export function EmailLogSection() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h2 className="text-sm font-semibold text-ink">Email log</h2>
-          <p className="mt-0.5 text-[11px] leading-relaxed text-muted">
-            Outbound mail (streak nudge, budget alert, …). Click a row to view
-            the rendered body. Read-only. Action links are removed from this
-            viewer so opening a log cannot unsubscribe or authenticate anyone.
-          </p>
-        </div>
+      <AdminPageHeader
+        eyebrow="Delivery observability"
+        title="Email log"
+        description="Inspect outbound streak nudges and budget alerts in a read-only viewer. Action links are removed so reviewing a message cannot authenticate or unsubscribe anyone."
+        actions={(
         <button
           type="button"
           onClick={() => void load(null)}
@@ -89,9 +86,10 @@ export function EmailLogSection() {
         >
           Refresh
         </button>
-      </div>
+        )}
+      />
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="admin-command-bar flex flex-wrap items-end gap-3">
         <label className="text-[11px]">
           <span className="text-muted">Kind: </span>
           <select
@@ -129,11 +127,12 @@ export function EmailLogSection() {
       )}
 
       {entries.length === 0 && !loading ? (
-        <div className="rounded-md border border-border bg-elevated/30 px-3 py-6 text-center text-[11px] text-muted">
-          No emails matched.
-        </div>
+        <AdminEmptyState
+          title="No delivery records found"
+          description="Nothing matches the current filters. Adjust the message kind or recipient search and try again."
+        />
       ) : (
-        <div className="overflow-x-auto rounded-md border border-border">
+        <div className="admin-data-panel overflow-x-auto">
           <table className="w-full text-left text-[11px]">
             <thead className="bg-elevated/50 text-[10px] uppercase tracking-wider text-muted">
               <tr>

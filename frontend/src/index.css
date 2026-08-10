@@ -205,6 +205,784 @@ code, pre, .font-mono {
   font-size: 14px;
 }
 
+/* Admin console — a calm operations cockpit built from the same product
+   tokens. The depth is intentionally restrained: operators need scan speed,
+   reliable hierarchy, and unmistakable state more than decorative motion. */
+.admin-shell {
+  isolation: isolate;
+  position: relative;
+}
+
+.admin-shell::before,
+.admin-shell::after {
+  content: "";
+  inset: 0;
+  pointer-events: none;
+  position: fixed;
+  z-index: 0;
+}
+
+.admin-shell::before {
+  background:
+    radial-gradient(circle at 78% -12%, rgb(var(--color-accent) / 0.11), transparent 30rem),
+    radial-gradient(circle at 8% 86%, rgb(var(--color-violet) / 0.05), transparent 34rem);
+}
+
+.admin-shell::after {
+  background-image:
+    linear-gradient(rgb(var(--color-border-soft) / 0.22) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(var(--color-border-soft) / 0.22) 1px, transparent 1px);
+  background-size: 42px 42px;
+  -webkit-mask-image: linear-gradient(to bottom, rgb(0 0 0 / 0.4), transparent 58%);
+  mask-image: linear-gradient(to bottom, rgb(0 0 0 / 0.4), transparent 58%);
+  opacity: 0.22;
+}
+
+[data-theme="light"] .admin-shell::after {
+  opacity: 0.38;
+}
+
+.admin-topbar {
+  align-items: center;
+  backdrop-filter: blur(18px) saturate(135%);
+  background: rgb(var(--color-bg) / 0.82);
+  border-bottom: 1px solid rgb(var(--color-border) / 0.75);
+  display: flex;
+  justify-content: space-between;
+  min-height: 64px;
+  padding: 0 1rem;
+  position: sticky;
+  top: 0;
+  z-index: 40;
+}
+
+.admin-skip-link {
+  background: rgb(var(--color-accent));
+  border-radius: 0 0 0.75rem 0;
+  color: rgb(var(--color-bg));
+  font-size: 0.75rem;
+  font-weight: 700;
+  left: 0;
+  padding: 0.75rem 1rem;
+  position: fixed;
+  top: 0;
+  transform: translateY(-120%);
+  transition: transform 160ms ease-out;
+  z-index: 80;
+}
+
+.admin-skip-link:focus {
+  transform: translateY(0);
+}
+
+.admin-sidebar {
+  align-self: flex-start;
+  backdrop-filter: blur(18px) saturate(125%);
+  background: rgb(var(--color-panel) / 0.68);
+  border-bottom: 1px solid rgb(var(--color-border) / 0.8);
+  display: flex;
+  gap: 0.35rem;
+  max-width: 100vw;
+  overflow-x: auto;
+  padding: 0.6rem 0.75rem;
+  position: sticky;
+  scroll-padding-inline: 0.75rem;
+  scroll-snap-type: x proximity;
+  top: 64px;
+  width: 100%;
+  z-index: 30;
+}
+
+.admin-sidebar-intro,
+.admin-nav-group-label {
+  display: none;
+}
+
+.admin-nav-group,
+.admin-nav-items {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.admin-nav-link {
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: 0.85rem;
+  color: rgb(var(--color-muted));
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.65rem;
+  min-height: 48px;
+  padding: 0.55rem 0.7rem;
+  scroll-snap-align: start;
+  transition: background-color 180ms ease-out, border-color 180ms ease-out, color 180ms ease-out;
+}
+
+.admin-nav-link:hover {
+  background: rgb(var(--color-elevated) / 0.68);
+  color: rgb(var(--color-ink));
+}
+
+.admin-nav-link-active {
+  background: linear-gradient(135deg, rgb(var(--color-accent) / 0.14), rgb(var(--color-elevated) / 0.72));
+  border-color: rgb(var(--color-accent) / 0.46);
+  box-shadow: 0 10px 30px -22px rgb(var(--color-accent) / 0.8), inset 0 1px rgb(255 255 255 / 0.04);
+  color: rgb(var(--color-ink));
+}
+
+.admin-nav-icon {
+  align-items: center;
+  background: rgb(var(--color-elevated) / 0.72);
+  border: 1px solid rgb(var(--color-border) / 0.72);
+  border-radius: 0.65rem;
+  color: rgb(var(--color-muted));
+  display: flex;
+  height: 32px;
+  justify-content: center;
+  width: 32px;
+}
+
+.admin-nav-link-active .admin-nav-icon {
+  background: rgb(var(--color-accent) / 0.14);
+  border-color: rgb(var(--color-accent) / 0.34);
+  color: rgb(var(--color-accent));
+}
+
+.admin-nav-label,
+.admin-nav-hint {
+  display: block;
+  white-space: nowrap;
+}
+
+.admin-nav-label {
+  color: currentColor;
+  font-size: 0.78rem;
+  font-weight: 650;
+  line-height: 1.2;
+}
+
+.admin-nav-hint {
+  font-size: 0.64rem;
+  line-height: 1.35;
+  margin-top: 0.15rem;
+}
+
+.admin-main-content {
+  margin: 0 auto;
+  max-width: 1500px;
+  padding: 1.25rem 1rem 4rem;
+  width: 100%;
+}
+
+.admin-main-content > * {
+  animation: admin-surface-in 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes admin-surface-in {
+  from {
+    opacity: 0.82;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.admin-page-header {
+  align-items: flex-end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+}
+
+.admin-eyebrow {
+  color: rgb(var(--color-accent));
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.admin-page-title {
+  color: rgb(var(--color-ink));
+  font-size: clamp(1.55rem, 2vw, 2rem);
+  font-weight: 680;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+  margin-top: 0.35rem;
+}
+
+.admin-page-description {
+  color: rgb(var(--color-muted));
+  font-size: 0.82rem;
+  line-height: 1.65;
+  margin-top: 0.45rem;
+  max-width: 72ch;
+}
+
+.admin-page-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.admin-empty-state {
+  align-items: center;
+  background: linear-gradient(145deg, rgb(var(--color-panel) / 0.74), rgb(var(--color-elevated) / 0.42));
+  border: 1px dashed rgb(var(--color-border) / 0.9);
+  border-radius: 1rem;
+  color: rgb(var(--color-muted));
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  justify-content: center;
+  min-height: 180px;
+  padding: 2rem;
+  text-align: center;
+}
+
+.admin-empty-state strong {
+  color: rgb(var(--color-ink));
+  font-size: 0.9rem;
+}
+
+.admin-empty-state > span:last-child {
+  font-size: 0.76rem;
+  line-height: 1.55;
+  max-width: 42ch;
+}
+
+.admin-empty-icon {
+  align-items: center;
+  background: rgb(var(--color-accent) / 0.1);
+  border: 1px solid rgb(var(--color-accent) / 0.24);
+  border-radius: 0.9rem;
+  color: rgb(var(--color-accent));
+  display: flex;
+  height: 42px;
+  justify-content: center;
+  margin-bottom: 0.35rem;
+  width: 42px;
+}
+
+.admin-metric-card,
+.admin-control-card {
+  background: linear-gradient(145deg, rgb(var(--color-panel) / 0.78), rgb(var(--color-elevated) / 0.48));
+  border: 1px solid rgb(var(--color-border) / 0.78);
+  border-radius: 1rem;
+  box-shadow: 0 22px 55px -44px rgb(0 0 0 / 0.92), inset 0 1px rgb(255 255 255 / 0.035);
+  position: relative;
+}
+
+.admin-metric-card {
+  min-height: 148px;
+  padding: 1rem;
+  transition: border-color 180ms ease-out, transform 180ms ease-out, box-shadow 180ms ease-out;
+}
+
+.admin-metric-card::before {
+  background: linear-gradient(90deg, rgb(var(--color-accent) / 0.68), transparent);
+  border-radius: 999px;
+  content: "";
+  height: 2px;
+  left: 1rem;
+  opacity: 0.65;
+  position: absolute;
+  top: 0;
+  width: 44px;
+}
+
+.admin-metric-card:hover {
+  border-color: rgb(var(--color-accent) / 0.28);
+  box-shadow: 0 28px 68px -48px rgb(var(--color-accent) / 0.45), inset 0 1px rgb(255 255 255 / 0.05);
+  transform: translateY(-1px);
+}
+
+.admin-instrument-board,
+.admin-action-board {
+  background: rgb(var(--color-panel) / 0.58);
+  border: 1px solid rgb(var(--color-border) / 0.78);
+  border-radius: 1.1rem;
+  box-shadow: 0 28px 70px -54px rgb(0 0 0 / 0.94), inset 0 1px rgb(255 255 255 / 0.035);
+  gap: 0;
+  overflow: hidden;
+}
+
+.admin-instrument-board .admin-metric-card,
+.admin-action-board .admin-metric-card {
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid rgb(var(--color-border-soft) / 0.78);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.admin-instrument-board .admin-metric-card:hover,
+.admin-action-board .admin-metric-card:hover {
+  background: rgb(var(--color-accent) / 0.025);
+  box-shadow: none;
+  transform: none;
+}
+
+.admin-instrument-board .admin-metric-card::before,
+.admin-action-board .admin-metric-card::before {
+  left: 0;
+  opacity: 0.42;
+  width: 34px;
+}
+
+.admin-card-label {
+  color: rgb(var(--color-muted));
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  margin-bottom: 0.75rem;
+  text-transform: uppercase;
+}
+
+.admin-control-card {
+  padding: 1rem;
+  transition: border-color 180ms ease-out, background-color 180ms ease-out;
+}
+
+.admin-control-card:focus-within {
+  border-color: rgb(var(--color-accent) / 0.38);
+}
+
+.admin-feature-card {
+  background:
+    radial-gradient(circle at 92% 0%, rgb(var(--color-accent) / 0.11), transparent 19rem),
+    linear-gradient(145deg, rgb(var(--color-panel) / 0.88), rgb(var(--color-elevated) / 0.58));
+  border-radius: 1.1rem;
+  box-shadow: 0 26px 70px -52px rgb(var(--color-accent) / 0.75), inset 0 1px rgb(255 255 255 / 0.04);
+}
+
+/* Interior surfaces use one shared visual grammar: command bars introduce
+   intent, data panels optimize scanning, and policy/audit surfaces expose
+   state and consequence without dressing an operations tool like a game. */
+.admin-command-bar {
+  background:
+    linear-gradient(90deg, rgb(var(--color-accent) / 0.055), transparent 42%),
+    rgb(var(--color-panel) / 0.72);
+  border: 1px solid rgb(var(--color-border) / 0.8);
+  border-radius: 1rem;
+  box-shadow: 0 24px 60px -48px rgb(0 0 0 / 0.9), inset 3px 0 rgb(var(--color-accent) / 0.62), inset 0 1px rgb(255 255 255 / 0.035);
+  padding: 0.9rem;
+  position: relative;
+  transition: border-color 180ms ease-out, background-color 180ms ease-out, box-shadow 180ms ease-out;
+}
+
+.admin-command-bar:focus-within {
+  border-color: rgb(var(--color-accent) / 0.3);
+}
+
+.admin-command-bar-seamless {
+  background: transparent;
+  border-color: transparent transparent rgb(var(--color-border-soft) / 0.76);
+  border-radius: 0;
+  box-shadow: inset 2px 0 rgb(var(--color-accent) / 0.5);
+  padding-block: 0.45rem 0.9rem;
+}
+
+.admin-command-bar label > :first-child,
+.admin-command-bar > label {
+  letter-spacing: 0.035em;
+}
+
+.admin-data-panel {
+  background: rgb(var(--color-panel) / 0.7);
+  border: 1px solid rgb(var(--color-border) / 0.82);
+  border-radius: 1rem;
+  box-shadow: 0 28px 70px -54px rgb(0 0 0 / 0.95), inset 0 1px rgb(255 255 255 / 0.035);
+  position: relative;
+}
+
+.admin-data-panel::before {
+  background: linear-gradient(90deg, rgb(var(--color-accent) / 0.65), rgb(var(--color-accent) / 0.08), transparent 42%);
+  content: "";
+  height: 1px;
+  left: 0.9rem;
+  pointer-events: none;
+  position: absolute;
+  right: 0.9rem;
+  top: 0;
+  z-index: 2;
+}
+
+.admin-data-panel table {
+  background: transparent;
+}
+
+.admin-data-panel thead {
+  background: rgb(var(--color-elevated) / 0.58);
+}
+
+.admin-data-panel tbody tr {
+  background: rgb(var(--color-panel) / 0.28);
+}
+
+.admin-data-panel tbody tr:hover {
+  background: rgb(var(--color-accent) / 0.055);
+}
+
+.admin-policy-group {
+  background: rgb(var(--color-panel) / 0.5);
+  border: 1px solid rgb(var(--color-border-soft) / 0.72);
+  border-radius: 1.1rem;
+  overflow: hidden;
+  padding: 0;
+}
+
+.admin-policy-group-header {
+  border-bottom: 1px solid rgb(var(--color-border-soft) / 0.85);
+  padding: 0.9rem 1rem;
+}
+
+.admin-policy-rows .admin-control-card {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  overflow: hidden;
+  padding: 1rem;
+}
+
+.admin-policy-rows .admin-control-card + .admin-control-card {
+  border-top: 1px solid rgb(var(--color-border-soft) / 0.78);
+}
+
+.admin-policy-rows .admin-control-card:focus-within,
+.admin-policy-rows .admin-control-card:hover {
+  background: rgb(var(--color-accent) / 0.025);
+}
+
+.admin-policy-rows .admin-control-card::after {
+  background: linear-gradient(to bottom, rgb(var(--color-accent) / 0.34), transparent);
+  content: "";
+  height: 40px;
+  left: 0;
+  position: absolute;
+  top: 1rem;
+  width: 2px;
+}
+
+.admin-control-value-row {
+  border-top: 1px solid rgb(var(--color-border-soft) / 0.7);
+  padding-top: 0.75rem;
+}
+
+.admin-control-value {
+  background: rgb(var(--color-bg) / 0.58);
+  border: 1px solid rgb(var(--color-border-soft) / 0.8);
+  border-radius: 0.55rem;
+  font-size: 0.78rem;
+  padding: 0.28rem 0.5rem;
+}
+
+.admin-control-note {
+  background: rgb(var(--color-bg) / 0.42);
+  border-left: 2px solid rgb(var(--color-border) / 0.95);
+  border-radius: 0 0.6rem 0.6rem 0;
+  padding: 0.55rem 0.7rem;
+}
+
+.admin-control-note:first-child {
+  border-left-color: rgb(var(--color-accent) / 0.55);
+}
+
+.admin-audit-timeline {
+  background: rgb(var(--color-panel) / 0.46);
+  border: 1px solid rgb(var(--color-border) / 0.76);
+  border-radius: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow: hidden;
+  padding: 0 0 0 2rem;
+  position: relative;
+}
+
+.admin-audit-timeline::before {
+  background: linear-gradient(to bottom, rgb(var(--color-accent) / 0.58), rgb(var(--color-border) / 0.5) 16%, rgb(var(--color-border) / 0.2));
+  bottom: 1.25rem;
+  content: "";
+  left: 1rem;
+  position: absolute;
+  top: 1.25rem;
+  width: 1px;
+}
+
+.admin-audit-entry {
+  background: transparent;
+  border-bottom: 1px solid rgb(var(--color-border-soft) / 0.72);
+  padding: 0.9rem 1rem 0.9rem 0.25rem;
+  position: relative;
+}
+
+.admin-audit-entry:last-child {
+  border-bottom: 0;
+}
+
+.admin-audit-entry:hover {
+  background: linear-gradient(90deg, rgb(var(--color-accent) / 0.04), transparent 68%);
+}
+
+.admin-audit-node {
+  background: rgb(var(--color-bg));
+  border: 2px solid rgb(var(--color-accent) / 0.72);
+  border-radius: 999px;
+  box-shadow: 0 0 0 4px rgb(var(--color-accent) / 0.08);
+  height: 9px;
+  left: -1.28rem;
+  position: absolute;
+  top: 1rem;
+  width: 9px;
+}
+
+.admin-review-card {
+  background:
+    linear-gradient(145deg, rgb(var(--color-panel) / 0.82), rgb(var(--color-elevated) / 0.4));
+  border: 1px solid rgb(var(--color-border) / 0.78);
+  box-shadow: 0 24px 60px -48px rgb(0 0 0 / 0.92), inset 0 1px rgb(255 255 255 / 0.035);
+}
+
+.admin-review-workspace {
+  background: rgb(var(--color-panel) / 0.34);
+  border: 1px solid rgb(var(--color-border-soft) / 0.72);
+  border-radius: 1rem;
+  padding: 1rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-main-content > * {
+    animation: none;
+  }
+}
+
+.admin-evidence-block {
+  background: rgb(var(--color-bg) / 0.52);
+  border: 1px solid rgb(var(--color-border-soft) / 0.82);
+  border-top-color: rgb(var(--color-accent) / 0.25);
+}
+
+.admin-funnel-row {
+  background: linear-gradient(90deg, rgb(var(--color-bg) / 0.38), transparent);
+  border-left: 2px solid rgb(var(--color-accent) / 0.42);
+  border-radius: 0 0.5rem 0.5rem 0;
+  min-height: 34px;
+  padding: 0.4rem 0.55rem;
+}
+
+.admin-funnel-row:nth-child(2n) {
+  border-left-color: rgb(var(--color-violet) / 0.38);
+}
+
+[data-admin-surface] :where(button, a[href]) {
+  cursor: pointer;
+}
+
+[data-admin-surface] :where(button) {
+  min-height: 44px;
+  transition: background-color 180ms ease-out, border-color 180ms ease-out, color 180ms ease-out, box-shadow 180ms ease-out;
+}
+
+[data-admin-surface] :where(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+  min-height: 44px;
+}
+
+[data-admin-surface] :where(.rounded-md) {
+  border-radius: 0.75rem;
+}
+
+[data-admin-surface] :where(.rounded-lg) {
+  border-radius: 1rem;
+}
+
+/* The legacy console optimized for maximum density with 10–11px copy. The
+   modern shell has enough spatial headroom to restore comfortable scan sizes
+   without making tables or controls feel oversized. */
+[data-admin-surface] .text-\[10px\] {
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+[data-admin-surface] .text-\[11px\] {
+  font-size: 0.78rem;
+  line-height: 1.48;
+}
+
+[data-admin-surface] .text-\[12px\] {
+  font-size: 0.82rem;
+  line-height: 1.48;
+}
+
+[data-admin-surface] :where(div, section)[class*="border"][class*="rounded"] {
+  box-shadow: 0 18px 45px -38px rgb(0 0 0 / 0.8), inset 0 1px rgb(255 255 255 / 0.025);
+}
+
+[data-admin-surface] table {
+  background: rgb(var(--color-panel) / 0.62);
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.78rem;
+}
+
+[data-admin-surface] thead {
+  backdrop-filter: blur(10px);
+}
+
+[data-admin-surface] th {
+  color: rgb(var(--color-muted));
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  padding-block: 0.75rem;
+}
+
+[data-admin-surface] td {
+  padding-block: 0.75rem;
+}
+
+[data-admin-surface] tbody tr {
+  transition: background-color 150ms ease-out;
+}
+
+[data-admin-surface] tbody tr:hover {
+  background: rgb(var(--color-accent) / 0.035);
+}
+
+[data-admin-surface] :where(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+  background-color: rgb(var(--color-bg) / 0.72);
+  border-color: rgb(var(--color-border) / 0.9);
+  border-radius: 0.75rem;
+  color: rgb(var(--color-ink));
+  font-size: 0.82rem;
+}
+
+[data-admin-surface] :where(input:not([type="checkbox"]):not([type="radio"]), select, textarea):hover {
+  border-color: rgb(var(--color-accent) / 0.35);
+}
+
+@media (min-width: 768px) {
+  .admin-instrument-board .admin-metric-card:nth-child(odd),
+  .admin-action-board .admin-metric-card:first-child {
+    border-right: 1px solid rgb(var(--color-border-soft) / 0.78);
+  }
+
+  .admin-topbar {
+    padding-inline: 1.5rem;
+  }
+
+  .admin-sidebar {
+    border-bottom: 0;
+    border-right: 1px solid rgb(var(--color-border) / 0.72);
+    display: block;
+    height: calc(100dvh - 64px);
+    overflow-y: auto;
+    padding: 1.5rem 0.85rem;
+    top: 64px;
+    width: 224px;
+  }
+
+  .admin-sidebar-intro {
+    display: block;
+    padding: 0 0.65rem 1.35rem;
+  }
+
+  .admin-sidebar-intro p {
+    color: rgb(var(--color-ink));
+    font-size: 0.82rem;
+    font-weight: 680;
+  }
+
+  .admin-sidebar-intro span {
+    color: rgb(var(--color-faint));
+    display: block;
+    font-size: 0.67rem;
+    margin-top: 0.25rem;
+  }
+
+  .admin-nav-group + .admin-nav-group {
+    border-top: 1px solid rgb(var(--color-border-soft) / 0.8);
+    margin-top: 1rem;
+    padding-top: 1rem;
+  }
+
+  .admin-nav-group,
+  .admin-nav-items {
+    display: block;
+  }
+
+  .admin-nav-group-label {
+    color: rgb(var(--color-faint));
+    display: block;
+    font-size: 0.58rem;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    margin: 0 0.65rem 0.45rem;
+    text-transform: uppercase;
+  }
+
+  .admin-nav-link {
+    margin-top: 0.15rem;
+    width: 100%;
+  }
+
+  .admin-main-content {
+    padding: 2rem clamp(1.25rem, 2.4vw, 2.5rem) 5rem;
+  }
+}
+
+@media (min-width: 1280px) {
+  .admin-instrument-board .admin-metric-card:nth-child(odd) {
+    border-right: 0;
+  }
+
+  .admin-instrument-board .admin-metric-card:not(:nth-child(3n)) {
+    border-right: 1px solid rgb(var(--color-border-soft) / 0.78);
+  }
+}
+
+@media (max-width: 520px) {
+  .admin-topbar {
+    min-height: 60px;
+    padding-inline: 0.75rem;
+  }
+
+  .admin-sidebar {
+    top: 60px;
+  }
+
+  .admin-nav-icon {
+    height: 28px;
+    width: 28px;
+  }
+
+  .admin-nav-hint {
+    display: none;
+  }
+
+  .admin-main-content {
+    padding-inline: 0.75rem;
+  }
+
+  .admin-page-header {
+    align-items: stretch;
+  }
+
+  .admin-page-actions {
+    width: 100%;
+  }
+
+  .admin-page-actions > * {
+    flex: 1 1 auto;
+  }
+}
+
 /* Completion is a destination, not a scroll container. Its hierarchy stays
    inside one dialog at every supported height; secondary recap/share details
    progressively yield on short windows while continuation actions remain. */
