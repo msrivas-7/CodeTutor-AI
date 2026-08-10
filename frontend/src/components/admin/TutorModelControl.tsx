@@ -27,6 +27,7 @@ export function TutorModelControl() {
   const [confirming, setConfirming] = useState<"change" | "revert" | null>(null);
   const [busy, setBusy] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
+  const changeButtonRef = useRef<HTMLButtonElement>(null);
   const reviewButtonRef = useRef<HTMLButtonElement>(null);
   const revertButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -68,6 +69,7 @@ export function TutorModelControl() {
     setCostAccepted(false);
     setEditing(false);
     setConfirming(null);
+    window.requestAnimationFrame(() => changeButtonRef.current?.focus({ preventScroll: true }));
   };
 
   const closeConfirmation = () => {
@@ -156,6 +158,10 @@ export function TutorModelControl() {
   const currentCandidate = state.candidates.find(
     (candidate) => candidate.id === state.current.model,
   );
+  const hasSelectableAlternative = state.candidates.some(
+    (candidate) => candidate.selectable && candidate.id !== state.current.model,
+  );
+  const canOpenEditor = hasSelectableAlternative || state.current.source === "override";
 
   return (
     <section
@@ -179,12 +185,14 @@ export function TutorModelControl() {
         </div>
         {!editing && (
           <button
+            ref={changeButtonRef}
             type="button"
             onClick={() => {
               setSuccess(null);
               setEditing(true);
             }}
-            disabled={busy}
+            disabled={busy || !canOpenEditor}
+            aria-describedby={state.discoveryError ? "platform-tutor-model-discovery-status" : undefined}
             className="min-h-11 rounded-md border border-border bg-panel px-4 py-2 text-[11px] font-semibold text-ink transition hover:border-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             Change model
@@ -223,8 +231,15 @@ export function TutorModelControl() {
       </div>
 
       {state.discoveryError && (
-        <div role="status" className="mt-3 rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-[11px] text-warn">
+        <div
+          id="platform-tutor-model-discovery-status"
+          role="status"
+          className="mt-3 rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-[11px] text-warn"
+        >
           {state.discoveryError} The active model remains unchanged.
+          {!hasSelectableAlternative && state.current.source !== "override"
+            ? " Model changes are unavailable until discovery recovers."
+            : ""}
         </div>
       )}
       {error && (
@@ -246,7 +261,7 @@ export function TutorModelControl() {
             Model
             <select
               value={selectedId}
-              disabled={busy}
+              disabled={busy || !hasSelectableAlternative}
               onChange={(event) => {
                 setSelectedId(event.target.value);
                 setCostAccepted(false);
@@ -259,11 +274,21 @@ export function TutorModelControl() {
                   value={candidate.id}
                   disabled={!candidate.selectable}
                 >
-                  {candidate.label}{candidate.selectable ? "" : " — pricing unavailable"}
+                  {candidate.label}{candidate.selectable
+                    ? ""
+                    : candidate.priceUsdPerMillion
+                      ? " — unavailable"
+                      : " — pricing unavailable"}
                 </option>
               ))}
             </select>
           </label>
+
+          {selected && !selected.selectable && selected.unavailableReason && (
+            <div role="status" className="rounded-md border border-warn/35 bg-warn/10 px-3 py-2 text-[10px] leading-relaxed text-warn">
+              {selected.unavailableReason}
+            </div>
+          )}
 
           {selected && (
             <div className="grid gap-2 sm:grid-cols-3">

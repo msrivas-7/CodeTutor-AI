@@ -496,6 +496,7 @@ adminRouter.get("/tutor-model", async (_req, res, next) => {
     const seen = new Set(candidates.map((candidate) => candidate.id));
     for (const model of [current.model, PLATFORM_DEFAULT_TUTOR_MODEL]) {
       if (seen.has(model)) continue;
+      seen.add(model);
       const policy = getModelPolicy(model);
       candidates.push({
         id: model,

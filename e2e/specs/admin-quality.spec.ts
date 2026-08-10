@@ -300,6 +300,9 @@ test.describe("Q7 calm and trustworthy admin operations", () => {
     const card = page.getByRole("region", { name: "Platform Tutor model" });
     await expect(card.getByText("gpt-5.6-luna (recommended)")).toBeVisible();
     await card.getByRole("button", { name: "Change model" }).click();
+    await card.getByRole("button", { name: "Cancel" }).click();
+    await expect(card.getByRole("button", { name: "Change model" })).toBeFocused();
+    await card.getByRole("button", { name: "Change model" }).click();
     await card.getByLabel("Model").selectOption("gpt-5.6-terra");
     await card.getByLabel(/Reason/).fill("Compare teaching quality for launch");
     await expect(card.getByText(/2.5× gpt-5.6-luna/).first()).toBeVisible();
@@ -348,6 +351,53 @@ test.describe("Q7 calm and trustworthy admin operations", () => {
         expectedSetAt: "2026-08-10T02:00:00.000Z",
       },
     });
+  });
+
+  test("offline Tutor-model discovery keeps the active model safe without contradictory choices", async ({ page }) => {
+    await page.route("**/api/admin/tutor-model", async (route) => {
+      if (route.request().method() !== "GET") {
+        await route.fallback();
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          current: {
+            model: "gpt-5.6-luna",
+            source: "fallback",
+            setBy: null,
+            setAt: null,
+            reason: null,
+            invalidOverride: null,
+          },
+          fallbackModel: "gpt-5.6-luna",
+          candidates: [{
+            id: "gpt-5.6-luna",
+            label: "gpt-5.6-luna",
+            qualityStatus: "evaluated",
+            qualityLabel: "Evaluated for CodeTutor",
+            evalSetVersion: "2.8.0+evaluator.2.14.0",
+            availableToPlatform: false,
+            selectable: false,
+            recommended: true,
+            priceUsdPerMillion: { input: 1, output: 6 },
+            costMultiplierVsRecommended: 1,
+            unavailableReason: "Availability could not be confirmed while discovery is offline.",
+          }],
+          discoveryError: "Live OpenAI model discovery is temporarily unavailable.",
+        }),
+      });
+    });
+
+    await page.goto("/admin/project");
+    const card = page.getByRole("region", { name: "Platform Tutor model" });
+    await expect(card.getByRole("status")).toContainText(
+      "Model changes are unavailable until discovery recovers.",
+    );
+    await expect(card.getByRole("button", { name: "Change model" })).toBeDisabled();
+    await expect(card.getByLabel("Model")).toHaveCount(0);
+    await expect(card.getByText(/pricing unavailable/i)).toHaveCount(0);
   });
 
   test("a destructive session draft survives interruption and can be explicitly discarded", async ({ page }) => {

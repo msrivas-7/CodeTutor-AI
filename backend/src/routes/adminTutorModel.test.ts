@@ -66,6 +66,9 @@ const { logAdminAction } = await import("../db/adminAuditLog.js");
 const { getEffectivePlatformTutorModel } = await import(
   "../services/ai/platformTutorModel.js"
 );
+const { listPlatformTutorModelCandidates } = await import(
+  "../services/ai/openaiProvider.js"
+);
 
 let server: Server;
 let baseUrl: string;
@@ -121,6 +124,44 @@ async function put(confirmCostImpact?: true) {
 }
 
 describe("platform Tutor model admin contract", () => {
+  it("returns one safe current candidate when live discovery is unavailable", async () => {
+    vi.mocked(listPlatformTutorModelCandidates).mockRejectedValueOnce(
+      new Error("upstream discovery unavailable"),
+    );
+    vi.mocked(getEffectivePlatformTutorModel).mockResolvedValueOnce({
+      model: "gpt-5.6-luna",
+      source: "fallback",
+      setBy: null,
+      setAt: null,
+      reason: null,
+      invalidOverride: null,
+    });
+
+    const response = await fetch(`${baseUrl}/api/admin/tutor-model`);
+    expect(response.status).toBe(200);
+    const body = await response.json() as {
+      discoveryError: string | null;
+      candidates: Array<{
+        id: string;
+        selectable: boolean;
+        priceUsdPerMillion: { input: number; output: number } | null;
+        unavailableReason: string | null;
+      }>;
+    };
+
+    expect(body.discoveryError).toBe(
+      "Live OpenAI model discovery is temporarily unavailable.",
+    );
+    expect(body.candidates).toEqual([
+      expect.objectContaining({
+        id: "gpt-5.6-luna",
+        selectable: false,
+        priceUsdPerMillion: { input: 1, output: 6 },
+        unavailableReason: "Availability could not be confirmed while discovery is offline.",
+      }),
+    ]);
+  });
+
   it("rejects a more expensive model without explicit cost acknowledgement", async () => {
     const response = await put();
 
