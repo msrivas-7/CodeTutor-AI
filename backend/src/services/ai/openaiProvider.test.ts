@@ -43,7 +43,7 @@ describe("estimateTokens", () => {
 });
 
 describe("listModels", () => {
-  it("offers only independently evaluated GPT-5-or-later Tutor models", async () => {
+  it("offers compatible GPT-5+ models with Luna recommended first", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(JSON.stringify({
       data: [
         { id: "text-embedding-3-small" },
@@ -56,7 +56,8 @@ describe("listModels", () => {
 
     const models = await openaiProvider.listModels("sk-test-list-models");
 
-    expect(models.map((model) => model.id)).toEqual(["gpt-5.6-luna"]);
+    expect(models.map((model) => model.id)).toEqual(["gpt-5.6-luna", "gpt-5.1"]);
+    expect(models[0].label).toBe("gpt-5.6-luna (recommended)");
     expect(models.every((model) => model.contextualTutorEligible)).toBe(true);
   });
 });
@@ -201,7 +202,7 @@ describe("structured stream safety", () => {
     ]);
     expect(sections.checkQuestions).toHaveLength(1);
     expect(sections.conversationMove).toBe("soft-boundary");
-    expect(sections.conversationReply).toMatch(/can’t share protected instructions/i);
+    expect(sections.conversationReply).toMatch(/can’t give or confirm the exercise answer/i);
     expect(Object.keys(sections).sort()).toEqual([
       "checkQuestions",
       "citations",

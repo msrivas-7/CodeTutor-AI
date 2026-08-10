@@ -60,6 +60,7 @@ import {
   canonicalTutorRequestModel,
   routeTutorModel,
 } from "../services/ai/modelRouting.js";
+import { getEffectivePlatformTutorModel } from "../services/ai/platformTutorModel.js";
 import {
   mintTutorProgressToken,
   resolveTutorStage,
@@ -436,7 +437,10 @@ const selectionSchema = z.object({
 
 const askBody = z.object({
   requestId: z.string().uuid(),
-  model: z.string().min(1),
+  // Platform-funded callers intentionally omit model: the server-owned
+  // runtime configuration is authoritative. BYOK callers still send their
+  // learner-selected model.
+  model: z.string().min(1).optional(),
   question: z.string().min(1),
   tutorAction: z.enum([
     "explain-lesson-task",
@@ -465,7 +469,7 @@ const askBody = z.object({
 
 const summarizeBody = z.object({
   requestId: z.string().uuid(),
-  model: z.string().min(1),
+  model: z.string().min(1).optional(),
   history: historySchema,
 });
 
@@ -498,9 +502,16 @@ aiRouter.post("/ask", async (req, res, next) => {
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.issues.map((i) => i.message).join("; ") });
   }
+  if (cred.source === "byok" && !parsed.data.model) {
+    return res.status(400).json({ error: "BYOK_MODEL_REQUIRED" });
+  }
+  const platformModel = cred.source === "platform"
+    ? (await getEffectivePlatformTutorModel()).model
+    : undefined;
   const requestModel = canonicalTutorRequestModel({
     requestedModel: parsed.data.model,
     fundingSource: cred.source,
+    platformModel,
   });
   if (!enforceModelAllowlist(cred, requestModel, res, "ask")) return;
 
@@ -560,6 +571,7 @@ aiRouter.post("/ask", async (req, res, next) => {
       files: parsed.data.files,
       history: parsed.data.history,
       tutorStage: providerParams.tutorStage,
+      platformModel,
     }).model;
   } catch (err) {
     console.error(`[ai] model routing failed route=ask:`, err);
@@ -700,9 +712,16 @@ aiRouter.post("/ask/stream", async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.issues.map((i) => i.message).join("; ") });
   }
+  if (cred.source === "byok" && !parsed.data.model) {
+    return res.status(400).json({ error: "BYOK_MODEL_REQUIRED" });
+  }
+  const platformModel = cred.source === "platform"
+    ? (await getEffectivePlatformTutorModel()).model
+    : undefined;
   const requestModel = canonicalTutorRequestModel({
     requestedModel: parsed.data.model,
     fundingSource: cred.source,
+    platformModel,
   });
   if (!enforceModelAllowlist(cred, requestModel, res, "ask_stream")) return;
 
@@ -762,6 +781,7 @@ aiRouter.post("/ask/stream", async (req, res) => {
       files: parsed.data.files,
       history: parsed.data.history,
       tutorStage: providerParams.tutorStage,
+      platformModel,
     }).model;
   } catch (err) {
     console.error(`[ai] model routing failed route=ask_stream:`, err);
@@ -1021,12 +1041,19 @@ aiRouter.post("/summarize", async (req, res, next) => {
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.issues.map((i) => i.message).join("; ") });
   }
+  if (cred.source === "byok" && !parsed.data.model) {
+    return res.status(400).json({ error: "BYOK_MODEL_REQUIRED" });
+  }
   if (parsed.data.history.length === 0) {
     return res.json({ summary: "" });
   }
+  const platformModel = cred.source === "platform"
+    ? (await getEffectivePlatformTutorModel()).model
+    : undefined;
   const requestModel = canonicalTutorRequestModel({
     requestedModel: parsed.data.model,
     fundingSource: cred.source,
+    platformModel,
   });
   if (!enforceModelAllowlist(cred, requestModel, res, "summarize")) return;
   let estimate;

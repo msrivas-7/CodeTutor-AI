@@ -205,6 +205,151 @@ test.describe("Q7 calm and trustworthy admin operations", () => {
     await expect(page.getByRole("spinbutton")).toHaveCount(0);
   });
 
+  test("platform Tutor model changes require cost acknowledgement and support an audited revert", async ({ page }) => {
+    type CurrentModel = {
+      model: string;
+      source: "fallback" | "override";
+      setBy: string | null;
+      setAt: string | null;
+      reason: string | null;
+      invalidOverride: null;
+    };
+    let current: CurrentModel = {
+      model: "gpt-5.6-luna",
+      source: "fallback",
+      setBy: null,
+      setAt: null,
+      reason: null,
+      invalidOverride: null,
+    };
+    const writes: Array<{ method: string; body: Record<string, unknown> }> = [];
+    const candidates = [
+      {
+        id: "gpt-5.6-luna",
+        label: "gpt-5.6-luna (recommended)",
+        qualityStatus: "evaluated",
+        qualityLabel: "Evaluated for CodeTutor",
+        evalSetVersion: "2.8.0+evaluator.2.14.0",
+        availableToPlatform: true,
+        selectable: true,
+        recommended: true,
+        priceUsdPerMillion: { input: 1, output: 6 },
+        costMultiplierVsRecommended: 1,
+        unavailableReason: null,
+      },
+      {
+        id: "gpt-5.6-terra",
+        label: "gpt-5.6-terra",
+        qualityStatus: "unevaluated",
+        qualityLabel: "Not evaluated for teaching quality",
+        evalSetVersion: null,
+        availableToPlatform: true,
+        selectable: true,
+        recommended: false,
+        priceUsdPerMillion: { input: 2.5, output: 15 },
+        costMultiplierVsRecommended: 2.5,
+        unavailableReason: null,
+      },
+    ];
+
+    await page.route("**/api/admin/tutor-model", async (route) => {
+      const method = route.request().method();
+      if (method === "GET") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            current,
+            fallbackModel: "gpt-5.6-luna",
+            candidates,
+            discoveryError: null,
+          }),
+        });
+        return;
+      }
+      const body = route.request().postDataJSON() as Record<string, unknown>;
+      writes.push({ method, body });
+      if (method === "PUT") {
+        current = {
+          model: String(body.model),
+          source: "override",
+          setBy: "admin-test",
+          setAt: "2026-08-10T02:00:00.000Z",
+          reason: String(body.reason),
+          invalidOverride: null,
+        };
+      } else {
+        current = {
+          model: "gpt-5.6-luna",
+          source: "fallback",
+          setBy: null,
+          setAt: null,
+          reason: null,
+          invalidOverride: null,
+        };
+      }
+      await new Promise((resolve) => setTimeout(resolve, 350));
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ current }),
+      });
+    });
+
+    await page.goto("/admin/project");
+    const card = page.getByRole("region", { name: "Platform Tutor model" });
+    await expect(card.getByText("gpt-5.6-luna (recommended)")).toBeVisible();
+    await card.getByRole("button", { name: "Change model" }).click();
+    await card.getByLabel("Model").selectOption("gpt-5.6-terra");
+    await card.getByLabel(/Reason/).fill("Compare teaching quality for launch");
+    await expect(card.getByText(/2.5× gpt-5.6-luna/).first()).toBeVisible();
+    await expect(card.getByRole("button", { name: "Review change…" })).toBeDisabled();
+    await card.getByRole("checkbox").check();
+    await card.getByRole("button", { name: "Review change…" }).click();
+
+    const changeDialog = page.getByRole("alertdialog", { name: "Change the platform Tutor model?" });
+    await expect(changeDialog.getByText(/2.5× gpt-5.6-luna/)).toBeVisible();
+    await changeDialog.getByRole("button", { name: "Yes, change model" }).click();
+    await expect(changeDialog.getByText(/Applying and propagating/)).toBeVisible();
+    await expect(changeDialog.getByRole("button", { name: "Changing…" })).toBeDisabled();
+    // The modal makes the background region inert, so use DOM locators to
+    // verify the underlying model controls are also natively disabled.
+    const modelSection = page.locator('section[aria-labelledby="platform-tutor-model-title"]');
+    await expect(modelSection.locator("select")).toBeDisabled();
+    await expect(modelSection.locator("button", { hasText: "Refresh models" })).toBeDisabled();
+    await expect(card.getByText("gpt-5.6-terra", { exact: true })).toBeVisible();
+    await expect(card.getByRole("status")).toContainText(
+      "gpt-5.6-terra was applied successfully",
+    );
+    expect(writes[0]).toEqual({
+      method: "PUT",
+      body: {
+        model: "gpt-5.6-terra",
+        reason: "Compare teaching quality for launch",
+        expectedSetAt: null,
+        confirmCostImpact: true,
+      },
+    });
+
+    await card.getByRole("button", { name: "Change model" }).click();
+    await card.getByLabel(/Reason/).fill("Return to recommended model");
+    await card.getByRole("button", { name: "Revert to gpt-5.6-luna" }).click();
+    const revertDialog = page.getByRole("alertdialog", { name: "Revert to gpt-5.6-luna?" });
+    await revertDialog.getByRole("button", { name: "Yes, revert" }).click();
+    await expect(revertDialog.getByText(/Reverting and propagating/)).toBeVisible();
+    await expect(card.getByText("gpt-5.6-luna (recommended)", { exact: true })).toBeVisible();
+    await expect(card.getByRole("status")).toContainText(
+      "gpt-5.6-luna was restored successfully",
+    );
+    expect(writes[1]).toEqual({
+      method: "DELETE",
+      body: {
+        reason: "Return to recommended model",
+        expectedSetAt: "2026-08-10T02:00:00.000Z",
+      },
+    });
+  });
+
   test("a destructive session draft survives interruption and can be explicitly discarded", async ({ page }) => {
     await page.goto("/admin/sessions");
     await page.getByRole("button", { name: "Kill all for user…" }).click();

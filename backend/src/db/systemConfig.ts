@@ -84,14 +84,18 @@ export const KNOWN_KEYS = [
   // Phase B8: emergency drain for new eval samples. Existing rows still
   // honor deletion and the 30-day expiry sweep while this is off.
   "ai_eval_sampling_enabled",
+  // Server-owned platform Tutor routing. The browser never supplies this
+  // value; admins may select only compatible GPT-5+ models with registered
+  // prices, and unevaluated choices are surfaced explicitly in the UI.
+  "platform_tutor_model",
 ] as const;
 export type SystemConfigKey = (typeof KNOWN_KEYS)[number];
 
 // JSONB unwraps numbers as numbers, booleans as booleans, etc. Postgres
 // `value` jsonb → JS `unknown`. Caller-side cast.
-type SystemConfigValue = boolean | number | null;
+export type SystemConfigValue = boolean | number | string | null;
 
-interface SystemConfigRow {
+export interface SystemConfigRow {
   key: SystemConfigKey;
   value: SystemConfigValue;
   setBy: string | null;

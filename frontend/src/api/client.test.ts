@@ -28,7 +28,11 @@ vi.mock("../auth/supabaseClient", () => ({
   },
 }));
 
-const { ADMIN_REQUEST_TIMEOUT_MS, api } = await import("./client");
+const {
+  ADMIN_REQUEST_TIMEOUT_MS,
+  TUTOR_MODEL_ADMIN_TIMEOUT_MS,
+  api,
+} = await import("./client");
 
 describe("expired session recovery", () => {
   beforeEach(() => {
@@ -113,6 +117,43 @@ describe("admin request recovery", () => {
     );
     await vi.advanceTimersByTimeAsync(ADMIN_REQUEST_TIMEOUT_MS);
     await request;
+    vi.useRealTimers();
+  });
+
+  it("gives an accepted Tutor model mutation enough time to return authoritative state", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("aborted", "AbortError")),
+            { once: true },
+          );
+        }),
+      ),
+    );
+
+    let settled = false;
+    const request = api.adminSetTutorModel({
+      model: "gpt-5.6-terra",
+      reason: "quality comparison",
+      expectedSetAt: null,
+      confirmCostImpact: true,
+    }).finally(() => {
+      settled = true;
+    });
+    await vi.advanceTimersByTimeAsync(ADMIN_REQUEST_TIMEOUT_MS);
+    expect(settled).toBe(false);
+
+    const rejection = expect(request).rejects.toThrow(
+      "The admin request took too long. Check the connection and try again.",
+    );
+    await vi.advanceTimersByTimeAsync(
+      TUTOR_MODEL_ADMIN_TIMEOUT_MS - ADMIN_REQUEST_TIMEOUT_MS,
+    );
+    await rejection;
     vi.useRealTimers();
   });
 });

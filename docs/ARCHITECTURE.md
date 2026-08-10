@@ -318,8 +318,10 @@ flowchart TB
     request["Tutor request<br/>question plus untrusted workspace evidence"]
     authz["Credential and access<br/>platform allowance or learner BYOK"]
     context["Canonical context<br/>lesson, progress, evidence, stage"]
-    route["Model route<br/>allowlist and evaluated eligibility"]
+    modelPolicy["Server model policy<br/>operator override or compiled fallback"]
+    route["Model resolution<br/>platform authority or learner BYOK choice"]
     request --> authz --> context --> route
+    modelPolicy --> route
   end
 
   subgraph generation["2 · Generate bounded teaching output"]
@@ -346,7 +348,7 @@ flowchart TB
   classDef provider fill:#fff7ed,stroke:#ea580c,color:#0f172a,stroke-width:2px;
   classDef result fill:#ecfdf5,stroke:#059669,color:#0f172a,stroke-width:2px;
   class request input;
-  class authz,context,route,reserve,prompt,policy,settle authority;
+  class authz,context,modelPolicy,route,reserve,prompt,policy,settle authority;
   class model provider;
   class render result;
 ```
@@ -360,7 +362,10 @@ Key modules:
 - [`backend/src/routes/ai.ts`](../backend/src/routes/ai.ts) is the request and streaming composition boundary.
 - [`canonicalTutorContext.ts`](../backend/src/services/ai/canonicalTutorContext.ts) resolves server-authoritative lesson and learner context.
 - [`tutorIntent.ts`](../backend/src/services/ai/tutorIntent.ts), [`tutorProgress.ts`](../backend/src/services/ai/tutorProgress.ts), and the prompt builders turn that context into teaching instructions.
-- [`modelRouting.ts`](../backend/src/services/ai/modelRouting.ts) and [`modelRegistry.ts`](../backend/src/services/ai/modelRegistry.ts) control platform model eligibility; BYOK remains a learner-owned credential path with server safety checks.
+- [`modelRouting.ts`](../backend/src/services/ai/modelRouting.ts) owns the single compiled platform fallback. [`platformTutorModel.ts`](../backend/src/services/ai/platformTutorModel.ts) resolves an optional audited `system_config` override and fails safely to that fallback when configuration is absent, invalid, unpriced, or temporarily unreadable. Platform-funded browser requests do not carry a model choice.
+- [`modelRegistry.ts`](../backend/src/services/ai/modelRegistry.ts) defines Tutor compatibility and records which models completed the teaching-quality gate. The admin and BYOK pickers discover compatible GPT-5+ text models from the relevant OpenAI key; Luna is ranked first as the recommended evaluated choice. Specialized audio, realtime, image, Codex, search, and long-running Pro variants are excluded from the current bounded Tutor request contract.
+- Platform candidates must also have a backend-owned price entry before activation. A more expensive override requires an explicit cost acknowledgement, a reason, a final confirmation, optimistic concurrency against `set_at`, and an append-only admin audit event. Clearing the override is a separately confirmed, audited rollback to the compiled fallback.
+- BYOK remains a learner-owned credential and model-choice path. Existing retired selections are rehydrated from the key's current compatible model list before the Tutor composer becomes interactive; the server still rejects a BYOK request that omits the learner-selected model.
 - [`aiReservations.ts`](../backend/src/db/aiReservations.ts) makes platform admission atomic and reconciles abandoned reservations.
 - [`openaiProvider.ts`](../backend/src/services/ai/openaiProvider.ts) calls the Responses API with bounded output and structured schemas.
 - [`tutorOutput.ts`](../backend/src/services/ai/tutorOutput.ts) and [`tutorPolicy.ts`](../backend/src/services/ai/tutorPolicy.ts) validate usefulness and safety before visible usage is finalized.
@@ -476,7 +481,7 @@ boundary is documented in
 | --- | --- | --- |
 | Stateful API and local runner capacity concentrate on one production VM | Health probes, resource alerts, session caps, restart-safe cleanup, and optional ACI overflow | A VM outage or saturation still has a wider blast radius than a horizontally replicated authority plane |
 | Supabase, OpenAI, Azure control planes, and ACS are managed dependencies | Timeouts, bounded retries, fail-closed admission, readiness signals, and learner-facing recovery | Regional or provider outages can still degrade auth, tutoring, execution overflow, email, or persistence |
-| Tutor behavior is nondeterministic | Structured output, deterministic policy, model allowlist, complete evaluation gate, and usage settlement | Model updates can change teaching tone or quality without a code-shape change |
+| Tutor behavior is nondeterministic | Structured output, deterministic policy, compatibility and pricing gates, a complete quality gate for the recommended model, explicit warnings for unevaluated operator choices, and usage settlement | An operator-selected or provider-updated model can change teaching tone or quality without a code-shape change; quality monitoring remains necessary after override |
 | Shared development data is a finite integration resource | Isolated E2E identities, cleanup, sharding discipline, and real-database ownership tests | Parallel local and CI activity can still create contention if fixtures bypass isolation rules |
 | ACI overflow adds cold-start, networking, and spend variability | Feature flag, runtime switch, capacity cap, daily cost reservation, warm-pool and health controls | It increases operational complexity and is not a substitute for tested local capacity planning |
 | `EXECUTION_BACKEND` is configured but not consumed by the factory | Documentation names the two effective shapes and tests exercise the factory | The unused setting can mislead operators until removed or intentionally wired |

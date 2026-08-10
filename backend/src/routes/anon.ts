@@ -90,6 +90,7 @@ import {
   canonicalTutorRequestModel,
   routeTutorModel,
 } from "../services/ai/modelRouting.js";
+import { getEffectivePlatformTutorModel } from "../services/ai/platformTutorModel.js";
 import type {
   AIAskParams,
   TutorIntent,
@@ -182,7 +183,7 @@ const runBody = z.object({
 // streaks, or per-user history syncing.
 const askStreamBody = z.object({
   requestId: z.string().uuid(),
-  model: z.string().min(1),
+  model: z.string().min(1).optional(),
   question: z.string().min(1).max(4_000),
   tutorAction: z.enum([
     "explain-lesson-task",
@@ -564,9 +565,11 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
     // Anonymous tutoring is always platform-funded. Canonicalize the model
     // before validation so old tabs cannot fail and handcrafted requests
     // cannot promote themselves to a costlier operator-funded model.
+    const platformModel = (await getEffectivePlatformTutorModel()).model;
     const requestModel = canonicalTutorRequestModel({
       requestedModel: parsed.data.model,
       fundingSource: "platform",
+      platformModel,
     });
     if (!isPlatformAllowedModel(requestModel)) {
       aiPlatformRequests.inc({ outcome: "model_rejected", route: "ask_stream" });
@@ -664,6 +667,7 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
         files: parsed.data.files,
         history: parsed.data.history,
         tutorStage: providerParams.tutorStage,
+        platformModel,
       });
       providerParams.model = route.model;
       routedIntent = route.intent;

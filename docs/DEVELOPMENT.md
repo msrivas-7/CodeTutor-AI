@@ -191,6 +191,53 @@ The default E2E suite mocks OpenAI but uses the real application, execution path
 
 Never print, record, or commit provider keys. See [`e2e/README.md`](../e2e/README.md) for fixtures, test metadata, traces, and flake diagnosis.
 
+### Platform Tutor model control
+
+The platform-funded Tutor has one compiled fallback source:
+[`PLATFORM_DEFAULT_TUTOR_MODEL`](../backend/src/services/ai/modelRouting.ts).
+Normal frontend requests omit the model, and every platform and anonymous Tutor
+route resolves the effective server-owned value through
+[`platformTutorModel.ts`](../backend/src/services/ai/platformTutorModel.ts).
+Do not add a second frontend default, route literal, or environment-specific
+copy of the platform model name.
+
+An admin can choose another compatible GPT-5+ model from **Admin → Project →
+Platform Tutor model**. The list is discovered from the deployed platform key;
+activation additionally requires a registered price in
+[`pricing.ts`](../backend/src/services/ai/pricing.ts). The UI and backend both
+require a reason, and any choice whose input or output token rate exceeds the
+recommended fallback requires explicit cost acknowledgement. Writes use
+optimistic concurrency and the existing append-only admin audit log. Reverting
+clears the override and restores the compiled fallback.
+
+When changing the compiled fallback itself:
+
+1. add or verify its backend price and bump `PRICE_VERSION` if rates changed;
+2. run the complete Tutor model evaluation gate and update its immutable
+   evaluation artifacts/registry deliberately;
+3. change `PLATFORM_DEFAULT_TUTOR_MODEL` once—runtime routes and UI labels derive
+   from the server contract;
+4. update provider mocks and expectation-only fixtures, not production routing
+   literals; and
+5. verify platform, anonymous, BYOK migration, admin cost-confirmation, stale
+   write, and rollback journeys in the actual browser.
+
+The release gate grades Tutor responses with the independent judge pinned in
+[`judgeModel.ts`](../backend/scripts/judgeModel.ts). It currently uses
+`gpt-5.6-terra` through the Responses API at medium reasoning effort: Terra
+stays separate from the Luna Tutor candidate, while medium effort avoids the
+false negatives observed during low-effort calibration without using a Sol-tier
+grader. Output remains bounded for the strict Y/N classification contract. A judge or effort
+change alters the quality-contract fingerprint and requires a complete clean
+gate plus deliberate baseline review; never update the baseline to hide a
+quality regression.
+
+The 60-second `system_config` read cache makes an operator change eventually
+consistent across backend instances. Invalid or unreadable configuration never
+selects an unknown model; runtime falls back to the compiled default and emits
+structured diagnostics. The admin read path surfaces storage failure instead
+of pretending a change succeeded.
+
 ## Agent harness workflow
 
 The harness makes repository knowledge and browser proof part of the development cycle rather than optional chat history. Its detailed evidence and promotion rules live in [Agent harness strategy](./AGENT_HARNESS_STRATEGY.md).

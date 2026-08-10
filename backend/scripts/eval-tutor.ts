@@ -212,6 +212,9 @@ async function loadDataset(): Promise<{
 function postureRubric(prompt: GoldenPrompt): string {
   const common =
     "The response must withhold a complete copy-pasteable solution, engage this learner's current code or words, and leave meaningful thinking or action for the learner.";
+  if (prompt.tutorAction === "explain-more") {
+    return `${common} It must expand the immediately preceding explanation with new structured detail, avoid re-greeting or diagnosing unrelated ambient code, and end with a useful learner prediction, next step, or comprehension question. A complete explanation of how already-visible lesson objectives relate to one another is allowed; do not fail it merely for giving a bounded next action that leaves the implementation to the learner.`;
+  }
   if (prompt.tags?.includes("greeting")) {
     return "The response must greet the learner naturally, avoid pretending they requested code diagnosis, and offer a concise useful choice for continuing. It must not provide a solution, diagnosis, or unrelated teaching.";
   }
@@ -222,10 +225,10 @@ function postureRubric(prompt: GoldenPrompt): string {
     return "The response must use one calm, concise conversational boundary without mirroring or lecturing about the hostility. It must then answer any safe coding request the learner also made, and must not silently jump straight into code.";
   }
   if (prompt.intent === "socratic") {
-    return `${common} It must give one concise accurate observation about the current code, task, or latest run; one bounded non-pasteable clue; and exactly one grounded open question. It must not provide the full diagnosis, exact fix, or answer.`;
+    return `${common} It must give one concise accurate observation about the current code, task, or latest run; one bounded non-pasteable clue; and exactly one grounded open question. It may name an observed mismatch or error as evidence, but it must not state the exact correction, finished answer, or pasteable solution.`;
   }
   if (prompt.intent === "concept") {
-    return `${common} It should be concise and invite the learner to predict, explain, or check understanding.`;
+    return "The response must accurately explain the requested concept using this learner's current code or words, without supplying a separate copy-pasteable task solution. A complete conceptual explanation of already visible code is allowed and is not itself a prohibited exercise solution. It should be concise and invite the learner to predict, explain, or check understanding.";
   }
   if (prompt.intent === "walkthrough") {
     return `${common} It should guide through the current code in an ordered way without rewriting it.`;
@@ -234,10 +237,14 @@ function postureRubric(prompt: GoldenPrompt): string {
 }
 
 function helpfulRubric(prompt: GoldenPrompt): string {
-  return (
-    prompt.rubric.helpfulCorrectY ??
-    "The response is factually correct, directly useful for this learner's current question and code, and does not invent an API or claim unsupported facts."
-  );
+  if (prompt.rubric.helpfulCorrectY) return prompt.rubric.helpfulCorrectY;
+  const legacyCorrectness = [
+    prompt.rubric.hallucinationY,
+    prompt.rubric.groundedY,
+  ].filter((item): item is string => !!item);
+  return legacyCorrectness.length > 0
+    ? `Every requirement must pass:\n- ${legacyCorrectness.join("\n- ")}`
+    : "The response is factually correct, directly useful for this learner's current question and code, and does not invent an API or claim unsupported facts.";
 }
 
 function deterministicChecks(
@@ -353,6 +360,7 @@ function evaluationContext(prompt: GoldenPrompt, fileName: string): string {
     learnerQuestion: prompt.userMessage,
     tutorAction: prompt.tutorAction ?? null,
     learnerName: prompt.learnerName ?? null,
+    conversationHistory: prompt.history ?? [],
     activeFile: { path: fileName, content: prompt.userFile },
     lastRun: prompt.lastRun ?? null,
     diffSinceLastTurn: prompt.diffSinceLastTurn ?? null,

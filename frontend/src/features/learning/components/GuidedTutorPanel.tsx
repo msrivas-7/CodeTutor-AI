@@ -8,8 +8,8 @@ import { useProjectStore } from "../../../state/projectStore";
 import { useRunStore } from "../../../state/runStore";
 import { useAIStatus } from "../../../state/useAIStatus";
 import {
-  PLATFORM_TUTOR_MODEL,
   tutorRequestModel,
+  useByokTutorModelReady,
   useTutorAsk,
 } from "../../../util/useTutorAsk";
 import {
@@ -193,6 +193,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
     onPlatform,
     isAnon: mode === "anon",
   });
+  const byokModelReady = useByokTutorModelReady(mode === "authed" && hasKey);
   const exhausted = effectiveSource === "none" && aiStatus?.reason === "free_exhausted";
   useEffect(() => {
     if (!exhausted) setExhaustionDismissed(false);
@@ -209,7 +210,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
   // "Add your OpenAI API key…" on Maya's trial path — a hard break
   // for the persona we're trying to land. Mirrors the gate inside
   // useTutorAsk where submitAsk treats anon as configured.
-  const configured = mode === "anon" || onPlatform || (hasKey && !!selectedModel);
+  const configured = mode === "anon" || onPlatform || byokModelReady;
 
   const prepareAnswer = (value: string) => {
     setDraft(value);
@@ -298,7 +299,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
     },
     buildBody: ({ question, tutorAction, files, diffSinceLastTurn, historyForSend, selection }) => ({
       // Platform and anonymous funding ignore stale persisted BYOK choices.
-      model: effectiveModel ?? PLATFORM_TUTOR_MODEL,
+      model: effectiveModel ?? undefined,
       question,
       tutorAction,
       files,

@@ -9,8 +9,8 @@ import { useRunStore } from "../state/runStore";
 import { useAIStatus } from "../state/useAIStatus";
 import { planSend } from "../util/summarizeHistory";
 import {
-  PLATFORM_TUTOR_MODEL,
   tutorRequestModel,
+  useByokTutorModelReady,
   useTutorAsk,
 } from "../util/useTutorAsk";
 import {
@@ -134,6 +134,7 @@ export function AssistantPanel({
     onPlatform,
     isAnon: false,
   });
+  const byokModelReady = useByokTutorModelReady(hasKey);
   const exhausted = effectiveSource === "none" && aiStatus?.reason === "free_exhausted";
   // Drop stale "dismissed" state whenever the counter refreshes (new day,
   // BYOK added, etc.) so the next exhaustion re-shows the card.
@@ -174,7 +175,7 @@ export function AssistantPanel({
   // BYOK key (hasKey) AND the model list loaded (selectedModel), OR the
   // backend is willing to fund us on the platform key. Platform model choice
   // is implicit and server-owned even if an old preference remains stored.
-  const configured = onPlatform || (hasKey && !!selectedModel);
+  const configured = onPlatform || byokModelReady;
 
   // Keep the request pending while project/access hydration disables the
   // composer. The same Cmd+K request is fulfilled as soon as the actual input
@@ -209,7 +210,7 @@ export function AssistantPanel({
         // next ask, so the CURRENT ask doesn't block on it.
         api
           .summarizeHistory({
-            model: effectiveModel ?? PLATFORM_TUTOR_MODEL,
+            model: effectiveModel ?? undefined,
             history: plan.summarizeSlice.map((m) => ({
               role: m.role,
               content: m.content,
@@ -227,7 +228,7 @@ export function AssistantPanel({
     },
     buildBody: ({ question, tutorAction, files, diffSinceLastTurn, historyForSend, selection }) => ({
       // Platform funding ignores any stale persisted BYOK preference.
-      model: effectiveModel ?? PLATFORM_TUTOR_MODEL,
+      model: effectiveModel ?? undefined,
       question,
       tutorAction,
       files,

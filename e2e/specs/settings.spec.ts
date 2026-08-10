@@ -459,8 +459,8 @@ test.describe("settings panel", () => {
     await openSettings(page, "tutor");
 
     // Type a key and save — mockAllAI's validate returns {valid:true} and
-    // models returns only the evaluated GPT-5+ Tutor choices that the backend
-    // admits. Unevaluated and legacy models never reach this picker.
+    // models returns every compatible GPT-5+ Tutor choice exposed by the key,
+    // with the recommended evaluated model first.
     // The save button's accessible
     // name is "Validate and save API key" (dynamic aria-label).
     await page
@@ -473,14 +473,15 @@ test.describe("settings panel", () => {
     const modelSelect = page.getByRole("combobox", { name: /^model$/i });
     await expect(modelSelect).toBeVisible({ timeout: 10_000 });
 
-    await expect(modelSelect.locator("option")).toHaveCount(1);
+    await expect(modelSelect.locator("option")).toHaveCount(2);
     await expect(modelSelect.locator("option").nth(0)).toHaveText(
-      "GPT-5.6 Luna — evaluated",
+      "gpt-5.6-luna (recommended)",
     );
+    await expect(modelSelect.locator("option").nth(1)).toHaveText("gpt-5.6-terra");
     await expect(modelSelect).toHaveValue("gpt-5.6-luna");
     await expect(page.getByText(/evaluated for codetutor/i)).toBeVisible();
     await expect(
-      page.getByText(/only codetutor-evaluated gpt-5-or-later models/i),
+      page.getByText(/compatible gpt-5-or-later text models/i),
     ).toBeVisible();
   });
 
@@ -497,11 +498,11 @@ test.describe("settings panel", () => {
     const modelSelect = page.getByRole("combobox", { name: /^model$/i });
     await expect(modelSelect).toBeVisible();
     await expect(page.getByText(/evaluated for codetutor/i)).toBeVisible();
-    await expect(modelSelect.locator("option")).toHaveCount(1);
+    await expect(modelSelect.locator("option")).toHaveCount(2);
     await expect(modelSelect.locator("option").first()).toHaveText(
-      "GPT-5.6 Luna — evaluated",
+      "gpt-5.6-luna (recommended)",
     );
-    await expect(page.getByText(/only codetutor-evaluated gpt-5-or-later models/i))
+    await expect(page.getByText(/compatible gpt-5-or-later text models/i))
       .toBeVisible();
     const overflow = await dialog.evaluate(
       (element) => element.scrollWidth - element.clientWidth,

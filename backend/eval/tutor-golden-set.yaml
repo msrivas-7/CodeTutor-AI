@@ -9,8 +9,8 @@
 #   - groundedY: tutor cites at least one file:line reference
 #
 # When the eval runner invokes this set, each prompt's tutor response is
-# graded by gpt-4.1-mini on each rubric dimension. Aggregate pass-rate is
-# the AND across the three dimensions.
+# graded by the pinned independent judge on each rubric dimension. Aggregate
+# pass-rate is the AND across the three dimensions.
 #
 # Prompt IDs use g###. Intent distribution: 6 each × 5 intents.
 # Language distribution: ~half Python, ~half JS.

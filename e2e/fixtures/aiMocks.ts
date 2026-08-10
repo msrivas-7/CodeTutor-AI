@@ -343,12 +343,22 @@ export async function mockListModels(page: Page): Promise<void> {
         models: [
           {
             id: "gpt-5.6-luna",
-            label: "GPT-5.6 Luna",
+            label: "gpt-5.6-luna (recommended)",
             supportsStream: true,
             qualityStatus: "evaluated",
             contextualTutorEligible: true,
             qualityLabel: "Evaluated for CodeTutor",
             evalSetVersion: "2.8.0+evaluator.2.14.0",
+            registryVersion: "2026-08-10.luna-byok-v2",
+          },
+          {
+            id: "gpt-5.6-terra",
+            label: "gpt-5.6-terra",
+            supportsStream: true,
+            qualityStatus: "unevaluated",
+            contextualTutorEligible: true,
+            qualityLabel: "Not evaluated for teaching quality",
+            evalSetVersion: null,
             registryVersion: "2026-08-10.luna-byok-v2",
           },
         ],

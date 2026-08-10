@@ -816,11 +816,11 @@ function BYOKStatusCard() {
                 value={selectedModel ?? ""}
                 onChange={(e) => setSelectedModel(e.target.value)}
                 aria-label="Model"
-                className="w-full appearance-none rounded-md border border-border bg-bg px-2.5 py-1.5 pr-7 text-xs text-ink transition hover:border-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                className="min-h-11 w-full appearance-none rounded-md border border-border bg-bg px-3 py-2 pr-8 text-xs text-ink transition hover:border-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
                 {models.map((m) => (
                   <option key={m.id} value={m.id}>
-                    {m.label} — {m.qualityStatus === "evaluated" ? "evaluated" : "not evaluated"}
+                    {m.label}
                   </option>
                 ))}
               </select>
@@ -833,17 +833,23 @@ function BYOKStatusCard() {
             const selected = models.find((model) => model.id === selectedModel);
             if (!selected) return null;
             return (
-              <p
-                className="text-[10px] leading-relaxed text-success"
-              >
-                {selected.qualityLabel}. Only CodeTutor-evaluated GPT-5-or-later
-                models are offered for lesson tutoring.
+              <p className={`text-[10px] leading-relaxed ${
+                selected.qualityStatus === "evaluated" ? "text-success" : "text-warn"
+              }`}>
+                {selected.qualityStatus === "evaluated"
+                  ? `${selected.qualityLabel}.`
+                  : "Compatible GPT-5 model; not yet evaluated on CodeTutor's Tutor-specific suite."}
               </p>
             );
           })()}
+          {modelsStatus === "loaded" && models.length > 0 && (
+            <p className="text-[10px] leading-relaxed text-faint">
+              Compatible GPT-5-or-later text models exposed by your OpenAI key are available here. Specialized audio, realtime, image, Codex, and Pro models are not compatible with this Tutor flow.
+            </p>
+          )}
           {modelsStatus === "loaded" && models.length === 0 && (
             <span className="text-[11px] text-muted">
-              This key doesn't have access to a CodeTutor-supported GPT-5 tutor model.
+              This key doesn't have access to a compatible GPT-5 Tutor model.
             </span>
           )}
         </div>
