@@ -454,12 +454,13 @@ test.describe("settings panel", () => {
     await expect(keyInput).toHaveAttribute("type", "password");
   });
 
-  test("Save key → model picker loads → model change persists", async ({ page }) => {
+  test("Save key → evaluated GPT-5 model picker loads", async ({ page }) => {
     await page.goto("/start");
     await openSettings(page, "tutor");
 
     // Type a key and save — mockAllAI's validate returns {valid:true} and
-    // models returns one evaluated model plus two honest unevaluated options.
+    // models returns only the evaluated GPT-5+ Tutor choices that the backend
+    // admits. Unevaluated and legacy models never reach this picker.
     // The save button's accessible
     // name is "Validate and save API key" (dynamic aria-label).
     await page
@@ -472,21 +473,14 @@ test.describe("settings panel", () => {
     const modelSelect = page.getByRole("combobox", { name: /^model$/i });
     await expect(modelSelect).toBeVisible({ timeout: 10_000 });
 
-    await expect(modelSelect.locator("option")).toHaveCount(3);
+    await expect(modelSelect.locator("option")).toHaveCount(1);
     await expect(modelSelect.locator("option").nth(0)).toHaveText(
-      "GPT-4.1 nano — evaluated",
+      "GPT-5.6 Luna — evaluated",
     );
-    await expect(modelSelect.locator("option").nth(1)).toHaveText(
-      "GPT-4o mini — not evaluated",
-    );
+    await expect(modelSelect).toHaveValue("gpt-5.6-luna");
     await expect(page.getByText(/evaluated for codetutor/i)).toBeVisible();
-
-    // Change selection — the <select> reflects the new value synchronously;
-    // cross-device persistence is covered in cross-device.spec.ts.
-    await modelSelect.selectOption("gpt-4o");
-    await expect(modelSelect).toHaveValue("gpt-4o");
     await expect(
-      page.getByText(/not evaluated for teaching quality.*contextual lesson guidance is disabled/i),
+      page.getByText(/only codetutor-evaluated gpt-5-or-later models/i),
     ).toBeVisible();
   });
 
@@ -503,9 +497,12 @@ test.describe("settings panel", () => {
     const modelSelect = page.getByRole("combobox", { name: /^model$/i });
     await expect(modelSelect).toBeVisible();
     await expect(page.getByText(/evaluated for codetutor/i)).toBeVisible();
-    await expect(modelSelect.locator("option").nth(1)).toHaveText(
-      "GPT-4o mini — not evaluated",
+    await expect(modelSelect.locator("option")).toHaveCount(1);
+    await expect(modelSelect.locator("option").first()).toHaveText(
+      "GPT-5.6 Luna — evaluated",
     );
+    await expect(page.getByText(/only codetutor-evaluated gpt-5-or-later models/i))
+      .toBeVisible();
     const overflow = await dialog.evaluate(
       (element) => element.scrollWidth - element.clientWidth,
     );
