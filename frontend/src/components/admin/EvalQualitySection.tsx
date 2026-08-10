@@ -5,6 +5,7 @@ import {
   type AdminEvalSynthesisQueueItem,
 } from "../../api/client";
 import { useAdminDraft } from "./useAdminDraft";
+import { AdminEmptyState, AdminPageHeader } from "./AdminPrimitives";
 
 type Verdict = "pass" | "fail" | "ambiguous" | "reject_privacy";
 type Disposition = "pending_review" | "review_complete" | "synthesis_queued" | "rejected";
@@ -63,21 +64,14 @@ export function EvalQualitySection() {
 
   return (
     <section className="mx-auto max-w-6xl space-y-8" aria-labelledby="eval-quality-title">
-      <header className="space-y-2">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-accent">
-          Governed quality loop
-        </p>
-        <h1 id="eval-quality-title" className="font-display text-3xl font-semibold text-ink">
-          Eval quality
-        </h1>
-        <p className="max-w-3xl text-sm leading-6 text-muted">
-          Review only pre-insert-redacted anonymous samples. Two distinct reviewers must
-          disagree before the weekly job creates a synthesis item. Never copy sampled text
-          into the golden holdout; author a new synthetic case from the pattern.
-        </p>
-      </header>
+      <AdminPageHeader
+        id="eval-quality-title"
+        eyebrow="Governed quality loop"
+        title="Eval quality"
+        description="Review only pre-insert-redacted anonymous samples. Two distinct reviewers must disagree before the weekly job creates a synthesis item. Never copy sampled text into the golden holdout; author a new synthetic case from the pattern."
+      />
 
-      <div className="flex flex-wrap items-end justify-between gap-3 rounded-lg border border-border bg-panel p-4">
+      <div className="admin-command-bar flex flex-wrap items-end justify-between gap-3">
         <label className="space-y-1 text-xs font-semibold text-ink">
           Sample lane
           <select
@@ -107,20 +101,21 @@ export function EvalQualitySection() {
         </div>
       )}
 
-      <div className="space-y-4" aria-busy={loading}>
+      <div className="admin-review-workspace space-y-4" aria-busy={loading}>
         {!loading && samples.length === 0 && !error && (
-          <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted">
-            No unexpired samples in this lane.
-          </div>
+          <AdminEmptyState
+            title="This review lane is clear"
+            description="No unexpired samples need attention in the selected lane."
+          />
         )}
         {samples.map((sample) => (
           <EvalSampleCard key={sample.id} sample={sample} onSaved={() => load()} />
         ))}
       </div>
 
-      <section className="space-y-4" aria-labelledby="synthesis-title">
+      <section className="admin-review-workspace space-y-4" aria-labelledby="synthesis-title">
         <div>
-          <h2 id="synthesis-title" className="font-display text-2xl font-semibold text-ink">
+          <h2 id="synthesis-title" className="text-xl font-semibold tracking-tight text-ink">
             Weekly synthesis queue
           </h2>
           <p className="mt-1 text-sm text-muted">
@@ -133,9 +128,10 @@ export function EvalQualitySection() {
             Loading synthesis queue…
           </div>
         ) : queue.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-border p-6 text-sm text-muted">
-            No disagreement patterns are waiting for synthesis.
-          </div>
+          <AdminEmptyState
+            title="No synthesis work is waiting"
+            description="Two-reviewer disagreements will appear here when a new synthetic case is required."
+          />
         ) : (
           <div className="grid gap-3">
             {queue.map((item) => <SynthesisQueueCard key={item.id} item={item} onSaved={() => load()} />)}
@@ -182,7 +178,7 @@ function EvalSampleCard({ sample, onSaved }: { sample: AdminEvalSample; onSaved:
   };
 
   return (
-    <article className="rounded-xl border border-border bg-panel p-4 shadow-soft">
+    <article className="admin-review-card rounded-xl p-4">
       <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted">
         <span className="rounded-full bg-accent/10 px-2 py-1 font-semibold text-accent">{sample.intent}</span>
         <span>{sample.model}</span>
@@ -267,7 +263,7 @@ function EvalSampleCard({ sample, onSaved }: { sample: AdminEvalSample; onSaved:
 
 function TextBlock({ label, value }: { label: string; value: string }) {
   return (
-    <div className="min-w-0 rounded-lg border border-border/70 bg-bg/60 p-3">
+    <div className="admin-evidence-block min-w-0 rounded-lg p-3">
       <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted">{label}</h3>
       <p className="mt-2 whitespace-pre-wrap break-words font-mono text-xs leading-5 text-ink">{value}</p>
     </div>
@@ -306,7 +302,7 @@ function SynthesisQueueCard({ item, onSaved }: { item: AdminEvalSynthesisQueueIt
   };
 
   return (
-    <article className="rounded-lg border border-border bg-panel p-4">
+    <article className="admin-review-card rounded-lg p-4">
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
         <span className="font-mono">sample {item.sampleId.slice(0, 8)}</span>
         <span>{item.reviewCount} independent reviews</span>

@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import { api, type AdminDashboardSnapshot } from "../../api/client";
 import { useLivePolling } from "../../auth/useLivePolling";
 import { AdminLoadFailure } from "./AdminLoadFailure";
+import { AdminPageHeader } from "./AdminPrimitives";
 import { useAdminDraft } from "./useAdminDraft";
 
 // Phase 25: live overview dashboard. Six tiles + a flagged-state banner.
@@ -19,15 +20,12 @@ export function OverviewSection() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h2 className="text-sm font-semibold text-ink">Overview</h2>
-          <p className="mt-0.5 text-[11px] leading-relaxed text-muted">
-            Live snapshot, refreshed every 5 seconds while this tab is open.
-          </p>
-        </div>
-        <RefreshButton onClick={() => void refresh()} stale={!!error} />
-      </div>
+      <AdminPageHeader
+        eyebrow="Live operations"
+        title="Overview"
+        description="A real-time view of capacity, spend, health, queues, and the controls most likely to matter during an incident."
+        actions={<RefreshButton onClick={() => void refresh()} stale={!!error} />}
+      />
 
       {error && data && (
         <div
@@ -59,14 +57,14 @@ export function OverviewSection() {
           onRetry={() => void refresh()}
         />
       ) : !data ? (
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <div className="admin-instrument-board grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (
             <SkeletonCard key={i} />
           ))}
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <div className="admin-instrument-board grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
             <SessionsTile snap={data} />
             <SpendTile snap={data} />
             <BurnTile snap={data} />
@@ -75,7 +73,7 @@ export function OverviewSection() {
             <SpawnOutcomesTile snap={data} />
             <BootTile snap={data} />
           </div>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div className="admin-action-board grid grid-cols-1 md:grid-cols-2">
             <PlatformAuthCard
               snap={data}
               onChanged={() => void refresh()}
@@ -377,8 +375,8 @@ function RefreshButton({ onClick, stale }: { onClick: () => void; stale: boolean
 
 function Tile({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-md border border-border bg-elevated/30 p-3">
-      <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted">
+    <div className="admin-metric-card">
+      <h3 className="admin-card-label">
         {title}
       </h3>
       {children}
@@ -388,7 +386,7 @@ function Tile({ title, children }: { title: string; children: React.ReactNode })
 
 function SkeletonCard() {
   return (
-    <div className="rounded-md border border-border bg-elevated/30 p-3">
+    <div className="admin-metric-card">
       <div className="skeleton h-3 w-24 rounded" />
       <div className="mt-3 skeleton h-6 w-32 rounded" />
       <div className="mt-2 skeleton h-3 w-40 rounded" />

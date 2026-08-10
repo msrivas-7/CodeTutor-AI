@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import { api, type AdminAnonSummary } from "../../api/client";
 import { useLivePolling } from "../../auth/useLivePolling";
 import { AdminLoadFailure } from "./AdminLoadFailure";
+import { AdminPageHeader } from "./AdminPrimitives";
 
 // Phase 27-v2.2 Fix 7b — admin "Trial path" tab. Read-only summary of the
 // anon trial path (the /try/lesson/... funnel that backs Phase 27's
@@ -32,16 +33,12 @@ export function AnonSection() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h2 className="text-sm font-semibold text-ink">Trial path</h2>
-          <p className="mt-0.5 text-[11px] leading-relaxed text-muted">
-            Anon /try/lesson/... funnel — request volume, abuse signals,
-            funnel events, kill-switch state. Refreshed every 5 seconds.
-          </p>
-        </div>
-        <RefreshButton onClick={() => void refresh()} stale={!!error} />
-      </div>
+      <AdminPageHeader
+        eyebrow="Acquisition telemetry"
+        title="Trial path"
+        description="Anonymous lesson traffic, activation funnel, abuse signals, and kill-switch state. Refreshes every 5 seconds."
+        actions={<RefreshButton onClick={() => void refresh()} stale={!!error} />}
+      />
 
       {error && data && (
         <div
@@ -71,14 +68,14 @@ export function AnonSection() {
           onRetry={() => void refresh()}
         />
       ) : !data ? (
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <div className="admin-instrument-board grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
           {Array.from({ length: 4 }).map((_, i) => (
             <SkeletonCard key={i} />
           ))}
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <div className="admin-instrument-board grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
             <TrafficTile snap={data} />
             <FunnelTile snap={data} />
             <DistributionTile snap={data} />
@@ -141,7 +138,7 @@ function FunnelTile({ snap }: { snap: AdminAnonSummary }) {
           decision; inspect telemetry ingestion.
         </div>
       )}
-      <div className="flex flex-col gap-1.5 text-[11px]">
+      <div className="admin-funnel flex flex-col gap-1.5 text-[11px]">
         <FunnelRow label="Page view" value={fe.anon_page_view} />
         <FunnelRow
           label="First run"
@@ -326,7 +323,7 @@ function Row({
         ? "text-warn"
         : "text-ink";
   return (
-    <div className="flex items-baseline justify-between gap-2">
+    <div className="admin-funnel-row flex items-baseline justify-between gap-2">
       <span className="text-muted">
         {label}
         {hint && (
@@ -360,8 +357,8 @@ function FunnelRow({
 
 function Tile({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-md border border-border bg-elevated/30 p-3">
-      <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted">
+    <div className="admin-metric-card">
+      <h3 className="admin-card-label">
         {title}
       </h3>
       {children}
@@ -371,7 +368,7 @@ function Tile({ title, children }: { title: string; children: React.ReactNode })
 
 function SkeletonCard() {
   return (
-    <div className="rounded-md border border-border bg-elevated/30 p-3">
+    <div className="admin-metric-card">
       <div className="skeleton h-3 w-24 rounded" />
       <div className="mt-3 skeleton h-6 w-32 rounded" />
       <div className="mt-2 skeleton h-3 w-40 rounded" />

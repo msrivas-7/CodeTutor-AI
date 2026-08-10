@@ -1,54 +1,55 @@
 import { NavLink } from "react-router-dom";
+import { AdminIcon, type AdminIconName } from "./AdminPrimitives";
 
-// Phase 25: left sidebar for the /admin page. Six destinations matching
-// the section components. Sticky so the nav stays visible while a long
-// section (e.g. users table) scrolls. Active state styled like the
-// Settings panel's tab pills (bg-bg + ring-accent) for visual continuity.
+// Persistent navigation for the admin workspaces. Grouping keeps live
+// operations distinct from policy and governance without hiding a route.
 
 interface AdminNavEntry {
   to: string;
   label: string;
   hint: string;
+  icon: AdminIconName;
+  group: "Operate" | "Govern";
 }
 
 const ENTRIES: AdminNavEntry[] = [
-  { to: "/admin/overview", label: "Overview", hint: "Live dashboard" },
-  { to: "/admin/sessions", label: "Sessions", hint: "Active runners" },
-  { to: "/admin/users", label: "Users", hint: "Caps + freeze" },
-  { to: "/admin/project", label: "Project", hint: "System config" },
-  { to: "/admin/email", label: "Email log", hint: "Sent mail" },
-  { to: "/admin/audit", label: "Audit log", hint: "Admin actions" },
+  { to: "/admin/overview", label: "Overview", hint: "Live system pulse", icon: "overview", group: "Operate" },
+  { to: "/admin/sessions", label: "Sessions", hint: "Active runners", icon: "sessions", group: "Operate" },
+  { to: "/admin/users", label: "Users", hint: "Limits and access", icon: "users", group: "Operate" },
+  { to: "/admin/project", label: "Project", hint: "Runtime policy", icon: "project", group: "Govern" },
+  { to: "/admin/email", label: "Email log", hint: "Outbound delivery", icon: "email", group: "Govern" },
+  { to: "/admin/audit", label: "Audit log", hint: "Change history", icon: "audit", group: "Govern" },
   // Phase 27-v2.2 Fix 7b — anon trial path observability tab.
-  { to: "/admin/anon", label: "Trial path", hint: "Anon traffic + funnel" },
-  { to: "/admin/eval-quality", label: "Eval quality", hint: "Redacted review queue" },
+  { to: "/admin/anon", label: "Trial path", hint: "Acquisition health", icon: "trial", group: "Govern" },
+  { to: "/admin/eval-quality", label: "Eval quality", hint: "Review workflow", icon: "quality", group: "Govern" },
 ];
 
 export function AdminSidebar() {
   return (
-    <nav
-      aria-label="Admin sections"
-      className="sticky top-0 z-20 flex w-full shrink-0 gap-1 self-start overflow-x-auto border-b border-border bg-panel/95 p-2 backdrop-blur md:w-[200px] md:flex-col md:overflow-visible md:border-b-0 md:bg-transparent md:p-3"
-    >
-      <div className="hidden px-2 pb-3 md:block">
-        <h1 className="text-[11px] font-semibold uppercase tracking-wider text-muted">
-          Admin
-        </h1>
+    <nav aria-label="Admin sections" className="admin-sidebar">
+      <div className="admin-sidebar-intro">
+        <p>Control room</p>
+        <span>Operate, observe, recover.</span>
       </div>
-      {ENTRIES.map((e) => (
-        <NavLink
-          key={e.to}
-          to={e.to}
-          className={({ isActive }) =>
-            `flex min-h-11 shrink-0 flex-col justify-center gap-0.5 rounded-md px-3 py-2 text-[12px] font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
-              isActive
-                ? "bg-bg text-ink shadow-soft ring-1 ring-accent/40"
-                : "text-muted hover:bg-bg/50 hover:text-ink"
-            }`
-          }
-        >
-          <span className="text-ink">{e.label}</span>
-          <span className="text-[10px] text-muted">{e.hint}</span>
-        </NavLink>
+      {(["Operate", "Govern"] as const).map((group) => (
+        <div key={group} className="admin-nav-group">
+          <p className="admin-nav-group-label">{group}</p>
+          <div className="admin-nav-items">
+            {ENTRIES.filter((entry) => entry.group === group).map((entry) => (
+              <NavLink
+                key={entry.to}
+                to={entry.to}
+                className={({ isActive }) => `admin-nav-link ${isActive ? "admin-nav-link-active" : ""}`}
+              >
+                <span className="admin-nav-icon"><AdminIcon name={entry.icon} /></span>
+                <span className="min-w-0">
+                  <span className="admin-nav-label">{entry.label}</span>
+                  <span className="admin-nav-hint">{entry.hint}</span>
+                </span>
+              </NavLink>
+            ))}
+          </div>
+        </div>
       ))}
     </nav>
   );

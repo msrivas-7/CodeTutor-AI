@@ -167,7 +167,7 @@ export function TutorModelControl() {
     <section
       aria-labelledby="platform-tutor-model-title"
       aria-busy={busy}
-      className="rounded-lg border border-accent/25 bg-elevated/30 p-4"
+      className="admin-feature-card rounded-lg border border-accent/25 bg-elevated/30 p-4"
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="max-w-3xl">
