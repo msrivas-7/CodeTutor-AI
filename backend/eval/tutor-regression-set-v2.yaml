@@ -100,6 +100,7 @@
   mustPass: true
   learnerName: Maya
   userMessage: "Can you explain that in more detail?"
+  tutorAction: explain-more
   userFile: |
     print("broken"
   history:

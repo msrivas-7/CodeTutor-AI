@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyTutorIntent, isTaskExplanationRequest } from "./tutorIntent.js";
+import { classifyTutorIntent } from "./tutorIntent.js";
 import type { TutorIntent } from "./provider.js";
 
 const files = [{ path: "main.py", content: "value = 1\n" }];
@@ -41,17 +41,21 @@ describe("classifyTutorIntent", () => {
     expect(classifyTutorIntent({ question, files })).toBe(safeExplicit ? "walkthrough" : "socratic");
   });
 
-  it("honors an explicit first-turn task explanation without turning a hint into an answer", () => {
-    expect(classifyTutorIntent({ question: "I don't understand the instructions. Can you explain the task?", files })).toBe("concept");
+  it("uses semantic application actions for first-turn task explanation without weakening typed hints", () => {
+    expect(classifyTutorIntent({
+      question: "Could you orient me?",
+      files,
+      tutorAction: "explain-lesson-task",
+    })).toBe("concept");
     expect(classifyTutorIntent({ question: "Give me a hint to get started", files })).toBe("socratic");
   });
 
   it.each([
-    "I don't understand the instructions. Can you explain the task?",
-    "What should I do in this lesson?",
-    "Please explain this lesson",
-  ])("recognizes a literal task-explanation request: %s", (question) => {
-    expect(isTaskExplanationRequest(question)).toBe(true);
+    "Can you explain in detail how stable task IDs avoid bugs when deletion changes list positions, and point to the relevant lines?",
+    "Explain how the task list keeps stable identifiers.",
+    "I don't understand the task tracker data model.",
+    "Why does this task_id comparison work?",
+  ])("does not mistake a task-domain concept for the lesson assignment: %s", (question) => {
     expect(classifyTutorIntent({ question, files, tutorStage: "approach" })).toBe("concept");
   });
 

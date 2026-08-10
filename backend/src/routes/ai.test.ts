@@ -346,7 +346,10 @@ describe("POST /api/ai/ask — schema validation", () => {
     });
     const res = await req("u-1", "/api/ai/ask", {
       method: "POST",
-      body: JSON.stringify(validAskBody()),
+      body: JSON.stringify(validAskBody({
+        question: "Could you orient me?",
+        tutorAction: "explain-lesson-task",
+      })),
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
@@ -359,6 +362,7 @@ describe("POST /api/ai/ask — schema validation", () => {
     const call = vi.mocked(openaiProvider.ask).mock.calls[0][0];
     expect(call.key).toBe("sk-test");
     expect(call.tutorStage).toBe("clarify");
+    expect(call.tutorAction).toBe("explain-lesson-task");
     expect(call.signal).toBeDefined();
     expect(vi.mocked(reserveAIRequest)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(finalizeAIRequest)).toHaveBeenCalledTimes(1);
@@ -373,7 +377,7 @@ describe("POST /api/ai/ask — schema validation", () => {
     expect(vi.mocked(flagSuspectApis)).toHaveBeenCalledWith({
       responseText: "{\"summary\":\"ok\"}",
       userFiles: [{ path: "main.py", content: "print('hi')" }],
-      userQuestion: "why is this code wrong?",
+      userQuestion: "Could you orient me?",
       language: "python",
       route: "ask",
     });
@@ -568,8 +572,8 @@ describe("POST /api/ai/ask — platform model routing", () => {
 });
 
 describe("POST /api/ai/ask — BYOK contextual compatibility", () => {
-  it("preserves a qualified Nano selection for a guided lesson request", async () => {
-    vi.mocked(getOpenAIKey).mockResolvedValueOnce("sk-user-nano");
+  it("preserves the evaluated Luna selection for a guided BYOK lesson request", async () => {
+    vi.mocked(getOpenAIKey).mockResolvedValueOnce("sk-user-luna");
     vi.mocked(openaiProvider.ask).mockResolvedValueOnce({
       sections: { summary: "ok" },
       raw: "{\"summary\":\"ok\"}",
@@ -578,7 +582,7 @@ describe("POST /api/ai/ask — BYOK contextual compatibility", () => {
     const res = await req("u-1", "/api/ai/ask", {
       method: "POST",
       body: JSON.stringify(validAskBody({
-        model: "gpt-4.1-nano",
+        model: "gpt-5.6-luna",
         lessonContext: {
           courseId: "python-fundamentals",
           lessonId: "hello-world",
@@ -591,7 +595,7 @@ describe("POST /api/ai/ask — BYOK contextual compatibility", () => {
     expect(vi.mocked(openaiProvider.ask)).toHaveBeenCalledWith(
       expect.objectContaining({
         fundingSource: "byok",
-        model: "gpt-4.1-nano",
+        model: "gpt-5.6-luna",
         lessonContext: expect.objectContaining({ lessonId: "hello-world" }),
       }),
     );
@@ -641,7 +645,7 @@ describe("POST /api/ai/ask/stream — tutor progression", () => {
     expect(second.status).toBe(200);
     await second.text();
     expect(vi.mocked(openaiProvider.askStream).mock.calls[1][0].tutorStage).toBe("approach");
-    expect(vi.mocked(openaiProvider.askStream).mock.calls[1][0].model).toBe("gpt-4.1");
+    expect(vi.mocked(openaiProvider.askStream).mock.calls[1][0].model).toBe("gpt-5.6-luna");
   });
 
   it("applies the same Luna routing on the platform stream", async () => {

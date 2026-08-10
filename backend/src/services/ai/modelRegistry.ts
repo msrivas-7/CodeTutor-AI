@@ -1,7 +1,7 @@
 import type { AIModel, TutorIntent } from "./provider.js";
 
-export const MODEL_REGISTRY_VERSION = "2026-08-09.luna-v1";
-export const TUTOR_EVAL_SET_VERSION = "2.7.0+evaluator.2.13.0";
+export const MODEL_REGISTRY_VERSION = "2026-08-10.luna-byok-v2";
+export const TUTOR_EVAL_SET_VERSION = "2.8.0+evaluator.2.14.0";
 
 export type ModelQualityStatus = "evaluated" | "unevaluated";
 
@@ -26,7 +26,7 @@ const REGISTRY: Record<string, EvaluatedModelPolicy> = {
     qualityStatus: "evaluated",
     contextualTutorEligible: true,
     evalSetVersion: TUTOR_EVAL_SET_VERSION,
-    evaluatedAt: "2026-08-09",
+    evaluatedAt: "2026-08-10",
     evaluatedTutorIntents: [
       "socratic",
       "debug",
@@ -40,39 +40,6 @@ const REGISTRY: Record<string, EvaluatedModelPolicy> = {
       "guided-tutor",
       "contextual-offer",
     ],
-  },
-  // Keep previously qualified BYOK choices eligible through their provider
-  // retirement window. Platform-funded routing is pinned to Luna elsewhere;
-  // removing this entry would instead strand an existing BYOK selection at
-  // the guided-tutor allowlist boundary.
-  "gpt-4.1-nano": {
-    id: "gpt-4.1-nano",
-    qualityStatus: "evaluated",
-    contextualTutorEligible: true,
-    evalSetVersion: "2.4.0+evaluator.2.12.0",
-    evaluatedAt: "2026-07-31",
-    evaluatedTutorIntents: [
-      "socratic",
-      "debug",
-      "concept",
-      "howto",
-      "walkthrough",
-      "checkin",
-    ],
-    supportedTutorBehaviors: [
-      "editor-tutor",
-      "guided-tutor",
-      "contextual-offer",
-    ],
-  },
-  "gpt-4.1-mini": {
-    id: "gpt-4.1-mini",
-    qualityStatus: "evaluated",
-    contextualTutorEligible: false,
-    evalSetVersion: "2.4.0+evaluator.2.12.0",
-    evaluatedAt: "2026-07-31",
-    evaluatedTutorIntents: ["checkin"],
-    supportedTutorBehaviors: ["editor-tutor", "guided-tutor"],
   },
 };
 

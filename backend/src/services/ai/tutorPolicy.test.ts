@@ -534,10 +534,11 @@ describe("applyTutorOutputPolicy", () => {
   it.each([
     "I don't understand the instructions. Can you explain the task?",
     "What should I do in this lesson?",
-  ])("explains the canonical lesson task instead of diagnosing an active error: %s", (question) => {
+  ])("uses the semantic lesson-task action instead of diagnosing an active error: %s", (question) => {
     const params = {
       ...base,
       question,
+      tutorAction: "explain-lesson-task" as const,
       files: [{ path: "main.py", content: 'print("Still broken"\n' }],
       lastRun: {
         stdout: "",
@@ -557,6 +558,7 @@ describe("applyTutorOutputPolicy", () => {
         ],
         completionCriteria: [
           "produce the lesson's required output",
+          "Produce the lesson's required output.",
           "replace the authored placeholder output with the learner's own result",
         ],
       },
@@ -581,6 +583,7 @@ describe("applyTutorOutputPolicy", () => {
     expect(result.explain).toContain("- Use the print() function to show text");
     expect(result.explain).toContain("\n\nTo finish:\n\n- Produce the lesson's required output");
     expect(result.explain).toContain("- Replace the starter output with your own result");
+    expect(result.explain?.match(/Produce the lesson's required output/g)).toHaveLength(1);
     expect(result.explain).not.toContain("never reveal");
     expect(result.explain).not.toContain("authored placeholder");
     expect(result.nextStep).toContain("compare the visible result with the lesson objective");
@@ -588,28 +591,113 @@ describe("applyTutorOutputPolicy", () => {
     expect(hasTutorTeachingValue(result, params)).toBe(true);
   });
 
+  it("keeps a task-domain engineering question in the contextual concept path", () => {
+    const question =
+      "Can you explain in detail how stable task IDs avoid bugs when deletion changes list positions, and point to the relevant lines?";
+    const params = {
+      ...base,
+      question,
+      files: [{
+        path: "main.py",
+        content: [
+          "def add_task(tasks, text):",
+          '    next_id = (tasks[-1]["id"] + 1) if tasks else 1',
+          '    tasks.append({"id": next_id, "text": text, "done": False})',
+          "",
+          "def done_task(tasks, task_id):",
+          "    for task in tasks:",
+          '        if task["id"] == task_id:',
+          '            task["done"] = True',
+        ].join("\n"),
+      }],
+      lessonContext: {
+        ...base.lessonContext,
+        lessonTitle: "Capstone: Task Tracker CLI",
+        lessonObjectives: ["Build a task tracker with stable task IDs"],
+      },
+    };
+    const result = applyTutorOutputPolicy({
+      sections: {
+        summary: "Stable IDs keep a task's identity separate from its current list position.",
+        explain:
+          "`add_task` creates the next stored ID, while `done_task` searches for that ID instead of treating it as a list index. Deleting or reordering entries can change positions without changing the remaining tasks' identities.",
+        comprehensionCheck:
+          "If the first list item disappeared, which value would `done_task` compare for the remaining task?",
+        citations: [
+          { path: "main.py", line: 2, reason: "ID creation" },
+          { path: "main.py", line: 7, reason: "ID lookup" },
+        ],
+      },
+      params,
+      intent: "concept",
+      priorTutorTurns: 3,
+    });
+
+    expect(result.summary).toContain("identity separate from its current list position");
+    expect(result.explain).toContain("`add_task`");
+    expect(result.explain).toContain("`done_task`");
+    expect(result.citations?.map((citation) => citation.line)).toEqual([2, 7]);
+    expect(JSON.stringify(result)).not.toMatch(/The goal of|This lesson has 1 objective|To finish:/);
+    expect(hasTutorTeachingValue(result, params)).toBe(true);
+  });
+
+  it("turns the explain-more action into new cited detail when model prose is unusable", () => {
+    const params = {
+      ...base,
+      question: "Can you explain that in more detail?",
+      files: [{
+        path: "main.py",
+        content: [
+          "def add_task(tasks, text):",
+          '    next_id = (tasks[-1]["id"] + 1) if tasks else 1',
+          '    tasks.append({"id": next_id, "text": text, "done": False})',
+        ].join("\n"),
+      }],
+    };
+    const result = applyTutorOutputPolicy({
+      sections: {
+        summary: "Stable IDs separate identity from list position.",
+        explain: "ID creation",
+        citations: [{ path: "main.py", line: 2, reason: "ID creation" }],
+        comprehensionCheck: "Which value survives a list reorder?",
+      },
+      params,
+      intent: "concept",
+      priorTutorTurns: 4,
+    });
+
+    expect(result.explain).toContain("At `main.py:2`");
+    expect(result.explain).toContain("`next_id` chooses between the two visible values");
+    expect(result.explain).not.toContain("Use the cited line as the source of truth");
+    expect(hasTutorTeachingValue(result, params)).toBe(true);
+  });
+
   it.each([
     [
       "Can you explain that in more detail?",
+      "explain-more",
       "The objectives form one learning sequence",
       "How does the second objective help you verify the first one?",
     ],
     [
       "Can you show me a concrete example of that in my code?",
+      "concrete-example",
       "The current output line is where the lesson objectives meet",
       "Which lesson objective does that run demonstrate most directly?",
     ],
     [
       "Why does this matter for what I'm trying to do?",
+      "why-it-matters",
       "These objectives teach the full feedback loop",
       "Why is predicting the result before you run useful for learning?",
     ],
   ] as const)(
     "keeps the task-explanation action %s anchored to the canonical lesson sequence",
-    (question, summary, comprehensionCheck) => {
+    (question, tutorAction, summary, comprehensionCheck) => {
       const params = {
         ...base,
         question,
+        tutorAction,
         learnerName: "Maya",
         files: [{ path: "main.py", content: 'print("broken"' }],
         history: [{
@@ -725,6 +813,71 @@ describe("applyTutorOutputPolicy", () => {
     }, params)).toBe(false);
   });
 
+  it("marks a generic concept fallback as non-chargeable without inventing a case-specific answer", () => {
+    const params = {
+      ...base,
+      question: "What is the difference between == and ===?",
+      files: [{
+        path: "main.js",
+        content: 'const score = "12";\nconsole.log(score == 12, score === 12);\n',
+      }],
+      lessonContext: {
+        ...base.lessonContext,
+        language: "javascript" as const,
+      },
+    };
+    const generic = {
+      intent: "concept" as const,
+      summary: "Let’s use the current code as evidence.",
+      explain:
+        "Use the cited line as the source of truth: predict what value it produces or changes, then compare that prediction with the next run.",
+      comprehensionCheck:
+        "How would you explain this concept in your own words before changing the code?",
+      citations: [{ path: "main.js", line: 2, reason: "Current comparison" }],
+    };
+
+    expect(hasTutorTeachingValue(generic, params)).toBe(false);
+    expect(JSON.stringify(generic)).not.toContain("allows type coercion");
+  });
+
+  it("requires concept value to carry context-specific evidence, not a known fallback phrase", () => {
+    const params = {
+      ...base,
+      question: "Why does this comparison behave differently?",
+      files: [{
+        path: "main.js",
+        content: 'const score = "12";\nconsole.log(score == 12, score === 12);\n',
+      }],
+      lessonContext: {
+        ...base.lessonContext,
+        language: "javascript" as const,
+      },
+    };
+    const response = (explain: string) => ({
+      intent: "concept" as const,
+      summary: "Let’s inspect what is visible.",
+      explain,
+      citations: [{ path: "main.js", line: 2, reason: "Current comparison" }],
+    });
+
+    expect(hasTutorTeachingValue(response(
+      "Look closely at the cited area and think about what changes before trying it again.",
+    ), params)).toBe(false);
+    expect(hasTutorTeachingValue(response(
+      "Use the available evidence to reason about the behavior, and compare your prediction with the result.",
+    ), params)).toBe(false);
+    expect(hasTutorTeachingValue(response(
+      "The two operators `==` and `===` evaluate the visible `score` comparison under different equality rules.",
+    ), params)).toBe(true);
+    expect(hasTutorTeachingValue(response(
+      "`score` is compared under two equality rules.",
+    ), params)).toBe(true);
+    expect(hasTutorTeachingValue({
+      ...response("Look at the cited area and compare the behavior before trying it again."),
+      summary: "`score` is compared under two equality rules.",
+    }, params)).toBe(true);
+  });
+
   it("replaces an ungroundable turn with an honest, actionable recovery", () => {
     const result = tutorValueRecovery({ files: [], lastRun: null });
 
@@ -784,6 +937,7 @@ describe("applyTutorOutputPolicy", () => {
       params: {
         ...base,
         question: "Can you show me a concrete example of that in my code?",
+        tutorAction: "concrete-example",
         files: [{ path: "main.py", content: 'print("Hello")\n' }],
       },
       intent: "concept",
@@ -797,6 +951,7 @@ describe("applyTutorOutputPolicy", () => {
       params: {
         ...base,
         question: "Can you show me a concrete example of that in my code?",
+        tutorAction: "concrete-example",
         files: [{
           path: "main.py",
           content: [
@@ -829,6 +984,7 @@ describe("applyTutorOutputPolicy", () => {
       params: {
         ...base,
         question: "Can you show me a concrete example of that in my code?",
+        tutorAction: "concrete-example",
         files: [{
           path: "main.py",
           content: [
@@ -857,6 +1013,7 @@ describe("applyTutorOutputPolicy", () => {
       params: {
         ...base,
         question: "Why does this matter for what I'm trying to do?",
+        tutorAction: "why-it-matters",
         files: [{ path: "main.py", content: 'print("Hello")\n' }],
       },
       intent: "concept",
@@ -2764,13 +2921,12 @@ describe("applyTutorOutputPolicy", () => {
   });
 
   it.each([
-    ["Can you explain that in more detail?", false, false],
-    ["Can you show me a concrete example of that in my code?", true, false],
-    ["Why does this matter for what I'm trying to do?", false, true],
-    ["idk wht dis does?? help pls", false, false],
+    ["Can you explain that in more detail?", "explain-more", false, false],
+    ["Can you show me a concrete example of that in my code?", "concrete-example", true, false],
+    ["Why does this matter for what I'm trying to do?", "why-it-matters", false, true],
   ] as const)(
-    "keeps generic parser-error follow-ups grounded, useful, and non-prescriptive: %s",
-    (question, expectsExample, expectsWhy) => {
+    "keeps semantic parser-error actions grounded, useful, and non-prescriptive: %s",
+    (question, tutorAction, expectsExample, expectsWhy) => {
       const result = applyTutorOutputPolicy({
         sections: {
           summary: "Add a closing parenthesis.",
@@ -2781,6 +2937,7 @@ describe("applyTutorOutputPolicy", () => {
         params: {
           ...base,
           question,
+          tutorAction,
           files: [{ path: "main.py", content: 'print("broken"' }],
           lastRun: {
             stdout: "",
@@ -2807,6 +2964,38 @@ describe("applyTutorOutputPolicy", () => {
     },
   );
 
+  it("does not infer an application action from free-form slang", () => {
+    const params = {
+      ...base,
+      question: "idk wht dis does?? help pls",
+      files: [{ path: "main.py", content: 'print("broken"' }],
+      lastRun: {
+        stdout: "",
+        stderr: "SyntaxError: '(' was never closed",
+        exitCode: 1,
+        errorType: "compile" as const,
+        durationMs: 42,
+        stage: "run" as const,
+      },
+    };
+    const result = applyTutorOutputPolicy({
+      sections: {
+        summary: "Add a closing parenthesis.",
+        explain: "Make sure to add a closing parenthesis to fix the syntax error.",
+        example: 'Use `print("broken")`.',
+      },
+      params,
+      intent: "concept",
+      priorTutorTurns: 4,
+    });
+
+    expect(result.summary).toBe("Let’s use the current code as evidence.");
+    expect(result.explain).toContain("not structurally complete");
+    expect(result.example).toBeNull();
+    expect(JSON.stringify(result)).not.toMatch(/add a closing|make sure to add/i);
+    expect(hasTutorTeachingValue(result, params)).toBe(true);
+  });
+
   it("explains the visible data flow inside a concatenated output line", () => {
     const result = applyTutorOutputPolicy({
       sections: {},
@@ -2825,6 +3014,118 @@ describe("applyTutorOutputPolicy", () => {
     expect(result.walkthrough?.[1]).toMatchObject({ path: "main.py", line: 2 });
     expect(result.walkthrough?.[1]?.body).toContain("current `name` value");
     expect(result.walkthrough?.[1]?.body).toContain("displays the result");
+  });
+
+  it("anchors a named function explanation to its declaration instead of a later container assignment", () => {
+    const result = applyTutorOutputPolicy({
+      sections: {
+        summary: "The helper creates a stable ID before the program reports progress.",
+        walkthrough: [{
+          body: "`add_task` creates the next stable ID and appends it to `tasks`.",
+          path: "main.py",
+          // Reproduce the production model's incorrect attachment to the
+          // later task-summary assignment. The policy must repair it.
+          line: 3,
+        }],
+      },
+      params: {
+        ...base,
+        question: "Walk me through main.py.",
+        files: [{
+          path: "main.py",
+          content: [
+            "def add_task(tasks, text):",
+            '    tasks.append({"id": len(tasks) + 1, "text": text})',
+            'done = sum(1 for task in tasks if task["done"])',
+            "print(done)",
+          ].join("\n"),
+        }],
+      },
+      intent: "walkthrough",
+      priorTutorTurns: 2,
+    });
+
+    expect(result.walkthrough?.map((step) => step.line)).toEqual([1, 2, 3, 4]);
+    expect(result.walkthrough?.[0]).toMatchObject({
+      body: "`add_task` creates the next stable ID and appends it to `tasks`.",
+      path: "main.py",
+      line: 1,
+    });
+    expect(result.citations?.map((citation) => citation.line)).toEqual([1, 2, 3, 4]);
+  });
+
+  it("replaces unrelated main-guard prose attached to a function declaration", () => {
+    const result = applyTutorOutputPolicy({
+      sections: {
+        summary: "The program defines helpers and then dispatches commands.",
+        walkthrough: [{
+          body:
+            "The main guard starts the command-line program only when this file is run directly. It creates the initially empty `tasks` list.",
+          path: "main.py",
+          line: 1,
+        }],
+      },
+      params: {
+        ...base,
+        question: "Walk me through main.py, one step at a time.",
+        files: [{
+          path: "main.py",
+          content: [
+            "def add_task(tasks, text):",
+            "    tasks.append(text)",
+            "",
+            'if __name__ == "__main__":',
+            "    tasks = []",
+          ].join("\n"),
+        }],
+      },
+      intent: "walkthrough",
+      priorTutorTurns: 2,
+    });
+
+    const declaration = result.walkthrough?.find((step) => step.line === 1);
+    expect(declaration?.body).toContain("defines `add_task`");
+    expect(declaration?.body).not.toMatch(/main guard|run directly|initially empty/i);
+    expect(result.citations?.find((citation) => citation.line === 1)?.reason)
+      .toContain("defines `add_task`");
+  });
+
+  it("uses useful deterministic prose for conditional assignments and standalone calls", () => {
+    const result = applyTutorOutputPolicy({
+      sections: {},
+      params: {
+        ...base,
+        question: "Walk me through this file.",
+        files: [{
+          path: "main.py",
+          content: [
+            'mark = "x" if task["done"] else " "',
+            "list_tasks(tasks)",
+            'tasks.append("review")',
+          ].join("\n"),
+        }],
+      },
+      intent: "walkthrough",
+      priorTutorTurns: 2,
+    });
+
+    expect(result.walkthrough).toEqual([
+      {
+        body: "`mark` chooses between the two visible values based on whether `task[\"done\"]` is true.",
+        path: "main.py",
+        line: 1,
+      },
+      {
+        body: "This line calls `list_tasks` with `tasks`.",
+        path: "main.py",
+        line: 2,
+      },
+      {
+        body: "This line calls `append` on `tasks` with `\"review\"`.",
+        path: "main.py",
+        line: 3,
+      },
+    ]);
   });
 
   it("gives a concrete list-item how-to even when the model omits its clue", () => {

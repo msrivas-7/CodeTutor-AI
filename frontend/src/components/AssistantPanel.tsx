@@ -225,10 +225,11 @@ export function AssistantPanel({
       }
       return plan.historyForSend;
     },
-    buildBody: ({ question, files, diffSinceLastTurn, historyForSend, selection }) => ({
+    buildBody: ({ question, tutorAction, files, diffSinceLastTurn, historyForSend, selection }) => ({
       // Platform funding ignores any stale persisted BYOK preference.
       model: effectiveModel ?? PLATFORM_TUTOR_MODEL,
       question,
+      tutorAction,
       files,
       activeFile: activeFile ?? undefined,
       language,
@@ -262,9 +263,9 @@ export function AssistantPanel({
   // here and fire immediately — no composer detour.
   useEffect(() => {
     if (pendingAsk && configured && !asking && !inputLocked) {
-      const q = pendingAsk;
+      const ask = pendingAsk;
       setPendingAsk(null);
-      submitAsk(q);
+      submitAsk(ask.question, { tutorAction: ask.action });
     }
     // submitAsk closes over a lot of state; we intentionally depend only on
     // the trigger + readiness gates so we don't re-fire on unrelated re-renders.
@@ -435,7 +436,9 @@ export function AssistantPanel({
               ) : m.sections ? (
                 <TutorResponseView
                   sections={m.sections}
-                  onAsk={isLatestAssistant ? setPendingAsk : undefined}
+                  onAsk={isLatestAssistant
+                    ? (question, action) => setPendingAsk({ question, action })
+                    : undefined}
                   onCompose={isLatestAssistant ? prepareAnswer : undefined}
                   disabled={asking || inputLocked}
                   scripted={m.meta?.scripted}

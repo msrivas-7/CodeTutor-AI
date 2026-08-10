@@ -107,6 +107,15 @@ export interface TokenUsage {
   outputTokens: number;
 }
 
+// Semantic identity for an application-owned Tutor control. Free-form learner
+// text deliberately leaves this unset: the model interprets normal language,
+// while stable UI actions do not depend on matching their display copy.
+export type TutorAction =
+  | "explain-lesson-task"
+  | "explain-more"
+  | "concrete-example"
+  | "why-it-matters";
+
 export interface AIAskParams {
   key: string;
   model: string;
@@ -115,6 +124,7 @@ export interface AIAskParams {
   // provider never gates on this; it's just a passthrough label.
   fundingSource?: "byok" | "platform";
   question: string;
+  tutorAction?: TutorAction;
   files: ProjectFile[];
   activeFile?: string;
   language?: Language;

@@ -16,11 +16,16 @@ import {
   notePlatformQuestionConsumed,
   useAIStatus,
 } from "../state/useAIStatus";
-import type { EditorSelection, ProjectFile, AIMessage } from "../types";
+import type { EditorSelection, ProjectFile, AIMessage, TutorAction } from "../types";
 import { computeDiffSinceLast } from "./diffSinceLast";
 import { parsePartialTutor } from "./partialJson";
 
 export const PLATFORM_TUTOR_MODEL = "gpt-5.6-luna";
+
+function isGptFiveOrLaterModel(model: string): boolean {
+  const major = model.trim().toLocaleLowerCase().match(/^gpt-(\d+)(?:[.-]|$)/)?.[1];
+  return major !== undefined && Number(major) >= 5;
+}
 
 export function tutorRequestModel({
   selectedModel,
@@ -31,7 +36,10 @@ export function tutorRequestModel({
   onPlatform: boolean;
   isAnon: boolean;
 }): string | null {
-  return onPlatform || isAnon ? PLATFORM_TUTOR_MODEL : selectedModel;
+  if (onPlatform || isAnon) return PLATFORM_TUTOR_MODEL;
+  return selectedModel && isGptFiveOrLaterModel(selectedModel)
+    ? selectedModel
+    : PLATFORM_TUTOR_MODEL;
 }
 
 // Shape passed to each panel's buildBody callback. The hook owns the
@@ -40,6 +48,7 @@ export function tutorRequestModel({
 // language/persona/lessonContext bits that differ per panel.
 export interface BuildBodyInput {
   question: string;
+  tutorAction?: TutorAction;
   files: ProjectFile[];
   diffSinceLastTurn: string | null;
   historyForSend: AIMessage[];
@@ -99,7 +108,10 @@ export interface UseTutorAskOpts {
 }
 
 export interface UseTutorAskResult {
-  submitAsk: (question: string, options?: { appendUser?: boolean }) => Promise<void>;
+  submitAsk: (
+    question: string,
+    options?: { appendUser?: boolean; tutorAction?: TutorAction },
+  ) => Promise<void>;
   cancelAsk: () => void;
 }
 
@@ -218,7 +230,7 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
 
   const submitAsk = async (
     question: string,
-    options: { appendUser?: boolean } = {},
+    options: { appendUser?: boolean; tutorAction?: TutorAction } = {},
   ): Promise<void> => {
     const trimmed = question.trim();
     if (!trimmed || !configured || asking) return;
@@ -306,6 +318,7 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
       activeRequestIdRef.current = requestId;
       const requestedBody = opts.buildBody({
           question: trimmed,
+          tutorAction: options.tutorAction,
           files,
           diffSinceLastTurn,
           historyForSend,

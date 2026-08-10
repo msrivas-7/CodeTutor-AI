@@ -109,6 +109,21 @@ describe("parseTutorOutput", () => {
       files,
     );
     expect(result.citations?.[0].reason).toHaveLength(120);
+    expect(result.citations?.[0].reason).toMatch(/…$/);
+  });
+
+  it("never truncates a citation label in the middle of a value", () => {
+    const reason =
+      "The loop visits each item while a deliberately long explanation keeps going until the running values become 10, then 30, then 60.";
+    const result = parseTutorOutput(
+      JSON.stringify({
+        summary: "Look here.",
+        citations: [{ path: "main.py", line: 2, reason }],
+      }),
+      files,
+    );
+    expect(result.citations?.[0].reason).toMatch(/\S…$/);
+    expect(result.citations?.[0].reason).not.toMatch(/(?:then )?[36]…?$/);
   });
 
   it("neutralizes invalid walkthrough navigation but preserves plain text", () => {

@@ -69,6 +69,15 @@ export type TutorIntent =
   | "walkthrough"
   | "checkin";
 
+// Stable meaning for Tutor controls. The visible prompt remains learner-facing
+// copy; this value tells the server which application-owned action produced it
+// without trying to infer button identity from prose.
+export type TutorAction =
+  | "explain-lesson-task"
+  | "explain-more"
+  | "concrete-example"
+  | "why-it-matters";
+
 export type Persona = "beginner" | "intermediate" | "advanced";
 
 export type Stuckness = "low" | "medium" | "high";

@@ -8,6 +8,22 @@ beforeEach(() => {
 });
 
 describe("per-task tutor progression proof", () => {
+  it("preserves semantic tutor actions while normalizing ordinary queued questions", () => {
+    useAIStore.getState().setPendingAsk("What does this line do?");
+    expect(useAIStore.getState().pendingAsk).toEqual({
+      question: "What does this line do?",
+    });
+
+    useAIStore.getState().setPendingAsk({
+      question: "Could you orient me?",
+      action: "explain-lesson-task",
+    });
+    expect(useAIStore.getState().pendingAsk).toEqual({
+      question: "Could you orient me?",
+      action: "explain-lesson-task",
+    });
+  });
+
   it("caches proof with its chat context and restores it atomically", () => {
     const store = useAIStore.getState();
     store.switchChatContext("lesson:python/variables");
@@ -40,7 +56,7 @@ describe("per-task tutor progression proof", () => {
       asking: true,
       pending: { raw: "partial", sections: {} },
       pendingScripted: true,
-      pendingAsk: "late action",
+      pendingAsk: { question: "late action" },
     });
 
     useAIStore.getState().clearConversation();

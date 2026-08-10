@@ -19,12 +19,20 @@ describe("tutorRequestModel", () => {
     })).toBe(PLATFORM_TUTOR_MODEL);
   });
 
-  it("preserves the learner's model only for BYOK", () => {
+  it("canonicalizes a stale BYOK preference to the GPT-5 Tutor floor", () => {
     expect(tutorRequestModel({
       selectedModel: "gpt-4.1",
       onPlatform: false,
       isAnon: false,
-    })).toBe("gpt-4.1");
+    })).toBe(PLATFORM_TUTOR_MODEL);
+  });
+
+  it("preserves a GPT-5-or-later BYOK model selected from the supported list", () => {
+    expect(tutorRequestModel({
+      selectedModel: "gpt-5.6-luna",
+      onPlatform: false,
+      isAnon: false,
+    })).toBe("gpt-5.6-luna");
   });
 });
 

@@ -1,9 +1,9 @@
-import type { TokenUsage } from "../types";
+import type { TokenUsage, TutorAction } from "../types";
 import { estimateCost, formatCost, formatTokens } from "../util/pricing";
 
 // Standing follow-up prompts that appear below the most recent tutor turn.
 // They're a quick way for the learner to deepen an answer without re-typing.
-const CHIPS: { label: string; prompt: string }[] = [
+const CHIPS: { label: string; prompt: string; action?: TutorAction }[] = [
   {
     label: "still stuck",
     prompt: "I'm still stuck on this — can you give me a stronger hint?",
@@ -11,14 +11,17 @@ const CHIPS: { label: string; prompt: string }[] = [
   {
     label: "explain more",
     prompt: "Can you explain that in more detail?",
+    action: "explain-more",
   },
   {
     label: "concrete example",
     prompt: "Can you show me a concrete example of that in my code?",
+    action: "concrete-example",
   },
   {
     label: "why it matters",
     prompt: "Why does this matter for what I'm trying to do?",
+    action: "why-it-matters",
   },
 ];
 
@@ -26,7 +29,7 @@ export function ActionChips({
   onAsk,
   disabled,
 }: {
-  onAsk: (q: string) => void;
+  onAsk: (q: string, action?: TutorAction) => void;
   disabled?: boolean;
 }) {
   return (
@@ -34,7 +37,7 @@ export function ActionChips({
       {CHIPS.map((c) => (
         <button
           key={c.label}
-          onClick={() => onAsk(c.prompt)}
+          onClick={() => onAsk(c.prompt, c.action)}
           disabled={disabled}
           className="min-h-11 rounded-full border border-border bg-elevated/60 px-3 py-2 text-sm text-muted transition hover:border-accent/60 hover:bg-accent/10 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border disabled:hover:bg-elevated disabled:hover:text-muted"
           title={c.prompt}

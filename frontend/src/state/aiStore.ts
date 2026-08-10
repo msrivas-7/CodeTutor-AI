@@ -5,6 +5,7 @@ import type {
   EditorSelection,
   Persona,
   TokenUsage,
+  TutorAction,
   TutorSections,
 } from "../types";
 import type { ProjectVersion } from "./projectStore";
@@ -31,6 +32,11 @@ export type ModelsStatus = "idle" | "loading" | "loaded" | "error";
 export interface BoundEditorSelection {
   selection: EditorSelection;
   project: ProjectVersion;
+}
+
+export interface PendingTutorAsk {
+  question: string;
+  action?: TutorAction;
 }
 
 interface AIState {
@@ -65,7 +71,7 @@ interface AIState {
   // AssistantPanel watches this: when non-null it submits the question
   // directly (no composer prefill step) and clears the signal via
   // setPendingAsk(null).
-  pendingAsk: string | null;
+  pendingAsk: PendingTutorAsk | null;
 
   // Phase 4 — student experience level (biases the system prompt). Persisted
   // per-device because it's a preference, not session state.
@@ -104,7 +110,7 @@ interface AIState {
   setModelsStatus: (status: ModelsStatus, error?: string | null) => void;
   setSelectedModel: (id: string | null) => void;
 
-  setPendingAsk: (s: string | null) => void;
+  setPendingAsk: (ask: string | PendingTutorAsk | null) => void;
 
   setPersona: (p: Persona) => void;
 
@@ -241,7 +247,9 @@ export const useAIStore = create<AIState>((set, get) => ({
     void setOpenAIModelInPrefs(id).catch(() => { /* logged in prefs */ });
   },
 
-  setPendingAsk: (s) => set({ pendingAsk: s }),
+  setPendingAsk: (ask) => set({
+    pendingAsk: typeof ask === "string" ? { question: ask } : ask,
+  }),
 
   setPersona: (p) => {
     set({ persona: p });

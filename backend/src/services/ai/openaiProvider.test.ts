@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   REQUEST_DEADLINE_MS,
+  TUTOR_REASONING_EFFORT,
   estimateInputTokensForAsk,
   estimateReservationForAsk,
   estimateTokens,
@@ -42,21 +43,20 @@ describe("estimateTokens", () => {
 });
 
 describe("listModels", () => {
-  it("offers evaluated Luna and the still-supported Nano BYOK choice", async () => {
+  it("offers only independently evaluated GPT-5-or-later Tutor models", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(JSON.stringify({
       data: [
         { id: "text-embedding-3-small" },
         { id: "gpt-4.1-nano" },
+        { id: "gpt-5.1" },
+        { id: "gpt-5-audio" },
         { id: "gpt-5.6-luna" },
       ],
     }), { status: 200 }));
 
     const models = await openaiProvider.listModels("sk-test-list-models");
 
-    expect(models.map((model) => model.id)).toEqual([
-      "gpt-5.6-luna",
-      "gpt-4.1-nano",
-    ]);
+    expect(models.map((model) => model.id)).toEqual(["gpt-5.6-luna"]);
     expect(models.every((model) => model.contextualTutorEligible)).toBe(true);
   });
 });
@@ -155,7 +155,7 @@ describe("structured stream safety", () => {
       `data: ${JSON.stringify({ type: "response.output_text.delta", delta: providerJson })}\n\n`,
       `data: ${JSON.stringify({ type: "response.completed", response: { usage: { input_tokens: 10, output_tokens: 5 } } })}\n\n`,
     ].join("");
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(sse, {
         status: 200,
         headers: { "Content-Type": "text/event-stream" },
@@ -188,6 +188,8 @@ describe("structured stream safety", () => {
     );
 
     expect(onError).not.toHaveBeenCalled();
+    const requestBody = JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body));
+    expect(requestBody.reasoning).toBeUndefined();
     expect(onDelta).not.toHaveBeenCalled();
     expect(onDone).toHaveBeenCalledOnce();
     const [safeRaw, sections] = onDone.mock.calls[0];
@@ -342,6 +344,33 @@ describe("structured stream safety", () => {
 });
 
 describe("structured response recovery", () => {
+  it("sends low reasoning effort to Luna and semantic action metadata without inferring button copy", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({
+        output_text: JSON.stringify({
+          intent: "concept",
+          summary: "The lesson objectives form one sequence.",
+          explain: "Each objective describes one observable part of the current lesson.",
+          comprehensionCheck: "Which objective will you verify first?",
+        }),
+        usage: { input_tokens: 12, output_tokens: 9 },
+      }), { status: 200, headers: { "Content-Type": "application/json" } }),
+    );
+
+    await openaiProvider.ask(minimalParams({
+      model: "gpt-5.6-luna",
+      question: "Could you orient me?",
+      tutorAction: "explain-lesson-task",
+      tutorStage: "clarify",
+    }));
+
+    const requestBody = JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body));
+    expect(requestBody.reasoning).toEqual({ effort: TUTOR_REASONING_EFFORT });
+    expect(requestBody.instructions).toContain("APPLICATION ACTION METADATA");
+    expect(requestBody.instructions).toContain("explain-lesson-task");
+    expect(requestBody.instructions).not.toContain("Could you orient me?");
+  });
+
   it("returns and accounts for a policy-safe fallback when JSON is malformed", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({

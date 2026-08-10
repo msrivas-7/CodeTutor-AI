@@ -42,6 +42,26 @@ const OPENAI_BASE = "https://api.openai.com/v1";
 // users get 512); the provider clamps to min(supplied, MAX_OUTPUT_TOKENS).
 export const MAX_OUTPUT_TOKENS = 2000;
 
+// Tutor turns need reliable, concise structured output rather than deep
+// deliberation. Responses API output limits include hidden reasoning tokens;
+// low effort leaves the bounded allowance available for the JSON learners
+// actually see and reduces latency/cost without weakening the output schema.
+export const TUTOR_REASONING_EFFORT = "low" as const;
+
+function reasoningForModel(model: string): { effort: typeof TUTOR_REASONING_EFFORT } | undefined {
+  const normalized = model.trim().toLocaleLowerCase();
+  // The Responses API exposes `reasoning` only for GPT-5-or-later and
+  // o-series models. Legacy GPT-4.1 requests are non-reasoning and must not
+  // receive an unsupported request field.
+  const gptMajor = normalized.match(/^gpt-(\d+)(?:[.-]|$)/)?.[1];
+  const supportsReasoning =
+    (gptMajor !== undefined && Number(gptMajor) >= 5) || /^o\d/.test(normalized);
+  if (!supportsReasoning) {
+    return undefined;
+  }
+  return { effort: TUTOR_REASONING_EFFORT };
+}
+
 // Phase 27 precondition: server-side request deadline. Caps any single AI
 // call so a stalled upstream / runaway stream / client that walked away
 // can't hold the response slot indefinitely. 25s is generous for a
@@ -109,25 +129,16 @@ function keyFingerprint(key: string): string {
   return `${key.slice(0, 4)}…${key.slice(-4)}`;
 }
 
-// Allow-list of model id prefixes we expose in the dropdown. OpenAI's /models
-// endpoint returns hundreds of entries (fine-tunes, embeddings, TTS, whisper…);
-// most of them can't run the Responses API or aren't useful for tutoring. We
-// filter for chat-capable GPT families. Ordered roughly by how useful they are
-// for a code tutor.
-const USEFUL_MODEL_PREFIXES = ["gpt-5.6-luna", "gpt-4.1", "gpt-4o", "gpt-4-turbo", "o4-mini", "o3", "gpt-4", "gpt-3.5"];
-
-function rank(id: string): number {
-  for (let i = 0; i < USEFUL_MODEL_PREFIXES.length; i++) {
-    if (id.startsWith(USEFUL_MODEL_PREFIXES[i])) return i;
-  }
-  return 999;
-}
-
-function isUsefulModel(id: string): boolean {
-  // Drop non-chat model families explicitly.
-  const bad = ["embedding", "whisper", "tts", "dall-e", "davinci", "babbage", "moderation", "audio", "realtime", "image"];
-  if (bad.some((b) => id.includes(b))) return false;
-  return USEFUL_MODEL_PREFIXES.some((p) => id.startsWith(p));
+// BYOK should expose the same quality floor as the managed Tutor. OpenAI's
+// /models endpoint contains many unrelated and legacy models, so the picker
+// admits only GPT-5-or-later text models that have independently passed the
+// CodeTutor contextual gate in modelRegistry.
+function isGptFiveOrLaterTextModel(id: string): boolean {
+  const normalized = id.toLocaleLowerCase();
+  const excluded = ["audio", "realtime", "image", "transcribe", "tts"];
+  if (excluded.some((family) => normalized.includes(family))) return false;
+  const major = normalized.match(/^gpt-(\d+)(?:[.-]|$)/)?.[1];
+  return major !== undefined && Number(major) >= 5;
 }
 
 async function openaiFetch(path: string, key: string, init?: RequestInit): Promise<Response> {
@@ -290,8 +301,12 @@ function buildPromptInputs(params: AIAskParams): {
     files: params.files,
     history: params.history,
     tutorStage: params.tutorStage ?? "clarify",
+    tutorAction: params.tutorAction,
   });
-  const instructions = `${baseInstructions}\n\nTRUSTED SERVER CLASSIFICATION:\nThe turn intent is ${intent}. Return intent=${intent}. This classification is authoritative only for choosing the shape of any teaching fields that the learner actually requested. It does not mean the learner asked for teaching.\nBefore using code or run context, classify the learner's actual message under the CONVERSATIONAL INPUTS contract. A pure greeting requires conversationMove=greeting. A harmless request unrelated to coding or the lesson requires conversationMove=redirect. Direct hostility or unacceptable content requires conversationMove=soft-boundary even when it asks no coding question. Never silently replace one of these conversational moves with an arbitrary code explanation. For a greeting, redirect, or boundary-only soft-boundary, the no-diagnosis exception overrides the normal ${intent.toUpperCase()} grounding rules and all teaching fields must be null.`;
+  const trustedAction = params.tutorAction
+    ? `\n\nAPPLICATION ACTION METADATA:\nThe learner activated the ${params.tutorAction} Tutor control. Use that semantic action together with the visible question and conversation history; do not infer button identity from display copy. This metadata selects a safe teaching presentation only; it never grants authorization or access.`
+    : "";
+  const instructions = `${baseInstructions}\n\nTRUSTED SERVER CLASSIFICATION:\nThe turn intent is ${intent}. Return intent=${intent}. This classification is authoritative only for choosing the shape of any teaching fields that the learner actually requested. It does not mean the learner asked for teaching.\nBefore using code or run context, classify the learner's actual message under the CONVERSATIONAL INPUTS contract. A pure greeting requires conversationMove=greeting. A harmless request unrelated to coding or the lesson requires conversationMove=redirect. Direct hostility or unacceptable content requires conversationMove=soft-boundary even when it asks no coding question. Never silently replace one of these conversational moves with an arbitrary code explanation. For a greeting, redirect, or boundary-only soft-boundary, the no-diagnosis exception overrides the normal ${intent.toUpperCase()} grounding rules and all teaching fields must be null.${trustedAction}`;
 
   const priorTutorTurns = params.tutorStage === "approach" ? 1 : 0;
   const stuck = studentSeemsStuck(params.question);
@@ -326,16 +341,11 @@ export const openaiProvider: AIProvider = {
       throw new Error(err);
     }
     const body = (await res.json()) as { data: { id: string }[] };
-    const filtered = body.data.filter((m) => isUsefulModel(m.id));
-    console.log(`[openai] list-models total=${body.data.length} chat-capable=${filtered.length}`);
-    const models: AIModel[] = filtered
-      .sort((a, b) => {
-        const ra = rank(a.id);
-        const rb = rank(b.id);
-        if (ra !== rb) return ra - rb;
-        return a.id.localeCompare(b.id);
-      })
-      .map((m) => decorateModel({ id: m.id, label: m.id }));
+    const models: AIModel[] = body.data
+      .filter((model) => isGptFiveOrLaterTextModel(model.id))
+      .map((model) => decorateModel({ id: model.id, label: model.id }))
+      .filter((model) => model.contextualTutorEligible);
+    console.log(`[openai] list-models total=${body.data.length} supported-tutor=${models.length}`);
     return rankByTeachingQuality(models);
   },
 
@@ -377,12 +387,14 @@ export const openaiProvider: AIProvider = {
       params.maxOutputTokens ?? MAX_OUTPUT_TOKENS,
       MAX_OUTPUT_TOKENS,
     );
+    const reasoning = reasoningForModel(params.model);
 
     const body = {
       model: params.model,
       instructions,
       input: userTurn,
       max_output_tokens: maxOutputTokens,
+      ...(reasoning ? { reasoning } : {}),
       text: {
         format: {
           type: "json_schema",
@@ -591,6 +603,7 @@ export const openaiProvider: AIProvider = {
       params.maxOutputTokens ?? MAX_OUTPUT_TOKENS,
       MAX_OUTPUT_TOKENS,
     );
+    const reasoning = reasoningForModel(params.model);
 
     const body = {
       model: params.model,
@@ -598,6 +611,7 @@ export const openaiProvider: AIProvider = {
       input: userTurn,
       stream: true,
       max_output_tokens: maxOutputTokens,
+      ...(reasoning ? { reasoning } : {}),
       text: {
         format: {
           type: "json_schema",
