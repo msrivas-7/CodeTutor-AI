@@ -247,6 +247,7 @@ import type {
   ProjectFile,
   RunResult,
   TokenUsage,
+  TutorAction,
   TutorSections,
 } from "../types";
 import type { CompletionRule, FunctionTest, SourceCheck, TestReport } from "../features/learning/types";
@@ -467,6 +468,7 @@ export interface AskStreamRequest {
   requestId: string;
   model: string;
   question: string;
+  tutorAction?: TutorAction;
   files: ProjectFile[];
   activeFile?: string;
   language?: Language;

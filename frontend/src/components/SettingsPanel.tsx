@@ -834,18 +834,16 @@ function BYOKStatusCard() {
             if (!selected) return null;
             return (
               <p
-                className={`text-[10px] leading-relaxed ${
-                  selected.qualityStatus === "evaluated" ? "text-success" : "text-warnInk"
-                }`}
+                className="text-[10px] leading-relaxed text-success"
               >
-                {selected.qualityLabel}. Unevaluated models can still be used in the
-                general editor tutor, but contextual lesson guidance is disabled.
+                {selected.qualityLabel}. Only CodeTutor-evaluated GPT-5-or-later
+                models are offered for lesson tutoring.
               </p>
             );
           })()}
           {modelsStatus === "loaded" && models.length === 0 && (
             <span className="text-[11px] text-muted">
-              This key doesn't have access to any chat models — check your OpenAI plan.
+              This key doesn't have access to a CodeTutor-supported GPT-5 tutor model.
             </span>
           )}
         </div>

@@ -7,6 +7,7 @@ import type {
   AIMessage,
   EditorSelection,
   RunResult,
+  TutorAction,
   TutorSections,
 } from "../src/services/ai/provider.js";
 import type { Language } from "../src/services/execution/commands.js";
@@ -64,6 +65,7 @@ interface GoldenPrompt {
   userMessage: string;
   userFile: string;
   learnerName?: string | null;
+  tutorAction?: TutorAction;
   history?: AIMessage[];
   lastRun?: RunResult | null;
   diffSinceLastTurn?: string | null;
@@ -349,6 +351,7 @@ function evaluationContext(prompt: GoldenPrompt, fileName: string): string {
   return JSON.stringify({
     intent: prompt.intent,
     learnerQuestion: prompt.userMessage,
+    tutorAction: prompt.tutorAction ?? null,
     learnerName: prompt.learnerName ?? null,
     activeFile: { path: fileName, content: prompt.userFile },
     lastRun: prompt.lastRun ?? null,
@@ -397,6 +400,7 @@ async function runPrompt(
       model: tutorModel,
       fundingSource: "platform",
       question: prompt.userMessage,
+      tutorAction: prompt.tutorAction,
       learnerName: prompt.learnerName ?? null,
       files,
       activeFile: fileName,

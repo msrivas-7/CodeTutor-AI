@@ -7,6 +7,7 @@ import { HOUSE_EASE } from "./cinema/easing";
 import type {
   Stuckness,
   TutorCitation,
+  TutorAction,
   TutorIntent,
   TutorSections,
   TutorWalkStep,
@@ -279,7 +280,7 @@ export function CheckQuestionsView({
   socratic,
 }: {
   questions: string[];
-  onAsk?: (q: string) => void;
+  onAsk?: (q: string, action?: TutorAction) => void;
   disabled?: boolean;
   socratic?: boolean;
 }) {
@@ -431,7 +432,7 @@ export function TutorResponseView({
   scripted,
 }: {
   sections: TutorSections;
-  onAsk?: (q: string) => void;
+  onAsk?: (q: string, action?: TutorAction) => void;
   onCompose?: (draft: string) => void;
   disabled?: boolean;
   // When true, a blinking caret renders at the end of whichever prose

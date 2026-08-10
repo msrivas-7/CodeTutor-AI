@@ -4,7 +4,10 @@ import type {
   TutorIntent,
   TutorStage,
 } from "./provider.js";
-import { isModelEvaluatedForTutorIntent } from "./modelRegistry.js";
+import {
+  isContextualTutorModel,
+  isModelEvaluatedForTutorIntent,
+} from "./modelRegistry.js";
 import { classifyTutorIntent } from "./tutorIntent.js";
 
 export const PLATFORM_DEFAULT_TUTOR_MODEL = "gpt-5.6-luna";
@@ -17,8 +20,9 @@ export interface TutorModelRoute {
 
 /**
  * Platform funding owns the model choice. Treat the client model as an
- * advisory compatibility field so an old tab or persisted BYOK preference
- * cannot break a platform-funded request or promote it to a costlier model.
+ * advisory compatibility field so an old tab or persisted preference cannot
+ * bypass the evaluated GPT-5 Tutor floor. BYOK still owns the credential and
+ * billing; model eligibility remains a server-owned product decision.
  */
 export function canonicalTutorRequestModel({
   requestedModel,
@@ -27,9 +31,10 @@ export function canonicalTutorRequestModel({
   requestedModel: string;
   fundingSource: "byok" | "platform";
 }): string {
-  return fundingSource === "platform"
-    ? PLATFORM_DEFAULT_TUTOR_MODEL
-    : requestedModel;
+  if (fundingSource === "platform") return PLATFORM_DEFAULT_TUTOR_MODEL;
+  return isContextualTutorModel(requestedModel)
+    ? requestedModel
+    : PLATFORM_DEFAULT_TUTOR_MODEL;
 }
 
 export function platformTutorModelForIntent(
@@ -41,8 +46,9 @@ export function platformTutorModelForIntent(
 /**
  * Apply a server-owned routing policy to untrusted learner content plus the
  * trusted, signed progression stage. A platform client can request only the
- * evaluated platform model at the route boundary. BYOK calls always retain
- * the user's selected model. Platform funding uses the single independently
+ * evaluated platform model at the route boundary. BYOK retains the user's
+ * credential while stale or unevaluated model choices canonicalize to the
+ * same GPT-5 quality floor. Platform funding uses the single independently
  * evaluated Luna policy for every teaching intent; clients cannot promote
  * themselves to a different operator-funded model.
  */

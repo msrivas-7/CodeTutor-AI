@@ -60,6 +60,19 @@ function validLocation(
   return lines !== undefined && line <= lines.length && !!lines[line - 1]?.trim();
 }
 
+const CITATION_REASON_MAX_LENGTH = 120;
+
+function boundedCitationReason(reason: string): string {
+  if (reason.length <= CITATION_REASON_MAX_LENGTH) return reason;
+  const contentLimit = CITATION_REASON_MAX_LENGTH - 1;
+  const prefix = reason.slice(0, contentLimit);
+  const lastBoundary = prefix.search(/\s+\S*$/);
+  const completePrefix = lastBoundary >= 0
+    ? prefix.slice(0, lastBoundary).trimEnd()
+    : prefix;
+  return `${completePrefix}…`;
+}
+
 /**
  * Parses model JSON into the only output shape the UI is allowed to render.
  * Text remains plain React text; file navigation is restricted to the current
@@ -98,7 +111,7 @@ export function parseTutorOutput(
         )
         .map((citation) => ({
           ...citation,
-          reason: citation.reason.slice(0, 120),
+          reason: boundedCitationReason(citation.reason),
           column:
             citation.column != null && citation.column >= 1
               ? citation.column

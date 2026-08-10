@@ -4,11 +4,10 @@ import type {
   TutorSections,
 } from "./provider.js";
 import { isStandardApiSymbol } from "./suspectApi.js";
-import { isTaskExplanationRequest } from "./tutorIntent.js";
 
 type TutorPolicyParams = Pick<
   AIAskParams,
-  "files" | "question" | "lessonContext" | "lastRun"
+  "files" | "question" | "lessonContext" | "lastRun" | "tutorAction"
 > &
   Partial<Pick<AIAskParams, "history" | "diffSinceLastTurn" | "learnerName">>;
 
@@ -527,12 +526,37 @@ function visibleJsConstBinding(
 }
 
 function visibleConceptAnchor(
-  params: Pick<AIAskParams, "files">,
+  params: Pick<AIAskParams, "files" | "question">,
 ): { example: string; citation: NonNullable<TutorSections["citations"]>[number] } | null {
+  const mentionedCall = firstQuestionMentionedCall(params);
+  if (mentionedCall) {
+    const escaped = mentionedCall.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    for (const file of params.files) {
+      const lines = file.content.split("\n");
+      const lineIndex = lines.findIndex((line) =>
+        new RegExp(`(?:^|[^\\w$])${escaped}\\s*\\(`, "i").test(line)
+      );
+      if (lineIndex < 0) continue;
+      const step = visibleCodeWalkthroughSteps(params).find((candidate) =>
+        candidate.path === file.path && candidate.line === lineIndex + 1
+      );
+      return {
+        example: step?.body ?? `The cited line visibly calls \`${mentionedCall}\`.`,
+        citation: {
+          path: file.path,
+          line: lineIndex + 1,
+          column: null,
+          reason: `Visible call to ${mentionedCall}`,
+        },
+      };
+    }
+  }
   for (const file of params.files) {
     const lines = file.content.split("\n");
     for (const [index, line] of lines.entries()) {
-      const identifier = line.match(/^\s*([A-Za-z_$][\w$]*)\s*=/)?.[1];
+      const identifier = line.match(
+        /^\s*(?:(?:const|let|var)\s+)?([A-Za-z_$][\w$]*)\s*=/,
+      )?.[1];
       if (!identifier) continue;
       return {
         example: `In your current file, \`${identifier}\` is a visible example of this concept.`,
@@ -546,6 +570,20 @@ function visibleConceptAnchor(
     }
   }
   return null;
+}
+
+function citedConceptDetail(
+  citations: TutorSections["citations"],
+  params: Pick<AIAskParams, "files" | "question">,
+): string | null {
+  const citation = citations?.[0];
+  if (!citation) return null;
+  const step = visibleCodeWalkthroughSteps(params).find((candidate) =>
+    candidate.path === citation.path && candidate.line === citation.line
+  );
+  if (!step) return null;
+  const detail = step.body.charAt(0).toLowerCase() + step.body.slice(1);
+  return `At \`${citation.path}:${citation.line}\`, ${detail}`;
 }
 
 function visibleCodeCitation(
@@ -681,15 +719,25 @@ function learnerFacingCriterion(criterion: string): string {
     .trim();
 }
 
+function uniqueLessonItems(items: string[]): string[] {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = item.trim().toLocaleLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function lessonTaskExplanation(params: TutorPolicyParams): TutorSections | null {
   const lesson = params.lessonContext;
   if (!lesson) return null;
-  const objectives = lesson.lessonObjectives
+  const objectives = uniqueLessonItems(lesson.lessonObjectives
     .map((objective) => objective.trim().replace(/[.!]+$/, ""))
-    .filter(Boolean);
-  const criteria = lesson.completionCriteria
+    .filter(Boolean));
+  const criteria = uniqueLessonItems(lesson.completionCriteria
     .map((criterion) => learnerFacingCriterion(criterion).replace(/[.!]+$/, ""))
-    .filter(Boolean);
+    .filter(Boolean));
   const goal = objectives[0] ?? "complete the lesson's stated objective";
   const objectiveExplanation = objectives.length > 1
     ? `This lesson has ${objectives.length} objectives:\n\n${lessonBulletList(objectives)}`
@@ -710,16 +758,6 @@ function lessonTaskExplanation(params: TutorPolicyParams): TutorSections | null 
 
 type TaskExplanationFollowUp = "explain-more" | "concrete-example" | "why-it-matters";
 
-// These are application-owned action-chip commands, not an attempt to classify
-// arbitrary learner prose. Free-form follow-ups remain the model's job. Keeping
-// the UI commands exact makes their contract explicit and prevents a vague
-// button press from spending a turn on a re-greeting or unrelated code review.
-const TASK_EXPLANATION_FOLLOW_UPS = new Map<string, TaskExplanationFollowUp>([
-  ["Can you explain that in more detail?", "explain-more"],
-  ["Can you show me a concrete example of that in my code?", "concrete-example"],
-  ["Why does this matter for what I'm trying to do?", "why-it-matters"],
-]);
-
 function previousTurnExplainedLessonTask(params: TutorPolicyParams): boolean {
   const previousAssistant = [...(params.history ?? [])]
     .reverse()
@@ -737,7 +775,12 @@ function previousTurnExplainedLessonTask(params: TutorPolicyParams): boolean {
 }
 
 function lessonTaskExplanationFollowUp(params: TutorPolicyParams): TutorSections | null {
-  const action = TASK_EXPLANATION_FOLLOW_UPS.get(params.question.trim());
+  const action: TaskExplanationFollowUp | null =
+    params.tutorAction === "explain-more" ||
+      params.tutorAction === "concrete-example" ||
+      params.tutorAction === "why-it-matters"
+      ? params.tutorAction
+      : null;
   const lesson = params.lessonContext;
   if (!action || !lesson || !previousTurnExplainedLessonTask(params)) return null;
 
@@ -1555,10 +1598,22 @@ function walkthroughLineScore(
   mentionedSymbols: Set<string>,
 ): number {
   const lowerBody = body.toLowerCase();
-  const lowerContent = content.toLowerCase();
-  let score = [...mentionedSymbols].filter((symbol) =>
-    lowerContent.includes(symbol.toLowerCase())
-  ).length * 2;
+  const escapedSymbol = (symbol: string) =>
+    symbol.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const sourceContainsSymbol = (symbol: string) => new RegExp(
+    `(?:^|[^\\w$])${escapedSymbol(symbol)}(?=$|[^\\w$])`,
+    "i",
+  ).test(content);
+  const matchedSymbols = [...mentionedSymbols].filter(sourceContainsSymbol);
+  let score = matchedSymbols.length * 4;
+  // A line that declares the exact identifier being explained is stronger
+  // evidence than a generic assignment that happens to mention one of the
+  // same container names. This prevents, for example, an `add_task` step from
+  // being attached to a later `tasks` summary assignment.
+  score += matchedSymbols.filter((symbol) => new RegExp(
+    `^\\s*(?:async\\s+)?(?:def|function|class)\\s+${escapedSymbol(symbol)}(?=\\s|\\()`,
+    "i",
+  ).test(content)).length * 12;
   const mentionedNumbers = body.match(/(?<![\w.])-?\d+(?:\.\d+)?\b/g) ?? [];
   const sourceNumbers = new Set(
     content.match(/(?<![\w.])-?\d+(?:\.\d+)?\b/g) ?? [],
@@ -2046,8 +2101,23 @@ function enforceWalkthroughStepContract(
     visibleFallback.map((step) => [`${step.path ?? ""}:${step.line ?? ""}`, step]),
   );
   return steps.flatMap((step) => {
-    if (!walkthroughStepNeedsFallback(step.body)) return [step];
     const fallback = fallbackByLocation.get(`${step.path ?? ""}:${step.line ?? ""}`);
+    const declaredIdentifier = fallback?.body.match(
+      /\bdefines\s+`([A-Za-z_$][\w$]*)`/,
+    )?.[1];
+    if (declaredIdentifier) {
+      const escaped = declaredIdentifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const mentionsDeclaration = new RegExp(
+        `(?:^|[^\\w$])${escaped}(?=$|[^\\w$])`,
+        "i",
+      ).test(step.body);
+      // A numerically valid citation is still false grounding when prose for
+      // a distant main guard, list initialization, or another helper is
+      // attached to this declaration. Require the declared symbol itself;
+      // otherwise prefer the deterministic source-derived explanation.
+      if (!mentionsDeclaration) return fallback ? [fallback] : [];
+    }
+    if (!walkthroughStepNeedsFallback(step.body)) return [step];
     return fallback ? [fallback] : [];
   });
 }
@@ -2143,6 +2213,12 @@ function visibleCodeWalkthroughSteps(
         /^print\s*\(\s*f["'][^"']*\{([A-Za-z_]\w*)[^}]*\}[^"']*["']\s*\)\s*$/,
       )?.[1];
       const pythonOutputExpression = line.match(/^print\s*\((.*)\)\s*$/)?.[1];
+      const standaloneCall = line.match(
+        /^([A-Za-z_$][\w$]*)\s*\((.*)\)\s*;?$/,
+      );
+      const standaloneMethodCall = line.match(
+        /^([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)\s*\((.*)\)\s*;?$/,
+      );
       const pythonFromImport = line.match(
         /^from\s+([A-Za-z_][\w.]*)\s+import\s+(.+)$/,
       );
@@ -2197,11 +2273,16 @@ function visibleCodeWalkthroughSteps(
         body = `This line imports ${names}.`;
       } else if (assignment) {
         const [, name, expression] = assignment;
+        const pythonConditional = expression.match(
+          /^(.+?)\s+if\s+(.+?)\s+else\s+(.+)$/,
+        );
         const called = expression.match(/^([A-Za-z_$][\w$]*)\s*\(/)?.[1];
         const methodCall = expression.match(
           /^([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)\s*\(/,
         );
-        body = methodCall?.[2] === "map"
+        body = pythonConditional
+          ? `\`${name}\` chooses between the two visible values based on whether \`${pythonConditional[2].trim()}\` is true.`
+          : methodCall?.[2] === "map"
           ? `\`${name}\` receives a new array produced by applying \`map\` to each current \`${methodCall[1]}\` value.`
           : methodCall
           ? `\`${name}\` receives the value returned by calling \`${methodCall[2]}\` on \`${methodCall[1]}\`.`
@@ -2210,6 +2291,28 @@ function visibleCodeWalkthroughSteps(
           : expression.includes("+")
           ? plusExpressionExplanation(name, expression)
           : `\`${name}\` stores the value computed by this expression.`;
+      } else if (standaloneMethodCall) {
+        const [, receiver, method, rawArguments] = standaloneMethodCall;
+        const argumentsList = rawArguments
+          .split(",")
+          .map((argument) => argument.trim())
+          .filter(Boolean)
+          .slice(0, 3)
+          .map((argument) => `\`${argument}\``);
+        body = argumentsList.length > 0
+          ? `This line calls \`${method}\` on \`${receiver}\` with ${argumentsList.join(", ")}.`
+          : `This line calls \`${method}\` on \`${receiver}\` with no arguments.`;
+      } else if (standaloneCall) {
+        const [, name, rawArguments] = standaloneCall;
+        const argumentsList = rawArguments
+          .split(",")
+          .map((argument) => argument.trim())
+          .filter(Boolean)
+          .slice(0, 3)
+          .map((argument) => `\`${argument}\``);
+        body = argumentsList.length > 0
+          ? `This line calls \`${name}\` with ${argumentsList.join(", ")}.`
+          : `This line calls \`${name}\` with no arguments.`;
       } else if (/^(?:if|elif|else\b|for|while)\b/.test(line)) {
         body = "This line controls which part of the visible flow runs next.";
       } else {
@@ -2284,7 +2387,11 @@ function ensureRepresentativeLongWalkthrough(
   const priority = (step: NonNullable<TutorSections["walkthrough"]>[number]) => {
     const source = sourceByLocation.get(`${step.path ?? ""}:${step.line ?? ""}`) ?? "";
     if (/\b(?:receives|stores) the value\b/i.test(step.body)) return 30;
-    if (/\b(?:defines|returns)\b/i.test(step.body)) return 24;
+    // Function boundaries explain a long program's architecture; retain them
+    // ahead of generic intermediate assignments when the six-step UI budget
+    // forces a representative subset.
+    if (/\bdefines\b/i.test(step.body)) return 34;
+    if (/\breturns\b/i.test(step.body)) return 24;
     if (/\b(?:displays|logs)\b/i.test(step.body)) {
       return /^\s+/.test(source) ? 12 : 22;
     }
@@ -2416,7 +2523,11 @@ export function applyTutorOutputPolicy({
     const taskFollowUp = lessonTaskExplanationFollowUp(params);
     if (taskFollowUp) return taskFollowUp;
   }
-  if (!protectedRequestEarly && intent === "concept" && isTaskExplanationRequest(params.question)) {
+  if (
+    !protectedRequestEarly &&
+    intent === "concept" &&
+    params.tutorAction === "explain-lesson-task"
+  ) {
     const taskExplanation = lessonTaskExplanation(params);
     if (taskExplanation) return taskExplanation;
   }
@@ -2505,7 +2616,8 @@ export function applyTutorOutputPolicy({
       EXPLICIT_HINT_REQUEST.test(params.question) ||
       protectedRequestEarly ||
       FINAL_VALUE_REQUEST.test(params.question);
-    const grounded = collectionIterationGrounding ?? directAnswerGrounding ?? (EXPLICIT_HINT_REQUEST.test(params.question)
+    const grounded = collectionIterationGrounding ??
+      directAnswerGrounding ?? (EXPLICIT_HINT_REQUEST.test(params.question)
       ? STRONGER_HINT_REQUEST.test(params.question) && priorTutorTurns > 0
         ? groundedStrongerHint(params)
         : groundedGentleHint(params)
@@ -2868,13 +2980,13 @@ export function applyTutorOutputPolicy({
     };
   }
   const delimiterSyntax = visibleDelimiterSyntaxDebug(params);
-  const isGenericDelimiterFollowUp = delimiterSyntax &&
-    /\b(?:explain (?:that|this)|(?:that|this) in more detail|concrete example of (?:that|this)|why does (?:this|that|it) matter|idk|i don'?t know|confus\w*|help(?: me)?(?: pls| please)?|what(?:'s| is) going on)\b/i.test(
-      params.question,
-    );
-  if ((isGenericDelimiterFollowUp || protectedRequest) && delimiterSyntax) {
-    const asksForConcreteExample = /\bconcrete example\b/i.test(params.question);
-    const asksWhyItMatters = /\bwhy does (?:this|that|it) matter\b/i.test(params.question);
+  const delimiterFollowUpAction =
+    params.tutorAction === "explain-more" ||
+    params.tutorAction === "concrete-example" ||
+    params.tutorAction === "why-it-matters";
+  if ((delimiterFollowUpAction || protectedRequest) && delimiterSyntax) {
+    const asksForConcreteExample = params.tutorAction === "concrete-example";
+    const asksWhyItMatters = params.tutorAction === "why-it-matters";
     return {
       ...common,
       intent: "concept",
@@ -2896,10 +3008,10 @@ export function applyTutorOutputPolicy({
   const constBinding = visibleJsConstBinding(params);
   const listSortCorrection = visiblePythonListSortCorrection(params);
   const anchor = visibleConceptAnchor(params);
-  const asksForConcreteExample = /\bconcrete example\b/i.test(params.question);
+  const asksForConcreteExample = params.tutorAction === "concrete-example";
   const starterOutputComment = visibleStarterOutputComment(params);
   const starterCommentConcrete = asksForConcreteExample ? starterOutputComment : null;
-  const asksWhyItMatters = /\bwhy (?:does )?(?:this|that|it) matter\b|\bwhy it matters\b/i.test(params.question);
+  const asksWhyItMatters = params.tutorAction === "why-it-matters";
   const citationLabels = sections.citations
     ?.map((citation) => meaningfulProse(citation.reason, params))
     .filter((reason): reason is string => !!reason) ?? [];
@@ -2910,9 +3022,15 @@ export function applyTutorOutputPolicy({
         modelExplanation.trim().toLocaleLowerCase().replace(/[.!?]+$/, "")
       )
     : false;
+  const needsDeterministicConceptRecovery =
+    !modelExplanation || modelExplanationIsCitationLabel;
   const citationExplanation = citationLabels
     .filter((label) => label.length >= 48 && (label.match(/[A-Za-z]+/g)?.length ?? 0) >= 8)
     .sort((a, b) => b.length - a.length)[0] ?? null;
+  const deterministicCitationDetail =
+    needsDeterministicConceptRecovery && !asksWhyItMatters
+    ? citedConceptDetail(common.citations, params)
+    : null;
   const conceptCheck = conditional
     ? "With the current visible value, which branch do you predict will run first?"
     : constBinding
@@ -2962,6 +3080,7 @@ export function applyTutorOutputPolicy({
         ? `The cited line is guidance, not executable code. It points to \`${starterOutputComment.call}()\` as the operation that will display the learner’s chosen text after they add an output statement beneath the comments.`
         : null) ??
       citationExplanation ??
+      deterministicCitationDetail ??
       (asksWhyItMatters
         ? "This matters because the cited line controls behavior the learner can observe on the next run. Being able to predict that line is what makes later debugging changes deliberate instead of guesswork."
         : "Use the cited line as the source of truth: predict what value it produces or changes, then compare that prediction with the next run."),
@@ -3037,6 +3156,50 @@ export function hasTutorTeachingValue(
   );
   if (!anchored) return false;
 
+  const contextualTeachingAnchors = (() => {
+    const context = [
+      params.question,
+      ...params.files.map((file) => file.content),
+      ...(params.lessonContext?.lessonObjectives ?? []),
+      ...(params.lessonContext?.completionCriteria ?? []),
+      params.lastRun?.stdout ?? "",
+      params.lastRun?.stderr ?? "",
+    ].join("\n");
+    const ignored = new Set([
+      "about", "after", "again", "also", "and", "are", "before", "between",
+      "can", "change", "changes",
+      "code", "compare", "current", "does", "evidence", "explain", "file",
+      "for", "from", "have", "how", "into", "its", "lesson", "line", "more",
+      "next", "not", "one", "predict", "produces", "result", "run", "same",
+      "should", "source", "than", "that", "the", "then", "these", "they",
+      "this", "those", "through", "truth", "use", "value", "what", "when",
+      "where", "which", "with", "would", "you", "your",
+    ]);
+    const words = context.match(/[A-Za-z_$][\w$-]{1,}/g) ?? [];
+    const operators = context.match(/===|!==|==|!=|<=|>=|=>|\+\+|--|&&|\|\||\*\*|[+*/%<>]/g) ?? [];
+    return new Set([
+      ...words.map((word) => word.toLocaleLowerCase()).filter((word) => !ignored.has(word)),
+      ...operators,
+    ]);
+  })();
+  const hasContextualTeachingDetail = (value: string | null | undefined): boolean => {
+    const normalized = value?.trim().replace(/\s+/g, " ") ?? "";
+    // Concise explanations can still be valuable (for example, one sentence
+    // defining a visible method). Specificity comes from contextual overlap,
+    // not an arbitrary paragraph-length requirement.
+    if (normalized.length < 20 || (normalized.match(/[A-Za-z]+/g)?.length ?? 0) < 4) {
+      return false;
+    }
+    const lower = normalized.toLocaleLowerCase();
+    return [...contextualTeachingAnchors].some((anchor) => {
+      if (/^[A-Za-z_$][\w$-]*$/.test(anchor)) {
+        const escaped = anchor.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        return new RegExp(`(?:^|[^\\w$-])${escaped}(?=$|[^\\w$-])`, "i").test(lower);
+      }
+      return lower.includes(anchor);
+    });
+  };
+
   if (EXPLICIT_HINT_REQUEST.test(params.question)) {
     const clue = sections.hint?.trim();
     const move = sections.intent === "socratic"
@@ -3070,7 +3233,9 @@ export function hasTutorTeachingValue(
     case "checkin":
       return Boolean(sections.diagnose?.trim());
     case "concept":
-      return Boolean(sections.explain?.trim() || sections.example?.trim());
+      return [sections.summary, sections.explain, sections.example].some(
+        (value) => hasContextualTeachingDetail(value),
+      );
     default:
       return text.length >= 2;
   }

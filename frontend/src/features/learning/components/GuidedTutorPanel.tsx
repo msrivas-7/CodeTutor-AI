@@ -296,10 +296,11 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
         if (ok && mode === "authed") incrementHint(lessonMeta.courseId, lessonMeta.id);
       }
     },
-    buildBody: ({ question, files, diffSinceLastTurn, historyForSend, selection }) => ({
+    buildBody: ({ question, tutorAction, files, diffSinceLastTurn, historyForSend, selection }) => ({
       // Platform and anonymous funding ignore stale persisted BYOK choices.
       model: effectiveModel ?? PLATFORM_TUTOR_MODEL,
       question,
+      tutorAction,
       files,
       activeFile: activeFile ?? undefined,
       language: lessonMeta.language,
@@ -348,9 +349,9 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
       inputLocked,
       exhausted: anonQuotaExhausted,
     })) {
-      const q = pendingAsk;
+      const ask = pendingAsk;
       setPendingAsk(null);
-      submitAsk(q);
+      submitAsk(ask.question, { tutorAction: ask.action });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingAsk, configured, asking, inputLocked, anonQuotaExhausted]);
@@ -467,14 +468,20 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
             Your tutor is here to help — ask anything about this lesson. I'll guide you without giving away the answer.
             <div className="mt-2.5 flex flex-wrap gap-1.5">
               <button
-                onClick={() => setPendingAsk("What should I do in this lesson?")}
+                onClick={() => setPendingAsk({
+                  question: "What should I do in this lesson?",
+                  action: "explain-lesson-task",
+                })}
                 disabled={!canSubmitGuidedTutorTurn({ configured, asking, inputLocked, exhausted: anonQuotaExhausted })}
                 className="min-h-11 rounded-lg border border-border bg-bg/60 px-3 py-2 text-sm text-ink/80 transition hover:border-accent/40 hover:bg-accent/10 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
                 What should I do?
               </button>
               <button
-                onClick={() => setPendingAsk("I don't understand the instructions. Can you explain?")}
+                onClick={() => setPendingAsk({
+                  question: "I don't understand the instructions. Can you explain?",
+                  action: "explain-lesson-task",
+                })}
                 disabled={!canSubmitGuidedTutorTurn({ configured, asking, inputLocked, exhausted: anonQuotaExhausted })}
                 className="min-h-11 rounded-lg border border-border bg-bg/60 px-3 py-2 text-sm text-ink/80 transition hover:border-accent/40 hover:bg-accent/10 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
@@ -536,9 +543,11 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
               ) : m.sections ? (
                 <TutorResponseView
                   sections={m.sections}
-                  onAsk={isLatestAssistant ? setPendingAsk : undefined}
+                  onAsk={isLatestAssistant
+                    ? (question, action) => setPendingAsk({ question, action })
+                    : undefined}
                   onCompose={isLatestAssistant ? prepareAnswer : undefined}
-                  disabled={asking}
+                  disabled={asking || inputLocked}
                   scripted={m.meta?.scripted}
                 />
               ) : (

@@ -184,6 +184,12 @@ const askStreamBody = z.object({
   requestId: z.string().uuid(),
   model: z.string().min(1),
   question: z.string().min(1).max(4_000),
+  tutorAction: z.enum([
+    "explain-lesson-task",
+    "explain-more",
+    "concrete-example",
+    "why-it-matters",
+  ]).optional(),
   files: z.array(projectFileSchema).max(10),
   activeFile: z.string().optional(),
   // Top-level language intentionally omitted on the anon body — the
@@ -628,6 +634,7 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
       model: requestModel,
       fundingSource: "platform" as const,
       question: parsed.data.question,
+      tutorAction: parsed.data.tutorAction,
       files: parsed.data.files,
       activeFile: parsed.data.activeFile,
       language: ctx.language,

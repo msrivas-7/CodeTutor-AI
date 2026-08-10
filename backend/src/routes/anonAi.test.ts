@@ -315,14 +315,20 @@ describe("B8 governed anonymous eval sampling", () => {
 
 describe("POST /api/anon/ai/ask/stream — platform model routing", () => {
   it("canonicalizes a stale client model before admission and provider work", async () => {
-    const response = await post(validBody({ model: "gpt-4.1-mini" }));
+    const response = await post(validBody({
+      model: "gpt-4.1-mini",
+      tutorAction: "explain-lesson-task",
+    }));
     expect(response.status).toBe(200);
     await response.text();
     expect(vi.mocked(reserveAIRequest)).toHaveBeenCalledWith(
       expect.objectContaining({ model: "gpt-5.6-luna", priceVersion: 3 }),
     );
     expect(vi.mocked(openaiProvider.askStream)).toHaveBeenCalledWith(
-      expect.objectContaining({ model: "gpt-5.6-luna" }),
+      expect.objectContaining({
+        model: "gpt-5.6-luna",
+        tutorAction: "explain-lesson-task",
+      }),
       expect.any(Object),
     );
   });
