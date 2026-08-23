@@ -7,9 +7,18 @@ import { isStandardApiSymbol } from "./suspectApi.js";
 
 type TutorPolicyParams = Pick<
   AIAskParams,
-  "files" | "question" | "lessonContext" | "lastRun" | "tutorAction"
+  | "files"
+  | "question"
+  | "lessonContext"
+  | "lastRun"
+  | "tutorAction"
+  | "language"
+  | "activeFile"
 > &
-  Partial<Pick<AIAskParams, "history" | "diffSinceLastTurn" | "learnerName">>;
+  Partial<Pick<
+    AIAskParams,
+    "history" | "diffSinceLastTurn" | "learnerName" | "selection"
+  >>;
 
 const PROTECTED_REQUEST =
   /\b(?:system prompt|hidden tests?|hidden validator|another learner|compare my progress|correct (?:choice|answer)|answer is|exact final line|complete finished program|paste it)\b|\bprivate\s+(?:[A-Z0-9_]+\s+)?(?:mastery|record)\b|\b(?:reveal|show|quote|expose)\b[^.!?\n]{0,80}\b[A-Z][A-Z0-9]*_CANARY_[A-Z0-9_]+\b/i;
@@ -1287,9 +1296,9 @@ function visibleConcreteExample(
 }
 
 function pythonSingleListAddition(
-  params: Pick<AIAskParams, "files" | "lessonContext">,
+  params: Pick<AIAskParams, "files" | "lessonContext" | "language">,
 ): { variable: string; method: string; path: string; line: number } | null {
-  if (params.lessonContext?.language !== "python") return null;
+  if ((params.language ?? params.lessonContext?.language) !== "python") return null;
   for (const file of params.files) {
     const listVariables = new Set(
       [...file.content.matchAll(/^\s*([A-Za-z_]\w*)\s*=\s*\[[^\n]*\]\s*$/gm)].map(
@@ -1314,6 +1323,62 @@ function pythonSingleListAddition(
     }
   }
   return null;
+}
+
+function referencesSingleListAddition(
+  params: Pick<AIAskParams, "files" | "question" | "selection">,
+  match: { method: string; path: string; line: number },
+): boolean {
+  const escapedMethod = match.method.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const questionNamesMethod = new RegExp(`\\b${escapedMethod}\\b`, "i").test(
+    params.question,
+  );
+  const questionNamesLine = params.files.length === 1 &&
+    new RegExp(`\\bline\\s+${match.line}\\b`, "i").test(params.question);
+  const selection = params.selection;
+  const selectionCoversCall = !!selection &&
+    selection.path === match.path &&
+    selection.startLine <= match.line &&
+    selection.endLine >= match.line;
+
+  return questionNamesMethod || questionNamesLine || selectionCoversCall;
+}
+
+function explicitLineSocraticValue(
+  params: Pick<AIAskParams, "activeFile" | "files" | "question">,
+): (Pick<TutorSections, "summary" | "hint" | "citations"> & {
+  question: string;
+}) | null {
+  const requested = params.question.match(/\bline\s+(\d+)\b/i);
+  if (!requested) return null;
+  const line = Number(requested[1]);
+  if (!Number.isSafeInteger(line) || line < 1) return null;
+
+  const file = params.files.find((candidate) => candidate.path === params.activeFile) ??
+    (params.files.length === 1 ? params.files[0] : null);
+  if (!file || line > file.content.split("\n").length) return null;
+
+  const step = visibleCodeWalkthroughSteps({ files: [file], question: params.question })
+    .find((candidate) => candidate.line === line);
+  if (!step) return null;
+  const source = file.content.split("\n")[line - 1]?.trim() ?? "";
+  const isOutput = /\b(?:print|console\.log)\s*\(/.test(source);
+
+  return {
+    summary: step.body.replace(/^This line\b/, `Line ${line}`),
+    hint: isOutput
+      ? "Trace the expression inside the output call, then predict the exact text or value it will display before running it."
+      : "Trace this one visible statement from its inputs to its resulting value or effect before changing it.",
+    question: isOutput
+      ? `What exact output do you predict line ${line} will display?`
+      : `What value or effect do you predict after line ${line} runs?`,
+    citations: [{
+      path: file.path,
+      line,
+      column: null,
+      reason: "Visible line explicitly requested by the learner",
+    }],
+  };
 }
 
 function visibleCollectionHowto(
@@ -1776,6 +1841,8 @@ function walkthroughLineScore(
   const assignmentLine =
     /\b(?:const|let|var)\b[^=]*=/.test(content) ||
     /^\s*[A-Za-z_$][\w$.[\]]*\s*(?:\+=|-=|\*=|\/=|=(?!=))/.test(content);
+  const importLine = /^\s*(?:import\s+|from\s+[^\s]+\s+import\s+)/.test(content);
+  const inputReadLine = /\.read\s*\(|\.split\s*\(/.test(content);
   const outputLine = /\bconsole\.log\s*\(|\bprint\s*\(/.test(content);
   const loopLine = /^\s*(?:for|while)\b/.test(content);
   const indentedUpdateLine =
@@ -1786,6 +1853,9 @@ function walkthroughLineScore(
   const describesOutput =
     /\b(?:after the loop|final (?:sum|result|value)|logs?|prints?|displays?|console\.log)\b/.test(lowerBody) ||
     (/\boutputs?\b/.test(lowerBody) && !/\binput and output\b/.test(lowerBody));
+  const describesImport = /\bimport(?:s|ed|ing)?\b/.test(lowerBody);
+  const describesInputRead =
+    /\bread(?:s|ing)?\b[^.!?]*\binput\b|\bsplit(?:s|ting)?\b[^.!?]*\b(?:input|text|token)/.test(lowerBody);
   const sourceIsComment = /^\s*(?:#|\/\/)/.test(content);
   const describesComment = /\b(?:comment|placeholder|todo|instruction)\b/.test(lowerBody);
   const describesExecutableBehavior =
@@ -1795,6 +1865,18 @@ function walkthroughLineScore(
 
   if (sourceIsComment && describesExecutableBehavior && !describesComment) score -= 12;
   if (!sourceIsComment && describesComment) score -= 8;
+
+  // Shared identifiers are not sufficient evidence for an import claim. A
+  // module name commonly appears again where it is used (for example,
+  // `import sys` and `sys.stdin.read()`). Prefer the actual import statement
+  // and actively reject a later use-site so a numerically valid citation
+  // cannot preserve a materially false explanation.
+  if (describesImport) {
+    score += importLine ? 12 : -8;
+  }
+  if (describesInputRead) {
+    score += inputReadLine ? 12 : -8;
+  }
 
   if (
     !describesOutput &&
@@ -1990,6 +2072,22 @@ function normalizeWalkthroughLocationWording(
   });
 }
 
+function removeUnsupportedRunEvidence(
+  body: string,
+  params: Pick<AIAskParams, "lastRun">,
+): string {
+  if (params.lastRun) return body;
+  return body
+    .split(/(?<=[.!?])\s+(?=[A-Z`])/)
+    .filter((sentence) =>
+      !/\b(?:latest|last|previous|recorded)\s+run\b|\b(?:the\s+)?run\s+(?:show(?:s|ed)?|report(?:s|ed)?|produc(?:e|es|ed))\b/i.test(
+        sentence,
+      )
+    )
+    .join(" ")
+    .trim();
+}
+
 function groundedWalkthrough(
   steps: NonNullable<TutorSections["walkthrough"]>,
   params: Pick<AIAskParams, "files">,
@@ -2139,7 +2237,15 @@ function splitMultiLineWalkthroughSteps(
     const distinctLines = new Set(
       located.flatMap(({ line }) => line == null ? [] : [line]),
     );
-    if (distinctLines.size === 0) return [step];
+    if (distinctLines.size === 0) {
+      // A location chip can still hide two different source claims when the
+      // prose omits ordinal words. Ground each sentence independently, then
+      // let groundedWalkthrough merge only sentences that truly resolve back
+      // to the same source line.
+      return sentences.length > 1
+        ? sentences.map((body) => ({ ...step, body }))
+        : [step];
+    }
     if (distinctLines.size === 1 && located.length === 1) {
       return [{ ...step, path, line: located[0].line! }];
     }
@@ -2247,12 +2353,48 @@ function walkthroughStepNeedsFallback(body: string): boolean {
 function enforceWalkthroughStepContract(
   steps: NonNullable<TutorSections["walkthrough"]>,
   visibleFallback: NonNullable<TutorSections["walkthrough"]>,
+  params: Pick<AIAskParams, "files">,
 ): NonNullable<TutorSections["walkthrough"]> {
   const fallbackByLocation = new Map(
     visibleFallback.map((step) => [`${step.path ?? ""}:${step.line ?? ""}`, step]),
   );
+  const importKeywords = new Set(["as", "const", "from", "import", "let", "require", "var"]);
+  const importSymbolsByLocation = new Map<string, Set<string>>();
+  const allImportSymbols = new Set<string>();
+  for (const file of params.files) {
+    for (const [index, rawSource] of file.content.split("\n").entries()) {
+      const source = rawSource.trim();
+      const isImport = /^(?:import\s+|from\s+[^\s]+\s+import\s+|(?:const|let|var)\s+.+?=\s*require\s*\()/.test(source);
+      if (!isImport) continue;
+      const symbols = new Set(
+        (source.match(/[A-Za-z_$][\w$]*/g) ?? [])
+          .map((symbol) => symbol.toLowerCase())
+          .filter((symbol) => !importKeywords.has(symbol)),
+      );
+      importSymbolsByLocation.set(`${file.path}:${index + 1}`, symbols);
+      for (const symbol of symbols) allImportSymbols.add(symbol);
+    }
+  }
   return steps.flatMap((step) => {
-    const fallback = fallbackByLocation.get(`${step.path ?? ""}:${step.line ?? ""}`);
+    const location = `${step.path ?? ""}:${step.line ?? ""}`;
+    const fallback = fallbackByLocation.get(location);
+    if (/\bimport(?:s|ed|ing)?\b/i.test(step.body)) {
+      const sourceSymbols = importSymbolsByLocation.get(location);
+      const bodySymbols = new Set(
+        (step.body.match(/[A-Za-z_$][\w$]*/g) ?? [])
+          .map((symbol) => symbol.toLowerCase()),
+      );
+      const claimsAnotherImport = [...allImportSymbols].some((symbol) =>
+        bodySymbols.has(symbol) && !sourceSymbols?.has(symbol)
+      );
+      // Import prose is accurate only when it points at an import statement
+      // and every project-import symbol it names exists on that exact line.
+      // Otherwise use the source-derived explanation for the location rather
+      // than attaching two declarations to one citation.
+      if (!sourceSymbols || claimsAnotherImport) {
+        return fallback ? [fallback] : [];
+      }
+    }
     const declaredIdentifier = fallback?.body.match(
       /\bdefines\s+`([A-Za-z_$][\w$]*)`/,
     )?.[1];
@@ -2428,6 +2570,9 @@ function visibleCodeWalkthroughSteps(
           /^(.+?)\s+if\s+(.+?)\s+else\s+(.+)$/,
         );
         const called = expression.match(/^([A-Za-z_$][\w$]*)\s*\(/)?.[1];
+        const chainedMethodCall = expression.match(
+          /^(.+?)\.([A-Za-z_$][\w$]*)\([^)]*\)\.([A-Za-z_$][\w$]*)\([^)]*\)$/,
+        );
         const methodCall = expression.match(
           /^([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)\s*\(/,
         );
@@ -2435,6 +2580,8 @@ function visibleCodeWalkthroughSteps(
           ? `\`${name}\` chooses between the two visible values based on whether \`${pythonConditional[2].trim()}\` is true.`
           : methodCall?.[2] === "map"
           ? `\`${name}\` receives a new array produced by applying \`map\` to each current \`${methodCall[1]}\` value.`
+          : chainedMethodCall
+          ? `\`${name}\` receives the value returned by calling \`${chainedMethodCall[2]}()\` on \`${chainedMethodCall[1]}\`, then calling \`${chainedMethodCall[3]}()\` on that returned value.`
           : methodCall
           ? `\`${name}\` receives the value returned by calling \`${methodCall[2]}\` on \`${methodCall[1]}\`.`
           : called
@@ -2775,8 +2922,31 @@ export function applyTutorOutputPolicy({
     const collectionIterationGrounding = priorTutorTurns === 0
       ? visibleCollectionIterationSocraticValue(params)
       : null;
+    const singleListAddition = priorTutorTurns === 0
+      ? pythonSingleListAddition(params)
+      : null;
+    const singleListAdditionGrounding = singleListAddition &&
+        referencesSingleListAddition(params, singleListAddition)
+      ? {
+          summary:
+            `Line ${singleListAddition.line} calls \`${singleListAddition.method}()\` on the visible list \`${singleListAddition.variable}\`, but that is not a standard Python list method.`,
+          hint:
+            "This call passes one value, so first decide whether you want to add that single item or combine items from another collection.",
+          question:
+            `What did you want line ${singleListAddition.line} to do with that one value?`,
+          citations: [{
+            path: singleListAddition.path,
+            line: singleListAddition.line,
+            column: null,
+            reason: "Unsupported list method with one visible argument",
+          }],
+        }
+      : null;
+    const explicitLineGrounding = explicitLineSocraticValue(params);
     const directAnswerGrounding = directAnswerRequestSocraticValue(params);
-    const forcedGrounding = !!collectionIterationGrounding ||
+    const forcedGrounding = !!singleListAdditionGrounding ||
+      !!explicitLineGrounding ||
+      !!collectionIterationGrounding ||
       !!directAnswerGrounding ||
       EXPLICIT_HINT_REQUEST.test(params.question) ||
       protectedRequestEarly ||
@@ -2784,7 +2954,9 @@ export function applyTutorOutputPolicy({
       params.lastRun != null ||
       SOCRATIC_CONCEPT_REQUEST.test(params.question) ||
       hasActualFileDiff(params.diffSinceLastTurn);
-    const grounded = collectionIterationGrounding ??
+    const grounded = singleListAdditionGrounding ??
+      explicitLineGrounding ??
+      collectionIterationGrounding ??
       directAnswerGrounding ?? (EXPLICIT_HINT_REQUEST.test(params.question)
       ? STRONGER_HINT_REQUEST.test(params.question) && priorTutorTurns > 0
         ? groundedStrongerHint(params)
@@ -3019,7 +3191,10 @@ export function applyTutorOutputPolicy({
     const modelGroundedBeforeContract = groundedWalkthrough(
       splitMultiLineWalkthroughSteps(
         sourceSteps.flatMap((step) => {
-          const body = meaningfulProse(step.body, params);
+          const body = meaningfulProse(
+            removeUnsupportedRunEvidence(step.body, params),
+            params,
+          );
           return body ? [{ ...step, body }] : [];
         }),
         params,
@@ -3032,6 +3207,7 @@ export function applyTutorOutputPolicy({
     const modelGrounded = enforceWalkthroughStepContract(
       modelGroundedBeforeContract,
       visibleSteps,
+      params,
     );
     const unsafeModelWalkthrough = sourceSteps.some((step) =>
       walkthroughStepNeedsFallback(step.body)
@@ -3085,7 +3261,7 @@ export function applyTutorOutputPolicy({
     return {
       ...common,
       summary: containsInstructionComment
-        ? "I’ll ignore instruction-like comments and focus only on the executable behavior."
+        ? "Let’s walk through the current executable code one visible step at a time."
         : modelGrounded.length === 0 ||
             unsafeModelWalkthrough ||
             PRESCRIPTIVE_DELIMITER_EDIT.test(common.summary ?? "")

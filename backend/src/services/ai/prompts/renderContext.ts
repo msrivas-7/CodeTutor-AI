@@ -41,8 +41,19 @@ export function renderFiles(files: ProjectFile[], activeFile?: string): string {
   return sorted
     .map((f) => {
       const active = f.path === activeFile ? " active=\"true\"" : "";
-      const body = truncate(f.content, MAX_FILE_CHARS);
-      return `<user_file path=${xmlAttr(f.path)}${active}>\n${body}\n</user_file>`;
+      // Give the model the same stable, 1-indexed coordinates the editor and
+      // response schema use. Without explicit coordinates the model has to
+      // count raw source lines itself, which is brittle around blank or
+      // wrapped lines. The raw ProjectFile remains authoritative for the
+      // server-side grounding policy; these prefixes are prompt metadata.
+      // Apply the source budget before adding coordinate metadata. Line
+      // prefixes help the model cite the editor accurately, but they must not
+      // displace source that fit within the established content allowance.
+      const numbered = truncate(f.content, MAX_FILE_CHARS)
+        .split("\n")
+        .map((line, index) => `${index + 1} | ${line}`)
+        .join("\n");
+      return `<user_file path=${xmlAttr(f.path)}${active}>\n${numbered}\n</user_file>`;
     })
     .join("\n\n");
 }

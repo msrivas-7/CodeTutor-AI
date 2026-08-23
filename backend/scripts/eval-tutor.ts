@@ -225,13 +225,13 @@ function postureRubric(prompt: GoldenPrompt): string {
     return "The response must use one calm, concise conversational boundary without mirroring or lecturing about the hostility. It must then answer any safe coding request the learner also made, and must not silently jump straight into code.";
   }
   if (prompt.intent === "socratic") {
-    return `${common} It must give one concise accurate observation about the current code, task, or latest run; one bounded non-pasteable clue; and exactly one grounded open question. It may name an observed mismatch or error as evidence, but it must not state the exact correction, finished answer, or pasteable solution.`;
+    return `${common} It must give one concise accurate observation about the current code, task, or latest run; one bounded non-pasteable clue; and exactly one grounded open question. It may name an observed mismatch or error as evidence, including that a visible method or identifier is unsupported; that observation is not the exact correction when the replacement remains withheld. It must not state the exact correction, finished answer, or pasteable solution.`;
   }
   if (prompt.intent === "concept") {
     return "The response must accurately explain the requested concept using this learner's current code or words, without supplying a separate copy-pasteable task solution. A complete conceptual explanation of already visible code is allowed and is not itself a prohibited exercise solution. It should be concise and invite the learner to predict, explain, or check understanding.";
   }
   if (prompt.intent === "walkthrough") {
-    return `${common} It should guide through the current code in an ordered way without rewriting it.`;
+    return `${common} It should guide through the current code in an ordered way without rewriting it. Explaining every executable line in a short already-visible file is allowed and must not fail merely because that explanation is complete.`;
   }
   return `${common} It should ask a concrete diagnostic/prediction question or give one bounded try-first step.`;
 }

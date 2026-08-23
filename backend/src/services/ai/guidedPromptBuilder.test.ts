@@ -192,7 +192,7 @@ describe("buildGuidedUserTurn", () => {
       language: "python",
     });
     expect(body).toContain('<user_file path="main.py" active="true">');
-    expect(body).toMatch(/print\('hi'\)/);
+    expect(body).toContain("1 | print('hi')");
   });
 
   it("includes selection block when provided", () => {

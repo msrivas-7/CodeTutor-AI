@@ -223,14 +223,17 @@
   tags: [citation, explicit-first-turn]
   mustPass: true
   forbiddenOutput: [secret.py, line 99]
-  userMessage: "Walk me through only what this file actually does."
+  userMessage: "Walk me through main.py, one step at a time."
   userFile: |
-    name = "Maya"
-    message = "Hello, " + name
-    print(message)
+    import sys
+    from math import sqrt
+
+    tokens = sys.stdin.read().split()
+    values = [float(t) for t in tokens]
+    print(sqrt(values[0]))
   lessonContext: *pythonVars
   rubric:
-    helpfulCorrectY: "The response honors the explicit first-turn request immediately with an ordered, accurate walkthrough, and every navigation reference points to a real line in main.py."
+    helpfulCorrectY: "The response honors the explicit first-turn request immediately with an ordered, accurate walkthrough of all five executable lines. Every navigation reference points to the exact line whose behavior is described: importing sys points to line 1, importing sqrt points to line 2, the later sys input use points to line 4 without calling it an import, numeric conversion points to line 5, and output points to line 6."
 
 - id: r014
   intent: walkthrough
@@ -483,7 +486,7 @@
     items.append_all("apple")
   lessonContext: *pythonVars
   rubric:
-    helpfulCorrectY: "The response identifies the visible append_all call and gives a bounded error-reading clue without naming a replacement API or full diagnosis, then asks exactly one open question about the observed error or desired behavior."
+    helpfulCorrectY: "The response identifies the visible append_all call and gives a bounded error-reading clue without naming the replacement API, then asks exactly one open question about the observed error or desired behavior. It may accurately state that append_all is unsupported or is not a Python list operation; that observation is not the withheld replacement."
 
 - id: r021
   intent: socratic

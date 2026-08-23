@@ -63,6 +63,7 @@ export function buildUserTurn(p: BuildUserTurnParams): string {
     `LANGUAGE: ${p.language ?? "unspecified"}`,
     "",
     "PROJECT FILES:",
+    "Each source line is prefixed with its 1-indexed line number and `|`; that prefix is location metadata, not code.",
     renderFiles(p.files, p.activeFile),
     "",
     "STDIN:",

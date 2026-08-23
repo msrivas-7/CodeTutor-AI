@@ -75,7 +75,8 @@ export const TUTOR_RESPONSE_SCHEMA = {
           line: {
             type: ["integer", "null"],
             minimum: 1,
-            description: "1-indexed line number this step points at, or null.",
+            description:
+              "Exact 1-indexed N from the PROJECT FILES `N | source` prefix that this explanation describes, or null when the step is not about source.",
           },
         },
       },
@@ -115,7 +116,11 @@ export const TUTOR_RESPONSE_SCHEMA = {
         required: ["path", "line", "column", "reason"],
         properties: {
           path: { type: "string", minLength: 1, description: "Exact file path as it appears in PROJECT FILES." },
-          line: { type: "integer", minimum: 1, description: "1-indexed line number." },
+          line: {
+            type: "integer",
+            minimum: 1,
+            description: "Exact 1-indexed N from the PROJECT FILES `N | source` prefix.",
+          },
           column: {
             type: ["integer", "null"],
             minimum: 0,
