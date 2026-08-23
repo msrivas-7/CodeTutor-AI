@@ -620,8 +620,8 @@ export default function LessonPage({
     courseId,
     lessonId,
   });
-  const instructionsRestoreRef = useRef<HTMLButtonElement>(null);
-  const tutorRestoreRef = useRef<HTMLButtonElement>(null);
+  const instructionsRestoreRef = layout.instructionsRestoreRef;
+  const tutorRestoreRef = layout.tutorRestoreRef;
   const moreActionsButtonRef = useRef<HTMLButtonElement>(null);
   const resetCodeButtonRef = useRef<HTMLButtonElement>(null);
   const tutorOpenNonce = useAIStore((s) => s.tutorOpenNonce);

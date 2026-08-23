@@ -375,8 +375,12 @@ test.describe("Phase A-Q — visual viewport matrix", () => {
     await expect(collapseInstructions).toBeVisible();
     await expect(collapseTutor).toBeVisible();
 
+    // Keyboard focus inside the rail that policy will collapse must move to
+    // a visible working surface before `inert` hides that rail.
+    await collapseInstructions.focus();
+    await expect(collapseInstructions).toBeFocused();
     await page.setViewportSize({ width: 901, height: 863 });
-    await expect(showInstructions).toBeVisible();
+    await expect(showInstructions).toBeFocused();
 
     const editContext = page.getByRole("textbox", {
       name: /^Code editor for /,

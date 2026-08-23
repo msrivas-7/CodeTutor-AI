@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   useLocalStorageFlag,
   usePersistedNumber,
@@ -53,6 +53,16 @@ export function useLessonLayout({ courseId, lessonId }: UseLessonLayoutArgs) {
   const [instrCollapsed, setInstrCollapsedRaw] = useLocalStorageFlag(LS_INSTR_COLLAPSED, false);
   const [tutorCollapsed, setTutorCollapsedRaw] = useLocalStorageFlag(LS_TUTOR_COLLAPSED, false);
 
+  const instrRef = useRef<HTMLElement>(null);
+  const editorRef = useRef<HTMLElement>(null);
+  const runBtnRef = useRef<HTMLButtonElement>(null);
+  const outputRef = useRef<HTMLElement>(null);
+  const checkBtnRef = useRef<HTMLButtonElement>(null);
+  const tutorRef = useRef<HTMLElement>(null);
+  const instructionsRestoreRef = useRef<HTMLButtonElement>(null);
+  const tutorRestoreRef = useRef<HTMLButtonElement>(null);
+  const autoCollapseFocusPendingRef = useRef<"instructions" | "tutor" | null>(null);
+
   // A20: below the narrow-laptop boundary three columns starve the editor.
   // Keep one help rail collapsed whenever that invariant becomes true —
   // including a live resize from a wide layout where both rails were open.
@@ -99,6 +109,18 @@ export function useLessonLayout({ courseId, lessonId }: UseLessonLayoutArgs) {
   useEffect(() => {
     if (!narrow || instrCollapsed || tutorCollapsed) return;
 
+    const activeElement = document.activeElement;
+    const focusWasInCollapsingRail =
+      activeElement instanceof HTMLElement &&
+      (isLessonOneNarrow
+        ? instrRef.current?.contains(activeElement) === true
+        : tutorRef.current?.contains(activeElement) === true);
+    if (focusWasInCollapsingRail) {
+      autoCollapseFocusPendingRef.current = isLessonOneNarrow
+        ? "instructions"
+        : "tutor";
+    }
+
     // Crossing from a wide viewport can carry two open rails into a narrow
     // render. The previous one-shot guard could already be consumed by an
     // earlier narrow state, leaving Monaco with only a few pixels. Enforce
@@ -116,15 +138,40 @@ export function useLessonLayout({ courseId, lessonId }: UseLessonLayoutArgs) {
     setTutorCollapsedRaw,
   ]);
 
+  useLayoutEffect(() => {
+    const collapsedRail = autoCollapseFocusPendingRef.current;
+    if (!collapsedRail) return;
+
+    let frame: number | null = null;
+    let attempts = 0;
+    const restoreCollapsedRailFocus = () => {
+      const target =
+        collapsedRail === "instructions"
+          ? instructionsRestoreRef.current
+          : tutorRestoreRef.current;
+      if (target && document.contains(target)) {
+        target.focus({ preventScroll: true });
+        if (document.activeElement === target) {
+          autoCollapseFocusPendingRef.current = null;
+          return;
+        }
+      }
+
+      attempts += 1;
+      if (attempts < 4) frame = requestAnimationFrame(restoreCollapsedRailFocus);
+    };
+
+    // `inert` removes the collapsed rail from the focus order. Run after the
+    // restore control mounts, then retry across the animation boundary so a
+    // live resize never strands keyboard focus in hidden content or BODY.
+    restoreCollapsedRailFocus();
+    return () => {
+      if (frame !== null) cancelAnimationFrame(frame);
+    };
+  }, [instrCollapsed, tutorCollapsed]);
+
   const [showSettings, setShowSettings] = useState(false);
   const [resetMenuOpen, setResetMenuOpen] = useState(false);
-
-  const instrRef = useRef<HTMLElement>(null);
-  const editorRef = useRef<HTMLElement>(null);
-  const runBtnRef = useRef<HTMLButtonElement>(null);
-  const outputRef = useRef<HTMLElement>(null);
-  const checkBtnRef = useRef<HTMLButtonElement>(null);
-  const tutorRef = useRef<HTMLElement>(null);
 
   return {
     outputH,
@@ -147,5 +194,7 @@ export function useLessonLayout({ courseId, lessonId }: UseLessonLayoutArgs) {
     outputRef,
     checkBtnRef,
     tutorRef,
+    instructionsRestoreRef,
+    tutorRestoreRef,
   };
 }
