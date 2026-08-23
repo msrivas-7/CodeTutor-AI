@@ -224,6 +224,66 @@ test.describe("lesson edge cases", () => {
     await expect(lockedVariables).toBeDisabled();
   });
 
+  test("reset prerequisite keeps downstream progress saved but clearly locks its entry points", async ({
+    page,
+  }) => {
+    await loadProfile(page, "all-complete");
+    await page.goto(`/learn/course/${COURSE_ID}/lesson/hello-world`);
+    await waitForMonacoReady(page);
+
+    await S.overflowMenuButton(page).click();
+    await S.resetLessonMenuItem(page).click();
+    const resetDialog = page.getByRole("alertdialog", {
+      name: /reset lesson progress/i,
+    });
+    await expect(resetDialog).toContainText(
+      /lessons that depend on this one keep their progress, but stay locked/i,
+    );
+    await resetDialog.getByRole("button", { name: /^reset lesson$/i }).click();
+    await expect(resetDialog).toHaveCount(0);
+
+    await page.getByRole("button", { name: "Back to course" }).click();
+    const savedNotice = page
+      .getByRole("status")
+      .filter({ hasText: /later progress is still saved/i });
+    await expect(savedNotice).toContainText(/recomplete hello, world!/i);
+    await expect(savedNotice).toBeFocused();
+
+    const savedVariables = page.getByRole("button", {
+      name: /variables and strings.*locked.*recomplete prerequisites.*progress saved/i,
+    });
+    await expect(savedVariables).toBeVisible();
+    await expect(savedVariables).toBeDisabled();
+
+    const savedPractice = page.getByRole("button", {
+      name: /recomplete prerequisites to reopen practice/i,
+    }).first();
+    await expect(savedPractice).toBeVisible();
+    await expect(savedPractice).toBeDisabled();
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    const backButton = page.getByRole("button", { name: "Back to courses" });
+    const streakButton = page.getByRole("button", { name: /day streak/i });
+    const feedbackButton = page.getByRole("button", { name: "Give feedback" });
+    const [backBox, streakBox, feedbackBox] = await Promise.all([
+      backButton.boundingBox(),
+      streakButton.boundingBox(),
+      feedbackButton.boundingBox(),
+    ]);
+    expect(backBox).not.toBeNull();
+    expect(streakBox).not.toBeNull();
+    expect(feedbackBox).not.toBeNull();
+    expect(backBox!.x + backBox!.width).toBeLessThanOrEqual(streakBox!.x);
+    expect(streakBox!.x + streakBox!.width).toBeLessThanOrEqual(feedbackBox!.x);
+    const courseHeadingBox = await page
+      .getByRole("heading", { name: "Python Fundamentals" })
+      .boundingBox();
+    expect(courseHeadingBox).not.toBeNull();
+    expect(courseHeadingBox!.width).toBeLessThanOrEqual(1);
+    expect(courseHeadingBox!.height).toBeLessThanOrEqual(1);
+    expect(backBox!.height).toBeGreaterThanOrEqual(44);
+  });
+
   test("signed-in try URL redirects to the authenticated lesson with saved progress", async ({
     page,
   }) => {
