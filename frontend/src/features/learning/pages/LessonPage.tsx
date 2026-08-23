@@ -340,6 +340,7 @@ export default function LessonPage({
     setEditorReadyContext(key);
   }, []);
   const editorFocusTicket = useRef(0);
+  const pendingPracticeExitFocusRef = useRef(false);
   const savedLessonCode = useRef<Record<string, string> | null>(null);
 
   const isFirstRun = searchParams.get("firstRun") === "1";
@@ -733,17 +734,8 @@ export default function LessonPage({
   };
 
   const handleExitPractice = () => {
+    pendingPracticeExitFocusRef.current = true;
     validator.handleExitPractice();
-    requestAnimationFrame(() => {
-      if (layout.instrCollapsed) {
-        instructionsRestoreRef.current?.focus({ preventScroll: true });
-        return;
-      }
-      const root: ParentNode = layout.instrRef.current ?? document;
-      root
-        .querySelector<HTMLElement>("[data-lesson-title]")
-        ?.focus({ preventScroll: true });
-    });
   };
 
   const handleUndoCodeReset = () => {
@@ -880,6 +872,50 @@ export default function LessonPage({
   const handledPhoneTutorOpenNonceRef = useRef(tutorOpenNonce);
   const previousPhoneNativeRef = useRef(isPhoneNative);
   const responsiveFocusSurfaceRef = useRef<WorkspaceFocusSurface | null>(null);
+
+  // Practice exit replaces the instructions subtree. Restore focus only after
+  // that replacement has committed, and choose from controls that actually
+  // mounted in the active layout. In compact mode the desktop "collapsed"
+  // preference is intentionally ignored, so instructionsRestoreRef is absent
+  // even when layout.instrCollapsed is true. The previous one-frame handler
+  // returned early in that state and stranded focus on BODY.
+  useLayoutEffect(() => {
+    if (practiceMode || !pendingPracticeExitFocusRef.current) return;
+
+    let frame: number | null = null;
+    let attempts = 0;
+    const restoreFocus = () => {
+      const collapsedRestore = instructionsRestoreRef.current;
+      const lessonTitle = layout.instrRef.current?.querySelector<HTMLElement>(
+        "[data-lesson-title]",
+      );
+      const target =
+        (collapsedRestore && document.contains(collapsedRestore)
+          ? collapsedRestore
+          : null) ??
+        (lessonTitle && document.contains(lessonTitle) ? lessonTitle : null) ??
+        layout.instrRef.current;
+
+      if (target && document.contains(target)) {
+        target.focus({ preventScroll: true });
+        if (document.activeElement === target) {
+          pendingPracticeExitFocusRef.current = false;
+          return;
+        }
+      }
+
+      attempts += 1;
+      if (attempts < 4) frame = requestAnimationFrame(restoreFocus);
+    };
+
+    restoreFocus();
+    return () => {
+      if (frame !== null) cancelAnimationFrame(frame);
+    };
+    // The active workspace branch and mounted focus targets are the only
+    // relevant transition dependencies; layout refs are stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [practiceMode, isPhoneNative]);
 
   useEffect(() => {
     const rememberWorkspaceFocus = (target: EventTarget | null) => {

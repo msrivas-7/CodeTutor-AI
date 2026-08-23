@@ -400,6 +400,22 @@ test.describe("practice mode", () => {
     await expect(page.getByText(/\d+ of 3/)).toHaveCount(0);
   });
 
+  test("Back to lesson restores heading focus in the compact workspace", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await loadProfile(page, "capstones-pending");
+    await page.goto(`/learn/course/${COURSE_ID}/lesson/hello-world`);
+    await waitForMonacoReady(page);
+
+    await page.getByRole("button", { name: /Practice 0 of 3/i }).click();
+    await expect(page.getByRole("heading", { name: /two lines/i })).toBeVisible();
+    await page.getByRole("button", { name: /back to lesson/i }).click();
+
+    const lessonHeading = page.getByRole("heading", { level: 1, name: /^hello, world!$/i });
+    await expect(lessonHeading).toBeVisible({ timeout: 5_000 });
+    await expect(lessonHeading).toBeFocused();
+    await expect(page).not.toHaveURL(/mode=practice/);
+  });
+
   test("practice owns the editor before actions unlock when Monaco arrives slowly", async ({ page }) => {
     await loadProfile(page, "capstones-pending");
 
