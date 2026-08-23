@@ -21,6 +21,7 @@ import { CourseCompleteHero } from "../components/CourseCompleteHero";
 import { MissingContentState } from "../components/MissingContentState";
 import { motion } from "framer-motion";
 import type { ProgressStatus } from "../types";
+import { savedProgressRecoveryMessage } from "../utils/savedProgressRecovery";
 
 export default function CourseOverviewPage() {
   const { courseId } = useParams<{ courseId: string }>();
@@ -96,7 +97,6 @@ export default function CourseOverviewPage() {
     if (status === "not_started") return false;
     return !lesson.prerequisiteLessonIds.every((id) => completedIds.includes(id));
   });
-  const firstIncompleteLesson = lessons.find((lesson) => !completedIds.includes(lesson.id));
   const savedButLockedCount = savedButLockedLessons.length;
   useEffect(() => {
     if (loading || savedButLockedCount === 0) return;
@@ -346,9 +346,11 @@ export default function CourseOverviewPage() {
                     Your later progress is still saved
                   </p>
                   <p className="mt-1 text-xs leading-relaxed text-muted">
-                    {firstIncompleteLesson
-                      ? `Recomplete ${firstIncompleteLesson.title} to reopen ${savedButLockedLessons.length === 1 ? "the saved lesson and its practice" : `${savedButLockedLessons.length} saved lessons and their practice`}.`
-                      : "Recomplete the earlier prerequisite to reopen these lessons and their practice."}
+                    {savedProgressRecoveryMessage({
+                      lessons,
+                      savedButLockedLessons,
+                      completedIds,
+                    })}
                   </p>
                 </div>
               </StaggerItem>
