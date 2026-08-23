@@ -1,5 +1,5 @@
-export const EVAL_DATASET_VERSION = "2.8.0";
-export const EVAL_EVALUATOR_VERSION = "2.14.0";
+export const EVAL_DATASET_VERSION = "2.9.0";
+export const EVAL_EVALUATOR_VERSION = "2.15.0";
 export const EXPECTED_EVAL_CASE_COUNT = 66;
 export const EXPECTED_EVAL_CASES_PER_INTENT = 11;
 export const REQUIRED_EVAL_TAGS = [

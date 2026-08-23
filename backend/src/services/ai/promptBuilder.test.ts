@@ -189,6 +189,22 @@ describe("buildUserTurn", () => {
     expect(body).not.toContain('<user_file path="b.py" active="true">');
   });
 
+  it("renders stable 1-indexed source coordinates instead of making the model count lines", () => {
+    const body = buildUserTurn({
+      question: "Walk me through main.py.",
+      files: [{
+        path: "main.py",
+        content: "import sys\n\ntokens = sys.stdin.read().split()",
+      }],
+      history: [],
+    });
+
+    expect(body).toContain(
+      "Each source line is prefixed with its 1-indexed line number and `|`; that prefix is location metadata, not code.",
+    );
+    expect(body).toContain("1 | import sys\n2 | \n3 | tokens = sys.stdin.read().split()");
+  });
+
   // Phase 17 / M-A1: even if a malicious path somehow slips past the Zod
   // charset guard at the route boundary, the renderer must XML-escape it so
   // the tutor can't be tricked into treating injected tags as instructions.
@@ -211,7 +227,9 @@ describe("buildUserTurn", () => {
       files: [{ path: "big.py", content: longContent }],
       history: [],
     });
-    expect(body).toMatch(/\[truncated, 1000 more chars\]/);
+    // The coordinate prefix consumes four characters of the same bounded
+    // prompt budget, so the marker truthfully reports the remaining raw text.
+    expect(body).toMatch(/\[truncated, 1004 more chars\]/);
   });
 
   it("renders 'No run yet.' when lastRun is null", () => {

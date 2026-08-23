@@ -34,6 +34,7 @@ export const QUALITY_CONTRACT_FILES = [
   "src/services/ai/pricing.ts",
   "src/services/ai/prompts/coreRules.ts",
   "src/services/ai/prompts/lessonContext.ts",
+  "src/services/ai/prompts/renderContext.ts",
   "src/services/ai/prompts/schema.ts",
   "src/services/ai/canonicalTutorContext.ts",
   "src/services/ai/tutorIntent.ts",

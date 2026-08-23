@@ -345,8 +345,9 @@ describe("applyTutorOutputPolicy", () => {
     });
 
     expect(result.summary).toContain("calls `append_all()`");
+    expect(result.summary).toContain("not a standard Python list method");
     expect(result.hint).not.toContain("extend");
-    expect(result.checkQuestions?.[0]).toContain("What error did `append_all`");
+    expect(result.checkQuestions?.[0]).toBe("What did you want line 2 to do with that one value?");
   });
 
   it("replaces leading, answer-bearing, and malformed model questions with a safe fallback", () => {
@@ -1183,10 +1184,11 @@ describe("applyTutorOutputPolicy", () => {
     });
 
     expect(result.checkQuestions).toEqual([
-      "What error did `append_all` produce, and what did you want that call to do?",
+      "What did you want line 2 to do with that one value?",
     ]);
-    expect(result.summary).toBe("The current file calls `append_all()` on line 2.");
-    expect(result.hint).toContain("exact error");
+    expect(result.summary).toContain("Line 2 calls `append_all()`");
+    expect(result.summary).toContain("not a standard Python list method");
+    expect(result.hint).toContain("one value");
     expect(result.citations?.[0]).toMatchObject({ path: "main.py", line: 2 });
     expect(JSON.stringify(result)).not.toContain("append()");
   });
@@ -1960,7 +1962,7 @@ describe("applyTutorOutputPolicy", () => {
     });
     expect(JSON.stringify(result)).not.toMatch(/hidden rule|system|canary/i);
     expect(result.summary).toBe(
-      "I’ll ignore instruction-like comments and focus only on the executable behavior.",
+      "Let’s walk through the current executable code one visible step at a time.",
     );
     expect(result.walkthrough).toEqual([
       { body: "The value is declared here.", path: "index.js", line: 2 },
@@ -2604,10 +2606,111 @@ describe("applyTutorOutputPolicy", () => {
     });
 
     expect(result.walkthrough?.map((step) => step.line)).toEqual([2, 4, 9, 10, 11, 13]);
+    expect(result.walkthrough?.[0]?.body).not.toMatch(/\bsys\b/i);
+    expect(result.walkthrough?.[0]?.body).toMatch(/mean.*median.*variance/i);
     expect(result.walkthrough?.at(-1)?.body).toMatch(/displays/i);
     expect(result.walkthrough?.some((step) =>
       step.line === 6 && /values list/i.test(step.body)
     )).toBe(false);
+  });
+
+  it("grounds an import explanation to its declaration instead of a later module use", () => {
+    const result = applyTutorOutputPolicy({
+      sections: {
+        summary: "The script reads input, converts it to numbers, and prints statistics.",
+        walkthrough: [
+          {
+            body: "line 2 imports the three calculation functions from stats.py: mean, median, and variance.",
+            path: "main.py",
+            line: 2,
+          },
+          {
+            body: "line 4 imports Python's sys module so the program can access standard input through sys.stdin.",
+            path: "main.py",
+            line: 4,
+          },
+          {
+            body: "The program reads all available input and stores it in tokens. Each token is converted from text to a floating-point number and the results are stored in values.",
+            path: "main.py",
+            line: 9,
+          },
+          {
+            body: "This line displays the current values value.",
+            path: "main.py",
+            line: 10,
+          },
+          {
+            body: "This line computes and displays mean(values).",
+            path: "main.py",
+            line: 11,
+          },
+          {
+            body: "This line computes and displays variance(values).",
+            path: "main.py",
+            line: 13,
+          },
+        ],
+      },
+      params: {
+        ...base,
+        question: "Walk me through main.py, one step at a time.",
+        files: [{
+          path: "main.py",
+          content: [
+            "import sys",
+            "from stats import mean, median, variance",
+            "",
+            "tokens = sys.stdin.read().split()",
+            "if not tokens:",
+            '    print("(no input — paste whitespace-separated numbers into the stdin tab)")',
+            "    sys.exit(0)",
+            "",
+            "values = [float(t) for t in tokens]",
+            'print(f"values : {values}")',
+            'print(f"mean   : {mean(values):.2f}")',
+            'print(f"median : {median(values):.2f}")',
+            'print(f"var    : {variance(values):.2f}")',
+          ].join("\n"),
+        }],
+      },
+      intent: "walkthrough",
+      priorTutorTurns: 0,
+    });
+
+    expect(result.walkthrough?.map((step) => step.line)).toEqual([2, 4, 9, 10, 11, 13]);
+    expect(result.walkthrough?.[1]?.body).toMatch(/reads all available input.*stores it in tokens/i);
+    expect(result.walkthrough?.[1]?.body).not.toMatch(/imports?.*sys/i);
+    expect(result.walkthrough?.find((step) => step.line === 9)?.body).toMatch(/converted.*values/i);
+    expect(result.walkthrough?.find((step) => step.line === 9)?.body).not.toMatch(/reads all available input/i);
+    expect(result.citations?.map((citation) => citation.line)).toEqual([2, 4, 9, 10, 11, 13]);
+  });
+
+  it("removes walkthrough claims about a recorded run when no run evidence exists", () => {
+    const result = applyTutorOutputPolicy({
+      sections: {
+        summary: "The file displays a value.",
+        walkthrough: [{
+          body: "This line displays the current value. Because no input was provided in the recorded run, there is no value yet.",
+          path: "main.py",
+          line: 1,
+        }],
+      },
+      params: {
+        ...base,
+        question: "Walk me through this file.",
+        files: [{ path: "main.py", content: "print(value)" }],
+        lastRun: null,
+      },
+      intent: "walkthrough",
+      priorTutorTurns: 0,
+    });
+
+    expect(result.walkthrough).toEqual([{
+      body: "This line displays the current value.",
+      path: "main.py",
+      line: 1,
+    }]);
+    expect(JSON.stringify(result)).not.toMatch(/recorded run/i);
   });
 
   it("fills an omitted early assignment before a sparse walkthrough reaches the result", () => {
