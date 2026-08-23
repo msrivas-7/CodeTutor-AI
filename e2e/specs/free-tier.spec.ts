@@ -997,13 +997,11 @@ test.describe("free AI tier", () => {
     const resetAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
     await mockAIStatusSequence(page, [
       { source: "platform", remainingToday: 91, capToday: 100, resetAtUtc: resetAt },
-      {
-        source: "none",
-        reason: "daily_usd_per_user_hit",
-        remainingToday: 91,
-        capToday: 100,
-        resetAtUtc: resetAt,
-      },
+      // Recorded spend can remain below the cap even though the next projected
+      // reservation is refused. Keep returning a stale-positive status to
+      // prove the client latches the authoritative denial instead of reopening
+      // the composer for futile repeats.
+      { source: "platform", remainingToday: 91, capToday: 100, resetAtUtc: resetAt },
     ]);
     await page.route("**/api/ai/ask/stream", async (route) => {
       await route.fulfill({

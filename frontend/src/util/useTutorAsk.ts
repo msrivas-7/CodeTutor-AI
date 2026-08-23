@@ -13,6 +13,7 @@ import {
 } from "../state/projectStore";
 import {
   invalidateAIStatus,
+  latchPlatformAIStatusPause,
   notePlatformQuestionConsumed,
   useAIStatus,
 } from "../state/useAIStatus";
@@ -476,6 +477,7 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
               // server-owned spend controls. Rehydrate immediately so the
               // composer locks and the BYOK recovery surface replaces a stale
               // positive allowance instead of inviting futile retries.
+              latchPlatformAIStatusPause(message);
               invalidateAIStatus();
             }
             setAskError(message);

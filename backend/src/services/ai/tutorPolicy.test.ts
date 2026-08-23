@@ -3759,6 +3759,45 @@ describe("applyTutorOutputPolicy", () => {
     expect(JSON.stringify(result)).not.toMatch(/append_all|main\.py/i);
   });
 
+  it("does not mistake ordinary concept words for explicit filename references", () => {
+    const cases = [
+      { question: "What is a list?", decoy: "list.py" },
+      { question: "I'm ready to understand this.", decoy: "read.py" },
+      { question: "How should I format this?", decoy: "format.py" },
+      { question: "What does this data represent?", decoy: "data.py" },
+    ];
+
+    for (const { question, decoy } of cases) {
+      const result = applyTutorOutputPolicy({
+        sections: {
+          summary: `This explanation came from ${decoy}.`,
+          hint: "Inspect the decoy file.",
+          citations: [{
+            path: decoy,
+            line: 1,
+            column: null,
+            reason: "False filename match",
+          }],
+        },
+        params: {
+          ...base,
+          lessonContext: null,
+          activeFile: "main.py",
+          question,
+          files: [
+            { path: decoy, content: "decoy = True" },
+            { path: "main.py", content: 'message = "hello"\nprint(message)' },
+          ],
+        },
+        intent: "socratic",
+        priorTutorTurns: 0,
+      });
+
+      expect(result.citations?.[0]?.path).toBe("main.py");
+      expect(JSON.stringify(result)).not.toContain(decoy);
+    }
+  });
+
   it("replaces a walkthrough import or symbol claim that belongs to another line", () => {
     const result = applyTutorOutputPolicy({
       sections: {

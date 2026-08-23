@@ -45,15 +45,20 @@ function prioritizeRelevantFile(params: TutorPolicyParams): TutorPolicyParams {
 
 function questionNamesFile(question: string, path: string): boolean {
   const basename = path.split("/").at(-1) ?? path;
-  const stem = basename.replace(/\.[^.]+$/, "");
-  const genericStems = new Set(["app", "index", "main", "test"]);
-  return [
-    path,
-    basename,
-    ...(stem.length >= 4 && !genericStems.has(stem.toLowerCase()) ? [stem] : []),
-  ]
+  const escapeRegex = (value: string): string =>
+    value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // Only filename-shaped references participate in deterministic precedence.
+  // Bare stems are ordinary vocabulary surprisingly often: list.py, read.py,
+  // data.py, and format.py previously hijacked questions such as "What is a
+  // list?" or "I'm ready". Delimit the full basename/path so stats.py does not
+  // match mystats.py either. Ambiguous prose safely falls back to the active
+  // editor file; the model can still discuss the concept itself.
+  return [...new Set([path, basename])]
     .filter((candidate) => candidate.length >= 3)
-    .some((candidate) => question.toLowerCase().includes(candidate.toLowerCase()));
+    .some((candidate) => new RegExp(
+      `(?:^|[^A-Za-z0-9_./-])${escapeRegex(candidate)}(?=$|[^A-Za-z0-9_./-])`,
+      "i",
+    ).test(question));
 }
 
 function firstTurnMissesRelevantFile(
