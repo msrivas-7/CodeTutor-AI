@@ -348,7 +348,10 @@ test.describe("Phase A-Q — visual viewport matrix", () => {
   test("rapid breakpoint cycling preserves focus and a usable real editor width", async ({
     page,
   }) => {
-    await page.setViewportSize({ width: 901, height: 863 });
+    // Begin wide with both rails deliberately open, then cross into the
+    // production failure width. A one-shot narrow initializer used to miss
+    // this live-resize path and leave Monaco roughly 23px wide at 901px.
+    await page.setViewportSize({ width: 1440, height: 863 });
     await openStableLesson(page);
 
     const showInstructions = page.getByRole("button", {
@@ -359,7 +362,30 @@ test.describe("Phase A-Q — visual viewport matrix", () => {
       name: "Collapse instructions",
       exact: true,
     });
-    if (await collapseInstructions.isVisible()) await collapseInstructions.click();
+    const showTutor = page.getByRole("button", {
+      name: "Show tutor panel",
+      exact: true,
+    });
+    const collapseTutor = page.getByRole("button", {
+      name: "Collapse tutor",
+      exact: true,
+    });
+    if (await showInstructions.isVisible()) await showInstructions.click();
+    if (await showTutor.isVisible()) await showTutor.click();
+    await expect(collapseInstructions).toBeVisible();
+    await expect(collapseTutor).toBeVisible();
+
+    await page.setViewportSize({ width: 901, height: 863 });
+    await expect(showInstructions).toBeVisible();
+
+    const editContext = page.getByRole("textbox", {
+      name: /^Code editor for /,
+    });
+    await expect(editContext).toBeVisible();
+    await expect
+      .poll(async () => (await editContext.boundingBox())?.width ?? 0)
+      .toBeGreaterThan(200);
+
     await showInstructions.click();
     await expect(collapseInstructions).toBeFocused();
 
@@ -373,9 +399,6 @@ test.describe("Phase A-Q — visual viewport matrix", () => {
     await page.setViewportSize({ width: 1159, height: 863 });
 
     await expect(collapseInstructions).toBeFocused();
-    const editContext = page.getByRole("textbox", {
-      name: /^Code editor for /,
-    });
     await expect(editContext).toBeVisible();
     await expect
       .poll(async () => (await editContext.boundingBox())?.width ?? 0)
