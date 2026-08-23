@@ -16,8 +16,8 @@
     "walkthrough": "gpt-5.6-luna",
     "checkin": "gpt-5.6-luna"
   },
-  "approvedAt": "2026-08-23T10:50:40.070Z",
-  "qualityContractFingerprint": "83c55451fa617504705d8bd17d979090dc6045a690a532355e2254f0acd3ad17",
+  "approvedAt": "2026-08-23T13:14:37.500Z",
+  "qualityContractFingerprint": "83c1ed727d14dfde0b0ca9244ae93da88dd5bbdf8ec5be748ac9224a528c61c6",
   "postureOverall": 1,
   "postureByIntent": {
     "socratic": 1,

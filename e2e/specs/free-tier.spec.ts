@@ -991,6 +991,46 @@ test.describe("free AI tier", () => {
     await expect(page.getByText(/30\/30/)).toBeVisible();
   });
 
+  test("platform spend pause hides internal codes and disables futile retry", async ({
+    page,
+  }) => {
+    const resetAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    await mockAIStatusSequence(page, [
+      { source: "platform", remainingToday: 91, capToday: 100, resetAtUtc: resetAt },
+      // Recorded spend can remain below the cap even though the next projected
+      // reservation is refused. Keep returning a stale-positive status to
+      // prove the client latches the authoritative denial instead of reopening
+      // the composer for futile repeats.
+      { source: "platform", remainingToday: 91, capToday: 100, resetAtUtc: resetAt },
+    ]);
+    await page.route("**/api/ai/ask/stream", async (route) => {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({
+          error: "PLATFORM_AI_PAUSED",
+          reason: "daily_usd_per_user_hit",
+        }),
+      });
+    });
+    await loadProfile(page, "empty");
+    await page.goto(`/learn/course/${COURSE_ID}/lesson/${LESSON_ID}`);
+    await waitForMonacoReady(page);
+
+    await expect(page.getByText(/91\/100/)).toBeVisible();
+    const input = page.getByRole("textbox", { name: /ask/i }).first();
+    await input.fill("What does line 1 do?");
+    await input.press("Enter");
+
+    await expect(page.getByText("Free tutor paused for today")).toBeVisible();
+    await expect(page.getByText(/daily reset/i)).toBeVisible();
+    await expect(page.getByText(/PLATFORM_AI_PAUSED|daily_usd_per_user_hit/)).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /retry the last question/i })).toHaveCount(0);
+    await expect(page.getByText(/want to keep going/i)).toBeVisible();
+    await expect(page.getByText(/91\/100/)).toHaveCount(0);
+    await expect(input).toBeDisabled();
+  });
+
   test("platform at 1/30 → exhausted after one turn", async ({ page }) => {
     // Boundary: the 1→0 transition must trigger the ExhaustionCard the next
     // time the hook re-pulls status. Key edge case for reviewers.

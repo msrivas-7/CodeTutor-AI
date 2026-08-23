@@ -66,6 +66,15 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toMatch(/\bsocratic\b/);
   });
 
+  it("keeps concept replies to three specific, non-redundant teaching beats", () => {
+    const prompt = buildSystemPrompt(oneTutorTurn, "What is a list?");
+    expect(prompt).toMatch(/exactly three compact teaching beats/i);
+    expect(prompt).toMatch(/one direct definition/i);
+    expect(prompt).toMatch(/one non-redundant sentence tied to the visible code/i);
+    expect(prompt).toMatch(/one specific prediction or comparison question/i);
+    expect(prompt).toMatch(/Do not replace the named concept with a generic description/i);
+  });
+
   it("includes SITUATION block with verified stage and stuck flag", () => {
     const prompt = buildSystemPrompt(oneTutorTurn, "why doesn't this work", { tutorStage: "approach" });
     expect(prompt).toMatch(/SITUATION:/);

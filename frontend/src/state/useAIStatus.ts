@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, type AIStatusResponse } from "../api/client";
 import { supabase } from "../auth/supabaseClient";
 import { hasAuthSession } from "../auth/hasAuthSession";
+import { parseTutorError } from "../util/tutorErrors";
 
 // Phase 20-P4: the UI reads /api/user/ai-status to decide how to render the
 // tutor surface — which chip to show (UsageChip vs FreeTierPill), whether to
@@ -26,12 +27,79 @@ const TTL_MS = 30_000;
 let cached: { at: number; value: AIStatusResponse } | null = null;
 let inflight: Promise<AIStatusResponse> | null = null;
 let epoch = 0;
+let platformPauseLatch: AIStatusResponse | null = null;
 
 const subscribers = new Set<(v: AIStatusResponse | null) => void>();
 
 function setGlobal(next: AIStatusResponse | null): void {
   if (next) cached = { at: Date.now(), value: next };
   for (const fn of subscribers) fn(next);
+}
+
+function pauseLatchIsCurrent(now = Date.now()): boolean {
+  if (!platformPauseLatch) return false;
+  const resetAt = platformPauseLatch.resetAtUtc
+    ? Date.parse(platformPauseLatch.resetAtUtc)
+    : Number.NaN;
+  if (Number.isFinite(resetAt) && now >= resetAt) {
+    platformPauseLatch = null;
+    return false;
+  }
+  return true;
+}
+
+function isPlatformSpendPause(
+  reason: string | null | undefined,
+): reason is
+  | "daily_usd_per_user_hit"
+  | "lifetime_usd_per_user_hit"
+  | "usd_cap_hit" {
+  return reason === "daily_usd_per_user_hit" ||
+    reason === "lifetime_usd_per_user_hit" ||
+    reason === "usd_cap_hit";
+}
+
+function reconcilePlatformPause(value: AIStatusResponse): AIStatusResponse {
+  // BYOK is an explicit recovery path and an authoritative paused response is
+  // more current than the local projection latch. Either may clear/replace it.
+  if (value.source === "byok") {
+    platformPauseLatch = null;
+    return value;
+  }
+  if (value.source === "none") {
+    platformPauseLatch = isPlatformSpendPause(value.reason) ? value : null;
+    return value;
+  }
+  return pauseLatchIsCurrent() && platformPauseLatch
+    ? platformPauseLatch
+    : value;
+}
+
+/**
+ * Lock every Tutor surface after the server refuses a platform reservation.
+ * The status endpoint reports recorded spend, while reservation admission also
+ * considers the projected turn cost. Near that boundary a fresh status can
+ * truthfully still say `platform`; this latch prevents that lag from inviting
+ * repeated requests that the reservation boundary will continue to reject.
+ */
+export function latchPlatformAIStatusPause(raw: string): boolean {
+  const parsed = parseTutorError(raw);
+  if (parsed.code?.toUpperCase() !== "PLATFORM_AI_PAUSED") return false;
+  const reason = parsed.reason;
+  if (!isPlatformSpendPause(reason)) return false;
+  const previous = cached?.value;
+  platformPauseLatch = {
+    source: "none",
+    reason,
+    remainingToday: null,
+    capToday: null,
+    resetAtUtc: reason === "lifetime_usd_per_user_hit"
+      ? null
+      : previous?.resetAtUtc ?? null,
+    hasShownPaidInterest: previous?.hasShownPaidInterest ?? false,
+  };
+  setGlobal(platformPauseLatch);
+  return true;
 }
 
 async function fetchFresh(): Promise<AIStatusResponse | null> {
@@ -45,21 +113,24 @@ async function fetchFresh(): Promise<AIStatusResponse | null> {
     // Drop stale responses from a pre-sign-out user; their data must not
     // surface on the next signed-in user's subscribers.
     if (startEpoch !== epoch) return null;
-    setGlobal(value);
-    return value;
+    const reconciled = reconcilePlatformPause(value);
+    setGlobal(reconciled);
+    return reconciled;
   } catch {
     if (startEpoch !== epoch) return null;
-    // Safe-fallback: BYOK-shaped response so UsageChip renders. Preserve
-    // the last-known `hasShownPaidInterest` so a transient 500 can't
-    // unhide the paid-interest CTA for a user who already clicked.
+    // Preserve a spend denial across a transient 500. Otherwise use the
+    // existing safe BYOK-shaped fallback so UsageChip renders, retaining the
+    // last-known paid-interest signal.
     const preservedInterest = cached?.value.hasShownPaidInterest ?? false;
-    const fallback: AIStatusResponse = {
-      source: "byok",
-      remainingToday: null,
-      capToday: null,
-      resetAtUtc: null,
-      hasShownPaidInterest: preservedInterest,
-    };
+    const fallback: AIStatusResponse = pauseLatchIsCurrent() && platformPauseLatch
+      ? platformPauseLatch
+      : {
+          source: "byok",
+          remainingToday: null,
+          capToday: null,
+          resetAtUtc: null,
+          hasShownPaidInterest: preservedInterest,
+        };
     // Don't cache the fallback (next tick should retry) but still broadcast.
     for (const fn of subscribers) fn(fallback);
     return fallback;
@@ -82,6 +153,7 @@ supabase.auth.onAuthStateChange((event) => {
     epoch++;
     cached = null;
     inflight = null;
+    platformPauseLatch = null;
     for (const fn of subscribers) fn(null);
     return;
   }

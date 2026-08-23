@@ -3640,4 +3640,233 @@ describe("applyTutorOutputPolicy", () => {
     expect(result.nextStep).not.toContain("str(age)");
     expect(hasTutorTeachingValue(result, params)).toBe(true);
   });
+
+  it("rejects a prior-file citation on the first turn after an active-file switch", () => {
+    const result = applyTutorOutputPolicy({
+      sections: {
+        summary: "The current file calls `print()` on line 6.",
+        hint: "Check what `tokens` contains before printing it.",
+        checkQuestions: ["What did you expect `tokens` to contain?"],
+        citations: [{
+          path: "main.py",
+          line: 6,
+          column: null,
+          reason: "Print call in the current file",
+        }],
+      },
+      params: {
+        ...base,
+        lessonContext: null,
+        activeFile: "review_boundary.py",
+        question: "Can you help me understand the print line?",
+        files: [
+          {
+            path: "main.py",
+            content: [
+              "import sys",
+              "tokens = sys.stdin.read().split()",
+              "if not tokens:",
+              "    raise SystemExit(0)",
+              "values = [float(token) for token in tokens]",
+              "print(values)",
+            ].join("\n"),
+          },
+          {
+            path: "review_boundary.py",
+            content: [
+              "items = []",
+              'items.append_all("apple")',
+              "print(items)",
+            ].join("\n"),
+          },
+        ],
+      },
+      intent: "socratic",
+      priorTutorTurns: 0,
+    });
+
+    expect(result.citations).toEqual([expect.objectContaining({
+      path: "review_boundary.py",
+      line: 3,
+    })]);
+    expect(JSON.stringify(result)).not.toMatch(/main\.py|tokens/i);
+  });
+
+  it("preserves a first-turn citation when the learner explicitly names another file", () => {
+    const result = applyTutorOutputPolicy({
+      sections: {
+        summary: "`main.py` displays the current `values` list.",
+        hint: "Trace the expression inside the output call before running it.",
+        checkQuestions: ["What exact list do you predict this line will display?"],
+        citations: [{
+          path: "main.py",
+          line: 2,
+          column: null,
+          reason: "Named output line in main.py",
+        }],
+      },
+      params: {
+        ...base,
+        lessonContext: null,
+        activeFile: "notes.py",
+        question: "What does the print line in main.py do?",
+        files: [
+          { path: "main.py", content: "values = [1, 2]\nprint(values)" },
+          { path: "notes.py", content: 'print("notes")' },
+        ],
+      },
+      intent: "socratic",
+      priorTutorTurns: 0,
+    });
+
+    expect(result.citations).toEqual([expect.objectContaining({
+      path: "main.py",
+      line: 2,
+    })]);
+  });
+
+  it("rejects an active-file citation when the learner explicitly names another file", () => {
+    const result = applyTutorOutputPolicy({
+      sections: {
+        summary: "Line 2 calls `append_all` on `items`.",
+        hint: "Trace what the list call changes.",
+        citations: [{
+          path: "main.py",
+          line: 2,
+          column: null,
+          reason: "Active-file list call",
+        }],
+      },
+      params: {
+        ...base,
+        lessonContext: null,
+        activeFile: "main.py",
+        question: "What does stats.py line 2 do?",
+        files: [
+          { path: "main.py", content: 'items = []\nitems.append_all("apple")\nprint(items)' },
+          { path: "stats.py", content: "def mean(values):\n    return sum(values) / len(values)" },
+        ],
+      },
+      intent: "socratic",
+      priorTutorTurns: 0,
+    });
+
+    expect(result.citations).toEqual([expect.objectContaining({
+      path: "stats.py",
+      line: 2,
+    })]);
+    expect(result.summary).toContain("`sum(values) / len(values)`");
+    expect(JSON.stringify(result)).not.toMatch(/append_all|main\.py/i);
+  });
+
+  it("does not mistake ordinary concept words for explicit filename references", () => {
+    const cases = [
+      { question: "What is a list?", decoy: "list.py" },
+      { question: "I'm ready to understand this.", decoy: "read.py" },
+      { question: "How should I format this?", decoy: "format.py" },
+      { question: "What does this data represent?", decoy: "data.py" },
+    ];
+
+    for (const { question, decoy } of cases) {
+      const result = applyTutorOutputPolicy({
+        sections: {
+          summary: `This explanation came from ${decoy}.`,
+          hint: "Inspect the decoy file.",
+          citations: [{
+            path: decoy,
+            line: 1,
+            column: null,
+            reason: "False filename match",
+          }],
+        },
+        params: {
+          ...base,
+          lessonContext: null,
+          activeFile: "main.py",
+          question,
+          files: [
+            { path: decoy, content: "decoy = True" },
+            { path: "main.py", content: 'message = "hello"\nprint(message)' },
+          ],
+        },
+        intent: "socratic",
+        priorTutorTurns: 0,
+      });
+
+      expect(result.citations?.[0]?.path).toBe("main.py");
+      expect(JSON.stringify(result)).not.toContain(decoy);
+    }
+  });
+
+  it("replaces a walkthrough import or symbol claim that belongs to another line", () => {
+    const result = applyTutorOutputPolicy({
+      sections: {
+        summary: "The file reads input, converts it, and displays a result.",
+        walkthrough: [
+          { body: "This line imports `sys`.", path: "main.py", line: 1 },
+          { body: "This line imports `sqrt` from `math`.", path: "main.py", line: 2 },
+          { body: "This line stores split input in `tokens`.", path: "main.py", line: 4 },
+          { body: "It also makes `sqrt` available for calculating a square root later.", path: "main.py", line: 5 },
+          { body: "This line displays the visible expression.", path: "main.py", line: 6 },
+        ],
+      },
+      params: {
+        ...base,
+        activeFile: "main.py",
+        question: "Walk me through main.py, one step at a time.",
+        files: [{
+          path: "main.py",
+          content: [
+            "import sys",
+            "from math import sqrt",
+            "",
+            "tokens = sys.stdin.read().split()",
+            "values = [float(t) for t in tokens]",
+            "print(sqrt(values[0]))",
+          ].join("\n"),
+        }],
+      },
+      intent: "walkthrough",
+      priorTutorTurns: 1,
+    });
+
+    const conversion = result.walkthrough?.find((step) => step.line === 5)?.body;
+    expect(conversion).toContain("`values`");
+    expect(conversion).toContain("`float`");
+    expect(conversion).toContain("`tokens`");
+    expect(conversion).not.toMatch(/imports?|makes.*available|`sqrt`/i);
+  });
+
+  it("does not mistake a generic reference to the main idea for main.py", () => {
+    const result = applyTutorOutputPolicy({
+      sections: {
+        summary: "The main idea is to inspect `values` before the output line.",
+        hint: "Trace `values` in main.py.",
+        citations: [{
+          path: "main.py",
+          line: 2,
+          column: null,
+          reason: "Output line in main.py",
+        }],
+      },
+      params: {
+        ...base,
+        lessonContext: null,
+        activeFile: "notes.py",
+        question: "What is the main idea behind this print line?",
+        files: [
+          { path: "main.py", content: "values = [1, 2]\nprint(values)" },
+          { path: "notes.py", content: 'print("notes")' },
+        ],
+      },
+      intent: "socratic",
+      priorTutorTurns: 0,
+    });
+
+    expect(result.citations).toEqual([expect.objectContaining({
+      path: "notes.py",
+      line: 1,
+    })]);
+    expect(JSON.stringify(result)).not.toContain("values");
+  });
 });

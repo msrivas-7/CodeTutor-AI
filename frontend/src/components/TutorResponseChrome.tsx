@@ -1,5 +1,6 @@
 import type { TokenUsage, TutorAction } from "../types";
 import { estimateCost, formatCost, formatTokens } from "../util/pricing";
+import { parseTutorError } from "../util/tutorErrors";
 
 // Standing follow-up prompts that appear below the most recent tutor turn.
 // They're a quick way for the learner to deepen an answer without re-typing.
@@ -109,9 +110,15 @@ export function AskErrorView({
   onRetry?: () => void;
   retryDisabled?: boolean;
 }) {
-  const { kind, title, hint } = classifyAskError(message);
-  const canRetry = onRetry && kind !== "auth";
-  const informational = kind === "canceled" || kind === "contextChanged";
+  const {
+    kind,
+    title,
+    hint,
+    retryable = kind !== "auth",
+    showDetails = true,
+  } = classifyAskError(message);
+  const canRetry = onRetry && retryable;
+  const informational = kind === "canceled" || kind === "contextChanged" || kind === "platformPaused";
   return (
     <div
       role={informational ? "status" : "alert"}
@@ -128,7 +135,7 @@ export function AskErrorView({
         </span>
       </div>
       {hint && <div className="mb-1.5 text-ink/90">{hint}</div>}
-      {!informational && (
+      {showDetails && !informational && (
         <div className="whitespace-pre-wrap break-words font-mono text-sm text-muted">
           {message}
         </div>
@@ -151,7 +158,41 @@ export function AskErrorView({
   );
 }
 
-export function classifyAskError(raw: string): { kind: string; title: string; hint?: string } {
+export function classifyAskError(raw: string): {
+  kind: string;
+  title: string;
+  hint?: string;
+  retryable?: boolean;
+  showDetails?: boolean;
+} {
+  const parsed = parseTutorError(raw);
+  if (parsed.code?.toUpperCase() === "PLATFORM_AI_PAUSED") {
+    if (parsed.reason?.toLowerCase() === "daily_usd_per_user_hit") {
+      return {
+        kind: "platformPaused",
+        title: "Free tutor paused for today",
+        hint: "Your code is safe. Keep working and try again after the daily reset, or add your own OpenAI key in Settings to continue now.",
+        retryable: false,
+        showDetails: false,
+      };
+    }
+    if (parsed.reason?.toLowerCase() === "lifetime_usd_per_user_hit") {
+      return {
+        kind: "platformPaused",
+        title: "Free tutor limit reached",
+        hint: "Your code is safe. You can keep working or add your own OpenAI key in Settings to continue with the tutor.",
+        retryable: false,
+        showDetails: false,
+      };
+    }
+    return {
+      kind: "platformPaused",
+      title: "Free tutor temporarily unavailable",
+      hint: "Your code is safe. Keep working for now, or add your own OpenAI key in Settings to continue with the tutor.",
+      retryable: false,
+      showDetails: false,
+    };
+  }
   const m = raw.toLowerCase();
   if (m.includes("tutor_canceled_by_user")) {
     return {
