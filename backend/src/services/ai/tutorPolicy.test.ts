@@ -1193,6 +1193,101 @@ describe("applyTutorOutputPolicy", () => {
     expect(JSON.stringify(result)).not.toContain("append()");
   });
 
+  it("does not replace an unrelated first-turn question with list-method guidance", () => {
+    const result = applyTutorOutputPolicy({
+      sections: {
+        summary: "The print line displays the current collection.",
+        hint: "Compare the printed value with the collection created on line 1.",
+        checkQuestions: ["What did you expect the print line to display?"],
+        citations: [{ path: "main.py", line: 3, reason: "Visible print call" }],
+      },
+      params: {
+        ...base,
+        question: "Can you help me understand the print line?",
+        files: [{
+          path: "main.py",
+          content: 'items = []\nitems.append_all("apple")\nprint(items)\n',
+        }],
+      },
+      intent: "socratic",
+      priorTutorTurns: 0,
+    });
+
+    expect(result.summary).toBe("The print line displays the current collection.");
+    expect(result.summary).not.toContain("append_all");
+    expect(result.citations).toEqual([{
+      path: "main.py",
+      line: 3,
+      reason: "Visible print call",
+    }]);
+  });
+
+  it("uses list-method guidance when the selected editor span covers the call", () => {
+    const result = applyTutorOutputPolicy({
+      sections: { checkQuestions: ["What have you noticed?"] },
+      params: {
+        ...base,
+        question: "Why does this fail?",
+        language: "python",
+        lessonContext: null,
+        files: [{
+          path: "main.py",
+          content: 'items = []\nitems.append_all("apple")\nprint(items)\n',
+        }],
+        selection: {
+          path: "main.py",
+          startLine: 2,
+          endLine: 2,
+          text: 'items.append_all("apple")',
+        },
+      },
+      intent: "socratic",
+      priorTutorTurns: 0,
+    });
+
+    expect(result.summary).toContain("calls `append_all()`");
+    expect(result.checkQuestions).toEqual([
+      "What did you want line 2 to do with that one value?",
+    ]);
+  });
+
+  it("anchors an explicit line question to the active file instead of another file", () => {
+    const longMain = `${Array.from({ length: 499 }, () => "x=1").join("\n")}\nprint("tail marker")`;
+    const result = applyTutorOutputPolicy({
+      sections: {
+        summary: "Line 9 tests `n % 2 == 0`.",
+        hint: "Evaluate the comparison first.",
+        checkQuestions: ["Which branch follows?"],
+        citations: [{ path: "stats.py", line: 9, reason: "Visible condition" }],
+      },
+      params: {
+        ...base,
+        activeFile: "main.py",
+        question: "What does line 500 do?",
+        files: [
+          {
+            path: "stats.py",
+            content: "n = len(s)\n\n\n\n\n\n\n\nif n % 2 == 0:\n    return 0\n",
+          },
+          { path: "main.py", content: longMain },
+        ],
+      },
+      intent: "socratic",
+      priorTutorTurns: 0,
+    });
+
+    expect(result.summary).toBe("Line 500 displays the visible expression’s result.");
+    expect(result.checkQuestions).toEqual([
+      "What exact output do you predict line 500 will display?",
+    ]);
+    expect(result.citations).toEqual([{
+      path: "main.py",
+      line: 500,
+      column: null,
+      reason: "Visible line explicitly requested by the learner",
+    }]);
+  });
+
   it("gives bounded value for a visible identifier typo without pasting a fix", () => {
     const result = applyTutorOutputPolicy({
       sections: { checkQuestions: ["What should I change?"] },

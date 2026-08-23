@@ -227,9 +227,20 @@ describe("buildUserTurn", () => {
       files: [{ path: "big.py", content: longContent }],
       history: [],
     });
-    // The coordinate prefix consumes four characters of the same bounded
-    // prompt budget, so the marker truthfully reports the remaining raw text.
-    expect(body).toMatch(/\[truncated, 1004 more chars\]/);
+    expect(body).toMatch(/\[truncated, 1000 more chars\]/);
+  });
+
+  it("does not spend the source-content budget on line-number metadata", () => {
+    const source = Array.from({ length: 500 }, () => "x=1").join("\n");
+    const body = buildUserTurn({
+      question: "What happens near the end?",
+      files: [{ path: "many.py", content: source }],
+      history: [],
+    });
+
+    expect(source.length).toBeLessThan(4000);
+    expect(body).toContain("500 | x=1");
+    expect(body).not.toContain("[truncated,");
   });
 
   it("renders 'No run yet.' when lastRun is null", () => {

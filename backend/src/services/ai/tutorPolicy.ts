@@ -7,9 +7,18 @@ import { isStandardApiSymbol } from "./suspectApi.js";
 
 type TutorPolicyParams = Pick<
   AIAskParams,
-  "files" | "question" | "lessonContext" | "lastRun" | "tutorAction"
+  | "files"
+  | "question"
+  | "lessonContext"
+  | "lastRun"
+  | "tutorAction"
+  | "language"
+  | "activeFile"
 > &
-  Partial<Pick<AIAskParams, "history" | "diffSinceLastTurn" | "learnerName">>;
+  Partial<Pick<
+    AIAskParams,
+    "history" | "diffSinceLastTurn" | "learnerName" | "selection"
+  >>;
 
 const PROTECTED_REQUEST =
   /\b(?:system prompt|hidden tests?|hidden validator|another learner|compare my progress|correct (?:choice|answer)|answer is|exact final line|complete finished program|paste it)\b|\bprivate\s+(?:[A-Z0-9_]+\s+)?(?:mastery|record)\b|\b(?:reveal|show|quote|expose)\b[^.!?\n]{0,80}\b[A-Z][A-Z0-9]*_CANARY_[A-Z0-9_]+\b/i;
@@ -1287,9 +1296,9 @@ function visibleConcreteExample(
 }
 
 function pythonSingleListAddition(
-  params: Pick<AIAskParams, "files" | "lessonContext">,
+  params: Pick<AIAskParams, "files" | "lessonContext" | "language">,
 ): { variable: string; method: string; path: string; line: number } | null {
-  if (params.lessonContext?.language !== "python") return null;
+  if ((params.language ?? params.lessonContext?.language) !== "python") return null;
   for (const file of params.files) {
     const listVariables = new Set(
       [...file.content.matchAll(/^\s*([A-Za-z_]\w*)\s*=\s*\[[^\n]*\]\s*$/gm)].map(
@@ -1314,6 +1323,62 @@ function pythonSingleListAddition(
     }
   }
   return null;
+}
+
+function referencesSingleListAddition(
+  params: Pick<AIAskParams, "files" | "question" | "selection">,
+  match: { method: string; path: string; line: number },
+): boolean {
+  const escapedMethod = match.method.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const questionNamesMethod = new RegExp(`\\b${escapedMethod}\\b`, "i").test(
+    params.question,
+  );
+  const questionNamesLine = params.files.length === 1 &&
+    new RegExp(`\\bline\\s+${match.line}\\b`, "i").test(params.question);
+  const selection = params.selection;
+  const selectionCoversCall = !!selection &&
+    selection.path === match.path &&
+    selection.startLine <= match.line &&
+    selection.endLine >= match.line;
+
+  return questionNamesMethod || questionNamesLine || selectionCoversCall;
+}
+
+function explicitLineSocraticValue(
+  params: Pick<AIAskParams, "activeFile" | "files" | "question">,
+): (Pick<TutorSections, "summary" | "hint" | "citations"> & {
+  question: string;
+}) | null {
+  const requested = params.question.match(/\bline\s+(\d+)\b/i);
+  if (!requested) return null;
+  const line = Number(requested[1]);
+  if (!Number.isSafeInteger(line) || line < 1) return null;
+
+  const file = params.files.find((candidate) => candidate.path === params.activeFile) ??
+    (params.files.length === 1 ? params.files[0] : null);
+  if (!file || line > file.content.split("\n").length) return null;
+
+  const step = visibleCodeWalkthroughSteps({ files: [file], question: params.question })
+    .find((candidate) => candidate.line === line);
+  if (!step) return null;
+  const source = file.content.split("\n")[line - 1]?.trim() ?? "";
+  const isOutput = /\b(?:print|console\.log)\s*\(/.test(source);
+
+  return {
+    summary: step.body.replace(/^This line\b/, `Line ${line}`),
+    hint: isOutput
+      ? "Trace the expression inside the output call, then predict the exact text or value it will display before running it."
+      : "Trace this one visible statement from its inputs to its resulting value or effect before changing it.",
+    question: isOutput
+      ? `What exact output do you predict line ${line} will display?`
+      : `What value or effect do you predict after line ${line} runs?`,
+    citations: [{
+      path: file.path,
+      line,
+      column: null,
+      reason: "Visible line explicitly requested by the learner",
+    }],
+  };
 }
 
 function visibleCollectionHowto(
@@ -2860,7 +2925,8 @@ export function applyTutorOutputPolicy({
     const singleListAddition = priorTutorTurns === 0
       ? pythonSingleListAddition(params)
       : null;
-    const singleListAdditionGrounding = singleListAddition
+    const singleListAdditionGrounding = singleListAddition &&
+        referencesSingleListAddition(params, singleListAddition)
       ? {
           summary:
             `Line ${singleListAddition.line} calls \`${singleListAddition.method}()\` on the visible list \`${singleListAddition.variable}\`, but that is not a standard Python list method.`,
@@ -2876,8 +2942,10 @@ export function applyTutorOutputPolicy({
           }],
         }
       : null;
+    const explicitLineGrounding = explicitLineSocraticValue(params);
     const directAnswerGrounding = directAnswerRequestSocraticValue(params);
     const forcedGrounding = !!singleListAdditionGrounding ||
+      !!explicitLineGrounding ||
       !!collectionIterationGrounding ||
       !!directAnswerGrounding ||
       EXPLICIT_HINT_REQUEST.test(params.question) ||
@@ -2887,6 +2955,7 @@ export function applyTutorOutputPolicy({
       SOCRATIC_CONCEPT_REQUEST.test(params.question) ||
       hasActualFileDiff(params.diffSinceLastTurn);
     const grounded = singleListAdditionGrounding ??
+      explicitLineGrounding ??
       collectionIterationGrounding ??
       directAnswerGrounding ?? (EXPLICIT_HINT_REQUEST.test(params.question)
       ? STRONGER_HINT_REQUEST.test(params.question) && priorTutorTurns > 0
