@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import type { Course, LessonMeta } from "../types";
 import { loadCourse, loadAllLessonMetas } from "../content/courseLoader";
@@ -21,6 +21,7 @@ import { CourseCompleteHero } from "../components/CourseCompleteHero";
 import { MissingContentState } from "../components/MissingContentState";
 import { motion } from "framer-motion";
 import type { ProgressStatus } from "../types";
+import { savedProgressRecoveryMessage } from "../utils/savedProgressRecovery";
 
 export default function CourseOverviewPage() {
   const { courseId } = useParams<{ courseId: string }>();
@@ -39,6 +40,7 @@ export default function CourseOverviewPage() {
   const [confirmReset, setConfirmReset] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [resetError, setResetError] = useState<string | null>(null);
+  const savedProgressNoticeRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!courseId) return;
@@ -90,6 +92,19 @@ export default function CourseOverviewPage() {
   // celebrate. Also guards against the flicker between setCourse and
   // the first progress row landing.
   const courseComplete = lessons.length > 0 && completedIds.length >= lessons.length;
+  const savedButLockedLessons = lessons.filter((lesson) => {
+    const status = progressMap[lesson.id] ?? "not_started";
+    if (status === "not_started") return false;
+    return !lesson.prerequisiteLessonIds.every((id) => completedIds.includes(id));
+  });
+  const savedButLockedCount = savedButLockedLessons.length;
+  useEffect(() => {
+    if (loading || savedButLockedCount === 0) return;
+    const frame = window.requestAnimationFrame(() => {
+      savedProgressNoticeRef.current?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [loading, savedButLockedCount]);
   useCourseCompleteBurst({ courseId, isComplete: courseComplete });
 
   // Cinema Kit — streak signal for returning learners. Derives the most
@@ -131,17 +146,18 @@ export default function CourseOverviewPage() {
 
   return (
     <div className="relative flex h-full flex-col bg-bg text-ink">
-      <header className="relative z-20 flex items-center gap-3 border-b border-border bg-panel/80 px-4 py-2 backdrop-blur">
+      <header className="relative z-20 flex items-center gap-1 border-b border-border bg-panel/80 px-2 py-1 backdrop-blur sm:gap-3 sm:px-4 sm:py-2">
         <button
           onClick={() => nav("/learn")}
-          className="rounded px-2 py-1 text-xs text-muted transition hover:bg-elevated hover:text-ink"
+          className="inline-flex h-11 min-w-11 items-center justify-center rounded text-xs text-muted transition hover:bg-elevated hover:text-ink sm:h-auto sm:min-w-0 sm:px-2 sm:py-1"
           aria-label="Back to courses"
         >
-          ← Courses
+          <span aria-hidden="true">←</span>
+          <span className="ml-1 hidden sm:inline">Courses</span>
         </button>
-        <Wordmark size="sm" />
-        <span className="h-4 w-px bg-border" aria-hidden="true" />
-        <h1 className="truncate text-[14px] font-medium tracking-tight text-ink">
+        <Wordmark size="sm" className="hidden sm:inline-block" />
+        <span className="hidden h-4 w-px bg-border sm:block" aria-hidden="true" />
+        <h1 className="sr-only truncate text-[14px] font-medium tracking-tight text-ink sm:not-sr-only">
           {course?.title ?? "Course"}
         </h1>
         {courseComplete && (
@@ -314,6 +330,29 @@ export default function CourseOverviewPage() {
                 <p className="text-xs leading-relaxed text-ink/80">
                   Start with <strong>Lesson 1</strong> — each lesson builds on the last. Click a lesson to open it.
                 </p>
+              </StaggerItem>
+            )}
+
+            {savedButLockedLessons.length > 0 && (
+              <StaggerItem className="mb-5 rounded-lg border border-accent/25 bg-accent/5 px-4 py-3">
+                <div
+                  ref={savedProgressNoticeRef}
+                  role="status"
+                  aria-live="polite"
+                  tabIndex={-1}
+                  className="focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+                >
+                  <p className="text-sm font-semibold text-ink">
+                    Your later progress is still saved
+                  </p>
+                  <p className="mt-1 text-xs leading-relaxed text-muted">
+                    {savedProgressRecoveryMessage({
+                      lessons,
+                      savedButLockedLessons,
+                      completedIds,
+                    })}
+                  </p>
+                </div>
               </StaggerItem>
             )}
 

@@ -2946,7 +2946,9 @@ export default function LessonPage({
             never opened this lesson.
           </p>
           <p className="mt-2 text-meta leading-relaxed text-faint">
-            Your saved tutor messages stay.
+            Your saved tutor messages stay. Lessons that depend on this one
+            keep their progress, but stay locked until you complete this lesson
+            again.
           </p>
           {validator.resetLessonError && (
             <div
