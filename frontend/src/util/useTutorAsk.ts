@@ -19,6 +19,7 @@ import {
 import type { EditorSelection, ProjectFile, AIMessage, TutorAction } from "../types";
 import { computeDiffSinceLast } from "./diffSinceLast";
 import { parsePartialTutor } from "./partialJson";
+import { isPlatformTutorPaused } from "./tutorErrors";
 
 export function isCompatibleTutorModel(model: string): boolean {
   const normalized = model.trim().toLocaleLowerCase();
@@ -469,6 +470,13 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
               clearStream();
               committed = true;
               return;
+            }
+            if (!isAnon && isPlatformTutorPaused(message)) {
+              // The question-count pill is not the authority for independent
+              // server-owned spend controls. Rehydrate immediately so the
+              // composer locks and the BYOK recovery surface replaces a stale
+              // positive allowance instead of inviting futile retries.
+              invalidateAIStatus();
             }
             setAskError(message);
             clearStream();

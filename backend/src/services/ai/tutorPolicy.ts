@@ -20,6 +20,67 @@ type TutorPolicyParams = Pick<
     "history" | "diffSinceLastTurn" | "learnerName" | "selection"
   >>;
 
+function prioritizeRelevantFile(params: TutorPolicyParams): TutorPolicyParams {
+  const selectionIndex = params.selection?.path
+    ? params.files.findIndex((file) => file.path === params.selection?.path)
+    : -1;
+  const namedIndex = params.files.findIndex((file) =>
+    questionNamesFile(params.question, file.path)
+  );
+  const activeIndex = params.activeFile
+    ? params.files.findIndex((file) => file.path === params.activeFile)
+    : -1;
+  const preferredIndex = [selectionIndex, namedIndex, activeIndex]
+    .find((index) => index >= 0) ?? -1;
+  if (preferredIndex <= 0) return params;
+  return {
+    ...params,
+    files: [
+      params.files[preferredIndex],
+      ...params.files.slice(0, preferredIndex),
+      ...params.files.slice(preferredIndex + 1),
+    ],
+  };
+}
+
+function questionNamesFile(question: string, path: string): boolean {
+  const basename = path.split("/").at(-1) ?? path;
+  const stem = basename.replace(/\.[^.]+$/, "");
+  const genericStems = new Set(["app", "index", "main", "test"]);
+  return [
+    path,
+    basename,
+    ...(stem.length >= 4 && !genericStems.has(stem.toLowerCase()) ? [stem] : []),
+  ]
+    .filter((candidate) => candidate.length >= 3)
+    .some((candidate) => question.toLowerCase().includes(candidate.toLowerCase()));
+}
+
+function firstTurnMissesRelevantFile(
+  sections: TutorSections,
+  params: TutorPolicyParams,
+  priorTutorTurns: number,
+): boolean {
+  if (priorTutorTurns !== 0 || !sections.citations?.length) {
+    return false;
+  }
+  if (sections.conversationMove && sections.conversationMove !== "none") return false;
+  const selectedFile = params.selection?.path &&
+      params.files.some((file) => file.path === params.selection?.path)
+    ? params.selection.path
+    : null;
+  const namedFile = params.files.find((file) =>
+    questionNamesFile(params.question, file.path)
+  )?.path ?? null;
+  const activeFile = params.activeFile &&
+      params.files.some((file) => file.path === params.activeFile)
+    ? params.activeFile
+    : null;
+  const relevantFile = selectedFile ?? namedFile ?? activeFile;
+  return !!relevantFile &&
+    !sections.citations.some((citation) => citation.path === relevantFile);
+}
+
 const PROTECTED_REQUEST =
   /\b(?:system prompt|hidden tests?|hidden validator|another learner|compare my progress|correct (?:choice|answer)|answer is|exact final line|complete finished program|paste it)\b|\bprivate\s+(?:[A-Z0-9_]+\s+)?(?:mastery|record)\b|\b(?:reveal|show|quote|expose)\b[^.!?\n]{0,80}\b[A-Z][A-Z0-9]*_CANARY_[A-Z0-9_]+\b/i;
 const PROTECTED_ANSWER_REQUEST =
@@ -263,14 +324,17 @@ function explicitLanguageMismatch(params: TutorPolicyParams): string | null {
 }
 
 function firstVisibleIdentifier(params: Pick<AIAskParams, "files">): string | null {
-  for (const file of params.files) {
-    for (const line of file.content.split("\n")) {
-      if (INSTRUCTION_INJECTION.test(line)) continue;
-      const identifier = line.match(
-        /^\s*(?:(?:const|let|var)\s+)?([A-Za-z_$][\w$]*)\s*=/,
-      )?.[1];
-      if (identifier && !/_CANARY_/i.test(identifier)) return identifier;
-    }
+  // File ordering expresses the current subject (selection, explicit name, or
+  // active tab). Falling through to another project file can silently revive
+  // stale context after a tab switch.
+  const subject = params.files[0];
+  if (!subject) return null;
+  for (const line of subject.content.split("\n")) {
+    if (INSTRUCTION_INJECTION.test(line)) continue;
+    const identifier = line.match(
+      /^\s*(?:(?:const|let|var)\s+)?([A-Za-z_$][\w$]*)\s*=/,
+    )?.[1];
+    if (identifier && !/_CANARY_/i.test(identifier)) return identifier;
   }
   return null;
 }
@@ -1345,7 +1409,7 @@ function referencesSingleListAddition(
 }
 
 function explicitLineSocraticValue(
-  params: Pick<AIAskParams, "activeFile" | "files" | "question">,
+  params: Pick<AIAskParams, "files" | "question">,
 ): (Pick<TutorSections, "summary" | "hint" | "citations"> & {
   question: string;
 }) | null {
@@ -1354,8 +1418,9 @@ function explicitLineSocraticValue(
   const line = Number(requested[1]);
   if (!Number.isSafeInteger(line) || line < 1) return null;
 
-  const file = params.files.find((candidate) => candidate.path === params.activeFile) ??
-    (params.files.length === 1 ? params.files[0] : null);
+  // applyTutorOutputPolicy has already ordered files by the authoritative
+  // subject precedence (selection, explicit file name, then active tab).
+  const file = params.files[0] ?? null;
   if (!file || line > file.content.split("\n").length) return null;
 
   const step = visibleCodeWalkthroughSteps({ files: [file], question: params.question })
@@ -2484,7 +2549,7 @@ function visibleCodeWalkthroughSteps(
       const assignment = line.match(
         /^(?:(?:const|let|var)\s+)?([A-Za-z_$][\w$]*)\s*=\s*(.+?);?$/,
       );
-      const returned = line.match(/^return\s+([A-Za-z_$][\w$]*)/);
+      const returnedExpression = line.match(/^return\s+(.+?);?$/)?.[1]?.trim();
       const consoleOutput = /^console\.log\s*\(/.test(line);
       const consoleOutputIdentifier = line.match(
         /^console\.log\s*\(\s*([A-Za-z_$][\w$]*)\s*\)\s*;?$/,
@@ -2528,8 +2593,10 @@ function visibleCodeWalkthroughSteps(
         body = parameters
           ? `This line defines \`${name}\` with the parameter ${parameters}.`
           : `This line defines \`${name}\` with no parameters.`;
-      } else if (returned) {
-        body = `This line returns \`${returned[1]}\` to the caller.`;
+      } else if (returnedExpression) {
+        body = /^[A-Za-z_$][\w$]*$/.test(returnedExpression)
+          ? `This line returns \`${returnedExpression}\` to the caller.`
+          : `This line returns the result of \`${returnedExpression}\` to the caller.`;
       } else if (consoleOutput) {
         body = consoleOutputExpression == null
           ? "This line starts a `console.log()` call, but its current expression is not structurally complete, so the program stops before it can display anything."
@@ -2569,6 +2636,12 @@ function visibleCodeWalkthroughSteps(
         const pythonConditional = expression.match(
           /^(.+?)\s+if\s+(.+?)\s+else\s+(.+)$/,
         );
+        const pythonListComprehension = expression.match(
+          /^\[\s*(.+?)\s+for\s+([A-Za-z_]\w*)\s+in\s+([A-Za-z_]\w*)\s*\]$/,
+        );
+        const comprehensionCall = pythonListComprehension?.[1].match(
+          /^([A-Za-z_]\w*)\s*\(\s*([A-Za-z_]\w*)\s*\)$/,
+        );
         const called = expression.match(/^([A-Za-z_$][\w$]*)\s*\(/)?.[1];
         const chainedMethodCall = expression.match(
           /^(.+?)\.([A-Za-z_$][\w$]*)\([^)]*\)\.([A-Za-z_$][\w$]*)\([^)]*\)$/,
@@ -2578,6 +2651,11 @@ function visibleCodeWalkthroughSteps(
         );
         body = pythonConditional
           ? `\`${name}\` chooses between the two visible values based on whether \`${pythonConditional[2].trim()}\` is true.`
+          : pythonListComprehension &&
+              comprehensionCall?.[2] === pythonListComprehension[2]
+          ? `\`${name}\` stores a new list made by applying \`${comprehensionCall[1]}\` to each item from \`${pythonListComprehension[3]}\`.`
+          : pythonListComprehension
+          ? `\`${name}\` stores a new list produced once for each item from \`${pythonListComprehension[3]}\`.`
           : methodCall?.[2] === "map"
           ? `\`${name}\` receives a new array produced by applying \`map\` to each current \`${methodCall[1]}\` value.`
           : chainedMethodCall
@@ -2643,6 +2721,15 @@ function repairMisgroundedOutputClaims(
     const source = sourceByLocation.get(location) ?? "";
     const claimsOutput = /\b(?:prints?|printed|logs?|logged|displays?|displayed|outputs?|outputted)\b/i.test(step.body);
     const isOutputLine = /\b(?:print|console\.log)\s*\(/.test(source);
+    const claimsImport = /\b(?:imports?|makes?\b[^.!?]{0,40}\bavailable)\b/i.test(step.body);
+    const isImportLine = /^(?:from\s+\S+\s+import\b|import\s+)/.test(source);
+    const foreignBacktickedIdentifier = [...step.body.matchAll(/`([A-Za-z_$][\w$]*)/g)]
+      .map((match) => match[1])
+      .find((identifier) =>
+        !new RegExp(
+          `\\b${identifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`,
+        ).test(source)
+      );
     const claimsTextCombination =
       /\b(?:text|string)\b/i.test(step.body) &&
       /\b(?:combin(?:e|es|ed|ing)?|concat(?:enat(?:e|es|ed|ing|ion))?|join(?:s|ed|ing)?)\b/i.test(step.body);
@@ -2650,7 +2737,12 @@ function repairMisgroundedOutputClaims(
       source.includes("+") &&
       !expressionContainsVisibleText(source) &&
       claimsTextCombination;
-    return (claimsOutput && !isOutputLine) || misclassifiesNonTextPlus
+    return (
+      (claimsOutput && !isOutputLine) ||
+      (claimsImport && !isImportLine) ||
+      !!foreignBacktickedIdentifier ||
+      misclassifiesNonTextPlus
+    )
       ? fallbackByLocation.get(location) ?? step
       : step;
   });
@@ -2684,7 +2776,10 @@ function ensureRepresentativeLongWalkthrough(
   );
   const priority = (step: NonNullable<TutorSections["walkthrough"]>[number]) => {
     const source = sourceByLocation.get(`${step.path ?? ""}:${step.line ?? ""}`) ?? "";
-    if (/\b(?:receives|stores) the value\b/i.test(step.body)) return 30;
+    if (
+      /\b(?:receives|stores) (?:the value|a new list)\b/i.test(step.body) ||
+      /=\s*\[.*\bfor\b/.test(source)
+    ) return 30;
     // Function boundaries explain a long program's architecture; retain them
     // ahead of generic intermediate assignments when the six-step UI budget
     // forces a representative subset.
@@ -2808,6 +2903,14 @@ export function applyTutorOutputPolicy({
   intent: TutorIntent;
   priorTutorTurns: number;
 }): TutorSections {
+  params = prioritizeRelevantFile(params);
+  // A newly cleared Editor conversation has no prior turn that could make a
+  // different file the subject. If every citation points outside the visibly
+  // active file without the learner naming or selecting that file, discard the
+  // stale payload and rebuild from the existing active-file evidence policy.
+  if (firstTurnMissesRelevantFile(sections, params, priorTutorTurns)) {
+    sections = {};
+  }
   const protectedRequestEarly = PROTECTED_REQUEST.test(params.question);
   const abusiveRequestEarly = ABUSIVE_CONTENT_REQUEST.test(params.question);
   const requiresHardBoundary = protectedRequestEarly || abusiveRequestEarly;
