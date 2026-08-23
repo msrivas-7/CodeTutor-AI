@@ -1,4 +1,12 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { StatusBadge } from "../components/StatusBadge";
@@ -106,6 +114,7 @@ export default function EditorPage() {
   const [tutorCollapsed, setTutorCollapsed] = useLocalStorageFlag(LS_TUTOR, false);
   const tutorOpenNonce = useAIStore((s) => s.tutorOpenNonce);
   const handledTutorOpenNonceRef = useRef(0);
+  const pendingTutorOpenFocusRef = useRef(0);
   const [filesCollapsed, setFilesCollapsed] = useLocalStorageFlag(LS_FILES, false);
   const [showSettings, setShowSettings] = useState(false);
   const [showCoach, setShowCoach] = useState(false);
@@ -174,14 +183,46 @@ export default function EditorPage() {
   useEffect(() => {
     if (tutorOpenNonce <= handledTutorOpenNonceRef.current) return;
     handledTutorOpenNonceRef.current = tutorOpenNonce;
+    pendingTutorOpenFocusRef.current = tutorOpenNonce;
     if (workspaceConstrained) setFilesCollapsed(true);
     setTutorCollapsed(false);
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => {
-        tutorRef.current?.focus({ preventScroll: true });
-      });
-    });
   }, [tutorOpenNonce, workspaceConstrained, setFilesCollapsed, setTutorCollapsed]);
+
+  useLayoutEffect(() => {
+    const pendingNonce = pendingTutorOpenFocusRef.current;
+    if (pendingNonce === 0 || tutorCollapsed) return;
+
+    let frame: number | null = null;
+    let attempts = 0;
+    const focusOpenedTutor = () => {
+      const target = tutorRef.current;
+      if (
+        target &&
+        document.contains(target) &&
+        target.getAttribute("aria-hidden") !== "true" &&
+        !target.hasAttribute("inert")
+      ) {
+        target.focus({ preventScroll: true });
+        if (document.activeElement === target) {
+          if (pendingTutorOpenFocusRef.current === pendingNonce) {
+            pendingTutorOpenFocusRef.current = 0;
+          }
+          return;
+        }
+      }
+
+      attempts += 1;
+      if (attempts < 4) frame = requestAnimationFrame(focusOpenedTutor);
+    };
+
+    // Opening the animated rail and removing `inert` are React commits, not
+    // frame-count guarantees. Fulfil the focus handoff only after the final
+    // Tutor surface is mounted and observed as document.activeElement.
+    focusOpenedTutor();
+    return () => {
+      if (frame !== null) cancelAnimationFrame(frame);
+    };
+  }, [tutorCollapsed, tutorOpenNonce]);
 
   const editorCoachDone = usePreferencesStore((s) => s.editorCoachDone);
   useEffect(() => {
