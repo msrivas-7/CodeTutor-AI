@@ -6,6 +6,12 @@ on:
     # turning the anonymous runner into a material source of spend.
     - cron: '17 */6 * * *'
   workflow_dispatch:
+    inputs:
+      incident_drill:
+        description: 'Deliberately fail before the journey to verify incident automation'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -24,6 +30,12 @@ jobs:
       SITE_ORIGIN: https://codetutor.msrivas.com
       API_ORIGIN: https://codetutor-ai-vm.eastus2.cloudapp.azure.com
     steps:
+      - name: Exercise incident automation
+        if: github.event_name == 'workflow_dispatch' && inputs.incident_drill
+        run: |
+          echo '::error::Controlled incident drill requested by a repository operator.'
+          exit 1
+
       - name: Check public entry points and backend readiness
         run: |
           set -euo pipefail
@@ -67,13 +79,21 @@ jobs:
         if: failure()
         env:
           GH_TOKEN: ${{ github.token }}
+          INCIDENT_DRILL: ${{ inputs.incident_drill || false }}
         run: |
           set -euo pipefail
           title='Production synthetic: critical journey is failing'
+          if [ "$INCIDENT_DRILL" = 'true' ]; then
+            title='Production synthetic incident drill: issue automation verification'
+          fi
           existing="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "$title in:title" --json number --jq '.[0].number // empty')"
           if [ -z "$existing" ]; then
+            summary='The scheduled Marketing → anonymous trial → first output synthetic failed.'
+            if [ "$INCIDENT_DRILL" = 'true' ]; then
+              summary='A repository operator deliberately failed the production synthetic to verify incident automation. Production was not reported unhealthy by this drill.'
+            fi
             gh issue create \
               --repo "$GITHUB_REPOSITORY" \
               --title "$title" \
-              --body "The scheduled Marketing → anonymous trial → first output synthetic failed. Owner: repository operator. Inspect the failed run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+              --body "$summary Owner: repository operator. Inspect the failed run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           fi
