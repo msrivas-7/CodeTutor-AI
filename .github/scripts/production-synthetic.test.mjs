@@ -39,6 +39,24 @@ test("production synthetic incident commands bind to the triggering repository",
   );
 });
 
+test("production synthetic exposes an operator-only controlled incident drill", () => {
+  assert.match(
+    workflow,
+    /workflow_dispatch:\n\s+inputs:\n\s+incident_drill:/,
+    "workflow_dispatch must expose the controlled drill input",
+  );
+  assert.match(
+    workflow,
+    /- name: Exercise incident automation\n\s+if: github\.event_name == 'workflow_dispatch' && inputs\.incident_drill/,
+    "the deliberate failure must be unreachable from scheduled runs",
+  );
+  assert.match(
+    workflow,
+    /Production was not reported unhealthy by this drill\./,
+    "the incident must distinguish an operator drill from a detected outage",
+  );
+});
+
 test("production synthetic incident step runs without a git checkout", () => {
   const runBlock = workflow.match(
     /      - name: Open an actionable incident issue[\s\S]*?        run: \|\n([\s\S]*)$/,
@@ -67,6 +85,7 @@ test("production synthetic incident step runs without a git checkout", () => {
         PATH: `${sandbox}:${process.env.PATH ?? ""}`,
         GH_LOG: ghLog,
         GH_TOKEN: "test-token",
+        INCIDENT_DRILL: "false",
         GITHUB_REPOSITORY: "msrivas-7/CodeTutor-AI",
         GITHUB_SERVER_URL: "https://github.com",
         GITHUB_RUN_ID: "12345",
