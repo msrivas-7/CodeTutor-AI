@@ -237,11 +237,11 @@ export function CinematicGreeting(props: CinematicGreetingProps) {
     };
   }, [total, props.mode]);
 
-  // Every terminal dismiss path — Esc key, Skip button, onComplete
-  // timer — routes through this so exactly one fires per mount. A
-  // user hitting Esc at second 14.19 of the cinematic would
-  // otherwise race the natural onComplete timer and double-nav /
-  // double-patch preferences.
+  // The explicit Skip button routes through this single-fire guard so a click
+  // at the end of the cinematic cannot race the natural completion timer and
+  // double-navigate or double-patch preferences. Escape intentionally is not
+  // a product dismissal: native browsers own it for fullscreen and window
+  // transitions, and one key must never change both browser and product state.
   const handleSkipOnce = useCallback(() => {
     if (terminalFiredRef.current) return;
     if (!onSkipRef.current) return;
@@ -259,23 +259,6 @@ export function CinematicGreeting(props: CinematicGreetingProps) {
     }
     onSkipRef.current();
   }, [props.mode]);
-
-  // The full-screen cinematic owns Escape while it is visible. Capture the
-  // key before global shortcuts or an underlying workspace can react, prevent
-  // the browser-facing default, and route through the same single-fire guard
-  // as the visible Skip action.
-  useEffect(() => {
-    if (!props.onSkip) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      event.stopPropagation();
-      handleSkipOnce();
-    };
-    window.addEventListener("keydown", onKeyDown, { capture: true });
-    return () =>
-      window.removeEventListener("keydown", onKeyDown, { capture: true });
-  }, [handleSkipOnce, props.onSkip]);
 
   // Reduced-motion short-circuit: one opacity fade-up of just the hero
   // line + subtitle, no typewriter, no blur, no theatre. Still

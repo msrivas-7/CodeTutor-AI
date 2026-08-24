@@ -280,21 +280,28 @@ export function StreakChip({ override, compact, interactive = true, prominent = 
       }
     };
     const closeForViewportChange = () => setOpen(false);
-    const ro = new ResizeObserver(update);
-    ro.observe(buttonRef.current);
+    const closeForWindowBlur = () => setOpen(false);
+    const closeForVisibilityLoss = () => {
+      if (document.visibilityState !== "visible") setOpen(false);
+    };
+    const anchorObserver = new ResizeObserver(update);
+    anchorObserver.observe(buttonRef.current);
     window.addEventListener("resize", closeForViewportChange);
-    // Native Safari's application fullscreen transition can resize only the
-    // visual viewport. In that path `window.resize` and DOM fullscreen events
-    // are not guaranteed to fire, which previously left this fixed portal
-    // stranded over the compact page after Escape exited fullscreen.
+    // Safari's native application fullscreen is outside the Fullscreen API,
+    // so viewport and focus signals are recovery paths when browser chrome
+    // consumes the transition. DOM fullscreenchange covers webpage fullscreen.
     window.visualViewport?.addEventListener("resize", closeForViewportChange);
+    window.addEventListener("blur", closeForWindowBlur);
+    document.addEventListener("visibilitychange", closeForVisibilityLoss);
     window.addEventListener("scroll", update, true);
     document.addEventListener("fullscreenchange", closeForViewportChange);
     document.addEventListener("webkitfullscreenchange", closeForViewportChange);
     return () => {
-      ro.disconnect();
+      anchorObserver.disconnect();
       window.removeEventListener("resize", closeForViewportChange);
       window.visualViewport?.removeEventListener("resize", closeForViewportChange);
+      window.removeEventListener("blur", closeForWindowBlur);
+      document.removeEventListener("visibilitychange", closeForVisibilityLoss);
       window.removeEventListener("scroll", update, true);
       document.removeEventListener("fullscreenchange", closeForViewportChange);
       document.removeEventListener("webkitfullscreenchange", closeForViewportChange);
@@ -409,6 +416,7 @@ export function StreakChip({ override, compact, interactive = true, prominent = 
           onClose={() => setOpen(false)}
           streak={streak}
           anchorRect={anchorRect}
+          invokerRef={buttonRef}
         />
       )}
     </>

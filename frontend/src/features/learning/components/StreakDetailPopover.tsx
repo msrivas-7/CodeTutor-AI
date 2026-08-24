@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type RefObject, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { api, type StreakHistoryResponse, type UserStreakResponse } from "../../../api/client";
@@ -25,6 +25,8 @@ interface Props {
   streak: UserStreakResponse;
   /** DOM element to anchor the popover to (the chip itself). */
   anchorRect: DOMRect | null;
+  /** The control that invoked the popover and must regain focus on close. */
+  invokerRef: RefObject<HTMLButtonElement | null>;
 }
 
 /** Format YYYY-MM-DD into a "Mon 4" weekday-day string in the user's locale. */
@@ -36,10 +38,17 @@ function fmtShort(yyyymmdd: string): string {
   return d.toLocaleDateString(undefined, { weekday: "short", day: "numeric" });
 }
 
-export function StreakDetailPopover({ open, onClose, streak, anchorRect }: Props) {
+export function StreakDetailPopover({
+  open,
+  onClose,
+  streak,
+  anchorRect,
+  invokerRef,
+}: Props) {
   const [history, setHistory] = useState<StreakHistoryResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
+  const restoreInvokerOnCloseRef = useRef(true);
   const reduceMotion = useReducedMotion();
 
   // Lazy-load history when first opened.
@@ -62,35 +71,54 @@ export function StreakDetailPopover({ open, onClose, streak, anchorRect }: Props
 
   // Focus management (Batch 2 #8): on open, move keyboard focus to the
   // popover so a keyboard user can interact with it (and screen readers
-  // announce it as a new region). On close, return focus to the
-  // previously-active element (typically the chip itself, since that's
-  // what the user clicked to open). This avoids the "tab into background
-  // page chrome" failure mode that violates WCAG 2.4.3.
-  const previousFocusRef = useRef<HTMLElement | null>(null);
+  // announce it as a new region). On close, return focus to the invoking
+  // streak control. This avoids the "tab into background page chrome"
+  // failure mode that violates WCAG 2.4.3.
+  const returnFocusRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
     if (open) {
-      previousFocusRef.current =
-        document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      restoreInvokerOnCloseRef.current = true;
+      // Safari does not always move DOM focus to a button activated by mouse,
+      // so document.activeElement can be body here. The accessibility contract
+      // is to return to the invoking control, not whichever element happened
+      // to own focus before the click.
+      returnFocusRef.current = invokerRef.current;
       // Defer to next frame so the popover is mounted before we focus.
       const id = window.requestAnimationFrame(() => {
         popoverRef.current?.focus();
       });
       return () => window.cancelAnimationFrame(id);
-    } else if (previousFocusRef.current) {
-      const el = previousFocusRef.current;
-      previousFocusRef.current = null;
+    } else if (returnFocusRef.current) {
+      const el = returnFocusRef.current;
+      returnFocusRef.current = null;
+      const shouldRestoreInvoker = restoreInvokerOnCloseRef.current;
+      restoreInvokerOnCloseRef.current = true;
       // Defer so the popover's exit animation can release focus
-      // gracefully without flicker.
+      // gracefully without flicker. Pointer dismissal gets one frame for the
+      // chosen outside control to claim focus; if activation only landed on a
+      // non-focusable background (body, the document root, or the exiting
+      // popover), restore the invoker instead of dropping keyboard users at
+      // the start of the document.
       window.requestAnimationFrame(() => {
         // Verify the prior element is still in the DOM before
         // re-focusing — guards against the chip having unmounted.
-        if (document.contains(el)) el.focus();
+        if (!document.contains(el)) return;
+        const activeElement = document.activeElement;
+        const outsideControlOwnsFocus =
+          !shouldRestoreInvoker &&
+          activeElement instanceof HTMLElement &&
+          activeElement !== document.body &&
+          activeElement !== document.documentElement &&
+          !popoverRef.current?.contains(activeElement);
+        if (!outsideControlOwnsFocus) el.focus();
       });
     }
-  }, [open]);
+  }, [invokerRef, open]);
 
-  // Esc to close + click-outside detection. Bound only while open so
-  // the popover never silently steals events from the rest of the app.
+  // Escape closes this transient surface on keydown without canceling the
+  // event. WebKit currently dispatches keydown but can omit keyup when Escape
+  // exits Safari's native window fullscreen mode (WebKit 279030). Safari owns
+  // that browser transition; the product only releases its own overlay.
   // Listens to `pointerdown` (unified mouse/touch/pen) instead of
   // `mousedown` — touch users tap → no `mousedown` event fires, so
   // `mousedown` would have left the popover open on mobile.
@@ -114,12 +142,17 @@ export function StreakDetailPopover({ open, onClose, streak, anchorRect }: Props
           y <= anchorRect.bottom
         ) return;
       }
+      // Pointer activation may own its own focus destination. In Safari the
+      // pointerdown can still leave focus in this popover until the later
+      // click focuses the outside control, so let close-time focus management
+      // distinguish that control from a non-focusable background.
+      restoreInvokerOnCloseRef.current = false;
       onClose();
     };
-    window.addEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, { capture: true });
     window.addEventListener("pointerdown", onPointer);
     return () => {
-      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keydown", onKey, { capture: true });
       window.removeEventListener("pointerdown", onPointer);
     };
   }, [open, onClose, anchorRect]);

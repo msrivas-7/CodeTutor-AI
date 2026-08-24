@@ -118,6 +118,75 @@ test.describe("settings panel", () => {
     });
     await expect(page.getByRole("dialog", { name: "Streak details" })).toHaveCount(0);
 
+    // Safari can omit keyup while Escape exits native window fullscreen. The
+    // product must close on keydown without blocking Safari's default action.
+    await streakControl.click();
+    const streakDialog = page.getByRole("dialog", { name: "Streak details" });
+    await expect(streakDialog).toBeFocused();
+    await page.evaluate(() => {
+      Object.assign(window, { __streakEscapeDefaultPrevented: null });
+      window.addEventListener(
+        "keydown",
+        (event) => {
+          if (event.key === "Escape") {
+            Object.assign(window, {
+              __streakEscapeDefaultPrevented: event.defaultPrevented,
+            });
+          }
+        },
+        { once: true },
+      );
+    });
+    await page.keyboard.down("Escape");
+    await expect(streakDialog).toHaveCount(0);
+    await expect(streakControl).toBeFocused();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (window as Window & { __streakEscapeDefaultPrevented?: boolean | null })
+              .__streakEscapeDefaultPrevented,
+        ),
+      )
+      .toBe(false);
+    await page.keyboard.up("Escape");
+
+    // Outside pointer dismissal must preserve the control the learner chose.
+    // Safari can leave the popover focused until click activation, so a
+    // deferred unconditional return to the streak chip would steal focus back
+    // from the newly opened user menu.
+    await streakControl.click();
+    await expect(streakDialog).toBeFocused();
+    await userMenu.click();
+    await expect(streakDialog).toHaveCount(0);
+    const userDropdown = page.getByRole("menu");
+    await expect(userDropdown).toBeVisible();
+    // UserMenu intentionally transfers focus from its trigger to its first
+    // menu item on open. The streak cleanup must preserve that semantic
+    // destination rather than pulling focus back to the streak chip.
+    await expect(userDropdown.getByRole("menuitem", { name: /^settings$/i })).toBeFocused();
+    await expect(streakControl).not.toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(userDropdown).toHaveCount(0);
+    await expect(userMenu).toBeFocused();
+
+    // A non-focusable outside surface has no semantic focus destination of
+    // its own. In that case dismissal must restore the streak invoker rather
+    // than leaving keyboard focus on body after the popover disappears.
+    await streakControl.click();
+    await expect(streakDialog).toBeFocused();
+    await footer.click();
+    await expect(streakDialog).toHaveCount(0);
+    await expect(streakControl).toBeFocused();
+
+    // Native Safari window-mode transitions can instead hand focus to browser
+    // chrome without exposing any resize signal. A transient portal must also
+    // release ownership when the page loses focus.
+    await streakControl.click();
+    await expect(page.getByRole("dialog", { name: "Streak details" })).toBeVisible();
+    await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+    await expect(page.getByRole("dialog", { name: "Streak details" })).toHaveCount(0);
+
     await page.setViewportSize({ width: 360, height: 800 });
 
     await userMenu.click();
@@ -840,15 +909,18 @@ test.describe("settings panel", () => {
     await expect(page.getByRole("heading", { level: 1, name: "Guided Learning" })).toBeFocused();
     expect(destructivePreferenceWrites).toHaveLength(0);
 
-    // Escape is the keyboard equivalent of Skip and must preserve the same
-    // exact origin instead of leaking to global shortcuts or the browser.
+    // Escape belongs to native browser fullscreen/window transitions. It must
+    // not advance the replay or leak to global workspace shortcuts; the
+    // explicit Skip action preserves the captured return origin.
     await openSettings(page, "account");
     await page.getByRole("button", { name: /^watch the moment again$/i }).click();
     await expect(page).toHaveURL(/\/welcome\?replay=1&returnTo=%2Flearn$/);
-    await expect(
-      page.getByRole("button", { name: /skip introduction/i }),
-    ).toBeVisible({ timeout: 5_000 });
+    const replaySkip = page.getByRole("button", { name: /skip introduction/i });
+    await expect(replaySkip).toBeVisible({ timeout: 5_000 });
     await page.keyboard.press("Escape");
+    await expect(page).toHaveURL(/\/welcome\?replay=1&returnTo=%2Flearn$/);
+    await expect(replaySkip).toBeVisible();
+    await replaySkip.click();
     await expect(page).toHaveURL(/\/learn$/);
     await expect(page.getByRole("heading", { level: 1, name: "Guided Learning" })).toBeFocused();
   });

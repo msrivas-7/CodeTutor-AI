@@ -103,6 +103,7 @@ export function ShareDialog({
   const shareUrlInputRef = useRef<HTMLInputElement>(null);
   const replaceLinkButtonRef = useRef<HTMLButtonElement>(null);
   const revokeButtonRef = useRef<HTMLButtonElement>(null);
+  const confirmReturnFocusRef = useRef<HTMLElement | null>(null);
   // Phase 21C-ext: the 9:16 Story-format image is rendered in a
   // separate fire-and-forget pipeline server-side. Poll for it once
   // the share has been created; surface a "Save for Stories" download
@@ -149,6 +150,7 @@ export function ShareDialog({
     setOwnerShare(null);
     setManaging(null);
     setConfirmAction(null);
+    confirmReturnFocusRef.current = null;
     lookupSupersededRef.current = false;
     dismissReportedRef.current = false;
   }, [open]);
@@ -379,12 +381,14 @@ export function ShareDialog({
       setStoryWaitGaveUp(false);
       setStoryWaitElapsedMs(0);
       setCopyState("idle");
+      // The nested confirmation modal owns focus restoration. Point its
+      // cleanup at the newly authoritative artifact before unmounting it so
+      // focus runs only after the parent dialog is no longer inert. A local
+      // requestAnimationFrame can fire before React commits that teardown and
+      // is therefore rejected intermittently by the browser.
+      confirmReturnFocusRef.current = shareUrlInputRef.current;
       setConfirmAction(null);
       onShareChanged?.(true);
-      requestAnimationFrame(() => {
-        shareUrlInputRef.current?.focus({ preventScroll: true });
-        shareUrlInputRef.current?.select();
-      });
     } catch (manageError) {
       setError((manageError as Error).message);
     } finally {
@@ -413,13 +417,13 @@ export function ShareDialog({
 
   const closeConfirmAction = () => {
     if (managing) return;
-    const action = confirmAction;
     setConfirmAction(null);
-    requestAnimationFrame(() => {
-      const destination =
-        action === "rotate" ? replaceLinkButtonRef.current : revokeButtonRef.current;
-      destination?.focus({ preventScroll: true });
-    });
+  };
+
+  const openConfirmAction = (action: "rotate" | "revoke") => {
+    confirmReturnFocusRef.current =
+      action === "rotate" ? replaceLinkButtonRef.current : revokeButtonRef.current;
+    setConfirmAction(action);
   };
 
   const handleDismiss = () => {
@@ -712,7 +716,7 @@ export function ShareDialog({
                 ref={replaceLinkButtonRef}
                 type="button"
                 disabled={managing !== null}
-                onClick={() => setConfirmAction("rotate")}
+                onClick={() => openConfirmAction("rotate")}
                 className="min-h-11 rounded-lg border border-border bg-panel px-3 py-2 text-xs font-semibold text-muted transition hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-60"
               >
                 Replace public link
@@ -721,7 +725,7 @@ export function ShareDialog({
                 ref={revokeButtonRef}
                 type="button"
                 disabled={managing !== null}
-                onClick={() => setConfirmAction("revoke")}
+                onClick={() => openConfirmAction("revoke")}
                 className="min-h-11 rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-xs font-semibold text-danger transition hover:bg-danger/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger disabled:opacity-60 sm:col-span-2"
               >
                 Stop sharing publicly
@@ -851,6 +855,7 @@ export function ShareDialog({
       {confirmAction && (
         <Modal
           onClose={closeConfirmAction}
+          returnFocusRef={confirmReturnFocusRef}
           role="alertdialog"
           labelledBy="share-change-confirm-title"
           position="center"
