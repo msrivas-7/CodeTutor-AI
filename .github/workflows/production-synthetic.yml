@@ -83,6 +83,9 @@ jobs:
         run: |
           set -euo pipefail
           title='Production synthetic: critical journey is failing'
+          if [ "$INCIDENT_DRILL" = 'true' ]; then
+            title='Production synthetic incident drill: issue automation verification'
+          fi
           existing="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "$title in:title" --json number --jq '.[0].number // empty')"
           if [ -z "$existing" ]; then
             summary='The scheduled Marketing → anonymous trial → first output synthetic failed.'

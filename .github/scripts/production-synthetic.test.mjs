@@ -55,6 +55,11 @@ test("production synthetic exposes an operator-only controlled incident drill", 
     /Production was not reported unhealthy by this drill\./,
     "the incident must distinguish an operator drill from a detected outage",
   );
+  assert.match(
+    workflow,
+    /title='Production synthetic incident drill: issue automation verification'/,
+    "a drill issue must not suppress a later real production incident",
+  );
 });
 
 test("production synthetic incident step runs without a git checkout", () => {
