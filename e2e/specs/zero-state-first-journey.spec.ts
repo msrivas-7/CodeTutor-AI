@@ -36,11 +36,13 @@ async function verifyZeroStateJourney(
   await expect(skipIntroduction).toBeVisible({ timeout: 15_000 });
 
   // The named snippet is explicitly presented as an example, never as if the
-  // product already knows the visitor. Physical Escape is an intentional,
-  // equivalent exit path for the full-screen introduction; do not preserve
-  // the stale contract that required a second Skip activation afterward.
+  // product already knows the visitor. Escape belongs to the browser for
+  // native fullscreen/window transitions, so only the explicit Skip control
+  // changes product state.
   await expect(page.getByText(/Example code · Maya/i)).toBeVisible();
   await page.keyboard.press("Escape");
+  await expect(skipIntroduction).toBeVisible();
+  await skipIntroduction.click();
   await expect(skipIntroduction).toHaveCount(0);
 
   await expect(page.getByRole("heading", { level: 1, name: /Hello, World!/i })).toBeVisible({
