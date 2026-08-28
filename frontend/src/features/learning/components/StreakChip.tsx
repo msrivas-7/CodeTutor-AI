@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useStreak } from "../../../state/useStreak";
 import { useDisableStreaks } from "../../../state/preferencesStore";
 import { StreakDetailPopover } from "./StreakDetailPopover";
@@ -250,6 +250,9 @@ export function StreakChip({ override, compact, interactive = true, prominent = 
     : streak
       ? { current: streak.current, longest: streak.longest, isAtRisk: streak.isAtRisk, freezeActive: streak.freezeActive }
       : null;
+  // This gate must be available to the always-declared measurement effect;
+  // hooks cannot move below the day-zero early return.
+  const isInteractive = !override && !!streak && interactive;
 
   // Iter-3 (post-feedback): chip is click-to-expand into a dynamic-island
   // detail popover. Click toggles open; click outside / Esc closes from
@@ -258,6 +261,7 @@ export function StreakChip({ override, compact, interactive = true, prominent = 
   // is rendered in. `override` is for tests / cinematic frame snapshots
   // and never opens the popover.
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const anchorRef = useRef<HTMLSpanElement>(null);
   const [open, setOpen] = useState(false);
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
 
@@ -272,20 +276,24 @@ export function StreakChip({ override, compact, interactive = true, prominent = 
   // early-return so React's hook count is stable across renders. The
   // effect's body short-circuits internally when not open or not
   // mounted, so the no-op cost is trivial.
-  useEffect(() => {
-    if (!open || !buttonRef.current) return;
+  useLayoutEffect(() => {
+    if (!isInteractive || !anchorRef.current) return;
     const update = () => {
-      if (buttonRef.current) {
-        setAnchorRect(buttonRef.current.getBoundingClientRect());
+      if (anchorRef.current) {
+        setAnchorRect(anchorRef.current.getBoundingClientRect());
       }
     };
-    const closeForViewportChange = () => setOpen(false);
+    update();
+    const closeForViewportChange = () => {
+      setOpen(false);
+      window.requestAnimationFrame(update);
+    };
     const closeForWindowBlur = () => setOpen(false);
     const closeForVisibilityLoss = () => {
       if (document.visibilityState !== "visible") setOpen(false);
     };
     const anchorObserver = new ResizeObserver(update);
-    anchorObserver.observe(buttonRef.current);
+    anchorObserver.observe(anchorRef.current);
     window.addEventListener("resize", closeForViewportChange);
     // Safari's native application fullscreen is outside the Fullscreen API,
     // so viewport and focus signals are recovery paths when browser chrome
@@ -306,7 +314,7 @@ export function StreakChip({ override, compact, interactive = true, prominent = 
       document.removeEventListener("fullscreenchange", closeForViewportChange);
       document.removeEventListener("webkitfullscreenchange", closeForViewportChange);
     };
-  }, [open]);
+  }, [isInteractive]);
 
   // Day 0 — render nothing. Don't lecture.
   if (!data || data.current === 0) return null;
@@ -333,6 +341,7 @@ export function StreakChip({ override, compact, interactive = true, prominent = 
   const fontSize = prominent
     ? "text-[13px]"
     : compact ? "text-[10px]" : "text-[11px]";
+  const collapsedInset = prominent ? 12 : compact ? 6 : 8;
 
   // Tooltip layers:
   //   - Freeze active: "Grace · yesterday held."
@@ -344,81 +353,79 @@ export function StreakChip({ override, compact, interactive = true, prominent = 
       ? `Today's lesson keeps your ${data.current}-day streak going.`
       : `${data.current}-day streak · longest ${data.longest}`;
 
-  // Interactivity gate: override-mode chip (used in cinematics or
-  // panel-internal renders) AND callers that explicitly pass
-  // interactive={false} both disable the popover-on-click behavior.
-  const isInteractive = !override && !!streak && interactive;
+  const identity = (
+    <>
+      <StreakArc
+        segmentsClosed={segmentsClosed}
+        tier={tier}
+        freezeActive={data.freezeActive}
+        isAtRisk={data.isAtRisk}
+      />
+      <span>{label}</span>
+    </>
+  );
 
-  const handleClick = () => {
-    if (!isInteractive) return;
-    if (!open && buttonRef.current) {
-      setAnchorRect(buttonRef.current.getBoundingClientRect());
-    }
-    setOpen((v) => !v);
-  };
+  const surfaceClasses = `relative inline-flex min-h-11 items-center gap-1.5 rounded-full border bg-elevated/40 ${padding} ${fontSize} font-medium tabular-nums ${tier.border} ${tier.ink} transition-colors motion-reduce:transition-none focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${isInteractive ? "cursor-pointer hover:bg-elevated/60" : "cursor-default"}`;
 
   return (
     <>
-      <button
-        ref={buttonRef}
-        type="button"
-        // Implicit role="button" from <button> tag is correct — earlier
-        // iter set role="status" (which is a live-region role for
-        // passive announcements) which overrode the button semantics
-        // and confused screen readers. aria-expanded is correct only
-        // for interactive variants; passive renders set it undefined
-        // so AT doesn't announce a stale collapsed/expanded state.
-        aria-label={tooltip}
-        aria-expanded={isInteractive ? open : undefined}
-        aria-haspopup={isInteractive ? "dialog" : undefined}
-        title={tooltip}
-        onClick={handleClick}
-        disabled={!isInteractive}
-        // Touch target a11y (Batch 1 #5): the visible chip is intentionally
-        // compact (~22-26px tall) so it doesn't crowd the toolbar, but
-        // WCAG / Apple HIG want ≥44x44 for tap targets. We extend the
-        // hit area with a `::before` pseudo that sits ~10px around the
-        // chip — invisible, but a child of the button so clicks on it
-        // count as clicks on the button. `prominent` mode is already
-        // ~44px tall so it skips the expansion.
-        className={`relative inline-flex min-h-11 items-center gap-1.5 rounded-full border ${padding} ${fontSize} font-medium tabular-nums ${tier.border} ${tier.ink} transition-colors motion-reduce:transition-none focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${isInteractive ? "cursor-pointer" : "cursor-default"} ${
-          // Open state: chip darkens slightly and gains a stronger border
-          // so it visually reads as "active source" — the popover that
-          // ballooned out is anchored to it.
-          open ? "bg-elevated/80 ring-1 ring-accent/30" : "bg-elevated/40 hover:bg-elevated/60"
-        } ${
-          // Tap-target halo. Only on the interactive path — passive
-          // chips don't need expanded hit areas.
-          isInteractive && !prominent
-            ? "before:absolute before:-inset-x-[10px] before:content-['']"
-            : ""
-        }`}
-        style={{ boxShadow: tier.glowStyle, letterSpacing: "0.01em" }}
-      >
-        <StreakArc
-          segmentsClosed={segmentsClosed}
-          tier={tier}
-          freezeActive={data.freezeActive}
-          isAtRisk={data.isAtRisk}
-        />
-        <span>{label}</span>
-        <style>{`
-          @keyframes streakBreath {
-            0%, 100% { opacity: 0.7; }
-            50%      { opacity: 1; }
-          }
-          .animate-streakBreath { animation: streakBreath 2400ms cubic-bezier(0.4, 0, 0.2, 1) infinite; }
-        `}</style>
-      </button>
-      {streak && (
+      {isInteractive ? (
+        <span ref={anchorRef} className="relative inline-flex shrink-0 align-middle">
+          <span aria-hidden="true" className={`${surfaceClasses} invisible`}>
+            {identity}
+          </span>
+        </span>
+      ) : (
+        <button
+            ref={buttonRef}
+            type="button"
+            // Implicit role="button" from <button> tag is correct — earlier
+            // iter set role="status" (which is a live-region role for
+            // passive announcements) which overrode the button semantics
+            // and confused screen readers. aria-expanded is correct only
+            // for interactive variants; passive renders set it undefined
+            // so AT doesn't announce a stale collapsed/expanded state.
+            aria-label={tooltip}
+            aria-expanded={isInteractive ? open : undefined}
+            aria-haspopup={isInteractive ? "dialog" : undefined}
+            title={tooltip}
+            disabled
+            // Touch target a11y (Batch 1 #5): the visible chip is intentionally
+            // compact (~22-26px tall) so it doesn't crowd the toolbar, but
+            // WCAG / Apple HIG want ≥44x44 for tap targets. We extend the
+            // hit area with a `::before` pseudo that sits ~10px around the
+            // chip — invisible, but a child of the button so clicks on it
+            // count as clicks on the button. `prominent` mode is already
+            // ~44px tall so it skips the expansion.
+            className={surfaceClasses}
+            style={{ boxShadow: tier.glowStyle, letterSpacing: "0.01em" }}
+          >
+            {identity}
+          </button>
+      )}
+      {isInteractive && streak && (
         <StreakDetailPopover
           open={open}
+          onOpen={() => setOpen(true)}
           onClose={() => setOpen(false)}
           streak={streak}
           anchorRect={anchorRect}
           invokerRef={buttonRef}
+          identity={identity}
+          tooltip={tooltip}
+          glowStyle={tier.glowStyle}
+          identityClassName={fontSize}
+          collapsedInset={collapsedInset}
+          borderClassName={tier.border}
         />
       )}
+      <style>{`
+        @keyframes streakBreath {
+          0%, 100% { opacity: 0.7; }
+          50%      { opacity: 1; }
+        }
+        .animate-streakBreath { animation: streakBreath 2400ms cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+      `}</style>
     </>
   );
 }

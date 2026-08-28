@@ -49,7 +49,8 @@ test.describe("Phase 21B: streak chip", () => {
     // chip is self-explanatory at a glance, no tooltip required.
     const chip = page.getByRole("button", { name: /1-day streak/i }).first();
     await expect(chip).toBeVisible({ timeout: 10_000 });
-    await expect(chip).toContainText("1-day streak");
+    await expect(chip).toHaveAccessibleName(/1-day streak/i);
+    await expect(page.getByTestId("streak-morph-identity")).toContainText("1-day streak");
   });
 
   test("chip is visible in the LessonPage header toolbar", async ({ page }) => {
