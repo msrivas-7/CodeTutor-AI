@@ -138,6 +138,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
     setActiveSelection,
     focusComposerNonce,
     focusComposerSettledNonce,
+    bumpFocusComposer,
     settleFocusComposer,
   } = useAIStore();
   const hasKey = usePreferencesStore((s) => s.hasOpenaiKey);
@@ -251,7 +252,12 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
     requestNonce: focusComposerNonce,
     settledNonce: focusComposerSettledNonce,
     targetRef: textareaRef,
-    blocked: statusLoading || !configured || Boolean(inputLocked) || anonQuotaExhausted,
+    blocked:
+      statusLoading ||
+      !configured ||
+      asking ||
+      Boolean(inputLocked) ||
+      anonQuotaExhausted,
     onSettled: settleFocusComposer,
   });
 
@@ -372,9 +378,11 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
       const ask = pendingAsk;
       setPendingAsk(null);
       setActiveContextualOffer(ask.contextualOffer ?? null);
-      submitAsk(ask.question, {
+      void submitAsk(ask.question, {
         tutorAction: ask.action,
         contextualOffer: ask.contextualOffer,
+      }).finally(() => {
+        if (ask.action && ask.action !== "contextual-help") bumpFocusComposer();
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -593,7 +601,9 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
                             ];
                             const idx = Math.min(hintLevel, prompts.length - 1);
                             pendingHintRef.current = true;
-                            setPendingAsk(prompts[idx]);
+                            setPendingAsk(idx === 0
+                              ? prompts[idx]
+                              : { question: prompts[idx], action: "stronger-hint" });
                           }}
                           disabled={asking || inputLocked || anonQuotaExhausted}
                           aria-label={

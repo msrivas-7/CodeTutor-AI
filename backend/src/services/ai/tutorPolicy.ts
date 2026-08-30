@@ -1050,6 +1050,22 @@ function groundedStrongerHint(params: TutorPolicyParams): ReturnType<typeof grou
     };
   }
 
+  const stringIntegerMismatch =
+    /\bTypeError\b/i.test(stderr) &&
+    /(?:concatenat\w*|unsupported operand)[^\n]*(?:str|string)[^\n]*(?:int|integer)|(?:concatenat\w*|unsupported operand)[^\n]*(?:int|integer)[^\n]*(?:str|string)/i.test(stderr);
+  if (stringIntegerMismatch) {
+    return {
+      summary: current.summary ??
+        "The latest run reaches the cited `+`, where a text value and an integer value meet.",
+      hint:
+        "The left operand produces `str` text while the other produces an `int`; changing the characters inside the label does not change either runtime type.",
+      nextStep:
+        "Decide whether the intended combined result is text or arithmetic, then choose which one operand should be represented in the other operand’s type before rerunning.",
+      question: "Should the final combined result behave like text or like a number?",
+      citations: current.citations ?? null,
+    };
+  }
+
   if (stderr) {
     return {
       summary: current.summary ?? "The latest error narrows the investigation to the cited line.",
@@ -1538,6 +1554,46 @@ function visibleCollectionHowto(
         citation,
       };
     }
+  }
+  return null;
+}
+
+function visibleJavaScriptFunctionHowto(
+  params: Pick<AIAskParams, "files" | "question" | "lessonContext">,
+): {
+  summary: string;
+  explain: string;
+  hint: string;
+  nextStep: string;
+  citation: NonNullable<TutorSections["citations"]>[number];
+} | null {
+  if (
+    params.lessonContext?.language !== "javascript" ||
+    !/\bfunction\b/i.test(params.question) ||
+    !/\b(?:take|takes|accept|accepts|parameter|parameters|argument|arguments)\b/i.test(
+      params.question,
+    )
+  ) {
+    return null;
+  }
+
+  for (const file of params.files) {
+    const lines = file.content.split("\n");
+    const goalIndex = lines.findIndex((line) => /\/\/.*\bfunction\b/i.test(line));
+    if (goalIndex < 0) continue;
+    const goal = lines[goalIndex]?.trim().replace(/^\/\/\s*/, "") ?? "the requested function";
+    return {
+      summary: `The current file states the goal—${goal}—but does not define that function yet.`,
+      explain: "Build the behavior in stages: define the function boundary and its inputs first, then add the decision and return behavior, and only after that call it from the existing output area.",
+      hint: "Choose two parameter names that make the later comparison readable, and keep returning a value separate from displaying it.",
+      nextStep: `Directly beneath the goal comment on line ${goalIndex + 1}, add only a function header with two parameter names and an empty body; confirm the file still parses before adding the comparison.`,
+      citation: {
+        path: file.path,
+        line: goalIndex + 1,
+        column: null,
+        reason: "Visible comment describing the requested function",
+      },
+    };
   }
   return null;
 }
@@ -3173,8 +3229,12 @@ export function applyTutorOutputPolicy({
         : modelQuestion],
     };
   }
-  if (intent === "howto" && EXPLICIT_HINT_REQUEST.test(params.question)) {
-    const value = STRONGER_HINT_REQUEST.test(params.question) && priorTutorTurns > 0
+  if (
+    params.tutorAction === "stronger-hint" ||
+    (intent === "howto" && EXPLICIT_HINT_REQUEST.test(params.question))
+  ) {
+    const value = (params.tutorAction === "stronger-hint" ||
+        STRONGER_HINT_REQUEST.test(params.question)) && priorTutorTurns > 0
       ? groundedStrongerHint(params)
       : groundedGentleHint(params);
     return {
@@ -3296,6 +3356,7 @@ export function applyTutorOutputPolicy({
   if (intent === "howto") {
     const inputHowto = visiblePythonInputHowto(params);
     const rangeHowto = visiblePythonRangeHowto(params);
+    const functionHowto = visibleJavaScriptFunctionHowto(params);
     const collectionHowto = visibleCollectionRequest;
     return {
       ...common,
@@ -3305,27 +3366,38 @@ export function applyTutorOutputPolicy({
       // explanation itself is safe.
       conversationMove: collectionHowto ? "none" : common.conversationMove,
       conversationReply: collectionHowto ? null : common.conversationReply,
-      summary: rangeHowto?.summary ?? collectionHowto?.summary ?? common.summary,
+      summary:
+        rangeHowto?.summary ??
+        functionHowto?.summary ??
+        collectionHowto?.summary ??
+        common.summary,
       citations: inputHowto
         ? [inputHowto.citation]
         : rangeHowto
           ? [rangeHowto.citation]
+        : functionHowto
+          ? [functionHowto.citation]
         : collectionHowto
           ? [collectionHowto.citation]
           : common.citations,
       explain:
         inputHowto?.explain ??
         rangeHowto?.explain ??
+        functionHowto?.explain ??
         collectionHowto?.explain ??
         safeProse(sections.explain, params),
       diagnose: collectionHowto ? null : common.diagnose,
       example: collectionHowto ? null : common.example,
       comprehensionCheck: collectionHowto ? null : common.comprehensionCheck,
       checkQuestions: collectionHowto ? null : common.checkQuestions,
-      hint: collectionHowto?.hint ?? safeAction(sections.hint, params),
+      hint:
+        functionHowto?.hint ??
+        collectionHowto?.hint ??
+        safeAction(sections.hint, params),
       nextStep:
         inputHowto?.nextStep ??
         rangeHowto?.nextStep ??
+        functionHowto?.nextStep ??
         collectionHowto?.nextStep ??
         (protectedRequest
           ? "Implement only the first behavior the task asks for, then run it and describe the value or output you observe before adding the next part."
@@ -3494,6 +3566,8 @@ export function applyTutorOutputPolicy({
       comprehensionCheck:
         protectedAnswerRequest
           ? null
+          : irrelevantLabelEdit
+            ? "Which two runtime types meet at the `+` operation on the cited line?"
           : common.comprehensionCheck ??
         "What result do you expect before you run the current code?",
       diagnose:
@@ -3509,6 +3583,8 @@ export function applyTutorOutputPolicy({
         visibleReview?.nextStep ??
         (protectedAnswerRequest
           ? "Predict the result from the cited line, then run it and compare what you observe."
+          : irrelevantLabelEdit
+            ? "Write down the runtime type of each operand at the cited `+`, then choose which operand should be represented in the other operand’s type before rerunning."
           : safeAction(sections.nextStep, params)) ??
         (typeMismatch
           ? "Focus on making both sides of the cited operation compatible, then run it again."

@@ -112,7 +112,7 @@ interface AIState {
   setModelsStatus: (status: ModelsStatus, error?: string | null) => void;
   setSelectedModel: (id: string | null) => void;
 
-  setPendingAsk: (ask: string | PendingTutorAsk | null) => void;
+  setPendingAsk: (ask: string | PendingTutorAsk | null, action?: TutorAction) => void;
 
   setPersona: (p: Persona) => void;
 
@@ -249,8 +249,16 @@ export const useAIStore = create<AIState>((set, get) => ({
     void setOpenAIModelInPrefs(id).catch(() => { /* logged in prefs */ });
   },
 
-  setPendingAsk: (ask) => set({
-    pendingAsk: typeof ask === "string" ? { question: ask } : ask,
+  setPendingAsk: (ask, action) => set({
+    // ActionChips follows the ordinary callback shape `(question, action)`.
+    // Preserve both arguments at this store boundary so passing the stable
+    // action directly can never silently discard semantic Tutor intent.
+    pendingAsk:
+      typeof ask === "string"
+        ? action
+          ? { question: ask, action }
+          : { question: ask }
+        : ask,
   }),
 
   setPersona: (p) => {

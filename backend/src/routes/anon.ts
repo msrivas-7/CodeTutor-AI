@@ -194,6 +194,7 @@ const askStreamBody = z.object({
   question: z.string().min(1).max(4_000),
   tutorAction: z.enum([
     "explain-lesson-task",
+    "stronger-hint",
     "explain-more",
     "concrete-example",
     "why-it-matters",

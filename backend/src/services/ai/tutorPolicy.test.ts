@@ -872,6 +872,41 @@ describe("applyTutorOutputPolicy", () => {
     expect(hasTutorTeachingValue(result, params)).toBe(true);
   });
 
+  it("uses the real still-stuck action to explain a visible string/integer mismatch", () => {
+    const params = {
+      ...base,
+      question: "I'm still stuck on this — can you give me a stronger hint?",
+      tutorAction: "stronger-hint" as const,
+      files: [{
+        path: "main.py",
+        content: 'label = "Score: "\npoints = 75\nprint(label + points)',
+      }],
+      lastRun: {
+        stdout: "",
+        stderr: 'TypeError: can only concatenate str (not "int") to str',
+        exitCode: 1,
+        errorType: "runtime" as const,
+        durationMs: 20,
+        stage: "run" as const,
+      },
+    };
+    const result = applyTutorOutputPolicy({
+      sections: {},
+      params,
+      intent: "howto",
+      priorTutorTurns: 1,
+    });
+
+    expect(result.hint).toMatch(/left operand.*str.*other.*int/i);
+    expect(result.hint).toMatch(/label.*does not change.*runtime type/i);
+    expect(result.nextStep).toMatch(/text or arithmetic/i);
+    expect(result.nextStep).toMatch(/which one operand/i);
+    expect(result.comprehensionCheck ?? result.checkQuestions?.[0]).toMatch(
+      /text or.*number/i,
+    );
+    expect(JSON.stringify(result)).not.toContain("str(points)");
+  });
+
   it("escalates a comment-only starter with a concrete executable next step", () => {
     const params = {
       ...base,
@@ -2573,6 +2608,43 @@ describe("applyTutorOutputPolicy", () => {
     expect(JSON.stringify(result)).not.toMatch(/placeholder/i);
   });
 
+  it("grounds a JavaScript function how-to in one concrete header-first step", () => {
+    const result = applyTutorOutputPolicy({
+      sections: {
+        summary: "Create a function that compares the values.",
+        nextStep: "Choose the first small change in the cited file, then run it before adding more.",
+      },
+      params: {
+        ...base,
+        question: "how do i make a function that takes two numbers and returns the bigger one?",
+        files: [{
+          path: "index.js",
+          content: '// I want a max() function\nconsole.log("hello");\n',
+        }],
+        lessonContext: {
+          ...base.lessonContext,
+          language: "javascript",
+        },
+      },
+      intent: "howto",
+      priorTutorTurns: 0,
+    });
+
+    expect(result.summary).toContain("does not define that function yet");
+    expect(result.explain).toContain("function boundary and its inputs first");
+    expect(result.hint).toContain("two parameter names");
+    expect(result.nextStep).toContain("beneath the goal comment on line 1");
+    expect(result.nextStep).toContain("empty body");
+    expect(result.nextStep).not.toContain("Choose the first small change");
+    expect(result.citations).toEqual([{
+      path: "index.js",
+      line: 1,
+      column: null,
+      reason: "Visible comment describing the requested function",
+    }]);
+    expect(JSON.stringify(result)).not.toContain("function max(");
+  });
+
   it("corrects semantically shifted walkthrough line numbers", () => {
     const result = applyTutorOutputPolicy({
       sections: {
@@ -3734,6 +3806,9 @@ describe("applyTutorOutputPolicy", () => {
     expect(result.summary).toMatch(/not the relevant part/i);
     expect(result.diagnose).toMatch(/label edit leaves/i);
     expect(result.nextStep).not.toContain("str(age)");
+    expect(result.nextStep).toMatch(/runtime type of each operand/i);
+    expect(result.nextStep).toMatch(/choose which operand/i);
+    expect(result.comprehensionCheck).toMatch(/two runtime types/i);
     expect(hasTutorTeachingValue(result, params)).toBe(true);
   });
 

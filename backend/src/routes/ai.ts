@@ -464,6 +464,7 @@ const askBody = z.object({
   question: z.string().min(1),
   tutorAction: z.enum([
     "explain-lesson-task",
+    "stronger-hint",
     "explain-more",
     "concrete-example",
     "why-it-matters",

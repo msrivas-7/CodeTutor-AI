@@ -1,7 +1,7 @@
 import type { AIModel, TutorIntent } from "./provider.js";
 
 export const MODEL_REGISTRY_VERSION = "2026-08-30.contextual-offer-v1";
-export const TUTOR_EVAL_SET_VERSION = "2.10.0+evaluator.2.16.0";
+export const TUTOR_EVAL_SET_VERSION = "2.13.0+evaluator.2.19.0";
 
 export type ModelQualityStatus = "evaluated" | "unevaluated";
 

@@ -112,6 +112,7 @@ export interface TokenUsage {
 // while stable UI actions do not depend on matching their display copy.
 export type TutorAction =
   | "explain-lesson-task"
+  | "stronger-hint"
   | "explain-more"
   | "concrete-example"
   | "why-it-matters"

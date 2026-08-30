@@ -35,10 +35,10 @@ Focused Luna evidence passed 6/6 twice. One representative run cost $0.046303
 total, or $0.007717 per accepted call, with 35,887 input and 1,736 output tokens;
 the contextual payload added about 280 input tokens versus the normal path.
 The final production-routed artifact
-`backend/eval/runs/2026-08-30T08-05-28-116Z-v2.json` passed all 72 cases,
+`backend/eval/runs/2026-08-30T09-38-50-586Z-v2.json` passed all 72 cases,
 every intent at 100%, and zero deterministic failures. It used the approved
-`ab85a68e21449172…` quality-contract fingerprint; the independent baseline
-verifier passed. The full run cost $0.55483 across all 72 judged cases.
+`3873ab7cc07d9aa0…` quality-contract fingerprint; the independent baseline
+verifier passed. The full run cost $0.551703 across all 72 judged cases.
 
 ## Browser evidence contract
 

@@ -74,6 +74,7 @@ export type TutorIntent =
 // without trying to infer button identity from prose.
 export type TutorAction =
   | "explain-lesson-task"
+  | "stronger-hint"
   | "explain-more"
   | "concrete-example"
   | "why-it-matters"

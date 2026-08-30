@@ -25,6 +25,11 @@
       ],
       "origin": "expert-authored",
       "authoredContext": "Release 0D, B2, and Q13 adversarial multi-turn and conversational regression set"
+    },
+    {
+      "caseIds": ["r027", "r028", "r029", "r030", "r031", "r032"],
+      "origin": "expert-authored",
+      "authoredContext": "Release 1C learner-accepted contextual offer safety and grounding regression set"
     }
   ]
 }

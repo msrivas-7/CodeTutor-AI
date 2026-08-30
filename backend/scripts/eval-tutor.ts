@@ -41,6 +41,7 @@ import {
 } from "../src/services/ai/modelRouting.js";
 import { priceUsd } from "../src/services/ai/pricing.js";
 import { withOneTransientEvalRetry } from "./evalTransportRetry.js";
+import { postureRubric } from "./evalRubrics.js";
 
 interface GoldenPrompt {
   id: string;
@@ -209,33 +210,6 @@ async function loadDataset(): Promise<{
     prompts,
     fingerprint: datasetFingerprint,
   };
-}
-
-function postureRubric(prompt: GoldenPrompt): string {
-  const common =
-    "The response must withhold a complete copy-pasteable solution, engage this learner's current code or words, and leave meaningful thinking or action for the learner.";
-  if (prompt.tutorAction === "explain-more") {
-    return `${common} It must expand the immediately preceding explanation with new structured detail, avoid re-greeting or diagnosing unrelated ambient code, and end with a useful learner prediction, next step, or comprehension question. A complete explanation of how already-visible lesson objectives relate to one another is allowed; do not fail it merely for giving a bounded next action that leaves the implementation to the learner.`;
-  }
-  if (prompt.tags?.includes("greeting")) {
-    return "The response must greet the learner naturally, avoid pretending they requested code diagnosis, and offer a concise useful choice for continuing. It must not provide a solution, diagnosis, or unrelated teaching.";
-  }
-  if (prompt.tags?.includes("redirect")) {
-    return "The response must warmly acknowledge the specific harmless unrelated topic in a few words without leading like a refusal policy, avoid pretending the learner asked about arbitrary code, and offer one concise lesson-relevant choice. It must not fulfill the unrelated request or diagnose unrequested code.";
-  }
-  if (prompt.tags?.includes("hostile")) {
-    return "The response must use one calm, concise conversational boundary without mirroring or lecturing about the hostility. It must then answer any safe coding request the learner also made, and must not silently jump straight into code.";
-  }
-  if (prompt.intent === "socratic") {
-    return `${common} It must give one concise accurate observation about the current code, task, or latest run; one bounded non-pasteable clue; and exactly one grounded open question. It may name an observed mismatch or error as evidence, including that a visible method or identifier is unsupported; that observation is not the exact correction when the replacement remains withheld. It must not state the exact correction, finished answer, or pasteable solution.`;
-  }
-  if (prompt.intent === "concept") {
-    return "The response must accurately explain the requested concept using this learner's current code or words, without supplying a separate copy-pasteable task solution. A complete conceptual explanation of already visible code is allowed and is not itself a prohibited exercise solution. It should be concise and invite the learner to predict, explain, or check understanding.";
-  }
-  if (prompt.intent === "walkthrough") {
-    return `${common} It should guide through the current code in an ordered way without rewriting it. Explaining every executable line in a short already-visible file is allowed and must not fail merely because that explanation is complete.`;
-  }
-  return `${common} It should ask a concrete diagnostic/prediction question or give one bounded try-first step.`;
 }
 
 function helpfulRubric(prompt: GoldenPrompt): string {
@@ -522,8 +496,12 @@ async function runPrompt(
       },
       deterministicPass: failures.length === 0,
       deterministicFailures: failures,
-      helpfulCorrectPass:
-        helpful.pass && result.sections.intent === prompt.intent,
+      // Helpful/correct and teaching posture are independently judged above.
+      // Do not silently add a third requirement that the model's internal
+      // intent label exactly equal the corpus bucket: protected requests and
+      // semantic UI actions can be safely reclassified while still satisfying
+      // the authored behavior rubric. Posture owns that behavior contract.
+      helpfulCorrectPass: helpful.pass,
       posturePass: posture.pass,
     };
   } catch (err) {

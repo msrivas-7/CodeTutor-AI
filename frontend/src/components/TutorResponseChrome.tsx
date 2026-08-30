@@ -8,6 +8,7 @@ const CHIPS: { label: string; prompt: string; action?: TutorAction }[] = [
   {
     label: "still stuck",
     prompt: "I'm still stuck on this — can you give me a stronger hint?",
+    action: "stronger-hint",
   },
   {
     label: "explain more",

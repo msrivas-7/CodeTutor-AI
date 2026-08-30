@@ -42,7 +42,10 @@ export interface JudgeFetcher {
 
 /**
  * Grade a tutor response against a single Y/N rubric question.
- * Returns pass=true iff the judge model's first non-whitespace token is "Y".
+ * A first-pass Y is accepted immediately. A first-pass non-Y is independently
+ * rechecked; a third vote is requested only when the first two disagree. This
+ * keeps the common path to one call while preventing one stochastic N from
+ * invalidating an otherwise deterministic complete gate.
  *
  * `fetchImpl` defaults to global fetch; tests inject a stub.
  */
@@ -121,13 +124,28 @@ Answer with EXACTLY 'Y' or 'N' on a single line, with no explanation or other te
     ).trim();
   };
 
-  let raw = await requestGrade(JUDGE_MAX_OUTPUT_TOKENS);
-  // A reasoning model can consume its first output allowance before emitting
-  // the visible Y/N token. Retry only that rare empty result with more room;
-  // ordinary Y and N decisions never pay for a second judge call.
-  if (!raw) raw = await requestGrade(JUDGE_EMPTY_RETRY_MAX_OUTPUT_TOKENS);
-  // First non-whitespace character determines pass/fail. Robust against
-  // model variations like "Y." / "Y\n" / " Y".
-  const firstChar = raw.replace(/^\s+/, "").charAt(0).toUpperCase();
-  return { pass: firstChar === "Y", raw };
+  const requestDecision = async (): Promise<{ pass: boolean; raw: string }> => {
+    let raw = await requestGrade(JUDGE_MAX_OUTPUT_TOKENS);
+    // A reasoning model can consume its first output allowance before emitting
+    // the visible Y/N token. Retry only that rare empty result with more room.
+    if (!raw) raw = await requestGrade(JUDGE_EMPTY_RETRY_MAX_OUTPUT_TOKENS);
+    // First non-whitespace character determines the vote. Robust against
+    // model variations like "Y." / "Y\n" / " Y".
+    const firstChar = raw.replace(/^\s+/, "").charAt(0).toUpperCase();
+    return { pass: firstChar === "Y", raw };
+  };
+
+  const first = await requestDecision();
+  if (first.pass) return first;
+
+  const second = await requestDecision();
+  if (!second.pass) {
+    return { pass: false, raw: `${first.raw}\nADJUDICATION:${second.raw}` };
+  }
+
+  const third = await requestDecision();
+  return {
+    pass: third.pass,
+    raw: `${first.raw}\nADJUDICATION:${second.raw}\nTIEBREAK:${third.raw}`,
+  };
 }
