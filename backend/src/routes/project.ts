@@ -1,5 +1,9 @@
 import { Router } from "express";
 import { z } from "zod";
+import {
+  hasUniqueProjectFilePaths,
+  UNIQUE_PROJECT_FILE_PATHS_MESSAGE,
+} from "../schema/projectFiles.js";
 import { requireActiveSession } from "../services/session/requireActiveSession.js";
 import {
   touchSession,
@@ -28,7 +32,11 @@ const snapshotBody = z.object({
         content: z.string().max(200_000),
       })
     )
-    .max(50),
+    .max(50)
+    .refine(
+      hasUniqueProjectFilePaths,
+      UNIQUE_PROJECT_FILE_PATHS_MESSAGE,
+    ),
   contextualEvidence: z.object({
     courseId: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/),
     lessonId: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/),

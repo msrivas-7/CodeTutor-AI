@@ -161,6 +161,14 @@ async function post(body: Record<string, unknown>) {
   });
 }
 
+async function postRun(body: Record<string, unknown>) {
+  return fetch(`${baseUrl}/api/anon/run`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
 async function cancel(requestId: string) {
   return fetch(`${baseUrl}/api/anon/ai/ask/cancel`, {
     method: "POST",
@@ -391,6 +399,20 @@ describe("B8 governed anonymous eval sampling", () => {
 });
 
 describe("POST /api/anon/ai/ask/stream — platform model routing", () => {
+  it("rejects duplicate project paths before run or Tutor work", async () => {
+    const files = [
+      { path: "main.py", content: "first" },
+      { path: "main.py", content: "second" },
+    ];
+    const runResponse = await postRun({ language: "python", files });
+    const askResponse = await post(validBody({ files }));
+
+    expect(runResponse.status).toBe(400);
+    expect(askResponse.status).toBe(400);
+    expect(vi.mocked(reserveAIRequest)).not.toHaveBeenCalled();
+    expect(vi.mocked(openaiProvider.askStream)).not.toHaveBeenCalled();
+  });
+
   it("rejects contextual-help without canonicalizable offer metadata", async () => {
     const response = await post(validBody({
       question: "Help me spot it.",

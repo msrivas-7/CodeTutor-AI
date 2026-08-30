@@ -1,5 +1,6 @@
 import { getTutorConceptEvidence } from "../../db/conceptLedger.js";
 import { listLessonProgress } from "../../db/lessonProgress.js";
+import { hasUniqueProjectFilePaths } from "../../schema/projectFiles.js";
 import {
   getTutorLessonSnapshot,
   type TutorLessonSnapshot,
@@ -112,6 +113,7 @@ export async function resolveCanonicalContextualTutorOffer(
   lastRun: RunResult | null | undefined,
   evidenceOptions: EvidenceOptions = {},
 ): Promise<ContextualTutorOffer | null> {
+  if (!hasUniqueProjectFilePaths(files)) return null;
   const lesson = await getTutorLessonSnapshot(
     identity.courseId,
     identity.lessonId,

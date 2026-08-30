@@ -31,6 +31,10 @@
 import { Router, type Request, type Response } from "express";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import {
+  hasUniqueProjectFilePaths,
+  UNIQUE_PROJECT_FILE_PATHS_MESSAGE,
+} from "../schema/projectFiles.js";
 import { config } from "../config.js";
 import {
   isAiEvalSamplingEnabled,
@@ -186,7 +190,10 @@ const historySchema = z.array(
 // anon lesson uses something else.
 const runBody = z.object({
   language: languageSchema,
-  files: z.array(projectFileSchema).max(10),
+  files: z.array(projectFileSchema).max(10).refine(
+    hasUniqueProjectFilePaths,
+    UNIQUE_PROJECT_FILE_PATHS_MESSAGE,
+  ),
   stdin: z.string().max(10_000).optional(),
   contextualEvidence: z.object({
     courseId: z.literal(ANON_ALLOWED_LESSON.courseId),
@@ -210,7 +217,10 @@ const askStreamBody = z.object({
     "why-it-matters",
     "contextual-help",
   ]).optional(),
-  files: z.array(projectFileSchema).max(10),
+  files: z.array(projectFileSchema).max(10).refine(
+    hasUniqueProjectFilePaths,
+    UNIQUE_PROJECT_FILE_PATHS_MESSAGE,
+  ),
   activeFile: z.string().optional(),
   // Top-level language intentionally omitted on the anon body — the
   // language is pinned by lessonContext.language below, and the anon

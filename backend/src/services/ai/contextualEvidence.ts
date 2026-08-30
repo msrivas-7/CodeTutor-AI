@@ -1,5 +1,6 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { config } from "../../config.js";
+import { hasUniqueProjectFilePaths } from "../../schema/projectFiles.js";
 import type { ProjectFile, RunResult } from "./provider.js";
 
 const TOKEN_VERSION = 1;
@@ -115,6 +116,9 @@ export function mintContextualEvidenceToken(
   result: RunResult,
   options: EvidenceOptions = {},
 ): string {
+  if (!hasUniqueProjectFilePaths(files)) {
+    throw new Error("contextual evidence files require unique paths");
+  }
   const keyring = options.keyring ?? activeKeyring();
   const payload: EvidencePayload = {
     v: TOKEN_VERSION,
@@ -137,7 +141,12 @@ export function verifyContextualEvidenceToken(
   result: RunResult | null | undefined,
   options: EvidenceOptions = {},
 ): boolean {
-  if (!token || token.length > 4_096 || !result) return false;
+  if (
+    !token ||
+    token.length > 4_096 ||
+    !result ||
+    !hasUniqueProjectFilePaths(files)
+  ) return false;
   const [encoded, signature, ...extra] = token.split(".");
   if (!encoded || !signature || extra.length) return false;
   let parsed: unknown;

@@ -166,4 +166,21 @@ describe("POST /api/execution", () => {
       ),
     ).toBe(false);
   });
+
+  it("rejects an ambiguous duplicate-path snapshot before replacing the workspace", async () => {
+    const response = await fetch(`${base}/api/project/snapshot`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-test-user": "u-1" },
+      body: JSON.stringify({
+        sessionId: "session-1",
+        files: [
+          { path: "main.py", content: "first" },
+          { path: "main.py", content: "second" },
+        ],
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(replaceSnapshot).not.toHaveBeenCalled();
+  });
 });

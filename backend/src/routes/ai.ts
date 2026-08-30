@@ -1,6 +1,10 @@
 import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import {
+  hasUniqueProjectFilePaths,
+  UNIQUE_PROJECT_FILE_PATHS_MESSAGE,
+} from "../schema/projectFiles.js";
+import {
   estimateReservationForAsk,
   estimateReservationForSummary,
   openaiProvider,
@@ -478,7 +482,10 @@ const askBody = z.object({
     "why-it-matters",
     "contextual-help",
   ]).optional(),
-  files: z.array(projectFileSchema).max(50),
+  files: z.array(projectFileSchema).max(50).refine(
+    hasUniqueProjectFilePaths,
+    UNIQUE_PROJECT_FILE_PATHS_MESSAGE,
+  ),
   activeFile: z.string().optional(),
   language: languageSchema.optional(),
   lastRun: runResultSchema.nullish(),

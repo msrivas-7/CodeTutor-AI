@@ -70,6 +70,33 @@ describe("contextual evidence tokens", () => {
     })).toBe(false);
   });
 
+  it("never signs or verifies an ambiguous duplicate-path snapshot", () => {
+    const token = mintContextualEvidenceToken(actor, identity, files, result, {
+      keyring,
+      nowMs: 1_000,
+    });
+    const duplicates = [
+      { path: "main.py", content: 'print("first")\n' },
+      { path: "main.py", content: 'print("second")\n' },
+    ];
+
+    expect(() => mintContextualEvidenceToken(
+      actor,
+      identity,
+      duplicates,
+      result,
+      { keyring, nowMs: 1_000 },
+    )).toThrow("contextual evidence files require unique paths");
+    expect(verifyContextualEvidenceToken(
+      token,
+      actor,
+      identity,
+      duplicates,
+      result,
+      { keyring, nowMs: 2_000 },
+    )).toBe(false);
+  });
+
   it("rejects expired and tampered tokens", () => {
     const token = mintContextualEvidenceToken(actor, identity, files, result, {
       keyring,

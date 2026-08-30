@@ -407,6 +407,21 @@ describe("POST /api/ai/ask — schema validation", () => {
     expect(res.status).toBe(400);
   });
 
+  it("returns 400 when project file paths are duplicated", async () => {
+    vi.mocked(getOpenAIKey).mockResolvedValueOnce("sk-test");
+    const res = await req("u-1", "/api/ai/ask", {
+      method: "POST",
+      body: JSON.stringify(validAskBody({
+        files: [
+          { path: "main.py", content: "first" },
+          { path: "main.py", content: "second" },
+        ],
+      })),
+    });
+    expect(res.status).toBe(400);
+    expect(vi.mocked(openaiProvider.ask)).not.toHaveBeenCalled();
+  });
+
   it("returns 400 when selection.path has disallowed characters", async () => {
     vi.mocked(getOpenAIKey).mockResolvedValueOnce("sk-test");
     const res = await req("u-1", "/api/ai/ask", {
