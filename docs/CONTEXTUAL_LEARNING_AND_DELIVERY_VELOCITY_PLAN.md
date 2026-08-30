@@ -1023,14 +1023,16 @@ verdict lives in `docs/B8_GOVERNED_EVAL_SAMPLING_PERSONA_AUDIT.md`.
 
 ### 8.1 Current baseline
 
-- 336 listed Playwright tests across 50 files after the B4 distribution contract
-  was added on 2026-07-30;
-- 11,666 E2E spec lines as re-counted after the B4 contract on 2026-07-30;
-- six Chromium shards plus Firefox/WebKit critical jobs, selected by the
-  same-commit 4/6/8 benchmark above;
+- 420 listed Chromium Playwright tests across 53 spec files after the
+  production UX closeout on 2026-08-29;
+- 16,522 E2E spec lines as re-counted on 2026-08-29;
+- ten exhaustive Chromium shards plus Firefox/WebKit critical jobs, selected by
+  the clean same-commit 6/8/10 benchmark in run `33295206692`;
 - two workers per shard;
-- nine independent stack boots: six exhaustive, two cross-browser, and one
+- thirteen independent stack boots: ten exhaustive, two cross-browser, and one
   advisory critical lane;
+- a tracked capacity contract requires a fresh benchmark when the suite reaches
+  462 tests or falls to 378; the full suite remains blocking;
 - CI retains up to two diagnostic retries but `failOnFlakyTests` fails any
   shard that needed one; local runs retry once;
 - the E2E README now documents exhaustive Chromium, focused Firefox/WebKit,

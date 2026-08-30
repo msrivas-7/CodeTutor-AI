@@ -433,7 +433,7 @@ Frontend color and surface styling uses semantic Tailwind tokens (`bg`, `panel`,
 The repository's workflow files are the source of truth:
 
 - [CI](../.github/workflows/ci.yml) runs release-contract checks, harness doctor, secret scanning, cross-platform builds/tests, content and solution gates, share-function tests, performance budgets, and shell/PowerShell validation.
-- [E2E](../.github/workflows/e2e.yml) runs exhaustive Chromium in six balanced shards with two workers each, an advisory metadata-owned critical shadow, and focused Firefox/WebKit journeys.
+- [E2E](../.github/workflows/e2e.yml) runs exhaustive Chromium in ten measured shards with two workers each, an advisory metadata-owned critical shadow, and focused Firefox/WebKit journeys. The tracked [capacity record](../.github/e2e-shard-capacity.json) forces a same-commit rebenchmark after one shard-equivalent of suite growth or shrinkage; it never authorizes selecting tests away.
 - [Security](../.github/workflows/security.yml) runs isolated execution and abuse scenarios on relevant pull requests, on schedule, and as a release-callable gate.
 - [Production release](../.github/workflows/release.yml) builds immutable candidate artifacts, invokes the validation workflows against those artifacts, verifies migration state, then promotes the VM and Static Web App surfaces.
 

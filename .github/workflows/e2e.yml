@@ -159,20 +159,18 @@ jobs:
   e2e:
     name: Playwright (chromium)
     runs-on: ubuntu-latest
-    # Sharding splits the spec set across N parallel jobs (each its
-    # own ubuntu-latest runner with its own docker-compose stack), so
-    # the measured six-shard topology gives effective 6×2 = 12 workers
-    # without saturating a single runner. Release 1D measured the same
-    # commit at 316s for six shards, 340s for eight, and 495s for four.
-    # Larger runners aren't free on the Free plan even for public repos,
-    # so this is the right shape for our cost ceiling.
+    # Sharding splits the exhaustive suite across isolated runners. The
+    # capacity record owns the measured decision and the shard-1 guard below
+    # forces a new benchmark after one shard-equivalent of suite growth or
+    # shrinkage. Run 33295206692 selected 10×2 workers: 325s versus 367s for
+    # eight and 504s for six, with all 420 tests retained and zero retries.
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     # Bumped from 15 → 25 in Phase 22C: full e2e sweep grew past the 15-min
     # ceiling once the marketing specs landed. Sharding (Phase 27-v2.2)
-    # now means each shard runs ~1/6 of the suite, so 25 stays generous.
+    # each shard now runs ~1/10 of the suite, so 25 stays generous.
     timeout-minutes: 25
     # Phase 18d: cloud-only Supabase model. These feed both docker compose
     # (which reads process env for ${VAR} interpolation in docker-compose.yml)
@@ -254,6 +252,18 @@ jobs:
         working-directory: e2e
         run: npm ci
 
+      - name: Enforce measured shard capacity
+        if: matrix.shard == 1
+        working-directory: e2e
+        run: |
+          set -euo pipefail
+          total_tests=$(npx playwright test --list --project=chromium | sed -nE 's/^Total: ([0-9]+) tests.*/\1/p' | tail -1)
+          test -n "$total_tests"
+          node ../.github/scripts/e2e-shard-capacity.mjs \
+            --record ../.github/e2e-shard-capacity.json \
+            --total-tests "$total_tests" \
+            --active-shards "${{ strategy.job-total }}"
+
       - name: Cache Playwright browsers
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
@@ -269,11 +279,11 @@ jobs:
       - name: Run Playwright tests
         working-directory: e2e
         # --shard partitions specs across the matrix — each runner
-        # picks up ~1/6 of the suite and runs it in parallel with the
+        # picks up ~1/10 of the suite and runs it in parallel with the
         # other shards. Each shard has its own docker-compose stack +
-        # 2 Playwright workers, so the effective parallelism is 12
+        # 2 Playwright workers, so the effective parallelism is 20
         # without any single runner being starved.
-        run: npx playwright test --shard=${{ matrix.shard }}/6
+        run: npx playwright test --shard=${{ matrix.shard }}/${{ strategy.job-total }}
 
       - name: Dump docker-compose logs on failure
         if: failure()

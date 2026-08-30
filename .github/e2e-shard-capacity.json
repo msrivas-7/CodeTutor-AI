@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "selectedShards": 10,
+  "workersPerShard": 2,
+  "retriesDuringBenchmark": 0,
+  "benchmark": {
+    "runId": 33295206692,
+    "url": "https://github.com/msrivas-7/CodeTutor-AI/actions/runs/33295206692",
+    "headSha": "f4dceeefa292e378eab4a18d5b14c60ddf1d5f97",
+    "totalTests": 420,
+    "topologies": [
+      { "shards": 6, "topologyReadySeconds": 504, "reliable": true },
+      { "shards": 8, "topologyReadySeconds": 367, "reliable": true },
+      { "shards": 10, "topologyReadySeconds": 325, "reliable": true }
+    ],
+    "selectedTopologyReadySeconds": 325,
+    "selectedAverageTestsPerShard": 42,
+    "measuredAt": "2026-08-30T06:00:38Z"
+  },
+  "rebenchmark": {
+    "atOrBelowTests": 378,
+    "atOrAboveTests": 462,
+    "rule": "Rebenchmark when the suite changes by one selected shard's measured average workload."
+  },
+  "selectionPolicy": {
+    "minimumAbsoluteGainSeconds": 20,
+    "minimumRelativeGain": 0.05,
+    "requiresEveryShardToPass": true,
+    "preservesFullChromiumSuite": true
+  }
+}

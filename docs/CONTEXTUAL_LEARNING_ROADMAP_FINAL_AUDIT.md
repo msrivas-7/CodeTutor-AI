@@ -88,8 +88,8 @@ phase-specific checks:
 - repository controls: harness lifecycle tests, SWA tests, E2E typecheck, diff
   checks, release contracts, and strict harness doctor pass;
 - browser: retry-disabled Chromium and WebKit phase evidence passes, while the
-  retained full PR matrix continues to run Chromium across six shards plus
-  Firefox and WebKit core journeys;
+  retained full PR matrix continues to run Chromium across ten empirically
+  selected shards plus Firefox and WebKit core journeys;
 - personas: each applicable phase-specific 18-lens audit has no open P0/P1
   finding; these are expert reviews, not real-user evidence.
 

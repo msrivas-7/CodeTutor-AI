@@ -554,7 +554,7 @@ migration.
 Quality is layered deliberately:
 
 - **Unit, type, build, content, solution, policy, and contract tests** run in CI across the supported host matrix.
-- **Chromium E2E** runs exhaustively in six balanced shards with two workers each; metadata-owned critical coverage also runs as advisory shadow evidence.
+- **Chromium E2E** runs exhaustively in ten empirically selected shards with two workers each; a tracked capacity contract forces remeasurement when suite size leaves the measured band, and metadata-owned critical coverage continues as advisory shadow evidence.
 - **Firefox and WebKit** run focused core journeys to catch engine-specific behavior without tripling the entire suite.
 - **Security scenarios** run in a separate path-gated, scheduled, and reusable workflow.
 - **AI teaching changes** use deterministic policy tests plus the complete model evaluation gate; focused cases help iteration but cannot establish model eligibility.
