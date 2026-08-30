@@ -98,7 +98,7 @@ interface GuidedTutorPanelProps {
   /** Reports whether an accepted contextual turn completed successfully. */
   onContextualTutorAskComplete?: (
     ok: boolean,
-    invalidation?: "stale" | "disabled",
+    invalidation?: "stale" | "disabled" | "model",
   ) => void;
   /** External one-shot asks wait until the owning Tutor surface is visible. */
   externalAskReady?: boolean;
@@ -223,12 +223,12 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
   } | null>(
     mode === "anon" ? null : { enabled: true, modelEligible: true },
   );
-  const [contextualRuntimeDisabled, setContextualRuntimeDisabled] = useState(false);
+  const [contextualRuntimeUnavailable, setContextualRuntimeUnavailable] = useState(false);
   const skipInitialAnonPersistRef = useRef(Boolean(initialAnonTutorState));
   const [clearConfirm, setClearConfirm] = useState(false);
   const [activeContextualOffer, setActiveContextualOffer] = useState<ContextualTutorOfferRequest | null>(null);
   const activeContextualOfferRef = useRef<ContextualTutorOfferRequest | null>(null);
-  const contextualInvalidationRef = useRef<"stale" | "disabled" | null>(null);
+  const contextualInvalidationRef = useRef<"stale" | "disabled" | "model" | null>(null);
   const updateActiveContextualOffer = (offer: ContextualTutorOfferRequest | null) => {
     activeContextualOfferRef.current = offer;
     setActiveContextualOffer(offer);
@@ -309,7 +309,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
       ? "loading"
       : configured &&
           contextualModelReady &&
-          !contextualRuntimeDisabled &&
+          !contextualRuntimeUnavailable &&
           !exhausted &&
           !anonQuotaExhausted &&
           (mode === "anon"
@@ -405,15 +405,15 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
     },
     onContextualOfferInvalidated: (reason) => {
       contextualInvalidationRef.current = reason;
-      if (reason === "disabled") {
-        // A runtime refusal is authoritative for this mounted lesson. Stop
-        // advertising an action that will only return 503. The deterministic
+      if (reason === "disabled" || reason === "model") {
+        // Runtime admission is authoritative for this mounted lesson. Stop
+        // advertising an action that will only be refused. The deterministic
         // guide remains available and falls back to opening the regular Tutor.
-        setContextualRuntimeDisabled(true);
+        setContextualRuntimeUnavailable(true);
         if (mode === "anon") {
           setAnonContextualTutorStatus((current) => ({
-            enabled: false,
-            modelEligible: current?.modelEligible ?? false,
+            enabled: reason === "disabled" ? false : (current?.enabled ?? false),
+            modelEligible: reason === "model" ? false : (current?.modelEligible ?? false),
           }));
         }
       }

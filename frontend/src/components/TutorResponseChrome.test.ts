@@ -76,4 +76,13 @@ describe("tutor recovery copy", () => {
     });
     expect(result.hint).toMatch(/latest error is still in Output/i);
   });
+
+  it("turns runtime model ineligibility into a non-retryable guide recovery", () => {
+    expect(classifyAskError("MODEL_NOT_EVALUATED_FOR_CONTEXTUAL_OFFER")).toMatchObject({
+      kind: "contextualModel",
+      title: "This model is not ready for contextual help",
+      retryable: false,
+      showDetails: false,
+    });
+  });
 });

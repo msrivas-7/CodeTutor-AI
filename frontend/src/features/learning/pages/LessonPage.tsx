@@ -1119,7 +1119,7 @@ export default function LessonPage({
   const [contextualAskPending, setContextualAskPending] = useState(false);
   const contextualAskOutcomeRef = useRef<{
     ok: boolean;
-    invalidation?: "stale" | "disabled";
+    invalidation?: "stale" | "disabled" | "model";
   } | null>(null);
   const historicalLessonComplete =
     mode === "authed" && courseId && lessonId
@@ -1138,7 +1138,8 @@ export default function LessonPage({
     blockingAttention:
       memoryWarmup.blocking ||
       validator.showComplete ||
-      (isChoreographed && firstRunStep !== "done"),
+      (isChoreographed && firstRunStep !== "done") ||
+      contextualAskPending,
     learnerRequestedTutor: tutorAsking && !contextualAskPending,
   });
   const contextualGuideVisible =
@@ -1186,12 +1187,12 @@ export default function LessonPage({
     const evidence = contextualGuide.context.latestRunEvidence;
     const evidenceToken = contextualEvidenceToken;
     if (decision.kind !== "result_bridge" || !decision.move || !evidence) return;
-    if (acceptedContextualEvidenceRef.current === evidence.key) return;
     requestTutorOpen();
     if (contextualOfferState !== "ready" || !evidenceToken) {
       bumpTutorComposerFocus();
       return;
     }
+    if (acceptedContextualEvidenceRef.current === evidence.key) return;
     acceptedContextualEvidenceRef.current = evidence.key;
     contextualAskOutcomeRef.current = null;
     setContextualAskPending(true);
@@ -1227,7 +1228,7 @@ export default function LessonPage({
   };
   const handleContextualTutorAskComplete = useCallback((
     ok: boolean,
-    invalidation?: "stale" | "disabled",
+    invalidation?: "stale" | "disabled" | "model",
   ) => {
     // useTutorAsk reports completion before its final render releases
     // `asking`. Defer episode ownership changes until the stream is idle.
@@ -1244,11 +1245,14 @@ export default function LessonPage({
         // Hide the expired offer now, but let the next Run re-arm the same
         // authored error with a fresh server-signed evidence token.
         contextualGuide.expireEvidence();
-      } else if (outcome.invalidation === "disabled") {
-        // Retire this offer cleanly. A later evidence episode can still show
-        // the authored guide, but the mounted panel will expose only the
-        // non-spending Open Tutor action while the runtime pause is latched.
-        contextualGuide.dismiss();
+      } else if (
+        outcome.invalidation === "disabled" ||
+        outcome.invalidation === "model"
+      ) {
+        // Admission was refused before spending. Keep the free authored guide
+        // in place, but clear the attempted consent and let the mounted Tutor
+        // expose only the non-spending Open Tutor recovery action.
+        acceptedContextualEvidenceRef.current = null;
       } else {
         // The signed proof is single-use at admission. Even when transport or
         // provider recovery fails, retire this consent surface so the learner

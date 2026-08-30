@@ -270,6 +270,7 @@ test.describe("contextual guidance and Tutor offer", () => {
       button.click();
       button.click();
     });
+    await expect(page.getByTestId("contextual-guide-bridge")).toHaveCount(0);
     await expect(page.getByTestId("contextual-tutor-receipt")).toContainText(
       "syntax error on line 1",
     );
@@ -379,7 +380,7 @@ test.describe("contextual guidance and Tutor offer", () => {
     expect(requestBodies[1].contextualOffer).toBeUndefined();
   });
 
-  test("a kill-switch refusal retires contextual spending without a retry loop", criticalTest({
+  test("a kill-switch refusal preserves the free guide without a retry loop", criticalTest({
     risk: "p0",
     owner: "learning",
     browsers: ["chromium"],
@@ -406,21 +407,52 @@ test.describe("contextual guidance and Tutor offer", () => {
 
     await expect(page.getByText("Contextual help is paused")).toBeVisible();
     await expect(page.getByText(/latest error is still in Output/i)).toBeVisible();
-    await expect(page.getByTestId("contextual-guide-bridge")).toHaveCount(0);
+    await expect(page.getByTestId("contextual-guide-bridge")).toBeVisible();
+    await expect(page.getByTestId("contextual-guide-ask")).toHaveText("Open Tutor");
     await expect(page.getByText("Help me spot it", { exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: /try again/i })).toHaveCount(0);
     expect(calls).toBe(1);
 
-    // A new evidence key can still use the deterministic guide, but the
-    // mounted anonymous panel remembers the authoritative runtime refusal and
-    // no longer advertises contextual spending.
+    // The same authored guide remains useful, but its action now opens and
+    // focuses the ordinary non-spending Tutor path.
+    await page.getByTestId("contextual-guide-ask").click();
+    await expect(page.getByLabel(/ask the tutor/i)).toBeFocused();
+    expect(calls).toBe(1);
+  });
+
+  test("a runtime model refusal preserves the guide and invalidates contextual spending", criticalTest({
+    risk: "p0",
+    owner: "learning",
+    browsers: ["chromium", "webkit"],
+    devices: ["desktop"],
+    quarantine: { state: "none" },
+  }), async ({ page }) => {
+    let calls = 0;
+    await page.route("**/api/anon/ai/ask/stream", async (route) => {
+      calls += 1;
+      await route.fulfill({
+        status: 403,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "MODEL_NOT_EVALUATED_FOR_CONTEXTUAL_OFFER" }),
+      });
+    });
+
+    await page.goto(PATH);
+    await waitForMonacoReady(page);
+    await setMonacoValue(page, 'print("Hello"\n');
     await runCode(page);
-    await setMonacoValue(page, 'print("Hello, line two"\n');
+    await setMonacoValue(page, 'print("Hello, learner"\n');
     await runCode(page);
-    await setMonacoValue(page, 'print("Hello, line two again"\n');
-    await runCode(page);
+    await page.getByTestId("contextual-guide-ask").click();
+
+    await expect(page.getByText("This model is not ready for contextual help")).toBeVisible();
+    await expect(page.getByTestId("contextual-guide-bridge")).toBeVisible();
     await expect(page.getByTestId("contextual-guide-ask")).toHaveText("Open Tutor");
-    await expect(page.getByText("Help me spot it", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /try again/i })).toHaveCount(0);
+    expect(calls).toBe(1);
+
+    await page.getByTestId("contextual-guide-ask").click();
+    await expect(page.getByLabel(/ask the tutor/i)).toBeFocused();
     expect(calls).toBe(1);
   });
 

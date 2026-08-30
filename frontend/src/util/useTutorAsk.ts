@@ -112,7 +112,7 @@ export interface UseTutorAskOpts {
   // student doesn't burn a hint on a 500 they never saw.
   onAskComplete?: (outcome: { ok: boolean }) => void;
   /** Invalidates a contextual offer whose signed evidence can no longer be used. */
-  onContextualOfferInvalidated?: (reason: "stale" | "disabled") => void;
+  onContextualOfferInvalidated?: (reason: "stale" | "disabled" | "model") => void;
   onAllowanceUpdate?: (remainingToday: number | null) => void;
   /**
    * Phase 27-v2.1 — endpoint override for anon mode. Defaults to the
@@ -462,6 +462,12 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
               /CONTEXTUAL_TUTOR_DISABLED/i.test(message)
             ) {
               opts.onContextualOfferInvalidated?.("disabled");
+            }
+            if (
+              options.contextualOffer &&
+              /MODEL_NOT_EVALUATED_FOR_CONTEXTUAL_OFFER/i.test(message)
+            ) {
+              opts.onContextualOfferInvalidated?.("model");
             }
             // Phase 27-v2.1 audit pass 1 fix #5: detect the L_anon
             // cap-exceeded error code and route to the wall instead
