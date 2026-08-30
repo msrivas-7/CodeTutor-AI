@@ -4,87 +4,119 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+const TOPOLOGIES = [6, 8, 10];
+const MINIMUM_RELATIVE_GAIN = 0.05;
+const MINIMUM_ABSOLUTE_GAIN_SECONDS = 20;
+const TEST_STEP_NAME = "Run identical full suite without retries";
+
 function secondsBetween(start, end) {
   if (!start || !end) return null;
   const value = (Date.parse(end) - Date.parse(start)) / 1000;
   return Number.isFinite(value) && value >= 0 ? value : null;
 }
 
-function summarizeTopology({ total, run, jobs, namePrefix }) {
+function stepSeconds(job, stepName) {
+  const step = job.steps?.find((candidate) => candidate.name === stepName);
+  return step ? secondsBetween(step.started_at, step.completed_at) : null;
+}
+
+function summarizeTopology({ total, run, jobs, totalTests }) {
+  const namePrefix = `Playwright benchmark ${total} shards`;
   const selected = jobs.filter((job) => job.name.startsWith(namePrefix));
-  const startedValues = selected
-    .map((job) => Date.parse(job.started_at))
-    .filter((value) => Number.isFinite(value));
-  const topologyStartedAt =
-    startedValues.length === total ? new Date(Math.min(...startedValues)).toISOString() : null;
+  const startedValues = selected.map((job) => Date.parse(job.started_at)).filter(Number.isFinite);
+  const topologyStartedAt = startedValues.length === total
+    ? new Date(Math.min(...startedValues)).toISOString()
+    : null;
   const topologyReadyValues = selected
     .map((job) => secondsBetween(topologyStartedAt, job.completed_at))
     .filter((value) => value !== null);
   const executionValues = selected
     .map((job) => secondsBetween(job.started_at, job.completed_at))
     .filter((value) => value !== null);
+  const testValues = selected
+    .map((job) => stepSeconds(job, TEST_STEP_NAME))
+    .filter((value) => value !== null);
+  const aggregateExecutionSeconds = executionValues.length === total
+    ? executionValues.reduce((sum, value) => sum + value, 0)
+    : null;
+  const aggregateTestSeconds = testValues.length === total
+    ? testValues.reduce((sum, value) => sum + value, 0)
+    : null;
+  const slowestTestSeconds = testValues.length === total ? Math.max(...testValues) : null;
+  const fastestTestSeconds = testValues.length === total ? Math.min(...testValues) : null;
+
   return {
     shards: total,
     runId: run.id,
     expectedJobs: total,
     observedJobs: selected.length,
-    reliable:
-      selected.length === total && selected.every((job) => job.conclusion === "success"),
+    reliable: selected.length === total && selected.every((job) => job.conclusion === "success"),
+    totalTests,
+    averageTestsPerShard: Number((totalTests / total).toFixed(1)),
     topologyStartedAt,
-    topologyReadySeconds:
-      topologyReadyValues.length === total ? Math.max(...topologyReadyValues) : null,
-    slowestExecutionSeconds:
-      executionValues.length === total ? Math.max(...executionValues) : null,
+    topologyReadySeconds: topologyReadyValues.length === total ? Math.max(...topologyReadyValues) : null,
+    slowestExecutionSeconds: executionValues.length === total ? Math.max(...executionValues) : null,
+    aggregateExecutionSeconds,
+    slowestTestSeconds,
+    fastestTestSeconds,
+    testImbalanceSeconds: slowestTestSeconds !== null && fastestTestSeconds !== null
+      ? slowestTestSeconds - fastestTestSeconds
+      : null,
+    aggregateTestSeconds,
+    nonTestOverheadSeconds: aggregateExecutionSeconds !== null && aggregateTestSeconds !== null
+      ? aggregateExecutionSeconds - aggregateTestSeconds
+      : null,
     jobs: selected.map((job) => ({
       name: job.name,
       conclusion: job.conclusion ?? "unknown",
       executionSeconds: secondsBetween(job.started_at, job.completed_at),
+      testSeconds: stepSeconds(job, TEST_STEP_NAME),
       topologyRelativeSeconds: secondsBetween(topologyStartedAt, job.completed_at),
     })),
   };
 }
 
-export function compareShardTopologies({ baselineRun, baselineJobs, benchmarkRun, benchmarkJobs }) {
-  const topologies = [
-    summarizeTopology({
-      total: 4,
-      run: baselineRun,
-      jobs: baselineJobs.jobs ?? baselineJobs,
-      namePrefix: "Playwright (chromium)",
-    }),
-    summarizeTopology({
-      total: 6,
-      run: benchmarkRun,
-      jobs: benchmarkJobs.jobs ?? benchmarkJobs,
-      namePrefix: "Playwright benchmark 6 shards",
-    }),
-    summarizeTopology({
-      total: 8,
-      run: benchmarkRun,
-      jobs: benchmarkJobs.jobs ?? benchmarkJobs,
-      namePrefix: "Playwright benchmark 8 shards",
-    }),
-  ];
+function isMeaningfullyFaster(candidate, incumbent) {
+  const absoluteGain = incumbent.topologyReadySeconds - candidate.topologyReadySeconds;
+  const relativeGain = absoluteGain / incumbent.topologyReadySeconds;
+  return absoluteGain >= MINIMUM_ABSOLUTE_GAIN_SECONDS && relativeGain >= MINIMUM_RELATIVE_GAIN;
+}
+
+function selectTopology(topologies) {
   const reliable = topologies
     .filter((item) => item.reliable && item.topologyReadySeconds !== null)
-    .sort(
-      (left, right) =>
-        left.topologyReadySeconds - right.topologyReadySeconds ||
-        left.slowestExecutionSeconds - right.slowestExecutionSeconds ||
-        left.shards - right.shards,
-    );
+    .sort((left, right) => left.shards - right.shards);
+  let selected = reliable[0] ?? null;
+  for (const candidate of reliable.slice(1)) {
+    if (isMeaningfullyFaster(candidate, selected)) selected = candidate;
+  }
+  return selected;
+}
+
+export function compareShardTopologies({ benchmarkRun, benchmarkJobs, totalTests }) {
+  if (!Number.isSafeInteger(totalTests) || totalTests < 1) {
+    throw new Error("totalTests must be a positive integer");
+  }
+  const jobs = benchmarkJobs.jobs ?? benchmarkJobs;
+  const topologies = TOPOLOGIES.map((total) =>
+    summarizeTopology({ total, run: benchmarkRun, jobs, totalTests }),
+  );
+  const selected = selectTopology(topologies);
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     headSha: benchmarkRun.head_sha,
     policy: {
       workersPerShard: 2,
       retries: 0,
-      selectionMetric: "fastest reliable topology-relative completion",
-      status:
-        "topologies run sequentially to protect shared services; actual PR p95 remains queue-inclusive; shadow pilot remains required before test demotion",
+      candidates: TOPOLOGIES,
+      selectionMetric: "reliable topology-relative completion",
+      minimumRelativeGain: MINIMUM_RELATIVE_GAIN,
+      minimumAbsoluteGainSeconds: MINIMUM_ABSOLUTE_GAIN_SECONDS,
+      status: "topologies run sequentially on the same commit; a larger topology wins only when it is both reliable and materially faster",
     },
     topologies,
-    provisionalSelection: reliable[0]?.shards ?? null,
+    provisionalSelection: selected?.shards ?? null,
+    selectedAverageTestsPerShard: selected?.averageTestsPerShard ?? null,
   };
 }
 
@@ -94,24 +126,23 @@ function argument(name) {
 }
 
 function main() {
-  const required = ["--baseline-run", "--baseline-jobs", "--benchmark-run", "--benchmark-jobs", "--output"];
+  const required = ["--benchmark-run", "--benchmark-jobs", "--total-tests", "--output"];
   for (const option of required) {
     if (!argument(option)) throw new Error(`Missing ${option}`);
   }
   const result = compareShardTopologies({
-    baselineRun: JSON.parse(fs.readFileSync(argument("--baseline-run"), "utf8")),
-    baselineJobs: JSON.parse(fs.readFileSync(argument("--baseline-jobs"), "utf8")),
     benchmarkRun: JSON.parse(fs.readFileSync(argument("--benchmark-run"), "utf8")),
     benchmarkJobs: JSON.parse(fs.readFileSync(argument("--benchmark-jobs"), "utf8")),
+    totalTests: Number(argument("--total-tests")),
   });
   const output = argument("--output");
   fs.mkdirSync(path.dirname(output), { recursive: true });
   fs.writeFileSync(output, `${JSON.stringify(result, null, 2)}\n`);
   console.log(
     `Shard benchmark provisional selection: ${result.provisionalSelection ?? "none"}; ` +
-      result.topologies
-        .map((item) => `${item.shards}=${item.reliable ? `${item.topologyReadySeconds}s` : "unreliable"}`)
-        .join(", "),
+      result.topologies.map((item) =>
+        `${item.shards}=${item.reliable ? `${item.topologyReadySeconds}s (${item.averageTestsPerShard} tests/shard)` : "unreliable"}`,
+      ).join(", "),
   );
 }
 
