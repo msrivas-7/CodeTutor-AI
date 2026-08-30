@@ -1,14 +1,12 @@
 name: E2E shard benchmark
 
-# One-time Release 1D experiment. It concluded on commit c6aa5f0: six shards
-# were fastest (316s) versus eight (340s) and four (495s), all reliable. The
-# label was removed after measurement. Add the `ci-shard-benchmark` label only
-# after the normal E2E run for the same commit is complete; that four-shard
-# run becomes the baseline. This workflow then runs the identical exhaustive
-# Chromium suite at six and eight shards with the same two workers and no
-# retries. The alternative topologies run sequentially so their combined load
-# cannot overwhelm the shared Supabase project. Removing the label prevents
-# accidental repeated spend.
+# Controlled capacity benchmark for the exhaustive Chromium suite. Apply the
+# `ci-shard-benchmark` label only to a stable PR commit. The workflow runs the
+# identical suite at 6, 8, and 10 shards, with two workers per shard and no
+# retries. Topologies run sequentially so they do not contend with each other
+# for the shared Supabase project. The comparator reports wall-clock latency,
+# runner overhead, imbalance, and tests per shard, and requires a material gain
+# before recommending more shards. Remove the label after measurement.
 on:
   pull_request:
     types: [labeled]
@@ -89,7 +87,7 @@ jobs:
         run: docker compose down -v
 
   benchmark-eight:
-    if: github.event.label.name == 'ci-shard-benchmark'
+    if: always() && github.event.label.name == 'ci-shard-benchmark'
     needs: benchmark-six
     name: Playwright benchmark 8 shards (${{ matrix.shard }}/8)
     runs-on: ubuntu-latest
@@ -153,17 +151,89 @@ jobs:
         if: always()
         run: docker compose down -v
 
-  compare:
-    name: Compare 4 vs 6 vs 8 shards
+  benchmark-ten:
     if: always() && github.event.label.name == 'ci-shard-benchmark'
-    needs: [benchmark-six, benchmark-eight]
+    needs: benchmark-eight
+    name: Playwright benchmark 10 shards (${{ matrix.shard }}/10)
     runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      BYOK_ENCRYPTION_KEY: ${{ secrets.BYOK_ENCRYPTION_KEY }}
+      METRICS_TOKEN: e2e-test-metrics-token
+      E2E_USER_SUFFIX: benchmark-10-${{ matrix.shard }}-run${{ github.run_id }}-attempt${{ github.run_attempt }}
+      MAX_SESSIONS_PER_USER: "60"
+      MAX_SESSIONS_GLOBAL: "240"
+      DOCKER_EXEC_CONCURRENCY: "16"
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+      - name: Boot docker-compose stack
+        run: docker compose up -d backend frontend
+      - name: Install e2e deps
+        working-directory: e2e
+        run: npm ci
+      - name: Cache Playwright browser
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('e2e/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+      - name: Install Playwright browser
+        working-directory: e2e
+        run: npx playwright install --with-deps chromium
+      - name: Run identical full suite without retries
+        working-directory: e2e
+        run: npx playwright test --shard=${{ matrix.shard }}/10 --retries=0
+      - name: Dump docker-compose logs on failure
+        if: failure()
+        run: docker compose logs --no-color --tail=300
+      - name: Upload failure evidence
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: shard-benchmark-10-${{ matrix.shard }}
+          path: |
+            e2e/playwright-report
+            e2e/test-results
+          retention-days: 30
+          if-no-files-found: ignore
+      - name: Tear down docker-compose
+        if: always()
+        run: docker compose down -v
+
+  compare:
+    name: Compare 6 vs 8 vs 10 shards
+    if: always() && github.event.label.name == 'ci-shard-benchmark'
+    needs: [benchmark-six, benchmark-eight, benchmark-ten]
+    runs-on: ubuntu-latest
+    env:
+      # Playwright's --list command imports the authenticated fixtures while
+      # counting the benchmark inventory, so it needs the same server-only
+      # Supabase boundary as the shard jobs. These values are never exposed to
+      # a browser in this reporting-only job.
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Collect same-commit benchmark data
         env:
           GH_TOKEN: ${{ github.token }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           mkdir -p e2e/shard-benchmark
@@ -171,20 +241,25 @@ jobs:
           gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?per_page=100" --slurp \
             | node -e 'let d=""; process.stdin.on("data",c=>d+=c).on("end",()=>{const pages=JSON.parse(d); process.stdout.write(JSON.stringify({jobs:pages.flatMap(page=>page.jobs||[])},null,2)+"\n")})' \
             > e2e/shard-benchmark/benchmark-jobs.json
-          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/e2e.yml/runs?head_sha=$HEAD_SHA&event=pull_request&status=completed&per_page=20" \
-            --jq '.workflow_runs | map(select(.conclusion == "success")) | first' \
-            > e2e/shard-benchmark/baseline-run.json
-          baseline_id=$(node -e 'const d=require("./e2e/shard-benchmark/baseline-run.json"); if(!d?.id) process.exit(1); process.stdout.write(String(d.id))')
-          gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$baseline_id/jobs?per_page=100" --slurp \
-            | node -e 'let d=""; process.stdin.on("data",c=>d+=c).on("end",()=>{const pages=JSON.parse(d); process.stdout.write(JSON.stringify({jobs:pages.flatMap(page=>page.jobs||[])},null,2)+"\n")})' \
-            > e2e/shard-benchmark/baseline-jobs.json
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+      - name: Count the benchmarked Chromium tests
+        working-directory: e2e
+        run: |
+          set -euo pipefail
+          npm ci
+          total_tests=$(npx playwright test --list --project=chromium | sed -nE 's/^Total: ([0-9]+) tests.*/\1/p' | tail -1)
+          test -n "$total_tests"
+          echo "TOTAL_TESTS=$total_tests" >> "$GITHUB_ENV"
       - name: Select the fastest reliable topology
         run: |
           node .github/scripts/e2e-shard-benchmark.mjs \
-            --baseline-run e2e/shard-benchmark/baseline-run.json \
-            --baseline-jobs e2e/shard-benchmark/baseline-jobs.json \
             --benchmark-run e2e/shard-benchmark/benchmark-run.json \
             --benchmark-jobs e2e/shard-benchmark/benchmark-jobs.json \
+            --total-tests "$TOTAL_TESTS" \
             --output e2e/shard-benchmark/result.json
           cat e2e/shard-benchmark/result.json >> "$GITHUB_STEP_SUMMARY"
       - name: Upload benchmark result

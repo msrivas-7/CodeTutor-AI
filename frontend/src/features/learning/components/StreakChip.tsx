@@ -250,9 +250,13 @@ export function StreakChip({ override, compact, interactive = true, prominent = 
     : streak
       ? { current: streak.current, longest: streak.longest, isAtRisk: streak.isAtRisk, freezeActive: streak.freezeActive }
       : null;
-  // This gate must be available to the always-declared measurement effect;
-  // hooks cannot move below the day-zero early return.
-  const isInteractive = !override && !!streak && interactive;
+  // These gates must be available to the always-declared measurement effect;
+  // hooks cannot move below the day-zero/opt-out early return. Including the
+  // render gate in `isInteractive` is important: when a learner toggles streaks
+  // off, the anchor unmounts and the effect must clean up; toggling back on then
+  // reruns measurement against the newly mounted anchor.
+  const shouldRender = !!data && data.current > 0 && (!!override || !disableStreaks);
+  const isInteractive = shouldRender && !override && !!streak && interactive;
 
   // Iter-3 (post-feedback): chip is click-to-expand into a dynamic-island
   // detail popover. Click toggles open; click outside / Esc closes from
@@ -279,9 +283,23 @@ export function StreakChip({ override, compact, interactive = true, prominent = 
   useLayoutEffect(() => {
     if (!isInteractive || !anchorRef.current) return;
     const update = () => {
-      if (anchorRef.current) {
-        setAnchorRect(anchorRef.current.getBoundingClientRect());
+      const anchor = anchorRef.current;
+      if (!anchor || !anchor.isConnected || anchor.getClientRects().length === 0) {
+        // The painted pill lives in a document.body portal, so a responsive
+        // `display: none` ancestor cannot hide it for us. Treat the in-flow
+        // anchor as the visibility authority: no rendered anchor means no
+        // portaled surface and no open dialog stranded outside its layout.
+        setAnchorRect(null);
+        setOpen(false);
+        return;
       }
+      const nextRect = anchor.getBoundingClientRect();
+      if (nextRect.width <= 0 || nextRect.height <= 0) {
+        setAnchorRect(null);
+        setOpen(false);
+        return;
+      }
+      setAnchorRect(nextRect);
     };
     update();
     const closeForViewportChange = () => {
@@ -317,12 +335,7 @@ export function StreakChip({ override, compact, interactive = true, prominent = 
   }, [isInteractive]);
 
   // Day 0 — render nothing. Don't lecture.
-  if (!data || data.current === 0) return null;
-  // Phase 27 opt-out — streak system fully hidden for this user.
-  // `override` bypasses (e2e + cinematic snapshots) by virtue of
-  // its data path skipping useStreak entirely above; we still
-  // gate here so a non-override caller respects the user choice.
-  if (!override && disableStreaks) return null;
+  if (!shouldRender || !data) return null;
 
   const tier = resolveTier(data.current);
   const segmentsClosed = Math.min(data.current, SEGMENTS);

@@ -112,6 +112,11 @@ test.describe("test identity namespace guard", () => {
       buildCurrentRunTestEmail("w0", "security-run81-attempt2"),
       old,
     );
+    const staleBenchmark = fakeUser(
+      "stale-benchmark",
+      buildCurrentRunTestEmail("w0", "benchmark-10-7-run83-attempt1"),
+      old,
+    );
     const recentCi = fakeUser(
       "recent-ci",
       buildCurrentRunTestEmail("w0", "shard-6-run82-attempt1"),
@@ -126,6 +131,7 @@ test.describe("test identity namespace guard", () => {
     const fake = createFakeAdmin([
       staleShard,
       staleSecurity,
+      staleBenchmark,
       recentCi,
       staleLocal,
       foreign,
@@ -136,12 +142,16 @@ test.describe("test identity namespace guard", () => {
     });
 
     expect(report).toEqual({
-      scanned: 5,
-      eligible: 2,
-      deleted: 2,
+      scanned: 6,
+      eligible: 3,
+      deleted: 3,
       truncated: false,
     });
-    expect(fake.deletedIds).toEqual([staleShard.id, staleSecurity.id]);
+    expect(fake.deletedIds).toEqual([
+      staleShard.id,
+      staleSecurity.id,
+      staleBenchmark.id,
+    ]);
   });
 
   test("abandoned-user janitor enforces its age floor and batch ceiling", async () => {
@@ -173,8 +183,8 @@ test.describe("test identity namespace guard", () => {
 
   test("600 varied overlapping namespaces record zero cross-run deletions", async () => {
     for (let iteration = 0; iteration < 600; iteration += 1) {
-      const runA = `shard-${(iteration % 6) + 1}-run${1000 + iteration}-attempt1`;
-      const runB = `shard-${((iteration + 1) % 6) + 1}-run${2000 + iteration}-attempt2`;
+      const runA = `shard-${(iteration % 10) + 1}-run${1000 + iteration}-attempt1`;
+      const runB = `shard-${((iteration + 1) % 10) + 1}-run${2000 + iteration}-attempt2`;
       const a = fakeUser(`a-${iteration}`, buildCurrentRunTestEmail("w0", runA));
       const b = fakeUser(`b-${iteration}`, buildCurrentRunTestEmail("w1", runB));
       const order = iteration % 2 === 0 ? [a, b] : [b, a];
