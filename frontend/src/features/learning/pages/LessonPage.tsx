@@ -1117,6 +1117,10 @@ export default function LessonPage({
     !practiceMode &&
     !!loader.lesson?.assistanceMoves;
   const [contextualAskPending, setContextualAskPending] = useState(false);
+  const contextualAskOutcomeRef = useRef<{
+    ok: boolean;
+    invalidation?: "stale" | "disabled";
+  } | null>(null);
   const historicalLessonComplete =
     mode === "authed" && courseId && lessonId
       ? lessonProgressMap[`${courseId}/${lessonId}`]?.status === "completed"
@@ -1189,6 +1193,7 @@ export default function LessonPage({
       return;
     }
     acceptedContextualEvidenceRef.current = evidence.key;
+    contextualAskOutcomeRef.current = null;
     setContextualAskPending(true);
     setPendingTutorAsk({
       question: "Help me spot the issue without giving me the answer.",
@@ -1220,14 +1225,35 @@ export default function LessonPage({
     if (!evidence) return;
     useProjectStore.getState().revealAt(evidence.path, evidence.line);
   };
-  const handleContextualTutorAskComplete = useCallback((ok: boolean) => {
-    setContextualAskPending(false);
-    if (ok) {
+  const handleContextualTutorAskComplete = useCallback((
+    ok: boolean,
+    invalidation?: "stale" | "disabled",
+  ) => {
+    // useTutorAsk reports completion before its final render releases
+    // `asking`. Defer episode ownership changes until the stream is idle.
+    contextualAskOutcomeRef.current = { ok, invalidation };
+  }, []);
+  useEffect(() => {
+    const outcome = contextualAskOutcomeRef.current;
+    if (!outcome || tutorAsking) return;
+    contextualAskOutcomeRef.current = null;
+    if (outcome.ok) {
       contextualGuide.accept();
-      return;
+    } else {
+      acceptedContextualEvidenceRef.current = null;
+      if (outcome.invalidation === "stale") {
+        // Hide the expired offer now, but let the next Run re-arm the same
+        // authored error with a fresh server-signed evidence token.
+        contextualGuide.expireEvidence();
+      } else if (outcome.invalidation === "disabled") {
+        // Retire this offer cleanly. A later evidence episode can still show
+        // the authored guide, but the mounted panel will expose only the
+        // non-spending Open Tutor action while the runtime pause is latched.
+        contextualGuide.dismiss();
+      }
     }
-    acceptedContextualEvidenceRef.current = null;
-  }, [contextualGuide]);
+    setContextualAskPending(false);
+  }, [contextualGuide, tutorAsking]);
 
   // Phase 27-v2.1 — the praise turn parses the learner's typed name
   // out of the editor buffer (option d in the v2 plan). Authed users

@@ -56,6 +56,16 @@ describe("tutor recovery copy", () => {
     });
   });
 
+  it("retires expired signed evidence and directs the learner to run again", () => {
+    expect(classifyAskError("CONTEXTUAL_EVIDENCE_STALE")).toEqual({
+      kind: "contextualEvidenceStale",
+      title: "Run evidence expired",
+      hint: "Run your code again to refresh the error, then use the new help offer.",
+      retryable: false,
+      showDetails: false,
+    });
+  });
+
   it("turns the contextual kill switch into a deterministic non-retryable recovery", () => {
     const result = classifyAskError('{"error":"CONTEXTUAL_TUTOR_DISABLED"}');
     expect(result).toMatchObject({
@@ -64,6 +74,6 @@ describe("tutor recovery copy", () => {
       retryable: false,
       showDetails: false,
     });
-    expect(result.hint).toMatch(/error guide still works/i);
+    expect(result.hint).toMatch(/latest error is still in Output/i);
   });
 });

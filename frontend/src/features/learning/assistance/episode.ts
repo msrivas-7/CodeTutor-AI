@@ -18,6 +18,7 @@ export type AssistanceEpisodeEvent =
     }
   | { type: "non_matching_result" }
   | { type: "source_changed"; minAttempts: number }
+  | { type: "evidence_expired" }
   | { type: "dismissed" }
   | { type: "accepted" };
 
@@ -93,6 +94,16 @@ export function assistanceEpisodeReducer(
           state.currentEvidence && state.attempts >= event.minAttempts
             ? state.currentEvidence.key
             : state.suppressedEvidenceKey,
+      };
+
+    case "evidence_expired":
+      // Retire the unusable signed token without suppressing this evidence
+      // key forever. The next learner-initiated Run carries fresh signed
+      // evidence and may restore the authored offer for the same error.
+      return {
+        ...state,
+        currentEvidence: null,
+        suppressedEvidenceKey: null,
       };
 
     case "dismissed":

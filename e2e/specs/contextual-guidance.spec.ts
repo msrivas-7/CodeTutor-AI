@@ -371,7 +371,7 @@ test.describe("contextual guidance and Tutor offer", () => {
     });
   });
 
-  test("a kill-switch refusal preserves the deterministic guide without a retry loop", criticalTest({
+  test("a kill-switch refusal retires contextual spending without a retry loop", criticalTest({
     risk: "p0",
     owner: "learning",
     browsers: ["chromium"],
@@ -397,12 +397,58 @@ test.describe("contextual guidance and Tutor offer", () => {
     await page.getByTestId("contextual-guide-ask").click();
 
     await expect(page.getByText("Contextual help is paused")).toBeVisible();
-    await expect(page.getByText(/error guide still works/i)).toBeVisible();
-    await expect(page.getByTestId("contextual-guide-question")).toHaveText(
-      "Which opening parenthesis still needs a closing partner?",
-    );
-    await expect(page.getByTestId("contextual-guide-ask")).toHaveText("Help me spot it");
+    await expect(page.getByText(/latest error is still in Output/i)).toBeVisible();
+    await expect(page.getByTestId("contextual-guide-bridge")).toHaveCount(0);
+    await expect(page.getByText("Help me spot it", { exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: /try again/i })).toHaveCount(0);
+    expect(calls).toBe(1);
+
+    // A new evidence key can still use the deterministic guide, but the
+    // mounted anonymous panel remembers the authoritative runtime refusal and
+    // no longer advertises contextual spending.
+    await runCode(page);
+    await setMonacoValue(page, 'print("Hello, line two"\n');
+    await runCode(page);
+    await setMonacoValue(page, 'print("Hello, line two again"\n');
+    await runCode(page);
+    await expect(page.getByTestId("contextual-guide-ask")).toHaveText("Open Tutor");
+    await expect(page.getByText("Help me spot it", { exact: true })).toHaveCount(0);
+    expect(calls).toBe(1);
+  });
+
+  test("expired signed evidence is retired until a fresh Run re-arms the offer", criticalTest({
+    risk: "p0",
+    owner: "learning",
+    browsers: ["chromium", "webkit"],
+    devices: ["desktop"],
+    quarantine: { state: "none" },
+  }), async ({ page }) => {
+    let calls = 0;
+    await page.route("**/api/anon/ai/ask/stream", async (route) => {
+      calls += 1;
+      await route.fulfill({
+        status: 409,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "CONTEXTUAL_EVIDENCE_STALE" }),
+      });
+    });
+
+    await page.goto(PATH);
+    await waitForMonacoReady(page);
+    await setMonacoValue(page, 'print("Hello"\n');
+    await runCode(page);
+    await setMonacoValue(page, 'print("Hello, learner"\n');
+    await runCode(page);
+    await page.getByTestId("contextual-guide-ask").click();
+
+    await expect(page.getByText("Run evidence expired")).toBeVisible();
+    await expect(page.getByText(/run your code again to refresh the error/i)).toBeVisible();
+    await expect(page.getByRole("button", { name: /try again/i })).toHaveCount(0);
+    await expect(page.getByTestId("contextual-guide-bridge")).toHaveCount(0);
+    expect(calls).toBe(1);
+
+    await runCode(page);
+    await expect(page.getByTestId("contextual-guide-ask")).toHaveText("Help me spot it");
     expect(calls).toBe(1);
   });
 

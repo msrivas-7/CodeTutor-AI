@@ -107,4 +107,35 @@ describe("assistanceEpisodeReducer", () => {
     state = assistanceEpisodeReducer(state, { type: "accepted" });
     expect(state.suppressedEvidenceKey).toBe(evidence().key);
   });
+
+  it("retires expired evidence until a fresh run re-arms the same error", () => {
+    let state = createAssistanceEpisodeState("course/lesson");
+    state = assistanceEpisodeReducer(state, {
+      type: "result_observed",
+      evidence: evidence(),
+      projectRevision: 1,
+      minAttempts: 2,
+    });
+    state = assistanceEpisodeReducer(state, { type: "source_changed", minAttempts: 2 });
+    state = assistanceEpisodeReducer(state, {
+      type: "result_observed",
+      evidence: evidence(),
+      projectRevision: 2,
+      minAttempts: 2,
+    });
+
+    state = assistanceEpisodeReducer(state, { type: "evidence_expired" });
+    expect(state.currentEvidence).toBeNull();
+    expect(state.suppressedEvidenceKey).toBeNull();
+
+    state = assistanceEpisodeReducer(state, {
+      type: "result_observed",
+      evidence: evidence(),
+      projectRevision: 2,
+      minAttempts: 2,
+    });
+    expect(state.currentEvidence?.key).toBe(evidence().key);
+    expect(state.attempts).toBe(2);
+  });
+
 });

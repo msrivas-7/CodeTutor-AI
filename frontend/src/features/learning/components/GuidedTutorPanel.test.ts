@@ -3,6 +3,7 @@ import {
   canSubmitGuidedTutorTurn,
   currentContextualOfferForRetry,
   isContextualOfferModelReady,
+  resolveTutorSource,
   resolveTutorPersona,
 } from "./GuidedTutorPanel";
 import type { ContextualTutorOfferRequest } from "../../../types";
@@ -80,5 +81,18 @@ describe("isContextualOfferModelReady", () => {
       { ...model, id: "gpt-5.1", contextualOfferEligible: false },
     ])).toBe(false);
     expect(isContextualOfferModelReady("platform", null, [])).toBe(true);
+  });
+});
+
+describe("resolveTutorSource", () => {
+  it("keeps the public lesson platform-funded despite persisted BYOK state", () => {
+    expect(resolveTutorSource("anon", true, undefined)).toBe("platform");
+    expect(resolveTutorSource("anon", false, undefined)).toBe("platform");
+  });
+
+  it("preserves authenticated BYOK and platform funding", () => {
+    expect(resolveTutorSource("authed", true, "platform")).toBe("byok");
+    expect(resolveTutorSource("authed", false, "platform")).toBe("platform");
+    expect(resolveTutorSource("authed", false, undefined)).toBe("none");
   });
 });

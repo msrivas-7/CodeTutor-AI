@@ -111,6 +111,8 @@ export interface UseTutorAskOpts {
   // — e.g. the guided panel's hint counter only commits on success, so the
   // student doesn't burn a hint on a 500 they never saw.
   onAskComplete?: (outcome: { ok: boolean }) => void;
+  /** Invalidates a contextual offer whose signed evidence can no longer be used. */
+  onContextualOfferInvalidated?: (reason: "stale" | "disabled") => void;
   onAllowanceUpdate?: (remainingToday: number | null) => void;
   /**
    * Phase 27-v2.1 — endpoint override for anon mode. Defaults to the
@@ -445,11 +447,21 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
               committed = true;
               return;
             }
-            if (/CONTEXTUAL_EVIDENCE_STALE/i.test(message)) {
-              setAskError("TUTOR_CONTEXT_CHANGED");
+            if (
+              options.contextualOffer &&
+              /CONTEXTUAL_EVIDENCE_STALE/i.test(message)
+            ) {
+              opts.onContextualOfferInvalidated?.("stale");
+              setAskError("CONTEXTUAL_EVIDENCE_STALE");
               clearStream();
               committed = true;
               return;
+            }
+            if (
+              options.contextualOffer &&
+              /CONTEXTUAL_TUTOR_DISABLED/i.test(message)
+            ) {
+              opts.onContextualOfferInvalidated?.("disabled");
             }
             // Phase 27-v2.1 audit pass 1 fix #5: detect the L_anon
             // cap-exceeded error code and route to the wall instead

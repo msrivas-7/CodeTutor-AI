@@ -96,7 +96,10 @@ interface GuidedTutorPanelProps {
   /** Reports whether an external contextual offer can safely spend a turn. */
   onContextualTutorAvailabilityChange?: (state: ContextualTutorAvailability) => void;
   /** Reports whether an accepted contextual turn completed successfully. */
-  onContextualTutorAskComplete?: (ok: boolean) => void;
+  onContextualTutorAskComplete?: (
+    ok: boolean,
+    invalidation?: "stale" | "disabled",
+  ) => void;
   /** External one-shot asks wait until the owning Tutor surface is visible. */
   externalAskReady?: boolean;
 }
@@ -129,6 +132,18 @@ export function isContextualOfferModelReady(
 ): boolean {
   if (source !== "byok") return true;
   return models.find((model) => model.id === selectedModel)?.contextualOfferEligible === true;
+}
+
+export function resolveTutorSource(
+  mode: "authed" | "anon",
+  hasKey: boolean,
+  statusSource: "byok" | "platform" | "none" | undefined,
+): "byok" | "platform" | "none" {
+  // Anonymous requests are always platform-funded. A signed-in visitor can
+  // still have BYOK preferences in local state while using /try; those must
+  // never affect eligibility or the request model for the public lesson.
+  if (mode === "anon") return "platform";
+  return hasKey ? "byok" : (statusSource ?? "none");
 }
 
 export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, priorConcepts, activePracticeExercise, onCollapse, onOpenSettings, resetNonce, inputLocked, clearHidden, mode = "authed", onAnonExhausted, onAnonTrialPaused, onAnonSaveRequested, onSkipWelcome, initialAnonTutorState, onContextualTutorAvailabilityChange, onContextualTutorAskComplete, externalAskReady = true }: GuidedTutorPanelProps) {
@@ -201,10 +216,12 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
   const [anonContextualTutorEnabled, setAnonContextualTutorEnabled] = useState<boolean | null>(
     mode === "anon" ? null : true,
   );
+  const [contextualRuntimeDisabled, setContextualRuntimeDisabled] = useState(false);
   const skipInitialAnonPersistRef = useRef(Boolean(initialAnonTutorState));
   const [clearConfirm, setClearConfirm] = useState(false);
   const [activeContextualOffer, setActiveContextualOffer] = useState<ContextualTutorOfferRequest | null>(null);
   const activeContextualOfferRef = useRef<ContextualTutorOfferRequest | null>(null);
+  const contextualInvalidationRef = useRef<"stale" | "disabled" | null>(null);
   const updateActiveContextualOffer = (offer: ContextualTutorOfferRequest | null) => {
     activeContextualOfferRef.current = offer;
     setActiveContextualOffer(offer);
@@ -240,8 +257,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
   const statusLoading = mode === "anon"
     ? anonContextualTutorEnabled === null
     : !hasKey && aiStatus === null;
-  const effectiveSource: "byok" | "platform" | "none" =
-    hasKey ? "byok" : (aiStatus?.source ?? "none");
+  const effectiveSource = resolveTutorSource(mode, hasKey, aiStatus?.source);
   const onPlatform = effectiveSource === "platform";
   const effectiveModel = tutorRequestModel({
     selectedModel,
@@ -276,6 +292,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
       ? "loading"
       : configured &&
           contextualModelReady &&
+          !contextualRuntimeDisabled &&
           !exhausted &&
           !anonQuotaExhausted &&
           (mode === "anon"
@@ -369,9 +386,25 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
         setAnonQuotaExhausted(true);
       }
     },
+    onContextualOfferInvalidated: (reason) => {
+      contextualInvalidationRef.current = reason;
+      if (reason === "disabled") {
+        // A runtime refusal is authoritative for this mounted lesson. Stop
+        // advertising an action that will only return 503. The deterministic
+        // guide remains available and falls back to opening the regular Tutor.
+        setContextualRuntimeDisabled(true);
+        if (mode === "anon") setAnonContextualTutorEnabled(false);
+      }
+    },
     onAskComplete: ({ ok }) => {
-      if (activeContextualOfferRef.current) onContextualTutorAskComplete?.(ok);
-      if (ok) updateActiveContextualOffer(null);
+      if (activeContextualOfferRef.current) {
+        onContextualTutorAskComplete?.(
+          ok,
+          contextualInvalidationRef.current ?? undefined,
+        );
+      }
+      if (ok || contextualInvalidationRef.current) updateActiveContextualOffer(null);
+      contextualInvalidationRef.current = null;
       if (pendingHintRef.current) {
         pendingHintRef.current = false;
         // Phase 27-v2.1 — anon doesn't write hint counts to /api/user/*.

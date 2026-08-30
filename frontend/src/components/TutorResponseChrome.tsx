@@ -202,6 +202,15 @@ export function classifyAskError(raw: string): {
       hint: "The response stopped, and this turn is released from your daily allowance. You can retry the same question when you’re ready.",
     };
   }
+  if (m.includes("contextual_evidence_stale")) {
+    return {
+      kind: "contextualEvidenceStale",
+      title: "Run evidence expired",
+      hint: "Run your code again to refresh the error, then use the new help offer.",
+      retryable: false,
+      showDetails: false,
+    };
+  }
   if (m.includes("tutor_context_changed")) {
     return { kind: "contextChanged", title: "Code changed", hint: "Your code changed while I was thinking—ask again when ready." };
   }
@@ -209,7 +218,7 @@ export function classifyAskError(raw: string): {
     return {
       kind: "contextualPaused",
       title: "Contextual help is paused",
-      hint: "The error guide still works. You can inspect the highlighted line or continue with the regular Tutor when it is available.",
+      hint: "Your latest error is still in Output. Inspect it there or continue with the regular Tutor when it is available.",
       retryable: false,
       showDetails: false,
     };
