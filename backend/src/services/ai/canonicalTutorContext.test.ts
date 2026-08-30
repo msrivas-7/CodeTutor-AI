@@ -86,4 +86,50 @@ describe("resolveCanonicalContextualTutorOffer", () => {
       { keyring },
     )).resolves.toBeNull();
   });
+
+  it("binds overlapping basenames to the most specific executed project path", async () => {
+    const ambiguousFiles = [
+      { path: "main.py", content: 'print("root"\n' },
+      { path: "examples/main.py", content: 'print("example"\n' },
+    ];
+    const nestedRun = {
+      ...lastRun,
+      stderr: '  File "/workspace/examples/main.py", line 1\n    print("example"\n         ^\nSyntaxError: \'(\' was never closed\n',
+    };
+    const evidenceToken = mintContextualEvidenceToken(
+      actorId,
+      {
+        ...identity,
+        contextEpoch: offer.contextEpoch,
+        projectRevision: offer.projectRevision,
+      },
+      ambiguousFiles,
+      nestedRun,
+      { keyring },
+    );
+
+    await expect(resolveCanonicalContextualTutorOffer(
+      actorId,
+      identity,
+      { ...offer, evidenceToken },
+      ambiguousFiles,
+      nestedRun,
+      { keyring },
+    )).resolves.toBeNull();
+
+    await expect(resolveCanonicalContextualTutorOffer(
+      actorId,
+      identity,
+      {
+        ...offer,
+        evidenceToken,
+        evidence: { ...offer.evidence, path: "examples/main.py" },
+      },
+      ambiguousFiles,
+      nestedRun,
+      { keyring },
+    )).resolves.toMatchObject({
+      evidence: { path: "examples/main.py", line: 1 },
+    });
+  });
 });

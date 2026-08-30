@@ -64,6 +64,21 @@ export const TUTOR_EVIDENCE_TRUST: ClientObservedTutorEvidence = {
 const UNCLOSED_PARENTHESIS = /SyntaxError:\s*['"]\(['"]\s+was never closed/i;
 const PYTHON_LOCATION = /File\s+["']([^"']+)["'],\s+line\s+(\d+)/g;
 
+function resolveExecutedProjectPath(
+  rawPath: string,
+  projectPaths: readonly string[],
+): string | null {
+  const normalized = rawPath.replaceAll("\\", "/");
+  const exact = projectPaths.find((path) => normalized === path);
+  if (exact) return exact;
+
+  return (
+    projectPaths
+      .filter((path) => normalized.endsWith(`/${path}`))
+      .sort((left, right) => right.length - left.length)[0] ?? null
+  );
+}
+
 function runMatchesContextualEvidence(
   offer: ClientContextualTutorOffer,
   files: readonly ProjectFile[],
@@ -73,11 +88,11 @@ function runMatchesContextualEvidence(
   const locations = [...lastRun.stderr.matchAll(PYTHON_LOCATION)];
   const location = locations.at(-1);
   if (!location || Number.parseInt(location[2], 10) !== offer.evidence.line) return false;
-  const normalized = location[1].replaceAll("\\", "/");
-  if (
-    normalized !== offer.evidence.path &&
-    !normalized.endsWith(`/${offer.evidence.path}`)
-  ) return false;
+  const executedPath = resolveExecutedProjectPath(
+    location[1],
+    files.map((candidate) => candidate.path),
+  );
+  if (executedPath !== offer.evidence.path) return false;
   const file = files.find((candidate) => candidate.path === offer.evidence.path);
   if (!file) return false;
   return offer.evidence.line <= file.content.split("\n").length + 1;
