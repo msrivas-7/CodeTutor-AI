@@ -87,7 +87,7 @@ vi.mock("../services/ai/canonicalTutorContext.js", () => ({
     completionCriteria: ["Program prints Hello"],
     studentProgressSummary: "Anonymous first session",
   })),
-  resolveCanonicalContextualTutorOffer: vi.fn(async (_identity, offer) => ({
+  resolveCanonicalContextualTutorOffer: vi.fn(async (_actor, _identity, offer) => ({
     ...offer,
     evidence: { ...offer.evidence, label: "Syntax error" as const },
     authoredQuestion: "Which opening parenthesis still needs a closing partner?",
@@ -365,6 +365,16 @@ describe("B8 governed anonymous eval sampling", () => {
 });
 
 describe("POST /api/anon/ai/ask/stream — platform model routing", () => {
+  it("rejects contextual-help without canonicalizable offer metadata", async () => {
+    const response = await post(validBody({
+      question: "Help me spot it.",
+      tutorAction: "contextual-help",
+    }));
+    expect(response.status).toBe(400);
+    expect(vi.mocked(reserveAIRequest)).not.toHaveBeenCalled();
+    expect(vi.mocked(openaiProvider.askStream)).not.toHaveBeenCalled();
+  });
+
   it("passes one learner-accepted contextual offer to the evaluated model", async () => {
     const response = await post(validBody({
       question: "Help me spot the issue without giving me the answer.",
@@ -382,6 +392,7 @@ describe("POST /api/anon/ai/ask/stream — platform model routing", () => {
         contextVersion: 0,
         contextEpoch: "lesson:python-fundamentals/hello-world",
         projectRevision: 2,
+        evidenceToken: "signed-evidence-token",
         moveId: "notice-unclosed-parenthesis",
         evidence: {
           code: "python-unclosed-parenthesis",
@@ -414,6 +425,7 @@ describe("POST /api/anon/ai/ask/stream — platform model routing", () => {
         contextVersion: 0,
         contextEpoch: "lesson:python-fundamentals/hello-world",
         projectRevision: 2,
+        evidenceToken: "signed-evidence-token",
         moveId: "notice-unclosed-parenthesis",
         evidence: {
           code: "python-unclosed-parenthesis",

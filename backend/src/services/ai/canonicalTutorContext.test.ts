@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { resolveCanonicalContextualTutorOffer } from "./canonicalTutorContext.js";
+import { mintContextualEvidenceToken } from "./contextualEvidence.js";
 
 const lastRun = {
   stdout: "",
@@ -10,10 +11,28 @@ const lastRun = {
   stage: "run" as const,
 };
 
+const files = [{ path: "main.py", content: 'print("Hello"\n' }];
+const identity = { courseId: "python-fundamentals", lessonId: "hello-world" };
+const actorId = "user:test-user";
+const keyring = {
+  currentVersion: 1,
+  keys: new Map([[1, Buffer.alloc(32, 7).toString("base64")]]),
+};
 const offer = {
   contextVersion: 0 as const,
   contextEpoch: "lesson:python-fundamentals/hello-world",
   projectRevision: 2,
+  evidenceToken: mintContextualEvidenceToken(
+    actorId,
+    {
+      ...identity,
+      contextEpoch: "lesson:python-fundamentals/hello-world",
+      projectRevision: 2,
+    },
+    files,
+    lastRun,
+    { keyring },
+  ),
   moveId: "notice-unclosed-parenthesis",
   evidence: {
     code: "python-unclosed-parenthesis" as const,
@@ -26,10 +45,12 @@ const offer = {
 describe("resolveCanonicalContextualTutorOffer", () => {
   it("resolves the authored move while preserving bounded current evidence", async () => {
     const resolved = await resolveCanonicalContextualTutorOffer(
-      { courseId: "python-fundamentals", lessonId: "hello-world" },
+      actorId,
+      identity,
       offer,
-      [{ path: "main.py", content: 'print("Hello"\n' }],
+      files,
       lastRun,
+      { keyring },
     );
     expect(resolved).toMatchObject({
       moveId: offer.moveId,
@@ -41,16 +62,28 @@ describe("resolveCanonicalContextualTutorOffer", () => {
 
   it("rejects stale or forged evidence instead of sending it to the model", async () => {
     await expect(resolveCanonicalContextualTutorOffer(
-      { courseId: "python-fundamentals", lessonId: "hello-world" },
+      actorId,
+      identity,
       { ...offer, evidence: { ...offer.evidence, line: 2 } },
-      [{ path: "main.py", content: 'print("Hello"\n' }],
+      files,
       lastRun,
+      { keyring },
     )).resolves.toBeNull();
     await expect(resolveCanonicalContextualTutorOffer(
-      { courseId: "python-fundamentals", lessonId: "hello-world" },
+      actorId,
+      identity,
       { ...offer, moveId: "invented-answer" },
-      [{ path: "main.py", content: 'print("Hello"\n' }],
+      files,
       lastRun,
+      { keyring },
+    )).resolves.toBeNull();
+    await expect(resolveCanonicalContextualTutorOffer(
+      "user:someone-else",
+      identity,
+      offer,
+      files,
+      lastRun,
+      { keyring },
     )).resolves.toBeNull();
   });
 });

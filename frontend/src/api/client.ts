@@ -1096,13 +1096,22 @@ export const api = {
     }
   },
   health: () => get<{ ok: boolean; uptime: number }>("/api/health"),
-  snapshotProject: async (sessionId: string, files: ProjectFile[]) => {
+  snapshotProject: async (
+    sessionId: string,
+    files: ProjectFile[],
+    contextualEvidence?: {
+      courseId: string;
+      lessonId: string;
+      contextEpoch: string;
+      projectRevision: number;
+    },
+  ) => {
     const ctrl = registerSessionRequest(sessionId);
     try {
       const res = await authenticatedFetch("/api/project/snapshot", {
         method: "POST",
         headers: { ...JSON_HEADERS, ...CSRF_HEADER },
-        body: JSON.stringify({ sessionId, files }),
+        body: JSON.stringify({ sessionId, files, contextualEvidence }),
         signal: ctrl.signal,
       });
       if (!res.ok) {
@@ -1156,6 +1165,12 @@ export const api = {
     language: Language,
     files: ProjectFile[],
     stdin?: string,
+    contextualEvidence?: {
+      courseId: string;
+      lessonId: string;
+      contextEpoch: string;
+      projectRevision: number;
+    },
   ) => {
     const controller = new AbortController();
     anonRunAbortRegistry.add(controller);
@@ -1163,7 +1178,7 @@ export const api = {
       const res = await fetch(`${API_BASE}/api/anon/run`, {
         method: "POST",
         headers: { ...JSON_HEADERS, ...CSRF_HEADER },
-        body: JSON.stringify({ language, files, stdin }),
+        body: JSON.stringify({ language, files, stdin, contextualEvidence }),
         signal: controller.signal,
       });
       if (!res.ok) {

@@ -6,6 +6,7 @@ import { runProject } from "../services/execution/router.js";
 import { languageSchema } from "../services/execution/commands.js";
 import type { ExecutionBackend } from "../services/execution/backends/index.js";
 import { execDuration } from "../services/metrics.js";
+import { mintContextualEvidenceToken } from "../services/ai/contextualEvidence.js";
 
 // `language` is validated against the shared languageSchema so an unknown
 // language is rejected at the Zod layer — no downstream `isLanguage` branch.
@@ -52,6 +53,17 @@ export function createExecutionRouter(backend: ExecutionBackend): Router {
         language,
         stdin,
       });
+      const response = session.contextualSnapshot
+        ? {
+            ...result,
+            contextualEvidenceToken: mintContextualEvidenceToken(
+              `user:${userId}`,
+              session.contextualSnapshot.identity,
+              session.contextualSnapshot.files,
+              result,
+            ),
+          }
+        : result;
       // Wall-clock covers compile + run + FS checks — what a caller sees as
       // "how long did my run take". ok label is boolean-ish (Prom labels are
       // strings) so the series splits into passing vs failing runs for
@@ -61,7 +73,7 @@ export function createExecutionRouter(backend: ExecutionBackend): Router {
         (Date.now() - started) / 1000,
       );
       touchSession(sessionId);
-      res.json(result);
+      res.json(response);
     } catch (err) {
       next(err);
     }

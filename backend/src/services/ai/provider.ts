@@ -15,6 +15,7 @@ export interface RunResult {
   errorType: "none" | "compile" | "runtime" | "timeout" | "system";
   durationMs: number;
   stage: "compile" | "run" | "setup";
+  contextualEvidenceToken?: string;
 }
 
 export interface AIMessage {
@@ -83,6 +84,7 @@ export interface AIModel {
   label: string;
   qualityStatus?: "evaluated" | "unevaluated";
   contextualTutorEligible?: boolean;
+  contextualOfferEligible?: boolean;
   qualityLabel?: string;
   evalSetVersion?: string | null;
   registryVersion?: string;

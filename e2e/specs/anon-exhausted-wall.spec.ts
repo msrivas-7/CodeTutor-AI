@@ -107,6 +107,7 @@ test.describe("Phase 27-v2.1 — ANON_EXHAUSTED → wall pivot", () => {
           errorType: "runtime",
           durationMs: 8,
           stage: "run",
+          contextualEvidenceToken: "signed-contextual-evidence",
         }),
       }),
     );

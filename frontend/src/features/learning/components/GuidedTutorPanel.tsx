@@ -31,7 +31,7 @@ import { useSavedTutorMessages } from "../hooks/useSavedTutorMessages";
 import { useProgressStore } from "../stores/progressStore";
 import { usePendingElementFocus } from "../../../hooks/usePendingElementFocus";
 import type { LessonMeta, PracticeExercise } from "../types";
-import type { ContextualTutorOfferRequest } from "../../../types";
+import type { AIModel, ContextualTutorOfferRequest } from "../../../types";
 import { EvalSamplingConsentControl } from "../../anon/EvalSamplingConsentControl";
 import {
   type AnonTutorStateV1,
@@ -95,6 +95,8 @@ interface GuidedTutorPanelProps {
   initialAnonTutorState?: AnonTutorStateV1 | null;
   /** Reports whether an external contextual offer can safely spend a turn. */
   onContextualTutorAvailabilityChange?: (state: ContextualTutorAvailability) => void;
+  /** Reports whether an accepted contextual turn completed successfully. */
+  onContextualTutorAskComplete?: (ok: boolean) => void;
   /** External one-shot asks wait until the owning Tutor surface is visible. */
   externalAskReady?: boolean;
 }
@@ -120,7 +122,16 @@ export function currentContextualOfferForRetry(
   return offer?.projectRevision === currentProjectRevision ? offer : null;
 }
 
-export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, priorConcepts, activePracticeExercise, onCollapse, onOpenSettings, resetNonce, inputLocked, clearHidden, mode = "authed", onAnonExhausted, onAnonTrialPaused, onAnonSaveRequested, onSkipWelcome, initialAnonTutorState, onContextualTutorAvailabilityChange, externalAskReady = true }: GuidedTutorPanelProps) {
+export function isContextualOfferModelReady(
+  source: "byok" | "platform" | "none",
+  selectedModel: string | null,
+  models: readonly AIModel[],
+): boolean {
+  if (source !== "byok") return true;
+  return models.find((model) => model.id === selectedModel)?.contextualOfferEligible === true;
+}
+
+export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, priorConcepts, activePracticeExercise, onCollapse, onOpenSettings, resetNonce, inputLocked, clearHidden, mode = "authed", onAnonExhausted, onAnonTrialPaused, onAnonSaveRequested, onSkipWelcome, initialAnonTutorState, onContextualTutorAvailabilityChange, onContextualTutorAskComplete, externalAskReady = true }: GuidedTutorPanelProps) {
   const incrementHint = useProgressStore((s) => s.incrementHint);
   // Derive the hint cap from the DB-backed hint_count (not local component
   // state) so the limit survives navigation + reload. Local state rewinds on
@@ -132,6 +143,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
   const keys = useShortcutLabels();
   const {
     selectedModel,
+    models,
     history,
     asking,
     askError,
@@ -192,6 +204,11 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
   const skipInitialAnonPersistRef = useRef(Boolean(initialAnonTutorState));
   const [clearConfirm, setClearConfirm] = useState(false);
   const [activeContextualOffer, setActiveContextualOffer] = useState<ContextualTutorOfferRequest | null>(null);
+  const activeContextualOfferRef = useRef<ContextualTutorOfferRequest | null>(null);
+  const updateActiveContextualOffer = (offer: ContextualTutorOfferRequest | null) => {
+    activeContextualOfferRef.current = offer;
+    setActiveContextualOffer(offer);
+  };
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const clearButtonRef = useRef<HTMLButtonElement>(null);
@@ -232,6 +249,11 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
     isAnon: mode === "anon",
   });
   const byokModelReady = useByokTutorModelReady(mode === "authed" && hasKey);
+  const contextualModelReady = isContextualOfferModelReady(
+    effectiveSource,
+    selectedModel,
+    models,
+  );
   const exhausted = effectiveSource === "none" && aiStatus?.reason === "free_exhausted";
   useEffect(() => {
     if (!exhausted) setExhaustionDismissed(false);
@@ -253,6 +275,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
     statusLoading
       ? "loading"
       : configured &&
+          contextualModelReady &&
           !exhausted &&
           !anonQuotaExhausted &&
           (mode === "anon"
@@ -347,7 +370,8 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
       }
     },
     onAskComplete: ({ ok }) => {
-      if (ok) setActiveContextualOffer(null);
+      if (activeContextualOfferRef.current) onContextualTutorAskComplete?.(ok);
+      if (ok) updateActiveContextualOffer(null);
       if (pendingHintRef.current) {
         pendingHintRef.current = false;
         // Phase 27-v2.1 — anon doesn't write hint counts to /api/user/*.
@@ -393,6 +417,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
     })) return;
     const q = draft.trim();
     setDraft("");
+    updateActiveContextualOffer(null);
     submitAsk(q);
   };
 
@@ -412,7 +437,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
     })) {
       const ask = pendingAsk;
       setPendingAsk(null);
-      setActiveContextualOffer(ask.contextualOffer ?? null);
+      updateActiveContextualOffer(ask.contextualOffer ?? null);
       void submitAsk(ask.question, {
         tutorAction: ask.action,
         contextualOffer: ask.contextualOffer,
@@ -726,7 +751,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
                   projectRevision,
                 );
                 if (activeContextualOffer && !contextualOffer) {
-                  setActiveContextualOffer(null);
+                  updateActiveContextualOffer(null);
                   setAskError("TUTOR_CONTEXT_CHANGED");
                   return;
                 }

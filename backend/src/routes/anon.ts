@@ -115,6 +115,7 @@ import {
   resolveTutorStage,
   tutorTaskScope,
 } from "../services/ai/tutorProgress.js";
+import { mintContextualEvidenceToken } from "../services/ai/contextualEvidence.js";
 
 // Anon AI is locked to lesson 1 of python-fundamentals. The marketing
 // surface (/try/lesson/...) only links to this one lesson; this server-
@@ -184,6 +185,12 @@ const runBody = z.object({
   language: languageSchema,
   files: z.array(projectFileSchema).max(10),
   stdin: z.string().max(10_000).optional(),
+  contextualEvidence: z.object({
+    courseId: z.literal(ANON_ALLOWED_LESSON.courseId),
+    lessonId: z.literal(ANON_ALLOWED_LESSON.lessonId),
+    contextEpoch: z.string().min(1).max(256),
+    projectRevision: z.number().int().min(0),
+  }).optional(),
 });
 
 // Ask-stream body. Subset of authed askBody — anon doesn't have BYOK,
@@ -227,6 +234,7 @@ const askStreamBody = z.object({
     contextVersion: z.literal(0),
     contextEpoch: z.string().min(1).max(256),
     projectRevision: z.number().int().min(0),
+    evidenceToken: z.string().min(1).max(4_096),
     moveId: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/),
     evidence: z.object({
       code: z.literal("python-unclosed-parenthesis"),
@@ -247,6 +255,13 @@ const askStreamBody = z.object({
       code: z.ZodIssueCode.custom,
       path: ["contextualOffer"],
       message: "contextualOffer requires contextual-help action",
+    });
+  }
+  if (body.tutorAction === "contextual-help" && !body.contextualOffer) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["tutorAction"],
+      message: "contextual-help requires contextualOffer",
     });
   }
 });
@@ -429,7 +444,7 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
     if (!parsed.success) {
       return res.status(400).json({ error: parsed.error.message });
     }
-    const { language, files, stdin } = parsed.data;
+    const { language, files, stdin, contextualEvidence } = parsed.data;
 
     // Phase A — A5 (operational floor): per-IP daily spawn cap. The
     // per-minute sessionCreateLimit above bounds bursts; this bounds
@@ -510,8 +525,19 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
         { language, ok: result.exitCode === 0 ? "true" : "false" },
         (Date.now() - started) / 1000,
       );
+      const response = contextualEvidence
+        ? {
+            ...result,
+            contextualEvidenceToken: mintContextualEvidenceToken(
+              `anonymous:${hashClientIp(req.ip!)}`,
+              contextualEvidence,
+              files,
+              result,
+            ),
+          }
+        : result;
       responseFinished = true;
-      res.json(result);
+      res.json(response);
     } catch (err) {
       next(err);
     } finally {
@@ -570,6 +596,15 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
         .status(400)
         .json({ error: parsed.error.issues.map((i) => i.message).join("; ") });
     }
+    if (!req.ip) {
+      console.error(JSON.stringify({
+        level: "error",
+        evt: "anon_ask_stream_no_ip",
+        msg: "req.ip empty — trust-proxy chain misconfigured",
+      }));
+      return res.status(503).json({ error: "CLIENT_IDENTITY_UNKNOWN" });
+    }
+    const ipHash = hashClientIp(req.ip);
     // Lesson-context allowlist: only hello-world is anon-accessible.
     // Phase 27-v2.2 audit fix C3: only the (courseId, lessonId) tuple
     // from the client is consulted. Everything else flows from the
@@ -645,6 +680,7 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
           return res.status(403).json({ error: "MODEL_NOT_EVALUATED_FOR_CONTEXTUAL_OFFER" });
         }
         canonicalContextualOffer = await resolveCanonicalContextualTutorOffer(
+          `anonymous:${ipHash}`,
           clientCtx,
           parsed.data.contextualOffer,
           parsed.data.files,
@@ -667,17 +703,6 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
     // affected by trust-proxy misconfig). Fail-loud here so the operator
     // sees the misconfig and fixes it instead of silently fail-closing
     // legitimate users.
-    if (!req.ip) {
-      console.error(
-        JSON.stringify({
-          level: "error",
-          evt: "anon_ask_stream_no_ip",
-          msg: "req.ip empty — trust-proxy chain misconfigured",
-        }),
-      );
-      return res.status(503).json({ error: "CLIENT_IDENTITY_UNKNOWN" });
-    }
-    const ipHash = hashClientIp(req.ip);
     const cred = await resolveAnonAICredential(ipHash);
     if (cred.source === "none") {
       respondAnonCredentialDenied(res, cred.reason, "ask_stream");

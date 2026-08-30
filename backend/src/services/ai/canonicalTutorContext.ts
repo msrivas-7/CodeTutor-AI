@@ -10,6 +10,10 @@ import type {
   ProjectFile,
   RunResult,
 } from "./provider.js";
+import {
+  verifyContextualEvidenceToken,
+  type EvidenceOptions,
+} from "./contextualEvidence.js";
 
 /** The only lesson fields a browser may nominate for guided mode. */
 export interface ClientLessonIdentity {
@@ -23,6 +27,7 @@ export interface ClientContextualTutorOffer {
   contextVersion: 0;
   contextEpoch: string;
   projectRevision: number;
+  evidenceToken: string;
   moveId: string;
   evidence: {
     code: "python-unclosed-parenthesis";
@@ -85,10 +90,12 @@ function runMatchesContextualEvidence(
  * stderr into instructions.
  */
 export async function resolveCanonicalContextualTutorOffer(
+  actorId: string,
   identity: ClientLessonIdentity,
   offer: ClientContextualTutorOffer,
   files: readonly ProjectFile[],
   lastRun: RunResult | null | undefined,
+  evidenceOptions: EvidenceOptions = {},
 ): Promise<ContextualTutorOffer | null> {
   const lesson = await getTutorLessonSnapshot(
     identity.courseId,
@@ -103,7 +110,20 @@ export async function resolveCanonicalContextualTutorOffer(
     !move ||
     move.trigger.errorCode !== offer.evidence.code ||
     offer.scaffoldLevel > move.maxScaffoldLevel ||
-    !runMatchesContextualEvidence(offer, files, lastRun)
+    !runMatchesContextualEvidence(offer, files, lastRun) ||
+    !verifyContextualEvidenceToken(
+      offer.evidenceToken,
+      actorId,
+      {
+        courseId: identity.courseId,
+        lessonId: identity.lessonId,
+        contextEpoch: offer.contextEpoch,
+        projectRevision: offer.projectRevision,
+      },
+      files,
+      lastRun,
+      evidenceOptions,
+    )
   ) return null;
   return {
     contextVersion: 0,

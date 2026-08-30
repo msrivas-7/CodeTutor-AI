@@ -1,5 +1,5 @@
 export const EVAL_DATASET_VERSION = "2.13.0";
-export const EVAL_EVALUATOR_VERSION = "2.19.0";
+export const EVAL_EVALUATOR_VERSION = "2.20.0";
 export const EXPECTED_EVAL_CASE_COUNT = 72;
 export const EXPECTED_EVAL_CASES_PER_INTENT: Record<EvalIntent, number> = {
   socratic: 11,

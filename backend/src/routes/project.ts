@@ -26,6 +26,12 @@ const snapshotBody = z.object({
       })
     )
     .max(50),
+  contextualEvidence: z.object({
+    courseId: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/),
+    lessonId: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/),
+    contextEpoch: z.string().min(1).max(256),
+    projectRevision: z.number().int().min(0),
+  }).optional(),
 });
 
 export function createProjectRouter(backend: ExecutionBackend): Router {
@@ -44,6 +50,9 @@ export function createProjectRouter(backend: ExecutionBackend): Router {
     try {
       const session = requireActiveSession(sessionId, userId);
       await backend.replaceSnapshot(session.handle, files);
+      session.contextualSnapshot = parsed.data.contextualEvidence
+        ? { files, identity: parsed.data.contextualEvidence }
+        : undefined;
       touchSession(sessionId);
       res.json({ ok: true, fileCount: files.length });
     } catch (err) {

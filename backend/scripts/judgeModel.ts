@@ -136,11 +136,12 @@ Answer with EXACTLY 'Y' or 'N' on a single line, with no explanation or other te
   };
 
   const first = await requestDecision();
-  if (first.pass) return first;
-
   const second = await requestDecision();
-  if (!second.pass) {
-    return { pass: false, raw: `${first.raw}\nADJUDICATION:${second.raw}` };
+  if (first.pass === second.pass) {
+    return {
+      pass: first.pass,
+      raw: `${first.raw}\nADJUDICATION:${second.raw}`,
+    };
   }
 
   const third = await requestDecision();

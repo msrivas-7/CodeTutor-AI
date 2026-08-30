@@ -25,6 +25,15 @@ export interface SessionRecord {
   lastSeen: number;
   createdAt: number;
   selectedModel: string | null;
+  contextualSnapshot?: {
+    files: Array<{ path: string; content: string }>;
+    identity: {
+      courseId: string;
+      lessonId: string;
+      contextEpoch: string;
+      projectRevision: number;
+    };
+  };
 }
 
 const sessions = new Map<string, SessionRecord>();

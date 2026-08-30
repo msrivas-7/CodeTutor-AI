@@ -103,17 +103,21 @@ export function useLessonRunner({
     if (!useRunStore.getState().beginRun(operation.id)) return;
     try {
       const files = useProjectStore.getState().snapshot();
+      const { projectContext, revision: projectRevision } = useProjectStore.getState();
+      const contextualEvidence = projectContext && courseId && lessonId
+        ? { courseId, lessonId, contextEpoch: projectContext, projectRevision }
+        : undefined;
       const stdin = useRunStore.getState().stdin || undefined;
       let result: RunResult;
       if (mode === "anon") {
         // Phase 27-v2.1 — anon path: one-shot ephemeral container,
         // no project snapshot needed (the route accepts files
         // directly in the body). Skip session-bound API calls.
-        result = await api.runAnon(lesson.language, files, stdin);
+        result = await api.runAnon(lesson.language, files, stdin, contextualEvidence);
       } else {
         // Authed path — unchanged from v2: snapshot project then
         // execute against the persistent session container.
-        await api.snapshotProject(sessionId!, files);
+        await api.snapshotProject(sessionId!, files, contextualEvidence);
         if (!isProjectOperationCurrent(operation)) return;
         result = await api.execute(sessionId!, lesson.language, stdin);
       }

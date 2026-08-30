@@ -16,6 +16,7 @@ function pythonUnclosedParenthesis(line: number) {
     errorType: "runtime",
     durationMs: 4,
     stage: "run",
+    contextualEvidenceToken: `signed-contextual-evidence-line-${line}`,
   };
 }
 
@@ -224,7 +225,11 @@ test.describe("contextual guidance and Tutor offer", () => {
     const requestBodies: Array<Record<string, unknown>> = [];
     await page.route("**/api/anon/ai/ask/stream", async (route) => {
       requestBodies.push(route.request().postDataJSON() as Record<string, unknown>);
-      await new Promise((resolve) => setTimeout(resolve, 250));
+      // Keep the stream pending long enough to verify the accepted-evidence
+      // receipt itself. The receipt intentionally yields to the completed
+      // Tutor response, so a near-instant mock can otherwise finish between
+      // Playwright assertions without exposing a product failure.
+      await new Promise((resolve) => setTimeout(resolve, 750));
       const sections = {
         intent: "debug",
         summary: "The latest run points to a syntax error on line 1.",
@@ -259,10 +264,10 @@ test.describe("contextual guidance and Tutor offer", () => {
       button.click();
       button.click();
     });
-    await expect(page.getByTestId("contextual-guide-bridge")).toHaveCount(0);
     await expect(page.getByTestId("contextual-tutor-receipt")).toContainText(
       "syntax error on line 1",
     );
+    await expect(page.getByTestId("contextual-guide-bridge")).toHaveCount(0);
     await expect(page.getByText(/latest run points to a syntax error on line 1/i)).toBeVisible();
     expect(requestBodies).toHaveLength(1);
     expect(requestBodies[0]).toMatchObject({
@@ -270,6 +275,7 @@ test.describe("contextual guidance and Tutor offer", () => {
       question: "Help me spot the issue without giving me the answer.",
       contextualOffer: {
         contextVersion: 0,
+        evidenceToken: "signed-contextual-evidence-line-1",
         moveId: "notice-unclosed-parenthesis",
         scaffoldLevel: 1,
         evidence: {
@@ -392,6 +398,10 @@ test.describe("contextual guidance and Tutor offer", () => {
 
     await expect(page.getByText("Contextual help is paused")).toBeVisible();
     await expect(page.getByText(/error guide still works/i)).toBeVisible();
+    await expect(page.getByTestId("contextual-guide-question")).toHaveText(
+      "Which opening parenthesis still needs a closing partner?",
+    );
+    await expect(page.getByTestId("contextual-guide-ask")).toHaveText("Help me spot it");
     await expect(page.getByRole("button", { name: /try again/i })).toHaveCount(0);
     expect(calls).toBe(1);
   });

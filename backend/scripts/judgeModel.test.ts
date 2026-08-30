@@ -39,7 +39,7 @@ describe("gradeRubric", () => {
       fetchImpl: mockOk("Y"),
     });
     expect(r.pass).toBe(true);
-    expect(r.raw).toBe("Y");
+    expect(r.raw).toBe("Y\nADJUDICATION:Y");
   });
 
   it("treats 'N' as fail", async () => {
@@ -105,6 +105,7 @@ describe("gradeRubric", () => {
       fetchImpl: mockOk(" Y\n"),
     });
     expect(r.pass).toBe(true);
+    expect(r.raw).toBe("Y\nADJUDICATION:Y");
   });
 
   it("tolerates trailing punctuation/newline", async () => {
@@ -157,8 +158,8 @@ describe("gradeRubric", () => {
       fetchImpl,
     });
     expect(r.pass).toBe(true);
-    expect(calls).toBe(2);
-    expect(maxTokens).toEqual([300, 600]);
+    expect(calls).toBe(3);
+    expect(maxTokens).toEqual([300, 600, 300]);
   });
 
   it("treats anything other than Y as fail (e.g. 'maybe')", async () => {

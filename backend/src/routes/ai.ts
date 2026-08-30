@@ -446,6 +446,7 @@ const contextualOfferSchema = z.object({
   contextVersion: z.literal(0),
   contextEpoch: z.string().min(1).max(256),
   projectRevision: z.number().int().min(0),
+  evidenceToken: z.string().min(1).max(4_096),
   moveId: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/),
   evidence: z.object({
     code: z.literal("python-unclosed-parenthesis"),
@@ -494,6 +495,13 @@ const askBody = z.object({
       code: z.ZodIssueCode.custom,
       path: ["contextualOffer"],
       message: "contextualOffer requires lessonContext and contextual-help action",
+    });
+  }
+  if (body.tutorAction === "contextual-help" && (!body.lessonContext || !body.contextualOffer)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["tutorAction"],
+      message: "contextual-help requires lessonContext and contextualOffer",
     });
   }
 });
@@ -569,6 +577,7 @@ aiRouter.post("/ask", async (req, res, next) => {
         return res.status(403).json({ error: "MODEL_NOT_EVALUATED_FOR_CONTEXTUAL_OFFER" });
       }
       canonicalContextualOffer = await resolveCanonicalContextualTutorOffer(
+        `user:${userId}`,
         parsed.data.lessonContext!,
         parsed.data.contextualOffer,
         parsed.data.files,
@@ -799,6 +808,7 @@ aiRouter.post("/ask/stream", async (req, res) => {
         return res.status(403).json({ error: "MODEL_NOT_EVALUATED_FOR_CONTEXTUAL_OFFER" });
       }
       canonicalContextualOffer = await resolveCanonicalContextualTutorOffer(
+        `user:${userId}`,
         parsed.data.lessonContext!,
         parsed.data.contextualOffer,
         parsed.data.files,

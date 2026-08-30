@@ -141,7 +141,7 @@ vi.mock("../services/ai/canonicalTutorContext.js", () => ({
     lessonOrder: 1,
     totalLessons: 12,
   })),
-  resolveCanonicalContextualTutorOffer: vi.fn(async (_identity, offer) => ({
+  resolveCanonicalContextualTutorOffer: vi.fn(async (_actor, _identity, offer) => ({
     ...offer,
     evidence: { ...offer.evidence, label: "Syntax error" as const },
     authoredQuestion: "Which opening parenthesis still needs a closing partner?",
@@ -287,6 +287,7 @@ function contextualAskBody(overrides: Record<string, unknown> = {}) {
       contextVersion: 0,
       contextEpoch: "lesson:python-fundamentals/hello-world",
       projectRevision: 2,
+      evidenceToken: "signed-evidence-token",
       moveId: "notice-unclosed-parenthesis",
       evidence: {
         code: "python-unclosed-parenthesis",
@@ -322,6 +323,17 @@ describe("POST /api/ai/ask — KEY_MISSING", () => {
 });
 
 describe("POST /api/ai/ask — schema validation", () => {
+  it("rejects contextual-help without canonicalizable offer metadata", async () => {
+    vi.mocked(getOpenAIKey).mockResolvedValueOnce("sk-test");
+    const body = contextualAskBody({ contextualOffer: undefined });
+    const res = await req("u-1", "/api/ai/ask", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    expect(res.status).toBe(400);
+    expect(vi.mocked(openaiProvider.ask)).not.toHaveBeenCalled();
+  });
+
   it("returns 400 on a file path with disallowed characters (space)", async () => {
     // safePathSchema allows `.` and `/`, so `../etc/passwd` actually passes
     // the regex — traversal is defended by the prompt wrapper's XML escape,

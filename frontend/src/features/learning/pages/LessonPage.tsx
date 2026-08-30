@@ -1116,6 +1116,7 @@ export default function LessonPage({
   const contextualGuideEnabled =
     !practiceMode &&
     !!loader.lesson?.assistanceMoves;
+  const [contextualAskPending, setContextualAskPending] = useState(false);
   const historicalLessonComplete =
     mode === "authed" && courseId && lessonId
       ? lessonProgressMap[`${courseId}/${lessonId}`]?.status === "completed"
@@ -1134,7 +1135,7 @@ export default function LessonPage({
       memoryWarmup.blocking ||
       validator.showComplete ||
       (isChoreographed && firstRunStep !== "done"),
-    learnerRequestedTutor: tutorAsking,
+    learnerRequestedTutor: tutorAsking && !contextualAskPending,
   });
   const contextualGuideVisible =
     contextualGuide.decision.kind === "result_bridge";
@@ -1171,18 +1172,24 @@ export default function LessonPage({
     },
     [],
   );
+  const contextualEvidenceToken = runner.lastResult?.contextualEvidenceToken;
+  const contextualOfferState: ContextualTutorAvailability =
+    contextualEvidenceToken
+      ? contextualTutorAvailability
+      : "unavailable";
   const askContextualTutor = useCallback(() => {
     const decision = contextualGuide.decision;
     const evidence = contextualGuide.context.latestRunEvidence;
+    const evidenceToken = contextualEvidenceToken;
     if (decision.kind !== "result_bridge" || !decision.move || !evidence) return;
     if (acceptedContextualEvidenceRef.current === evidence.key) return;
-    acceptedContextualEvidenceRef.current = evidence.key;
-    contextualGuide.accept();
     requestTutorOpen();
-    if (contextualTutorAvailability !== "ready") {
+    if (contextualOfferState !== "ready" || !evidenceToken) {
       bumpTutorComposerFocus();
       return;
     }
+    acceptedContextualEvidenceRef.current = evidence.key;
+    setContextualAskPending(true);
     setPendingTutorAsk({
       question: "Help me spot the issue without giving me the answer.",
       action: "contextual-help",
@@ -1190,6 +1197,7 @@ export default function LessonPage({
         contextVersion: contextualGuide.context.contextVersion,
         contextEpoch: contextualGuide.context.contextEpoch,
         projectRevision: contextualGuide.context.projectRevision,
+        evidenceToken,
         moveId: decision.move.id,
         evidence: {
           code: evidence.code,
@@ -1202,7 +1210,8 @@ export default function LessonPage({
   }, [
     bumpTutorComposerFocus,
     contextualGuide,
-    contextualTutorAvailability,
+    contextualEvidenceToken,
+    contextualOfferState,
     requestTutorOpen,
     setPendingTutorAsk,
   ]);
@@ -1211,6 +1220,14 @@ export default function LessonPage({
     if (!evidence) return;
     useProjectStore.getState().revealAt(evidence.path, evidence.line);
   };
+  const handleContextualTutorAskComplete = useCallback((ok: boolean) => {
+    setContextualAskPending(false);
+    if (ok) {
+      contextualGuide.accept();
+      return;
+    }
+    acceptedContextualEvidenceRef.current = null;
+  }, [contextualGuide]);
 
   // Phase 27-v2.1 — the praise turn parses the learner's typed name
   // out of the editor buffer (option d in the v2 plan). Authed users
@@ -2009,6 +2026,7 @@ export default function LessonPage({
                 initialAnonTutorState={initialAnonTutorStateRef.current}
                 externalAskReady
                 onContextualTutorAvailabilityChange={handleContextualTutorAvailability}
+                onContextualTutorAskComplete={handleContextualTutorAskComplete}
               />
             </section>
           </div>
@@ -2024,7 +2042,7 @@ export default function LessonPage({
               onViewError={viewContextualError}
               onDismiss={contextualGuide.dismiss}
               onAskTutor={askContextualTutor}
-              tutorOfferState={contextualTutorAvailability}
+              tutorOfferState={contextualOfferState}
             />
             {!practiceMode
               && validator.validation
@@ -2350,7 +2368,7 @@ export default function LessonPage({
                 onViewError={viewContextualError}
                 onDismiss={contextualGuide.dismiss}
                 onAskTutor={askContextualTutor}
-                tutorOfferState={contextualTutorAvailability}
+                tutorOfferState={contextualOfferState}
               />
               {/* Row 1 — Primary actions */}
               <div className="flex flex-wrap items-center gap-2 px-3 py-2">
@@ -2766,6 +2784,7 @@ export default function LessonPage({
               initialAnonTutorState={initialAnonTutorStateRef.current}
               externalAskReady={!layout.tutorCollapsed}
               onContextualTutorAvailabilityChange={handleContextualTutorAvailability}
+              onContextualTutorAskComplete={handleContextualTutorAskComplete}
             />
           </motion.aside>
         </motion.main>

@@ -23,6 +23,7 @@ export interface RunResult {
   errorType: ErrorType;
   durationMs: number;
   stage: "compile" | "run" | "setup";
+  contextualEvidenceToken?: string;
 }
 
 export const LANGUAGES: Language[] = [
@@ -84,6 +85,7 @@ export interface ContextualTutorOfferRequest {
   contextVersion: 0;
   contextEpoch: string;
   projectRevision: number;
+  evidenceToken: string;
   moveId: string;
   evidence: {
     code: "python-unclosed-parenthesis";
@@ -168,6 +170,7 @@ export interface AIModel {
   label: string;
   qualityStatus: "evaluated" | "unevaluated";
   contextualTutorEligible: boolean;
+  contextualOfferEligible: boolean;
   qualityLabel: string;
   evalSetVersion: string | null;
   registryVersion: string;
