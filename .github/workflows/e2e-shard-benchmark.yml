@@ -221,6 +221,14 @@ jobs:
     if: always() && github.event.label.name == 'ci-shard-benchmark'
     needs: [benchmark-six, benchmark-eight, benchmark-ten]
     runs-on: ubuntu-latest
+    env:
+      # Playwright's --list command imports the authenticated fixtures while
+      # counting the benchmark inventory, so it needs the same server-only
+      # Supabase boundary as the shard jobs. These values are never exposed to
+      # a browser in this reporting-only job.
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Collect same-commit benchmark data
