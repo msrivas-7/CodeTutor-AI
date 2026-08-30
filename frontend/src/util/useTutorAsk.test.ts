@@ -15,6 +15,14 @@ describe("contextualOfferInvalidationForError", () => {
       'Request failed (429): {"error":"FREE_TIER_EXHAUSTED"}',
       "authed",
     )).toBe("quota");
+    expect(contextualOfferInvalidationForError(
+      'Request failed (503): {"error":"PLATFORM_AI_PAUSED","reason":"global_daily_usd_hit"}',
+      "authed",
+    )).toBe("quota");
+    expect(contextualOfferInvalidationForError(
+      'Request failed (503): {"error":"PLATFORM_AI_PAUSED","reason":"anon_daily_usd_hit"}',
+      "anon",
+    )).toBe("quota");
   });
 
   it("does not confuse unrelated or cross-mode quota errors with an invalidation", () => {

@@ -68,6 +68,7 @@ export function contextualOfferInvalidationForError(
   if (/CONTEXTUAL_EVIDENCE_STALE/i.test(message)) return "stale";
   if (/CONTEXTUAL_TUTOR_DISABLED/i.test(message)) return "disabled";
   if (/MODEL_NOT_EVALUATED_FOR_CONTEXTUAL_OFFER/i.test(message)) return "model";
+  if (/PLATFORM_AI_PAUSED/i.test(message)) return "quota";
   if (mode === "anon" && /ANON_EXHAUSTED/i.test(message)) return "quota";
   if (mode === "authed" && /FREE_TIER_EXHAUSTED/i.test(message)) return "quota";
   return null;
@@ -480,13 +481,13 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
             if (contextualInvalidation === "model") {
               opts.onContextualOfferInvalidated?.("model");
             }
-            if (!isAnon && contextualInvalidation === "quota") {
-              // Another signed-in tab can consume the last platform turn
-              // after this panel advertises contextual help. Admission did
-              // not spend this proof, so retain the authored guide and
-              // refresh the server-owned allowance before offering AI again.
+            if (contextualInvalidation === "quota") {
+              // A question or spend cap can change after this panel
+              // advertises contextual help. Admission did not spend this
+              // proof, so retain the authored guide for both signed-in and
+              // anonymous learners.
               opts.onContextualOfferInvalidated?.("quota");
-              invalidateAIStatus();
+              if (!isAnon) invalidateAIStatus();
             }
             // Phase 27-v2.1 audit pass 1 fix #5: detect the L_anon
             // cap-exceeded error code and route to the wall instead
@@ -506,12 +507,6 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
               // so case-insensitive match on that is sufficient + safe.
               /ANON_EXHAUSTED/i.test(message)
             ) {
-              if (options.contextualOffer) {
-                // The server refused this before admission, so the signed
-                // proof is still unspent. Preserve the free authored guide
-                // while the anonymous quota wall explains why AI is paused.
-                opts.onContextualOfferInvalidated?.("quota");
-              }
               pushAssistant(
                 "I couldn't send that because today's free tutor questions are used. Your question is still here, and you can keep working without the tutor or create an account for the full daily allowance.",
                 undefined,

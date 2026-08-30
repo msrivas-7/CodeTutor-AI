@@ -427,6 +427,48 @@ test.describe("contextual guidance and Tutor offer", () => {
     expect(calls).toBe(1);
   });
 
+  test("a platform spend refusal preserves the free guide without replaying consent", criticalTest({
+    risk: "p0",
+    owner: "learning",
+    browsers: ["chromium", "webkit"],
+    devices: ["desktop"],
+    quarantine: { state: "none" },
+  }), async ({ page }) => {
+    let calls = 0;
+    await page.route("**/api/anon/ai/ask/stream", async (route) => {
+      calls += 1;
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({
+          error: "PLATFORM_AI_PAUSED",
+          reason: "anon_daily_usd_hit",
+        }),
+      });
+    });
+
+    await page.goto(PATH);
+    await waitForMonacoReady(page);
+    await setMonacoValue(page, 'print("Hello"\n');
+    await runCode(page);
+    await setMonacoValue(page, 'print("Hello, learner"\n');
+    await runCode(page);
+    await page.getByTestId("contextual-guide-ask").click();
+
+    await expect(page.getByText("Free tutor temporarily unavailable")).toBeVisible();
+    await expect(page.getByText(/PLATFORM_AI_PAUSED|anon_daily_usd_hit/)).toHaveCount(0);
+    await expect(page.getByTestId("contextual-guide-bridge")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Jump to line 1" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /retry the last question/i })).toHaveCount(0);
+    expect(calls).toBe(1);
+
+    await page.getByRole("button", { name: "Collapse tutor" }).click();
+    await expect(page.getByTestId("contextual-guide-ask")).toHaveText("Open Tutor");
+    await page.getByTestId("contextual-guide-ask").click();
+    await expect(page.getByLabel(/ask the tutor/i)).toBeFocused();
+    expect(calls).toBe(1);
+  });
+
   test("a runtime model refusal preserves the guide and invalidates contextual spending", criticalTest({
     risk: "p0",
     owner: "learning",

@@ -408,7 +408,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
     },
     onContextualOfferInvalidated: (reason) => {
       contextualInvalidationRef.current = reason;
-      if (reason === "disabled" || reason === "model") {
+      if (reason === "disabled" || reason === "model" || reason === "quota") {
         // Runtime admission is authoritative for this mounted lesson. Stop
         // advertising an action that will only be refused. The deterministic
         // guide remains available and falls back to opening the regular Tutor.
