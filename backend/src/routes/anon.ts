@@ -757,6 +757,7 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
         files: parsed.data.files,
         history: parsed.data.history,
         tutorStage: providerParams.tutorStage,
+        tutorAction: parsed.data.tutorAction,
         platformModel,
       });
       providerParams.model = route.model;

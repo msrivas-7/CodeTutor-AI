@@ -53,6 +53,17 @@ describe("routeTutorModel", () => {
     })).toEqual({ intent: "socratic", model: PLATFORM_DEFAULT_TUTOR_MODEL });
   });
 
+  it("routes trusted contextual-help actions as debug intent", () => {
+    expect(routeTutorModel({
+      requestedModel: PLATFORM_DEFAULT_TUTOR_MODEL,
+      fundingSource: "platform",
+      question: "Help me with the latest error",
+      files,
+      tutorStage: "clarify",
+      tutorAction: "contextual-help",
+    })).toEqual({ intent: "debug", model: PLATFORM_DEFAULT_TUTOR_MODEL });
+  });
+
   it("uses the evaluated Luna model with a BYOK credential", () => {
     expect(routeTutorModel({
       requestedModel: "gpt-4.1",

@@ -47,19 +47,24 @@ export function createExecutionRouter(backend: ExecutionBackend): Router {
 
     try {
       const session = requireActiveSession(sessionId, userId);
+      // Capture the evidence snapshot before execution starts. A later
+      // /project/snapshot request may replace the session field while this
+      // run is in flight; its files must never be signed alongside this
+      // run's older result.
+      const contextualSnapshot = session.contextualSnapshot;
       const started = Date.now();
       const result = await runProject(backend, {
         handle: session.handle,
         language,
         stdin,
       });
-      const response = session.contextualSnapshot
+      const response = contextualSnapshot
         ? {
             ...result,
             contextualEvidenceToken: mintContextualEvidenceToken(
               `user:${userId}`,
-              session.contextualSnapshot.identity,
-              session.contextualSnapshot.files,
+              contextualSnapshot.identity,
+              contextualSnapshot.files,
               result,
             ),
           }

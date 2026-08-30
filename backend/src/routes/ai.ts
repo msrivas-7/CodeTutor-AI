@@ -637,6 +637,7 @@ aiRouter.post("/ask", async (req, res, next) => {
       files: parsed.data.files,
       history: parsed.data.history,
       tutorStage: providerParams.tutorStage,
+      tutorAction: parsed.data.tutorAction,
       platformModel,
     }).model;
   } catch (err) {
@@ -871,6 +872,7 @@ aiRouter.post("/ask/stream", async (req, res) => {
       files: parsed.data.files,
       history: parsed.data.history,
       tutorStage: providerParams.tutorStage,
+      tutorAction: parsed.data.tutorAction,
       platformModel,
     }).model;
   } catch (err) {
