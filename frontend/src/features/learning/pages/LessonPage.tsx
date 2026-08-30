@@ -1119,7 +1119,7 @@ export default function LessonPage({
   const [contextualAskPending, setContextualAskPending] = useState(false);
   const contextualAskOutcomeRef = useRef<{
     ok: boolean;
-    invalidation?: "stale" | "disabled" | "model";
+    invalidation?: "stale" | "disabled" | "model" | "quota";
   } | null>(null);
   const historicalLessonComplete =
     mode === "authed" && courseId && lessonId
@@ -1228,7 +1228,7 @@ export default function LessonPage({
   };
   const handleContextualTutorAskComplete = useCallback((
     ok: boolean,
-    invalidation?: "stale" | "disabled" | "model",
+    invalidation?: "stale" | "disabled" | "model" | "quota",
   ) => {
     // useTutorAsk reports completion before its final render releases
     // `asking`. Defer episode ownership changes until the stream is idle.
@@ -1247,7 +1247,8 @@ export default function LessonPage({
         contextualGuide.expireEvidence();
       } else if (
         outcome.invalidation === "disabled" ||
-        outcome.invalidation === "model"
+        outcome.invalidation === "model" ||
+        outcome.invalidation === "quota"
       ) {
         // Admission was refused before spending. Keep the free authored guide
         // in place, but clear the attempted consent and let the mounted Tutor
