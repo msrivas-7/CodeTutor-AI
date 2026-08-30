@@ -122,7 +122,10 @@ test.describe("Phase 27-v2.1 — ANON_EXHAUSTED → wall pivot", () => {
       route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ contextualTutorEnabled: true }),
+        body: JSON.stringify({
+          contextualTutorEnabled: true,
+          contextualTutorModelEligible: true,
+        }),
       }),
     );
 
