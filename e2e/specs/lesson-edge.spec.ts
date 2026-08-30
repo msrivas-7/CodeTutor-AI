@@ -99,18 +99,45 @@ test.describe("lesson edge cases", () => {
       const current = lessons.lessons.find((lesson) => lesson.lessonId === "hello-world");
       expect(current).toBeDefined();
 
-      const remoteSave = await backend.put(
-        `${BACKEND}/api/user/lessons/${COURSE_ID}/hello-world/draft`,
-        {
-          headers,
-          data: {
-            code: { "remote-focus.py": "# accepted remote draft\n" },
-            expectedRevision: current?.draftRevision ?? 0,
-            writerId: randomUUID(),
+      // The mounted lesson may finish its initial background save between the
+      // revision read above and this deliberate remote write. Rebase only the
+      // test setup against the authoritative 409 payload; once our remote
+      // draft wins, the product path below still has to detect and resolve the
+      // real stale-local conflict without retries or weakened assertions.
+      let expectedRevision = current?.draftRevision ?? 0;
+      let remoteSaved = false;
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        const remoteSave = await backend.put(
+          `${BACKEND}/api/user/lessons/${COURSE_ID}/hello-world/draft`,
+          {
+            headers,
+            data: {
+              code: { "remote-focus.py": "# accepted remote draft\n" },
+              expectedRevision,
+              writerId: randomUUID(),
+            },
           },
-        },
-      );
-      expect(remoteSave.ok(), await remoteSave.text()).toBeTruthy();
+        );
+        if (remoteSave.ok()) {
+          remoteSaved = true;
+          break;
+        }
+        if (remoteSave.status() !== 409) {
+          expect(remoteSave.ok(), await remoteSave.text()).toBeTruthy();
+        }
+        const conflict = (await remoteSave.json()) as {
+          current?: { draftRevision?: number };
+        };
+        const latestRevision = conflict.current?.draftRevision;
+        if (!Number.isInteger(latestRevision)) {
+          throw new Error("Lesson draft conflict omitted the authoritative revision");
+        }
+        expectedRevision = latestRevision!;
+      }
+      expect(
+        remoteSaved,
+        "remote conflict fixture could not win the latest draft revision after 3 attempts",
+      ).toBe(true);
 
       await setMonacoValue(page, "# stale local draft\n");
       const useNewer = page.getByRole("button", { name: "Use newer saved version" });
