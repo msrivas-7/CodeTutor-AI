@@ -279,9 +279,23 @@ export function StreakChip({ override, compact, interactive = true, prominent = 
   useLayoutEffect(() => {
     if (!isInteractive || !anchorRef.current) return;
     const update = () => {
-      if (anchorRef.current) {
-        setAnchorRect(anchorRef.current.getBoundingClientRect());
+      const anchor = anchorRef.current;
+      if (!anchor || !anchor.isConnected || anchor.getClientRects().length === 0) {
+        // The painted pill lives in a document.body portal, so a responsive
+        // `display: none` ancestor cannot hide it for us. Treat the in-flow
+        // anchor as the visibility authority: no rendered anchor means no
+        // portaled surface and no open dialog stranded outside its layout.
+        setAnchorRect(null);
+        setOpen(false);
+        return;
       }
+      const nextRect = anchor.getBoundingClientRect();
+      if (nextRect.width <= 0 || nextRect.height <= 0) {
+        setAnchorRect(null);
+        setOpen(false);
+        return;
+      }
+      setAnchorRect(nextRect);
     };
     update();
     const closeForViewportChange = () => {

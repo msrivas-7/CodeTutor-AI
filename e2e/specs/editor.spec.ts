@@ -7,7 +7,7 @@ import { expect, test } from "../fixtures/auth";
 
 import { mockAllAI } from "../fixtures/aiMocks";
 import { getMonacoValue, setMonacoValue, waitForMonacoReady } from "../fixtures/monaco";
-import { loadProfile, markOnboardingDone } from "../fixtures/profiles";
+import { loadProfile, markOnboardingDone, seedCompletedLessons } from "../fixtures/profiles";
 import { criticalTest } from "../fixtures/testMetadata";
 import * as S from "../utils/selectors";
 import { expectDurationBadgeVisible, expectStdoutContains } from "../utils/assertions";
@@ -57,6 +57,10 @@ test.describe("editor", () => {
         }),
       }),
     );
+    // The responsive streak assertion must not depend on an earlier test in
+    // the same worker having completed a lesson. Give this journey its own
+    // current streak so both the hidden and visible states are deterministic.
+    await seedCompletedLessons(page, "python-fundamentals", ["hello-world"]);
     await page.goto("/editor");
     await waitForMonacoReady(page);
 
@@ -170,6 +174,13 @@ test.describe("editor", () => {
       ),
       "landscape editor horizontal overflow",
     ).toBeLessThanOrEqual(1);
+
+    // The streak surface is portaled to document.body for the morph. It must
+    // still obey the header anchor's responsive visibility in both directions.
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await expect(page.getByRole("button", { name: /streak/i })).toBeVisible();
+    await page.setViewportSize({ width: 844, height: 390 });
+    await expect(page.getByRole("button", { name: /streak/i })).toHaveCount(0);
   });
 
   test("empty-file rename succeeds, preserves collisions, and restores keyboard focus", async ({
