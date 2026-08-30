@@ -1,11 +1,14 @@
-import type { AIMessage, EditorSelection, Persona, ProjectFile, RunResult, TutorStage } from "./provider.js";
+import type { AIMessage, ContextualTutorOffer, EditorSelection, Persona, ProjectFile, RunResult, TutorStage } from "./provider.js";
 import type { Language } from "../execution/commands.js";
 import { TUTOR_CORE_PROMPT } from "./prompts/coreRules.js";
 import { PERSONA_BLOCK } from "./prompts/persona.js";
 import { buildSituationBlock } from "./prompts/situation.js";
 import { buildUserTurn } from "./editorPromptBuilder.js";
 import type { LessonContext } from "./prompts/lessonContext.js";
-import { buildLessonContextBlock } from "./prompts/lessonContext.js";
+import {
+  buildContextualOfferBlock,
+  buildLessonContextBlock,
+} from "./prompts/lessonContext.js";
 import { buildLearnerProfileBlock } from "./prompts/learnerProfile.js";
 
 const GUIDED_ADDENDUM = `
@@ -26,6 +29,7 @@ export interface GuidedSystemPromptOptions {
   persona?: Persona;
   tutorStage?: TutorStage;
   learnerName?: string | null;
+  contextualOffer?: ContextualTutorOffer | null;
 }
 
 export function buildGuidedSystemPrompt(
@@ -48,6 +52,7 @@ export function buildGuidedSystemPrompt(
     TUTOR_CORE_PROMPT + GUIDED_ADDENDUM,
     situation,
     lessonBlock,
+    opts.contextualOffer ? buildContextualOfferBlock(opts.contextualOffer) : null,
     buildLearnerProfileBlock(opts.learnerName),
     personaBlock,
   ]

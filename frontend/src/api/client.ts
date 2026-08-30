@@ -250,6 +250,7 @@ async function get<T>(path: string, extraHeaders?: Record<string, string>): Prom
 import type {
   AIMessage,
   AIModel,
+  ContextualTutorOfferRequest,
   EditorSelection,
   Language,
   Persona,
@@ -291,6 +292,8 @@ export interface AIStatusResponse {
   // every surface hides the button — one signal per user is enough and more
   // clutter is noise. Backend derives from EXISTS on paid_access_interest.
   hasShownPaidInterest: boolean;
+  /** Independent Release 1C runtime model-call gate. */
+  contextualTutorEnabled: boolean;
 }
 
 // Phase 18b: per-user data API surface. Every shape here mirrors the
@@ -479,6 +482,7 @@ export interface AskStreamRequest {
   model?: string;
   question: string;
   tutorAction?: TutorAction;
+  contextualOffer?: ContextualTutorOfferRequest;
   files: ProjectFile[];
   activeFile?: string;
   language?: Language;
@@ -612,7 +616,8 @@ export type SystemConfigKey =
   // and per-IP daily container-spawn cap on /api/anon/run.
   | "anon_daily_usd_cap"
   | "anon_daily_runs_per_ip"
-  | "ai_eval_sampling_enabled";
+  | "ai_eval_sampling_enabled"
+  | "contextual_tutor_enabled";
 
 export interface SystemConfigEntry {
   value: boolean | number;

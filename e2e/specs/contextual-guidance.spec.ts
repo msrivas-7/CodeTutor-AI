@@ -1,12 +1,12 @@
-// Phase 1B — deterministic, authored assistance proof. The guide is enabled
-// only through the internal preview flag and must never initiate an AI call.
+// Release 1C — public deterministic guide plus learner-accepted contextual
+// Tutor offer. The guide remains local; only an explicit click may spend.
 
 import { expect, test, type Page, type Route } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { setMonacoValue, waitForMonacoReady } from "../fixtures/monaco";
 import { criticalTest } from "../fixtures/testMetadata";
 
-const PATH = "/try/lesson/python-fundamentals/hello-world?contextGuide=1";
+const PATH = "/try/lesson/python-fundamentals/hello-world";
 
 function pythonUnclosedParenthesis(line: number) {
   return {
@@ -49,7 +49,7 @@ async function runCode(page: Page) {
   await expect(run).toBeEnabled();
 }
 
-test.describe("contextual guidance internal proof", () => {
+test.describe("contextual guidance and Tutor offer", () => {
   test.beforeEach(async ({ page }) => {
     await installStableTrial(page);
     await installRunMock(page);
@@ -161,7 +161,7 @@ test.describe("contextual guidance internal proof", () => {
     await expect(target).toBeInViewport();
     await expect(page.getByTestId("contextual-guide-question")).toBeVisible();
 
-    for (const name of ["Jump to line 1", "Dismiss current code guidance"]) {
+    for (const name of ["Jump to line 1", "Help me spot it", "Dismiss current code guidance"]) {
       const control = bridge.getByRole("button", { name });
       const box = await control.boundingBox();
       expect(box?.height, `${name} target height`).toBeGreaterThanOrEqual(44);
@@ -172,6 +172,140 @@ test.describe("contextual guidance internal proof", () => {
       document.documentElement.scrollWidth - document.documentElement.clientWidth,
     );
     expect(overflow).toBeLessThanOrEqual(1);
+  });
+
+  test("explicit acceptance makes one contextual call and carries the same evidence", criticalTest({
+    risk: "p0",
+    owner: "learning",
+    browsers: ["chromium"],
+    devices: ["desktop"],
+    quarantine: { state: "none" },
+  }), async ({ page }) => {
+    const requestBodies: Array<Record<string, unknown>> = [];
+    await page.route("**/api/anon/ai/ask/stream", async (route) => {
+      requestBodies.push(route.request().postDataJSON() as Record<string, unknown>);
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      const sections = {
+        intent: "debug",
+        summary: "The latest run points to a syntax error on line 1.",
+        hint: "Look at the opening parenthesis on that line and count its closing partner.",
+        checkQuestions: ["Which opening parenthesis still needs a closing partner?"],
+      };
+      await route.fulfill({
+        status: 200,
+        contentType: "text/event-stream",
+        body: `data: ${JSON.stringify({
+          done: true,
+          raw: JSON.stringify(sections),
+          sections,
+          tutorProgressToken: "mock-contextual-progress-proof",
+        })}\n\n`,
+      });
+    });
+
+    await page.goto(PATH);
+    await waitForMonacoReady(page);
+    await setMonacoValue(page, 'print("Hello"\n');
+    await runCode(page);
+    await setMonacoValue(page, 'print("Hello, learner"\n');
+    await runCode(page);
+    expect(requestBodies).toHaveLength(0);
+
+    const accept = page.getByTestId("contextual-guide-ask");
+    await expect(accept).toHaveText("Help me spot it");
+    // Same-task double activation before React can remove the control must
+    // still enqueue one accepted action and one server request.
+    await accept.evaluate((button: HTMLButtonElement) => {
+      button.click();
+      button.click();
+    });
+    await expect(page.getByTestId("contextual-guide-bridge")).toHaveCount(0);
+    await expect(page.getByTestId("contextual-tutor-receipt")).toContainText(
+      "syntax error on line 1",
+    );
+    await expect(page.getByText(/latest run points to a syntax error on line 1/i)).toBeVisible();
+    expect(requestBodies).toHaveLength(1);
+    expect(requestBodies[0]).toMatchObject({
+      tutorAction: "contextual-help",
+      question: "Help me spot the issue without giving me the answer.",
+      contextualOffer: {
+        contextVersion: 0,
+        moveId: "notice-unclosed-parenthesis",
+        scaffoldLevel: 1,
+        evidence: {
+          code: "python-unclosed-parenthesis",
+          path: "main.py",
+          line: 1,
+        },
+      },
+    });
+  });
+
+  test("an edit during generation discards stale content outside the transcript", criticalTest({
+    risk: "p0",
+    owner: "learning",
+    browsers: ["chromium", "webkit"],
+    devices: ["desktop"],
+    quarantine: { state: "none" },
+  }), async ({ page }) => {
+    let calls = 0;
+    await page.route("**/api/anon/ai/ask/stream", async (route) => {
+      calls += 1;
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      const sections = {
+        intent: "debug",
+        hint: "STALE_CONTEXT_SHOULD_NEVER_RENDER",
+      };
+      await route.fulfill({
+        status: 200,
+        contentType: "text/event-stream",
+        body: `data: ${JSON.stringify({ done: true, raw: JSON.stringify(sections), sections })}\n\n`,
+      }).catch(() => {});
+    });
+
+    await page.goto(PATH);
+    await waitForMonacoReady(page);
+    await setMonacoValue(page, 'print("Hello"\n');
+    await runCode(page);
+    await setMonacoValue(page, 'print("Hello, learner"\n');
+    await runCode(page);
+    await page.getByTestId("contextual-guide-ask").click();
+    await expect.poll(() => calls).toBe(1);
+    await setMonacoValue(page, 'print("Now fixed")\n');
+    await expect(page.getByText("Code changed", { exact: true })).toBeVisible();
+    await expect(page.getByText("Your code changed while I was thinking—ask again when ready.")).toBeVisible();
+    await expect(page.getByText("STALE_CONTEXT_SHOULD_NEVER_RENDER")).toHaveCount(0);
+  });
+
+  test("a kill-switch refusal preserves the deterministic guide without a retry loop", criticalTest({
+    risk: "p0",
+    owner: "learning",
+    browsers: ["chromium"],
+    devices: ["desktop"],
+    quarantine: { state: "none" },
+  }), async ({ page }) => {
+    let calls = 0;
+    await page.route("**/api/anon/ai/ask/stream", async (route) => {
+      calls += 1;
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "CONTEXTUAL_TUTOR_DISABLED" }),
+      });
+    });
+
+    await page.goto(PATH);
+    await waitForMonacoReady(page);
+    await setMonacoValue(page, 'print("Hello"\n');
+    await runCode(page);
+    await setMonacoValue(page, 'print("Hello, learner"\n');
+    await runCode(page);
+    await page.getByTestId("contextual-guide-ask").click();
+
+    await expect(page.getByText("Contextual help is paused")).toBeVisible();
+    await expect(page.getByText(/error guide still works/i)).toBeVisible();
+    await expect(page.getByRole("button", { name: /try again/i })).toHaveCount(0);
+    expect(calls).toBe(1);
   });
 
   test("phone keyboard height keeps the current cue and recovery controls reachable", criticalTest({

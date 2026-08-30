@@ -5,6 +5,7 @@ import yaml from "js-yaml";
 import { openaiProvider } from "../src/services/ai/openaiProvider.js";
 import type {
   AIMessage,
+  ContextualTutorOffer,
   EditorSelection,
   RunResult,
   TutorAction,
@@ -72,6 +73,7 @@ interface GoldenPrompt {
   runsSinceLastTurn?: number;
   editsSinceLastTurn?: number;
   selection?: EditorSelection | null;
+  contextualOffer?: ContextualTutorOffer | null;
   rubric: {
     helpfulCorrectY?: string;
     hallucinationY?: string;
@@ -197,9 +199,9 @@ async function loadDataset(): Promise<{
   }
   for (const intent of ["socratic", "debug", "concept", "howto", "walkthrough", "checkin"] as const) {
     const count = prompts.filter((prompt) => prompt.intent === intent).length;
-    if (count !== EXPECTED_EVAL_CASES_PER_INTENT) {
+    if (count !== EXPECTED_EVAL_CASES_PER_INTENT[intent]) {
       throw new Error(
-        `v2 dataset requires ${EXPECTED_EVAL_CASES_PER_INTENT} ${intent} cases; found ${count}`,
+        `v2 dataset requires ${EXPECTED_EVAL_CASES_PER_INTENT[intent]} ${intent} cases; found ${count}`,
       );
     }
   }
@@ -266,6 +268,39 @@ function deterministicChecks(
   }
   if (/```[^\n]*\n[\s\S]*?\n```/.test(raw)) {
     failures.push("multi-line code block violates tutor output policy");
+  }
+  if (prompt.contextualOffer) {
+    const offer = prompt.contextualOffer;
+    const expectedReceipt = `${offer.evidence.label.toLocaleLowerCase()} on line ${offer.evidence.line}`;
+    if (!sections.summary?.toLocaleLowerCase().includes(expectedReceipt)) {
+      failures.push("Contextual offer omitted the exact latest-run receipt");
+    }
+    if (
+      sections.checkQuestions?.length !== 1 ||
+      sections.checkQuestions[0] !== offer.authoredQuestion
+    ) {
+      failures.push("Contextual offer did not preserve exactly one server-authored question");
+    }
+    if (
+      sections.conversationMove !== "none" ||
+      sections.conversationReply ||
+      sections.explain ||
+      sections.example ||
+      sections.walkthrough?.length ||
+      sections.nextStep ||
+      sections.strongerHint ||
+      sections.pitfalls ||
+      sections.comprehensionCheck
+    ) {
+      failures.push("Contextual offer exceeded its one-scaffold response contract");
+    }
+    if (
+      sections.citations?.length !== 1 ||
+      sections.citations[0]?.path !== offer.evidence.path ||
+      sections.citations[0]?.line !== offer.evidence.line
+    ) {
+      failures.push("Contextual offer was not pinned to the accepted run evidence");
+    }
   }
   if (prompt.tags?.includes("redirect")) {
     if (sections.conversationMove !== "redirect") {
@@ -368,6 +403,7 @@ function evaluationContext(prompt: GoldenPrompt, fileName: string): string {
     editsSinceLastTurn: prompt.editsSinceLastTurn ?? null,
     selection: prompt.selection ?? null,
     lessonContext: prompt.lessonContext,
+    contextualOffer: prompt.contextualOffer ?? null,
   });
 }
 
@@ -379,7 +415,9 @@ async function runPrompt(
 ): Promise<PromptResult> {
   const fileName = prompt.language === "javascript" ? "index.js" : "main.py";
   const files = [{ path: fileName, content: prompt.userFile }];
-  const tutorStage = prompt.intent === "socratic" ? "clarify" : "approach";
+  const tutorStage = prompt.intent === "socratic" || prompt.contextualOffer
+    ? "clarify"
+    : "approach";
   const tutorModel = tutorConfiguration.kind === "single"
     ? tutorConfiguration.model
     : routeTutorModel({
@@ -433,6 +471,7 @@ async function runPrompt(
           prompt.lessonContext.studentProgressSummary ??
           "Eval fixture: server-authoritative progress is available but contains no answer.",
       },
+      contextualOffer: prompt.contextualOffer ?? null,
     };
     const { value: result, attempts: providerAttempts } = await withOneTransientEvalRetry(
       () => openaiProvider.ask(askParams),

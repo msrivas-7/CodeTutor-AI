@@ -14,6 +14,7 @@ type TutorPolicyParams = Pick<
   | "tutorAction"
   | "language"
   | "activeFile"
+  | "contextualOffer"
 > &
   Partial<Pick<
     AIAskParams,
@@ -40,6 +41,39 @@ function prioritizeRelevantFile(params: TutorPolicyParams): TutorPolicyParams {
       ...params.files.slice(0, preferredIndex),
       ...params.files.slice(preferredIndex + 1),
     ],
+  };
+}
+
+function contextualOfferTurn(
+  sections: TutorSections,
+  offer: NonNullable<AIAskParams["contextualOffer"]>,
+): TutorSections {
+  return {
+    intent: "debug",
+    conversationMove: "none",
+    conversationReply: null,
+    summary: `Using your latest run: ${offer.evidence.label.toLocaleLowerCase()} on line ${offer.evidence.line}.`,
+    diagnose:
+      sections.diagnose ??
+      sections.hint ??
+      "Python stopped before running the program because it could not finish reading the cited line.",
+    explain: null,
+    example: null,
+    walkthrough: null,
+    checkQuestions: [offer.authoredQuestion],
+    hint: sections.hint ??
+      "Read the cited line from left to right and pair each opening symbol with its closing partner.",
+    nextStep: null,
+    strongerHint: null,
+    pitfalls: null,
+    citations: [{
+      path: offer.evidence.path,
+      line: offer.evidence.line,
+      column: null,
+      reason: "Latest run evidence accepted for this contextual offer",
+    }],
+    comprehensionCheck: null,
+    stuckness: null,
   };
 }
 
@@ -2909,6 +2943,22 @@ export function applyTutorOutputPolicy({
   priorTutorTurns: number;
 }): TutorSections {
   params = prioritizeRelevantFile(params);
+  // Contextual help is an application-authored, explicitly accepted teaching
+  // move. Run the model response through the complete existing output firewall
+  // first, then enforce the one-scaffold receipt/question contract as a unit.
+  // Recursing with the offer removed keeps every established safety repair in
+  // force without allowing model-selected conversation moves or extra sections
+  // to weaken this bounded turn.
+  if (params.contextualOffer) {
+    const offer = params.contextualOffer;
+    const safeSections = applyTutorOutputPolicy({
+      sections,
+      params: { ...params, contextualOffer: null },
+      intent,
+      priorTutorTurns,
+    });
+    return contextualOfferTurn(safeSections, offer);
+  }
   // A newly cleared Editor conversation has no prior turn that could make a
   // different file the subject. If every citation points outside the visibly
   // active file without the learner naming or selecting that file, discard the
@@ -2935,6 +2985,12 @@ export function applyTutorOutputPolicy({
   const visibleCollectionRequest = intent === "howto"
     ? visibleCollectionHowto(params)
     : null;
+  // This recovery is grounded in the learner's explicit sorting question and
+  // the visible non-standard list method. Do not couple it to the model's
+  // intent label: the same request can legitimately be classified as either
+  // `concept` or `howto`, and that classifier variance must not decide whether
+  // we correct a fabricated API.
+  const visibleListSortCorrection = visiblePythonListSortCorrection(params);
   if (!requiresHardBoundary && intent === "concept") {
     const taskFollowUp = lessonTaskExplanationFollowUp(params);
     if (taskFollowUp) return taskFollowUp;
@@ -2957,6 +3013,17 @@ export function applyTutorOutputPolicy({
         `I don’t see ${requestedLanguage} code in the current workspace, so attaching that answer to a visible ${currentLanguage} line would be misleading.\n\n- Ask about the visible ${currentLanguage} lesson here.\n- Or switch to a ${requestedLanguage} workspace before asking about that code.`,
       comprehensionCheck: `Which ${currentLanguage} concept or visible line would you like to work through?`,
       citations: null,
+    };
+  }
+  if (!requiresHardBoundary && visibleListSortCorrection) {
+    return {
+      intent: "concept",
+      summary: visibleListSortCorrection.summary,
+      explain: visibleListSortCorrection.explain,
+      example: visibleListSortCorrection.example,
+      comprehensionCheck:
+        "Which option changes the visible list itself, and which option returns a separate sorted value?",
+      citations: [visibleListSortCorrection.citation],
     };
   }
   // Conversation moves are orthogonal to the server-selected teaching
@@ -2983,6 +3050,7 @@ export function applyTutorOutputPolicy({
   if (
     !requiresHardBoundary &&
     !visibleCollectionRequest &&
+    !visibleListSortCorrection &&
     sections.conversationMove === "redirect"
   ) {
     return {
@@ -3477,7 +3545,7 @@ export function applyTutorOutputPolicy({
   const conditional = visibleConditionalChain(params);
   const constBinding = visibleJsConstBinding(params);
   const equalityConcept = visibleJavaScriptEqualityConcept(params);
-  const listSortCorrection = visiblePythonListSortCorrection(params);
+  const listSortCorrection = visibleListSortCorrection;
   const anchor = visibleConceptAnchor(params);
   const asksForConcreteExample = params.tutorAction === "concrete-example";
   const starterOutputComment = visibleStarterOutputComment(params);

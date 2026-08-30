@@ -141,6 +141,15 @@ vi.mock("../services/ai/canonicalTutorContext.js", () => ({
     lessonOrder: 1,
     totalLessons: 12,
   })),
+  resolveCanonicalContextualTutorOffer: vi.fn(async (_identity, offer) => ({
+    ...offer,
+    evidence: { ...offer.evidence, label: "Syntax error" as const },
+    authoredQuestion: "Which opening parenthesis still needs a closing partner?",
+  })),
+}));
+
+vi.mock("../services/ai/contextualTutor.js", () => ({
+  isContextualTutorEnabled: vi.fn(async () => true),
 }));
 
 vi.mock("../services/ai/suspectApi.js", () => ({ flagSuspectApis: vi.fn() }));
@@ -152,6 +161,7 @@ const { cancelAIRequest, reserveAIRequest, finalizeAIRequest } = await import(".
 const { resolveAICredential } = await import("../services/ai/credential.js");
 const { flagSuspectApis } = await import("../services/ai/suspectApi.js");
 const { getEffectivePlatformTutorModel } = await import("../services/ai/platformTutorModel.js");
+const { isContextualTutorEnabled } = await import("../services/ai/contextualTutor.js");
 const { errorHandler } = await import("../middleware/errorHandler.js");
 
 let srv: Server;
@@ -250,7 +260,44 @@ beforeEach(() => {
     reason: null,
     invalidOverride: null,
   });
+  vi.mocked(isContextualTutorEnabled).mockReset();
+  vi.mocked(isContextualTutorEnabled).mockResolvedValue(true);
 });
+
+function contextualAskBody(overrides: Record<string, unknown> = {}) {
+  return validAskBody({
+    model: "gpt-5.6-luna",
+    question: "Help me spot the issue without giving me the answer.",
+    tutorAction: "contextual-help",
+    files: [{ path: "main.py", content: 'print("Hello"\n' }],
+    lastRun: {
+      stdout: "",
+      stderr: 'File "/workspace/main.py", line 1\nSyntaxError: \'(\' was never closed',
+      exitCode: 1,
+      errorType: "runtime",
+      durationMs: 10,
+      stage: "run",
+    },
+    lessonContext: {
+      courseId: "python-fundamentals",
+      lessonId: "hello-world",
+      exerciseId: null,
+    },
+    contextualOffer: {
+      contextVersion: 0,
+      contextEpoch: "lesson:python-fundamentals/hello-world",
+      projectRevision: 2,
+      moveId: "notice-unclosed-parenthesis",
+      evidence: {
+        code: "python-unclosed-parenthesis",
+        path: "main.py",
+        line: 1,
+      },
+      scaffoldLevel: 1,
+    },
+    ...overrides,
+  });
+}
 
 describe("POST /api/ai/ask — KEY_MISSING", () => {
   it("returns 400 KEY_MISSING when the user hasn't stored a key", async () => {
@@ -499,6 +546,62 @@ describe("POST /api/ai/ask — schema validation", () => {
     });
     expect(res.status).toBe(409);
     expect(vi.mocked(openaiProvider.ask)).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/ai/ask/stream — contextual Tutor 1C", () => {
+  beforeEach(() => {
+    vi.mocked(getOpenAIKey).mockResolvedValue("sk-test");
+    vi.mocked(openaiProvider.askStream).mockImplementation(async (_params, handlers) => {
+      await handlers.onDone(
+        '{"intent":"debug","hint":"Look at the unmatched opening symbol."}',
+        { intent: "debug", hint: "Look at the unmatched opening symbol." },
+        { inputTokens: 20, outputTokens: 10 },
+      );
+    });
+  });
+
+  it("makes exactly one provider call after an accepted contextual action", async () => {
+    const res = await req("u-1", "/api/ai/ask/stream", {
+      method: "POST",
+      body: JSON.stringify(contextualAskBody()),
+    });
+    expect(res.status).toBe(200);
+    await res.text();
+    expect(vi.mocked(openaiProvider.askStream)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(openaiProvider.askStream)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tutorAction: "contextual-help",
+        contextualOffer: expect.objectContaining({
+          moveId: "notice-unclosed-parenthesis",
+          scaffoldLevel: 1,
+          authoredQuestion: "Which opening parenthesis still needs a closing partner?",
+        }),
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it("rejects a forged contextual payload without the accepted action", async () => {
+    const res = await req("u-1", "/api/ai/ask/stream", {
+      method: "POST",
+      body: JSON.stringify(contextualAskBody({ tutorAction: undefined })),
+    });
+    expect(res.status).toBe(400);
+    expect(vi.mocked(openaiProvider.askStream)).not.toHaveBeenCalled();
+    expect(vi.mocked(reserveAIRequest)).not.toHaveBeenCalled();
+  });
+
+  it("drains contextual spend before reservation when the independent switch is off", async () => {
+    vi.mocked(isContextualTutorEnabled).mockResolvedValueOnce(false);
+    const res = await req("u-1", "/api/ai/ask/stream", {
+      method: "POST",
+      body: JSON.stringify(contextualAskBody()),
+    });
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: "CONTEXTUAL_TUTOR_DISABLED" });
+    expect(vi.mocked(openaiProvider.askStream)).not.toHaveBeenCalled();
+    expect(vi.mocked(reserveAIRequest)).not.toHaveBeenCalled();
   });
 });
 

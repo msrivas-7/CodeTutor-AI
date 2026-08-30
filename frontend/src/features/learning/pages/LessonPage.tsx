@@ -17,7 +17,10 @@ import {
 import { LessonInstructionsPanel } from "../components/LessonInstructionsPanel";
 import { PracticeInstructionsView } from "../components/PracticeInstructionsView";
 import { LessonActionsMenu } from "../components/LessonActionsMenu";
-import { GuidedTutorPanel } from "../components/GuidedTutorPanel";
+import {
+  GuidedTutorPanel,
+  type ContextualTutorAvailability,
+} from "../components/GuidedTutorPanel";
 // P-H2: dynamic-import keeps Monaco out of the lesson page's initial JS until
 // the editor mounts (the instructions/intro column loads first). The editor
 // chunk is shared with EditorPage via Vite's default chunking.
@@ -625,6 +628,9 @@ export default function LessonPage({
   const moreActionsButtonRef = useRef<HTMLButtonElement>(null);
   const resetCodeButtonRef = useRef<HTMLButtonElement>(null);
   const tutorOpenNonce = useAIStore((s) => s.tutorOpenNonce);
+  const setPendingTutorAsk = useAIStore((s) => s.setPendingAsk);
+  const requestTutorOpen = useAIStore((s) => s.requestTutorOpen);
+  const bumpTutorComposerFocus = useAIStore((s) => s.bumpFocusComposer);
   const handledTutorOpenNonceRef = useRef(0);
   const resetInteractionRef = useRef(false);
   useEffect(() => {
@@ -1104,12 +1110,10 @@ export default function LessonPage({
   const spotlightEditor = isChoreographed && firstRunStep === "awaitEdit";
 
 
-  // Phase 1B ships behind an explicit internal-preview URL flag. This keeps
-  // the proof deployable and browser-testable without exposing an unvalidated
-  // intervention to normal learners. The later rollout phase owns changing
-  // the default, not lesson content or this deterministic policy.
+  // Release 1C promotes the reviewed 1B deterministic guide to the normal
+  // lesson journey. Practice remains excluded because its authored task and
+  // evidence lifecycle are different and are explicitly outside this slice.
   const contextualGuideEnabled =
-    searchParams.get("contextGuide") === "1" &&
     !practiceMode &&
     !!loader.lesson?.assistanceMoves;
   const historicalLessonComplete =
@@ -1134,6 +1138,74 @@ export default function LessonPage({
   });
   const contextualGuideVisible =
     contextualGuide.decision.kind === "result_bridge";
+  useEffect(() => {
+    if (
+      !contextualGuideVisible ||
+      !isPhoneNative ||
+      !window.matchMedia("(max-height: 560px)").matches
+    ) {
+      return;
+    }
+    // When the software keyboard leaves only a short viewport, the fixed
+    // guide can otherwise cover the Monaco line it is describing. Move the
+    // existing phone reading flow to the editor band without focusing Monaco;
+    // the cue, its highlighted target, and the thumb actions then remain
+    // simultaneously visible and the learner's keyboard focus is preserved.
+    const frame = window.requestAnimationFrame(() => {
+      layout.editorRef.current?.scrollIntoView({ block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [contextualGuideVisible, isPhoneNative, layout.editorRef]);
+  const [contextualTutorAvailability, setContextualTutorAvailability] =
+    useState<ContextualTutorAvailability>("loading");
+  const acceptedContextualEvidenceRef = useRef<string | null>(null);
+  const contextualEvidenceKey = contextualGuide.context.latestRunEvidence?.key ?? null;
+  useEffect(() => {
+    if (acceptedContextualEvidenceRef.current !== contextualEvidenceKey) {
+      acceptedContextualEvidenceRef.current = null;
+    }
+  }, [contextualEvidenceKey]);
+  const handleContextualTutorAvailability = useCallback(
+    (state: ContextualTutorAvailability) => {
+      setContextualTutorAvailability((current) => current === state ? current : state);
+    },
+    [],
+  );
+  const askContextualTutor = useCallback(() => {
+    const decision = contextualGuide.decision;
+    const evidence = contextualGuide.context.latestRunEvidence;
+    if (decision.kind !== "result_bridge" || !decision.move || !evidence) return;
+    if (acceptedContextualEvidenceRef.current === evidence.key) return;
+    acceptedContextualEvidenceRef.current = evidence.key;
+    contextualGuide.accept();
+    requestTutorOpen();
+    if (contextualTutorAvailability !== "ready") {
+      bumpTutorComposerFocus();
+      return;
+    }
+    setPendingTutorAsk({
+      question: "Help me spot the issue without giving me the answer.",
+      action: "contextual-help",
+      contextualOffer: {
+        contextVersion: contextualGuide.context.contextVersion,
+        contextEpoch: contextualGuide.context.contextEpoch,
+        projectRevision: contextualGuide.context.projectRevision,
+        moveId: decision.move.id,
+        evidence: {
+          code: evidence.code,
+          path: evidence.path,
+          line: evidence.line,
+        },
+        scaffoldLevel: decision.move.maxScaffoldLevel,
+      },
+    });
+  }, [
+    bumpTutorComposerFocus,
+    contextualGuide,
+    contextualTutorAvailability,
+    requestTutorOpen,
+    setPendingTutorAsk,
+  ]);
   const viewContextualError = () => {
     const evidence = contextualGuide.context.latestRunEvidence;
     if (!evidence) return;
@@ -1935,6 +2007,8 @@ export default function LessonPage({
                 onAnonTrialPaused={onAnonTrialPaused}
                 onAnonSaveRequested={onAnonSave}
                 initialAnonTutorState={initialAnonTutorStateRef.current}
+                externalAskReady
+                onContextualTutorAvailabilityChange={handleContextualTutorAvailability}
               />
             </section>
           </div>
@@ -1949,6 +2023,8 @@ export default function LessonPage({
               evidence={contextualGuide.context.latestRunEvidence}
               onViewError={viewContextualError}
               onDismiss={contextualGuide.dismiss}
+              onAskTutor={askContextualTutor}
+              tutorOfferState={contextualTutorAvailability}
             />
             {!practiceMode
               && validator.validation
@@ -2273,6 +2349,8 @@ export default function LessonPage({
                 evidence={contextualGuide.context.latestRunEvidence}
                 onViewError={viewContextualError}
                 onDismiss={contextualGuide.dismiss}
+                onAskTutor={askContextualTutor}
+                tutorOfferState={contextualTutorAvailability}
               />
               {/* Row 1 — Primary actions */}
               <div className="flex flex-wrap items-center gap-2 px-3 py-2">
@@ -2686,6 +2764,8 @@ export default function LessonPage({
               onAnonTrialPaused={onAnonTrialPaused}
               onAnonSaveRequested={onAnonSave}
               initialAnonTutorState={initialAnonTutorStateRef.current}
+              externalAskReady={!layout.tutorCollapsed}
+              onContextualTutorAvailabilityChange={handleContextualTutorAvailability}
             />
           </motion.aside>
         </motion.main>

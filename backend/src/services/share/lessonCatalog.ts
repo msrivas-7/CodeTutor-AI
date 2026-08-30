@@ -48,6 +48,26 @@ const practiceExerciseSchema = z.object({
   completionRules: z.array(completionRuleSchema).min(1),
 });
 
+const assistanceMoveSchema = z.object({
+  id: z.string().min(1).max(64).regex(/^[a-z0-9][a-z0-9_-]*$/),
+  trigger: z.object({
+    type: z.literal("repeated_error"),
+    errorCode: z.literal("python-unclosed-parenthesis"),
+    minAttempts: z.literal(2),
+  }),
+  learningMove: z.literal("observe"),
+  conceptTags: z.array(z.string().min(1).max(64)).max(12),
+  question: z.string().min(1).max(500),
+  maxScaffoldLevel: z.literal(1),
+  productiveResponse: z.string().min(1).max(1_000),
+  endsWhen: z.literal("evidence_changes"),
+});
+
+const assistanceMovesSchema = z.object({
+  version: z.literal(1),
+  moves: z.array(assistanceMoveSchema).min(1).max(8),
+});
+
 const catalogLessonSchema = z.object({
   id: z.string().min(1).max(64),
   courseId: z.string().min(1).max(64),
@@ -60,6 +80,7 @@ const catalogLessonSchema = z.object({
   completionRules: z.array(completionRuleSchema).min(1),
   practiceExercises: z.array(practiceExerciseSchema).default([]),
   prerequisiteLessonIds: z.array(z.string().min(1).max(64)).default([]),
+  assistanceMoves: assistanceMovesSchema.optional(),
 });
 
 type LessonJson = z.infer<typeof catalogLessonSchema>;
@@ -123,6 +144,7 @@ export interface TutorLessonSnapshot {
   completionCriteria: string[];
   lessonOrder: number;
   totalLessons: number;
+  assistanceMoves: z.infer<typeof assistanceMovesSchema> | null;
 }
 
 // Resolve the catalog root once. In the runtime container, this file
@@ -537,6 +559,7 @@ export async function getTutorLessonSnapshot(
     completionCriteria: safeCompletionCriteria(rules),
     lessonOrder: lesson.order,
     totalLessons: course.lessonOrder.length,
+    assistanceMoves: exercise ? null : (lesson.assistanceMoves ?? null),
   };
   tutorCache.set(cacheKey, snapshot);
   return snapshot;

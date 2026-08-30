@@ -47,4 +47,23 @@ describe("tutor recovery copy", () => {
     expect(markup).not.toContain("Try again");
     expect(markup).toMatch(/daily reset/i);
   });
+
+  it("keeps stale contextual responses outside the transcript with exact recovery copy", () => {
+    expect(classifyAskError("TUTOR_CONTEXT_CHANGED")).toEqual({
+      kind: "contextChanged",
+      title: "Code changed",
+      hint: "Your code changed while I was thinking—ask again when ready.",
+    });
+  });
+
+  it("turns the contextual kill switch into a deterministic non-retryable recovery", () => {
+    const result = classifyAskError('{"error":"CONTEXTUAL_TUTOR_DISABLED"}');
+    expect(result).toMatchObject({
+      kind: "contextualPaused",
+      title: "Contextual help is paused",
+      retryable: false,
+      showDetails: false,
+    });
+    expect(result.hint).toMatch(/error guide still works/i);
+  });
 });

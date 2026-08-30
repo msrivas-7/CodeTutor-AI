@@ -33,6 +33,8 @@ describe("ContextualGuideBridge", () => {
         evidence={evidence}
         onViewError={vi.fn()}
         onDismiss={vi.fn()}
+        onAskTutor={vi.fn()}
+        tutorOfferState="ready"
       />,
     );
 
@@ -42,6 +44,23 @@ describe("ContextualGuideBridge", () => {
     expect(html).toContain("min-h-11");
     expect(html).toContain("h-11 w-11");
     expect(html).toContain('aria-live="polite"');
+    expect(html).toContain("Help me spot it");
+    expect(html).toContain("sends your current code and run evidence");
+  });
+
+  it("does not promise an AI call while Tutor access is unavailable", () => {
+    const html = renderToStaticMarkup(
+      <ContextualGuideBridge
+        decision={{ kind: "result_bridge", move }}
+        evidence={evidence}
+        onViewError={vi.fn()}
+        onDismiss={vi.fn()}
+        onAskTutor={vi.fn()}
+        tutorOfferState="unavailable"
+      />,
+    );
+    expect(html).toContain("Open Tutor");
+    expect(html).not.toContain(">Help me spot it<");
   });
 
   it("renders nothing when policy is hidden", () => {

@@ -202,7 +202,25 @@ export function classifyAskError(raw: string): {
     };
   }
   if (m.includes("tutor_context_changed")) {
-    return { kind: "contextChanged", title: "Code changed", hint: "I stopped the old response so it couldn't give advice about an earlier version. Ask again when the current run is ready." };
+    return { kind: "contextChanged", title: "Code changed", hint: "Your code changed while I was thinking—ask again when ready." };
+  }
+  if (m.includes("contextual_tutor_disabled")) {
+    return {
+      kind: "contextualPaused",
+      title: "Contextual help is paused",
+      hint: "The error guide still works. You can inspect the highlighted line or continue with the regular Tutor when it is available.",
+      retryable: false,
+      showDetails: false,
+    };
+  }
+  if (m.includes("model_not_evaluated_for_contextual_offer")) {
+    return {
+      kind: "contextualModel",
+      title: "This model is not ready for contextual help",
+      hint: "Choose the recommended Tutor model in Settings, or keep using the current error guide.",
+      retryable: false,
+      showDetails: false,
+    };
   }
   if (m.includes("failed to fetch") || m.includes("network") || m.includes("offline")) {
     return { kind: "network", title: "Connection lost", hint: "Your code is safe. Check your connection, then try the question again." };

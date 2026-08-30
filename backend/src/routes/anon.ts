@@ -84,8 +84,15 @@ import {
   type FinalizeAIRequestInput,
 } from "../db/aiReservations.js";
 import { closeTutorTurnAtAllowanceBoundary } from "../services/ai/tutorPolicy.js";
-import { resolveCanonicalAnonTutorContext } from "../services/ai/canonicalTutorContext.js";
-import { isContextualTutorModel } from "../services/ai/modelRegistry.js";
+import {
+  resolveCanonicalAnonTutorContext,
+  resolveCanonicalContextualTutorOffer,
+} from "../services/ai/canonicalTutorContext.js";
+import {
+  isContextualTutorModel,
+  isEvaluatedContextualOfferModel,
+} from "../services/ai/modelRegistry.js";
+import { isContextualTutorEnabled } from "../services/ai/contextualTutor.js";
 import {
   canonicalTutorRequestModel,
   routeTutorModel,
@@ -190,6 +197,7 @@ const askStreamBody = z.object({
     "explain-more",
     "concrete-example",
     "why-it-matters",
+    "contextual-help",
   ]).optional(),
   files: z.array(projectFileSchema).max(10),
   activeFile: z.string().optional(),
@@ -214,12 +222,32 @@ const askStreamBody = z.object({
     lessonId: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/),
     exerciseId: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/).nullish(),
   }),
+  contextualOffer: z.object({
+    contextVersion: z.literal(0),
+    contextEpoch: z.string().min(1).max(256),
+    projectRevision: z.number().int().min(0),
+    moveId: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/),
+    evidence: z.object({
+      code: z.literal("python-unclosed-parenthesis"),
+      path: safePathSchema,
+      line: z.number().int().min(1).max(100_000),
+    }),
+    scaffoldLevel: z.literal(1),
+  }).optional(),
   // B8 is explicit opt-in and anonymous-platform-only. The browser owns the
   // opaque deletion token; only its domain-separated hash can be persisted.
   evalSamplingConsent: z.object({
     version: z.literal(AI_EVAL_CONSENT_VERSION),
     subjectToken: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
   }).optional(),
+}).superRefine((body, ctx) => {
+  if (body.contextualOffer && body.tutorAction !== "contextual-help") {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["contextualOffer"],
+      message: "contextualOffer requires contextual-help action",
+    });
+  }
 });
 
 const cancelAskBody = z.object({ requestId: z.string().uuid() }).strict();
@@ -597,6 +625,29 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
     if (!ctx) {
       return res.status(404).json({ error: "LESSON_CONTEXT_NOT_FOUND" });
     }
+    let canonicalContextualOffer = null;
+    if (parsed.data.contextualOffer) {
+      try {
+        if (!(await isContextualTutorEnabled())) {
+          return res.status(503).json({ error: "CONTEXTUAL_TUTOR_DISABLED" });
+        }
+        if (!isEvaluatedContextualOfferModel(requestModel)) {
+          return res.status(403).json({ error: "MODEL_NOT_EVALUATED_FOR_CONTEXTUAL_OFFER" });
+        }
+        canonicalContextualOffer = await resolveCanonicalContextualTutorOffer(
+          clientCtx,
+          parsed.data.contextualOffer,
+          parsed.data.files,
+          parsed.data.lastRun,
+        );
+      } catch (err) {
+        console.error("[anon] canonical contextual offer failed:", err);
+        return res.status(503).json({ error: "LESSON_CONTEXT_UNAVAILABLE" });
+      }
+      if (!canonicalContextualOffer) {
+        return res.status(409).json({ error: "CONTEXTUAL_EVIDENCE_STALE" });
+      }
+    }
 
     // Phase 27-v2.2 audit fix (staff-security P2 + bug-hunter P3):
     // refuse the request if Express couldn't populate req.ip. Pre-fix,
@@ -647,6 +698,7 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
       runsSinceLastTurn: parsed.data.runsSinceLastTurn,
       editsSinceLastTurn: parsed.data.editsSinceLastTurn,
       lessonContext: ctx,
+      contextualOffer: canonicalContextualOffer,
       maxOutputTokens: config.freeTier.anonMaxOutputTokens,
       tutorStage: "clarify" as const,
     };
@@ -710,6 +762,7 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
           ...parsed.data,
           model: requestModel,
           lessonContext: ctx,
+          contextualOffer: canonicalContextualOffer,
         }),
         fundingSource: "platform",
         model: providerParams.model,

@@ -130,5 +130,6 @@ export function useContextualGuide({
         ? { path: latestRunEvidence.path, line: latestRunEvidence.line }
         : null,
     dismiss: () => dispatch({ type: "dismissed" }),
+    accept: () => dispatch({ type: "accepted" }),
   };
 }

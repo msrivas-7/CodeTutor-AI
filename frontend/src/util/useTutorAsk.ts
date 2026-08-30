@@ -17,7 +17,13 @@ import {
   notePlatformQuestionConsumed,
   useAIStatus,
 } from "../state/useAIStatus";
-import type { EditorSelection, ProjectFile, AIMessage, TutorAction } from "../types";
+import type {
+  ContextualTutorOfferRequest,
+  EditorSelection,
+  ProjectFile,
+  AIMessage,
+  TutorAction,
+} from "../types";
 import { computeDiffSinceLast } from "./diffSinceLast";
 import { parsePartialTutor } from "./partialJson";
 import { isPlatformTutorPaused } from "./tutorErrors";
@@ -85,6 +91,7 @@ export function useByokTutorModelReady(enabled: boolean): boolean {
 export interface BuildBodyInput {
   question: string;
   tutorAction?: TutorAction;
+  contextualOffer?: ContextualTutorOfferRequest;
   files: ProjectFile[];
   diffSinceLastTurn: string | null;
   historyForSend: AIMessage[];
@@ -146,7 +153,11 @@ export interface UseTutorAskOpts {
 export interface UseTutorAskResult {
   submitAsk: (
     question: string,
-    options?: { appendUser?: boolean; tutorAction?: TutorAction },
+    options?: {
+      appendUser?: boolean;
+      tutorAction?: TutorAction;
+      contextualOffer?: ContextualTutorOfferRequest;
+    },
   ) => Promise<void>;
   cancelAsk: () => void;
 }
@@ -266,7 +277,11 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
 
   const submitAsk = async (
     question: string,
-    options: { appendUser?: boolean; tutorAction?: TutorAction } = {},
+    options: {
+      appendUser?: boolean;
+      tutorAction?: TutorAction;
+      contextualOffer?: ContextualTutorOfferRequest;
+    } = {},
   ): Promise<void> => {
     const trimmed = question.trim();
     if (!trimmed || !configured || asking) return;
@@ -355,6 +370,7 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
       const requestedBody = opts.buildBody({
           question: trimmed,
           tutorAction: options.tutorAction,
+          contextualOffer: options.contextualOffer,
           files,
           diffSinceLastTurn,
           historyForSend,
@@ -425,6 +441,12 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
             // never replace it with browser-specific text such as
             // "signal is aborted without reason".
             if (controller.signal.aborted) {
+              clearStream();
+              committed = true;
+              return;
+            }
+            if (/CONTEXTUAL_EVIDENCE_STALE/i.test(message)) {
+              setAskError("TUTOR_CONTEXT_CHANGED");
               clearStream();
               committed = true;
               return;

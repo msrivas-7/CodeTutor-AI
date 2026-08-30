@@ -18,7 +18,8 @@ export type AssistanceEpisodeEvent =
     }
   | { type: "non_matching_result" }
   | { type: "source_changed"; minAttempts: number }
-  | { type: "dismissed" };
+  | { type: "dismissed" }
+  | { type: "accepted" };
 
 export function createAssistanceEpisodeState(scopeKey: string): AssistanceEpisodeState {
   return {
@@ -95,6 +96,7 @@ export function assistanceEpisodeReducer(
       };
 
     case "dismissed":
+    case "accepted":
       return state.currentEvidence
         ? {
             ...state,

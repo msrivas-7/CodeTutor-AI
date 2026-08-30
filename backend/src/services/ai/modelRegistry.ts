@@ -1,7 +1,7 @@
 import type { AIModel, TutorIntent } from "./provider.js";
 
-export const MODEL_REGISTRY_VERSION = "2026-08-10.luna-byok-v2";
-export const TUTOR_EVAL_SET_VERSION = "2.8.0+evaluator.2.14.0";
+export const MODEL_REGISTRY_VERSION = "2026-08-30.contextual-offer-v1";
+export const TUTOR_EVAL_SET_VERSION = "2.10.0+evaluator.2.16.0";
 
 export type ModelQualityStatus = "evaluated" | "unevaluated";
 
@@ -89,6 +89,21 @@ export function getModelPolicy(modelId: string): EvaluatedModelPolicy {
 
 export function isContextualTutorModel(modelId: string): boolean {
   return getModelPolicy(modelId).contextualTutorEligible;
+}
+
+/**
+ * Release 1C is stricter than ordinary BYOK guided tutoring. A model may be a
+ * compatible GPT-5+ choice for a learner-funded conversation while still
+ * lacking the complete CodeTutor evaluation needed for a product-initiated
+ * contextual offer. Keep that distinction explicit at the route boundary.
+ */
+export function isEvaluatedContextualOfferModel(modelId: string): boolean {
+  const policy = getModelPolicy(modelId);
+  return (
+    policy.qualityStatus === "evaluated" &&
+    policy.contextualTutorEligible &&
+    policy.supportedTutorBehaviors.includes("contextual-offer")
+  );
 }
 
 export function isModelEvaluatedForTutorIntent(

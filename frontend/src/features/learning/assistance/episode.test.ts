@@ -88,4 +88,23 @@ describe("assistanceEpisodeReducer", () => {
     state = assistanceEpisodeReducer(state, { type: "scope_changed", scopeKey: "b" });
     expect(state).toEqual(createAssistanceEpisodeState("b"));
   });
+
+  it("suppresses an accepted offer immediately so rapid repeat clicks cannot re-offer", () => {
+    let state = createAssistanceEpisodeState("course/lesson");
+    state = assistanceEpisodeReducer(state, {
+      type: "result_observed",
+      evidence: evidence(),
+      projectRevision: 1,
+      minAttempts: 2,
+    });
+    state = assistanceEpisodeReducer(state, { type: "source_changed", minAttempts: 2 });
+    state = assistanceEpisodeReducer(state, {
+      type: "result_observed",
+      evidence: evidence(),
+      projectRevision: 2,
+      minAttempts: 2,
+    });
+    state = assistanceEpisodeReducer(state, { type: "accepted" });
+    expect(state.suppressedEvidenceKey).toBe(evidence().key);
+  });
 });

@@ -4,7 +4,10 @@ import {
   PLATFORM_DEFAULT_TUTOR_MODEL,
   routeTutorModel,
 } from "./modelRouting.js";
-import { isContextualTutorModel } from "./modelRegistry.js";
+import {
+  isContextualTutorModel,
+  isEvaluatedContextualOfferModel,
+} from "./modelRegistry.js";
 
 const files = [{ path: "main.py", content: "value = 1\n" }];
 
@@ -66,5 +69,11 @@ describe("routeTutorModel", () => {
     expect(isContextualTutorModel("gpt-4.1-mini")).toBe(false);
     expect(isContextualTutorModel("gpt-5.1")).toBe(true);
     expect(isContextualTutorModel("gpt-5-pro")).toBe(false);
+  });
+
+  it("allows contextual offers only on independently evaluated models", () => {
+    expect(isEvaluatedContextualOfferModel("gpt-5.6-luna")).toBe(true);
+    expect(isEvaluatedContextualOfferModel("gpt-5.1")).toBe(false);
+    expect(isEvaluatedContextualOfferModel("gpt-4.1-nano")).toBe(false);
   });
 });

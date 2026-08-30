@@ -76,7 +76,21 @@ export type TutorAction =
   | "explain-lesson-task"
   | "explain-more"
   | "concrete-example"
-  | "why-it-matters";
+  | "why-it-matters"
+  | "contextual-help";
+
+export interface ContextualTutorOfferRequest {
+  contextVersion: 0;
+  contextEpoch: string;
+  projectRevision: number;
+  moveId: string;
+  evidence: {
+    code: "python-unclosed-parenthesis";
+    path: string;
+    line: number;
+  };
+  scaffoldLevel: 1;
+}
 
 export type Persona = "beginner" | "intermediate" | "advanced";
 

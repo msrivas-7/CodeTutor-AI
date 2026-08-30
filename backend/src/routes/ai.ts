@@ -54,8 +54,15 @@ import {
   getEffectiveDailyUsdCapPerUser,
   getEffectiveLifetimeUsdCapPerUser,
 } from "../services/ai/effectiveCaps.js";
-import { resolveCanonicalTutorContext } from "../services/ai/canonicalTutorContext.js";
-import { isContextualTutorModel } from "../services/ai/modelRegistry.js";
+import {
+  resolveCanonicalContextualTutorOffer,
+  resolveCanonicalTutorContext,
+} from "../services/ai/canonicalTutorContext.js";
+import {
+  isContextualTutorModel,
+  isEvaluatedContextualOfferModel,
+} from "../services/ai/modelRegistry.js";
+import { isContextualTutorEnabled } from "../services/ai/contextualTutor.js";
 import {
   canonicalTutorRequestModel,
   routeTutorModel,
@@ -435,6 +442,19 @@ const selectionSchema = z.object({
   text: z.string(),
 });
 
+const contextualOfferSchema = z.object({
+  contextVersion: z.literal(0),
+  contextEpoch: z.string().min(1).max(256),
+  projectRevision: z.number().int().min(0),
+  moveId: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/),
+  evidence: z.object({
+    code: z.literal("python-unclosed-parenthesis"),
+    path: safePathSchema,
+    line: z.number().int().min(1).max(100_000),
+  }),
+  scaffoldLevel: z.literal(1),
+});
+
 const askBody = z.object({
   requestId: z.string().uuid(),
   // Platform-funded callers intentionally omit model: the server-owned
@@ -447,6 +467,7 @@ const askBody = z.object({
     "explain-more",
     "concrete-example",
     "why-it-matters",
+    "contextual-help",
   ]).optional(),
   files: z.array(projectFileSchema).max(50),
   activeFile: z.string().optional(),
@@ -465,6 +486,15 @@ const askBody = z.object({
     lessonId: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/),
     exerciseId: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/).nullish(),
   }).nullish(),
+  contextualOffer: contextualOfferSchema.nullish(),
+}).superRefine((body, ctx) => {
+  if (body.contextualOffer && (!body.lessonContext || body.tutorAction !== "contextual-help")) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["contextualOffer"],
+      message: "contextualOffer requires lessonContext and contextual-help action",
+    });
+  }
 });
 
 const summarizeBody = z.object({
@@ -516,6 +546,7 @@ aiRouter.post("/ask", async (req, res, next) => {
   if (!enforceModelAllowlist(cred, requestModel, res, "ask")) return;
 
   let canonicalLessonContext = null;
+  let canonicalContextualOffer = null;
   try {
     if (parsed.data.lessonContext) {
       if (!isContextualTutorModel(requestModel)) {
@@ -527,6 +558,23 @@ aiRouter.post("/ask", async (req, res, next) => {
       );
       if (!canonicalLessonContext) {
         return res.status(404).json({ error: "LESSON_CONTEXT_NOT_FOUND" });
+      }
+    }
+    if (parsed.data.contextualOffer) {
+      if (!(await isContextualTutorEnabled())) {
+        return res.status(503).json({ error: "CONTEXTUAL_TUTOR_DISABLED" });
+      }
+      if (!isEvaluatedContextualOfferModel(requestModel)) {
+        return res.status(403).json({ error: "MODEL_NOT_EVALUATED_FOR_CONTEXTUAL_OFFER" });
+      }
+      canonicalContextualOffer = await resolveCanonicalContextualTutorOffer(
+        parsed.data.lessonContext!,
+        parsed.data.contextualOffer,
+        parsed.data.files,
+        parsed.data.lastRun,
+      );
+      if (!canonicalContextualOffer) {
+        return res.status(409).json({ error: "CONTEXTUAL_EVIDENCE_STALE" });
       }
     }
   } catch (err) {
@@ -553,6 +601,7 @@ aiRouter.post("/ask", async (req, res, next) => {
     learnerName: learnerFirstNameFromClaims(req.authClaims),
     selection: parsed.data.selection ?? null,
     lessonContext: canonicalLessonContext,
+    contextualOffer: canonicalContextualOffer,
     tutorStage: "clarify" as const,
   };
   const progressIdentity = {
@@ -593,6 +642,7 @@ aiRouter.post("/ask", async (req, res, next) => {
         ...parsed.data,
         model: requestModel,
         lessonContext: canonicalLessonContext,
+        contextualOffer: canonicalContextualOffer,
       }),
       model: providerParams.model,
       route: "ask",
@@ -726,6 +776,7 @@ aiRouter.post("/ask/stream", async (req, res) => {
   if (!enforceModelAllowlist(cred, requestModel, res, "ask_stream")) return;
 
   let canonicalLessonContext = null;
+  let canonicalContextualOffer = null;
   try {
     if (parsed.data.lessonContext) {
       if (!isContextualTutorModel(requestModel)) {
@@ -737,6 +788,23 @@ aiRouter.post("/ask/stream", async (req, res) => {
       );
       if (!canonicalLessonContext) {
         return res.status(404).json({ error: "LESSON_CONTEXT_NOT_FOUND" });
+      }
+    }
+    if (parsed.data.contextualOffer) {
+      if (!(await isContextualTutorEnabled())) {
+        return res.status(503).json({ error: "CONTEXTUAL_TUTOR_DISABLED" });
+      }
+      if (!isEvaluatedContextualOfferModel(requestModel)) {
+        return res.status(403).json({ error: "MODEL_NOT_EVALUATED_FOR_CONTEXTUAL_OFFER" });
+      }
+      canonicalContextualOffer = await resolveCanonicalContextualTutorOffer(
+        parsed.data.lessonContext!,
+        parsed.data.contextualOffer,
+        parsed.data.files,
+        parsed.data.lastRun,
+      );
+      if (!canonicalContextualOffer) {
+        return res.status(409).json({ error: "CONTEXTUAL_EVIDENCE_STALE" });
       }
     }
   } catch (err) {
@@ -763,6 +831,7 @@ aiRouter.post("/ask/stream", async (req, res) => {
     learnerName: learnerFirstNameFromClaims(req.authClaims),
     selection: parsed.data.selection ?? null,
     lessonContext: canonicalLessonContext,
+    contextualOffer: canonicalContextualOffer,
     tutorStage: "clarify" as const,
   };
   const progressIdentity = {
@@ -804,6 +873,7 @@ aiRouter.post("/ask/stream", async (req, res) => {
         ...parsed.data,
         model: requestModel,
         lessonContext: canonicalLessonContext,
+        contextualOffer: canonicalContextualOffer,
       }),
       model: providerParams.model,
       route: "ask_stream",

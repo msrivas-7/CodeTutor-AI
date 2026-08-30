@@ -36,6 +36,8 @@ import {
   writeAnonTutorState,
 } from "../../anon/anonStash";
 
+export type ContextualTutorAvailability = "loading" | "ready" | "unavailable";
+
 interface GuidedTutorPanelProps {
   lessonMeta: LessonMeta;
   totalLessons: number;
@@ -89,6 +91,10 @@ interface GuidedTutorPanelProps {
   onSkipWelcome?: () => void;
   /** Same-tab anonymous continuity, hydrated before the composer is enabled. */
   initialAnonTutorState?: AnonTutorStateV1 | null;
+  /** Reports whether an external contextual offer can safely spend a turn. */
+  onContextualTutorAvailabilityChange?: (state: ContextualTutorAvailability) => void;
+  /** External one-shot asks wait until the owning Tutor surface is visible. */
+  externalAskReady?: boolean;
 }
 
 export function canSubmitGuidedTutorTurn({
@@ -105,7 +111,7 @@ export function canSubmitGuidedTutorTurn({
   return configured && !asking && !inputLocked && !exhausted;
 }
 
-export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, priorConcepts, activePracticeExercise, onCollapse, onOpenSettings, resetNonce, inputLocked, clearHidden, mode = "authed", onAnonExhausted, onAnonTrialPaused, onAnonSaveRequested, onSkipWelcome, initialAnonTutorState }: GuidedTutorPanelProps) {
+export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, priorConcepts, activePracticeExercise, onCollapse, onOpenSettings, resetNonce, inputLocked, clearHidden, mode = "authed", onAnonExhausted, onAnonTrialPaused, onAnonSaveRequested, onSkipWelcome, initialAnonTutorState, onContextualTutorAvailabilityChange, externalAskReady = true }: GuidedTutorPanelProps) {
   const incrementHint = useProgressStore((s) => s.incrementHint);
   // Derive the hint cap from the DB-backed hint_count (not local component
   // state) so the limit survives navigation + reload. Local state rewinds on
@@ -172,6 +178,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
   );
   const skipInitialAnonPersistRef = useRef(Boolean(initialAnonTutorState));
   const [clearConfirm, setClearConfirm] = useState(false);
+  const [activeContextualOffer, setActiveContextualOffer] = useState<NonNullable<typeof pendingAsk>["contextualOffer"] | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const clearButtonRef = useRef<HTMLButtonElement>(null);
@@ -211,6 +218,16 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
   // for the persona we're trying to land. Mirrors the gate inside
   // useTutorAsk where submitAsk treats anon as configured.
   const configured = mode === "anon" || onPlatform || byokModelReady;
+  const contextualTutorAvailability: ContextualTutorAvailability =
+    statusLoading
+      ? "loading"
+      : configured && !exhausted && !anonQuotaExhausted && aiStatus?.contextualTutorEnabled !== false
+        ? "ready"
+        : "unavailable";
+
+  useEffect(() => {
+    onContextualTutorAvailabilityChange?.(contextualTutorAvailability);
+  }, [contextualTutorAvailability, onContextualTutorAvailabilityChange]);
 
   const prepareAnswer = (value: string) => {
     setDraft(value);
@@ -289,6 +306,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
       }
     },
     onAskComplete: ({ ok }) => {
+      setActiveContextualOffer(null);
       if (pendingHintRef.current) {
         pendingHintRef.current = false;
         // Phase 27-v2.1 — anon doesn't write hint counts to /api/user/*.
@@ -297,11 +315,12 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
         if (ok && mode === "authed") incrementHint(lessonMeta.courseId, lessonMeta.id);
       }
     },
-    buildBody: ({ question, tutorAction, files, diffSinceLastTurn, historyForSend, selection }) => ({
+    buildBody: ({ question, tutorAction, contextualOffer, files, diffSinceLastTurn, historyForSend, selection }) => ({
       // Platform and anonymous funding ignore stale persisted BYOK choices.
       model: effectiveModel ?? undefined,
       question,
       tutorAction,
+      contextualOffer,
       files,
       activeFile: activeFile ?? undefined,
       language: lessonMeta.language,
@@ -344,7 +363,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
   };
 
   useEffect(() => {
-    if (pendingAsk && canSubmitGuidedTutorTurn({
+    if (externalAskReady && pendingAsk && canSubmitGuidedTutorTurn({
       configured,
       asking,
       inputLocked,
@@ -352,10 +371,14 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
     })) {
       const ask = pendingAsk;
       setPendingAsk(null);
-      submitAsk(ask.question, { tutorAction: ask.action });
+      setActiveContextualOffer(ask.contextualOffer ?? null);
+      submitAsk(ask.question, {
+        tutorAction: ask.action,
+        contextualOffer: ask.contextualOffer,
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingAsk, configured, asking, inputLocked, anonQuotaExhausted]);
+  }, [pendingAsk, configured, asking, inputLocked, anonQuotaExhausted, externalAskReady]);
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
@@ -632,9 +655,20 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
         })}
 
         {asking && (
-          pending && hasTutorContent(pending.sections)
-            ? <TutorResponseView sections={pending.sections} disabled streaming scripted={pendingScripted} />
-            : <ThinkingSkeleton />
+          <>
+            {activeContextualOffer && (
+              <div
+                role="status"
+                data-testid="contextual-tutor-receipt"
+                className="mb-2 rounded-lg border border-accent/30 bg-accent/[0.08] px-3 py-2 text-xs text-ink"
+              >
+                Using your latest run: syntax error on line {activeContextualOffer.evidence.line}.
+              </div>
+            )}
+            {pending && hasTutorContent(pending.sections)
+              ? <TutorResponseView sections={pending.sections} disabled streaming scripted={pendingScripted} />
+              : <ThinkingSkeleton />}
+          </>
         )}
         {askError && (
           <AskErrorView

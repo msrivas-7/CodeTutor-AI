@@ -36,6 +36,7 @@ import {
 } from "../db/paidAccessInterest.js";
 import { getAIStatusPrefs } from "../db/preferences.js";
 import { aiExhaustionCtaClicks } from "../services/metrics.js";
+import { isContextualTutorEnabled } from "../services/ai/contextualTutor.js";
 
 export const aiStatusRouter = Router();
 
@@ -48,7 +49,10 @@ aiStatusRouter.get("/ai-status", async (req, res, next) => {
     // getOpenAIKey round-trip. Net: two user_preferences reads on every
     // /ai-status poll collapse into one.
     const prefs = await getAIStatusPrefs(userId);
-    const cred = await resolveAICredential(userId, prefs.openaiKey);
+    const [cred, contextualTutorEnabled] = await Promise.all([
+      resolveAICredential(userId, prefs.openaiKey),
+      isContextualTutorEnabled(),
+    ]);
     const shownInterest = prefs.hasShownPaidInterest;
     if (cred.source === "byok") {
       return res.json({
@@ -57,6 +61,7 @@ aiStatusRouter.get("/ai-status", async (req, res, next) => {
         capToday: null,
         resetAtUtc: null,
         hasShownPaidInterest: shownInterest,
+        contextualTutorEnabled,
       });
     }
     if (cred.source === "platform") {
@@ -66,6 +71,7 @@ aiStatusRouter.get("/ai-status", async (req, res, next) => {
         capToday: cred.capToday,
         resetAtUtc: cred.resetAtUtc.toISOString(),
         hasShownPaidInterest: shownInterest,
+        contextualTutorEnabled,
       });
     }
     // source === "none"
@@ -76,6 +82,7 @@ aiStatusRouter.get("/ai-status", async (req, res, next) => {
       capToday: null,
       resetAtUtc: cred.resetAtUtc ? cred.resetAtUtc.toISOString() : null,
       hasShownPaidInterest: shownInterest,
+      contextualTutorEnabled,
     });
   } catch (err) {
     next(err);

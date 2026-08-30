@@ -114,7 +114,24 @@ export type TutorAction =
   | "explain-lesson-task"
   | "explain-more"
   | "concrete-example"
-  | "why-it-matters";
+  | "why-it-matters"
+  | "contextual-help";
+
+export interface ContextualTutorOffer {
+  contextVersion: 0;
+  contextEpoch: string;
+  projectRevision: number;
+  moveId: string;
+  evidence: {
+    code: "python-unclosed-parenthesis";
+    path: string;
+    line: number;
+    label: "Syntax error";
+  };
+  scaffoldLevel: 1;
+  /** Server-authored teaching move resolved from the canonical lesson catalog. */
+  authoredQuestion: string;
+}
 
 export interface AIAskParams {
   key: string;
@@ -175,6 +192,8 @@ export interface AIAskParams {
     lessonOrder?: number;
     totalLessons?: number;
   } | null;
+  /** Present only after the learner explicitly accepts a Release 1C offer. */
+  contextualOffer?: ContextualTutorOffer | null;
 }
 
 export interface AIAskResult {

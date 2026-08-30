@@ -6,6 +6,7 @@ import type {
   Persona,
   TokenUsage,
   TutorAction,
+  ContextualTutorOfferRequest,
   TutorSections,
 } from "../types";
 import type { ProjectVersion } from "./projectStore";
@@ -37,6 +38,7 @@ export interface BoundEditorSelection {
 export interface PendingTutorAsk {
   question: string;
   action?: TutorAction;
+  contextualOffer?: ContextualTutorOfferRequest;
 }
 
 interface AIState {

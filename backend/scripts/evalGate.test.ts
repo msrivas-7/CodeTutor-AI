@@ -30,7 +30,7 @@ function passingResult(id: string, intent: EvalIntent): EvalCaseResultV2 {
 
 function fixture(): { summary: EvalSummaryV2; baseline: EvalBaselineV2 } {
   const results = intents.flatMap((intent) =>
-    Array.from({ length: EXPECTED_EVAL_CASES_PER_INTENT }, (_, index) =>
+    Array.from({ length: EXPECTED_EVAL_CASES_PER_INTENT[intent] }, (_, index) =>
       passingResult(`${intent}-${index}`, intent),
     ),
   );

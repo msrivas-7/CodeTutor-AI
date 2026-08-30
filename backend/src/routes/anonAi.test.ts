@@ -87,6 +87,14 @@ vi.mock("../services/ai/canonicalTutorContext.js", () => ({
     completionCriteria: ["Program prints Hello"],
     studentProgressSummary: "Anonymous first session",
   })),
+  resolveCanonicalContextualTutorOffer: vi.fn(async (_identity, offer) => ({
+    ...offer,
+    evidence: { ...offer.evidence, label: "Syntax error" as const },
+    authoredQuestion: "Which opening parenthesis still needs a closing partner?",
+  })),
+}));
+vi.mock("../services/ai/contextualTutor.js", () => ({
+  isContextualTutorEnabled: vi.fn(async () => true),
 }));
 vi.mock("../services/ai/openaiProvider.js", () => ({
   estimateReservationForAsk: vi.fn(() => ({
@@ -120,6 +128,7 @@ const {
 const { isAnonLessonEnabled, isAiEvalSamplingEnabled } = await import("../services/share/killSwitches.js");
 const { shouldSampleEvalRequest } = await import("../services/ai/evalSampling.js");
 const { getEffectivePlatformTutorModel } = await import("../services/ai/platformTutorModel.js");
+const { isContextualTutorEnabled } = await import("../services/ai/contextualTutor.js");
 
 let server: Server;
 let baseUrl: string;
@@ -235,6 +244,8 @@ describe("POST /api/anon/ai/ask/cancel", () => {
 
     expect(response.status).toBe(404);
   });
+  vi.mocked(isContextualTutorEnabled).mockReset();
+  vi.mocked(isContextualTutorEnabled).mockResolvedValue(true);
 });
 
 describe("B8 governed anonymous eval sampling", () => {
@@ -334,6 +345,70 @@ describe("B8 governed anonymous eval sampling", () => {
 });
 
 describe("POST /api/anon/ai/ask/stream — platform model routing", () => {
+  it("passes one learner-accepted contextual offer to the evaluated model", async () => {
+    const response = await post(validBody({
+      question: "Help me spot the issue without giving me the answer.",
+      tutorAction: "contextual-help",
+      files: [{ path: "main.py", content: 'print("Hello"\n' }],
+      lastRun: {
+        stdout: "",
+        stderr: 'File "/workspace/main.py", line 1\nSyntaxError: \'(\' was never closed',
+        exitCode: 1,
+        errorType: "runtime",
+        durationMs: 10,
+        stage: "run",
+      },
+      contextualOffer: {
+        contextVersion: 0,
+        contextEpoch: "lesson:python-fundamentals/hello-world",
+        projectRevision: 2,
+        moveId: "notice-unclosed-parenthesis",
+        evidence: {
+          code: "python-unclosed-parenthesis",
+          path: "main.py",
+          line: 1,
+        },
+        scaffoldLevel: 1,
+      },
+    }));
+    expect(response.status).toBe(200);
+    await response.text();
+    expect(vi.mocked(openaiProvider.askStream)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(openaiProvider.askStream).mock.calls[0][0]).toEqual(
+      expect.objectContaining({
+        tutorAction: "contextual-help",
+        contextualOffer: expect.objectContaining({
+          moveId: "notice-unclosed-parenthesis",
+          authoredQuestion: "Which opening parenthesis still needs a closing partner?",
+        }),
+      }),
+    );
+  });
+
+  it("makes no reservation or provider call when contextual offers are drained", async () => {
+    vi.mocked(isContextualTutorEnabled).mockResolvedValueOnce(false);
+    const response = await post(validBody({
+      question: "Help me spot it.",
+      tutorAction: "contextual-help",
+      contextualOffer: {
+        contextVersion: 0,
+        contextEpoch: "lesson:python-fundamentals/hello-world",
+        projectRevision: 2,
+        moveId: "notice-unclosed-parenthesis",
+        evidence: {
+          code: "python-unclosed-parenthesis",
+          path: "main.py",
+          line: 1,
+        },
+        scaffoldLevel: 1,
+      },
+    }));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "CONTEXTUAL_TUTOR_DISABLED" });
+    expect(vi.mocked(reserveAIRequest)).not.toHaveBeenCalled();
+    expect(vi.mocked(openaiProvider.askStream)).not.toHaveBeenCalled();
+  });
+
   it("honors the server-side operator override for anonymous tutoring", async () => {
     vi.mocked(getEffectivePlatformTutorModel).mockResolvedValueOnce({
       model: "gpt-5.6-terra",

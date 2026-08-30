@@ -253,6 +253,12 @@ export const config = {
   // free-tier on while turning anon off.
   anonLessonEnabled: process.env.ENABLE_ANON_LESSON !== "0",
 
+  // Release 1C has an independent emergency drain. The deterministic local
+  // guide can remain visible while this gate prevents every contextual model
+  // call, so operators can stop spend or a quality incident without removing
+  // the learner's current-error navigation.
+  contextualTutorEnabled: process.env.ENABLE_CONTEXTUAL_TUTOR !== "0",
+
   // Phase A — A5 (operational floor): fixed Azure infra baseline in
   // $/month, surfaced by the admin dashboard's projected-burn tile.
   // The backend can't (and shouldn't) query the Azure Cost API at

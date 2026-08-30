@@ -5,12 +5,31 @@ import {
   type TutorLessonSnapshot,
 } from "../share/lessonCatalog.js";
 import type { LessonContext } from "./prompts/lessonContext.js";
+import type {
+  ContextualTutorOffer,
+  ProjectFile,
+  RunResult,
+} from "./provider.js";
 
 /** The only lesson fields a browser may nominate for guided mode. */
 export interface ClientLessonIdentity {
   courseId: string;
   lessonId: string;
   exerciseId?: string | null;
+}
+
+/** Browser-observed 1C evidence. Every field is validated and remains untrusted. */
+export interface ClientContextualTutorOffer {
+  contextVersion: 0;
+  contextEpoch: string;
+  projectRevision: number;
+  moveId: string;
+  evidence: {
+    code: "python-unclosed-parenthesis";
+    path: string;
+    line: number;
+  };
+  scaffoldLevel: 1;
 }
 
 /**
@@ -36,6 +55,69 @@ export const TUTOR_EVIDENCE_TRUST: ClientObservedTutorEvidence = {
   diff: "untrusted",
   history: "untrusted",
 };
+
+const UNCLOSED_PARENTHESIS = /SyntaxError:\s*['"]\(['"]\s+was never closed/i;
+const PYTHON_LOCATION = /File\s+["']([^"']+)["'],\s+line\s+(\d+)/g;
+
+function runMatchesContextualEvidence(
+  offer: ClientContextualTutorOffer,
+  files: readonly ProjectFile[],
+  lastRun: RunResult | null | undefined,
+): boolean {
+  if (!lastRun?.stderr || !UNCLOSED_PARENTHESIS.test(lastRun.stderr)) return false;
+  const locations = [...lastRun.stderr.matchAll(PYTHON_LOCATION)];
+  const location = locations.at(-1);
+  if (!location || Number.parseInt(location[2], 10) !== offer.evidence.line) return false;
+  const normalized = location[1].replaceAll("\\", "/");
+  if (
+    normalized !== offer.evidence.path &&
+    !normalized.endsWith(`/${offer.evidence.path}`)
+  ) return false;
+  const file = files.find((candidate) => candidate.path === offer.evidence.path);
+  if (!file) return false;
+  return offer.evidence.line <= file.content.split("\n").length + 1;
+}
+
+/**
+ * Resolve a learner-accepted 1C offer against server-authored lesson moves.
+ * The browser may nominate current evidence, but it cannot author the teaching
+ * move, raise the scaffold level, select hidden completion data, or turn raw
+ * stderr into instructions.
+ */
+export async function resolveCanonicalContextualTutorOffer(
+  identity: ClientLessonIdentity,
+  offer: ClientContextualTutorOffer,
+  files: readonly ProjectFile[],
+  lastRun: RunResult | null | undefined,
+): Promise<ContextualTutorOffer | null> {
+  const lesson = await getTutorLessonSnapshot(
+    identity.courseId,
+    identity.lessonId,
+    identity.exerciseId,
+  );
+  if (!lesson || lesson.exerciseId || !lesson.assistanceMoves) return null;
+  const move = lesson.assistanceMoves.moves.find(
+    (candidate) => candidate.id === offer.moveId,
+  );
+  if (
+    !move ||
+    move.trigger.errorCode !== offer.evidence.code ||
+    offer.scaffoldLevel > move.maxScaffoldLevel ||
+    !runMatchesContextualEvidence(offer, files, lastRun)
+  ) return null;
+  return {
+    contextVersion: 0,
+    contextEpoch: offer.contextEpoch,
+    projectRevision: offer.projectRevision,
+    moveId: move.id,
+    evidence: {
+      ...offer.evidence,
+      label: "Syntax error",
+    },
+    scaffoldLevel: offer.scaffoldLevel,
+    authoredQuestion: move.question,
+  };
+}
 
 function buildProgressSummary(
   lesson: TutorLessonSnapshot,
