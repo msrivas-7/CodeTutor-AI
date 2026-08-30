@@ -97,9 +97,12 @@ test.describe("contextual guidance and Tutor offer", () => {
     await runCode(page);
 
     await expect(page.getByTestId("contextual-guide-question")).toBeVisible();
-    await expect(page.getByTestId("contextual-guide-ask")).toHaveText("Open Tutor");
+    await expect(page.getByTestId("contextual-guide-ask")).toHaveCount(0);
     await expect(page.getByText("Help me spot it", { exact: true })).toHaveCount(0);
     expect(aiCalls).toBe(0);
+
+    await page.getByRole("button", { name: "Collapse tutor" }).click();
+    await expect(page.getByTestId("contextual-guide-ask")).toHaveText("Open Tutor");
   });
 
   test("repeated evidence selects authored guidance without an automatic AI request", criticalTest({
@@ -408,7 +411,7 @@ test.describe("contextual guidance and Tutor offer", () => {
     await expect(page.getByText("Contextual help is paused")).toBeVisible();
     await expect(page.getByText(/latest error is still in Output/i)).toBeVisible();
     await expect(page.getByTestId("contextual-guide-bridge")).toBeVisible();
-    await expect(page.getByTestId("contextual-guide-ask")).toHaveText("Open Tutor");
+    await expect(page.getByTestId("contextual-guide-ask")).toHaveCount(0);
     await expect(page.getByText("Help me spot it", { exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: /try again/i })).toHaveCount(0);
     expect(calls).toBe(1);
@@ -418,6 +421,7 @@ test.describe("contextual guidance and Tutor offer", () => {
     // to cross the collapsed panel's inert boundary first.
     await page.getByRole("button", { name: "Collapse tutor" }).click();
     await expect(page.getByRole("button", { name: "Show tutor panel" })).toBeVisible();
+    await expect(page.getByTestId("contextual-guide-ask")).toHaveText("Open Tutor");
     await page.getByTestId("contextual-guide-ask").click();
     await expect(page.getByLabel(/ask the tutor/i)).toBeFocused();
     expect(calls).toBe(1);
@@ -450,10 +454,12 @@ test.describe("contextual guidance and Tutor offer", () => {
 
     await expect(page.getByText("This model is not ready for contextual help")).toBeVisible();
     await expect(page.getByTestId("contextual-guide-bridge")).toBeVisible();
-    await expect(page.getByTestId("contextual-guide-ask")).toHaveText("Open Tutor");
+    await expect(page.getByTestId("contextual-guide-ask")).toHaveCount(0);
     await expect(page.getByRole("button", { name: /try again/i })).toHaveCount(0);
     expect(calls).toBe(1);
 
+    await page.getByRole("button", { name: "Collapse tutor" }).click();
+    await expect(page.getByTestId("contextual-guide-ask")).toHaveText("Open Tutor");
     await page.getByTestId("contextual-guide-ask").click();
     await expect(page.getByLabel(/ask the tutor/i)).toBeFocused();
     expect(calls).toBe(1);
