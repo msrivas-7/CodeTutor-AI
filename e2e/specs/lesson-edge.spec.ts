@@ -265,6 +265,21 @@ test.describe("lesson edge cases", () => {
     const backButton = page.getByRole("button", { name: "Back to courses" });
     const streakButton = page.getByRole("button", { name: /day streak/i });
     const feedbackButton = page.getByRole("button", { name: "Give feedback" });
+
+    // The streak is one persistent, spring-animated surface. A viewport
+    // change intentionally morphs that same node from its desktop geometry
+    // into the compact header, so wait for its final responsive position
+    // before enforcing the no-collision contract.
+    await expect
+      .poll(async () => {
+        const [streak, feedback] = await Promise.all([
+          streakButton.boundingBox(),
+          feedbackButton.boundingBox(),
+        ]);
+        if (!streak || !feedback) return false;
+        return streak.x + streak.width <= feedback.x;
+      })
+      .toBe(true);
     const [backBox, streakBox, feedbackBox] = await Promise.all([
       backButton.boundingBox(),
       streakButton.boundingBox(),

@@ -36,6 +36,144 @@ test.describe("settings panel", () => {
     await loadProfile(page, "empty");
   });
 
+  test("streak pill morphs into one anchored detail surface and honors reduced motion", async ({
+    page,
+  }) => {
+    await page.route("**/api/user/streak", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          current: 3,
+          longest: 5,
+          lastActiveDate: "2026-08-08",
+          lastFreezeUsed: null,
+          isActiveToday: true,
+          isAtRisk: false,
+          resetAtUtc: "2026-08-09T00:00:00.000Z",
+          freezeActive: false,
+          wasFirstToday: false,
+          freezeUsedToday: false,
+        }),
+      });
+    });
+    let historyShouldFail = false;
+    await page.route("**/api/user/streak/history**", async (route) => {
+      if (historyShouldFail) {
+        await route.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "temporarily unavailable" }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          todayUtc: "2026-08-08",
+          windowDates: [
+            "2026-07-26", "2026-07-27", "2026-07-28", "2026-07-29",
+            "2026-07-30", "2026-07-31", "2026-08-01", "2026-08-02",
+            "2026-08-03", "2026-08-04", "2026-08-05", "2026-08-06",
+            "2026-08-07", "2026-08-08",
+          ],
+          activeDates: ["2026-08-06", "2026-08-07", "2026-08-08"],
+          freezeUsedDates: [],
+        }),
+      });
+    });
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto("/start");
+
+    const streak = page.getByRole("button", { name: /3-day streak/i });
+    const surface = page.getByTestId("streak-morph-surface");
+    await expect(surface).toHaveAttribute("data-state", "collapsed");
+    await surface.evaluate((element) => {
+      element.setAttribute("data-browser-identity", "same-mounted-surface");
+    });
+    const collapsed = await streak.boundingBox();
+    expect(collapsed).not.toBeNull();
+
+    await streak.click();
+    const details = page.getByRole("dialog", { name: "Streak details" });
+    await expect(details).toBeVisible();
+    await expect(details).toBeFocused();
+    await expect(surface).toHaveAttribute("data-state", "expanded");
+    await expect(surface).toHaveAttribute("data-browser-identity", "same-mounted-surface");
+    await expect(page.getByTestId("streak-morph-identity")).toHaveCount(1);
+    const opening = await details.boundingBox();
+    expect(opening).not.toBeNull();
+    expect(
+      Math.abs(opening!.y - collapsed!.y),
+      "the expanded shell originates at the pill's top edge instead of below it",
+    ).toBeLessThanOrEqual(2);
+    expect(opening!.width).toBeGreaterThanOrEqual(collapsed!.width);
+
+    await expect
+      .poll(async () => (await details.boundingBox())?.width ?? 0)
+      .toBeGreaterThanOrEqual(300);
+    await expect(details.getByRole("button", { name: "Collapse streak details" })).toHaveCSS(
+      "height",
+      "44px",
+    );
+    await details.getByRole("button", { name: "Collapse streak details" }).click();
+    await expect(details).toHaveCount(0);
+    await expect(surface).toHaveAttribute("data-state", "collapsed");
+    await expect(surface).toHaveAttribute("data-browser-identity", "same-mounted-surface");
+    await expect(streak).toBeFocused();
+
+    // The continuously mounted portal must return to ordinary page depth when
+    // collapsed; it cannot float through unrelated modal backdrops.
+    await openSettings(page);
+    const coveredPill = await surface.boundingBox();
+    expect(coveredPill).not.toBeNull();
+    expect(
+      await page.evaluate(({ x, y }) => {
+        const top = document.elementFromPoint(x, y);
+        return top?.closest('[data-testid="streak-morph-surface"]') === null;
+      }, { x: coveredPill!.x + coveredPill!.width / 2, y: coveredPill!.y + coveredPill!.height / 2 }),
+    ).toBe(true);
+    await page.getByRole("dialog").getByRole("button", { name: "close" }).click();
+
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await streak.click();
+    await expect(details).toBeVisible();
+    await expect(details).toBeFocused();
+    await expect
+      .poll(() => details.evaluate((element) => getComputedStyle(element).transform))
+      .toBe("none");
+    await page.keyboard.press("Escape");
+    await expect(details).toHaveCount(0);
+    await expect(streak).toBeFocused();
+
+    // Phone geometry stays inside the viewport without shrinking the close
+    // affordance or introducing horizontal page overflow.
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await streak.click();
+    await expect(details).toBeVisible();
+    const phoneBox = await details.boundingBox();
+    expect(phoneBox).not.toBeNull();
+    expect(phoneBox!.x).toBeGreaterThanOrEqual(8);
+    expect(phoneBox!.x + phoneBox!.width).toBeLessThanOrEqual(382);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+    await page.keyboard.press("Escape");
+    await expect(details).toHaveCount(0);
+
+    // A failed lazy history request keeps the shared surface usable, and a
+    // later reopen retries rather than trapping the learner in stale error.
+    historyShouldFail = true;
+    await page.reload();
+    await streak.click();
+    await expect(details.getByText("Couldn't load history.")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(details).toHaveCount(0);
+    historyShouldFail = false;
+    await streak.click();
+    await expect(details.getByText("Today")).toBeVisible();
+  });
+
   test("phone Start header and Settings controls keep safe spacing and touch targets", async ({
     page,
   }) => {
