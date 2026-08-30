@@ -98,6 +98,7 @@ export function latchPlatformAIStatusPause(raw: string): boolean {
       : previous?.resetAtUtc ?? null,
     hasShownPaidInterest: previous?.hasShownPaidInterest ?? false,
     contextualTutorEnabled: previous?.contextualTutorEnabled ?? false,
+    contextualTutorModelEligible: false,
   };
   setGlobal(platformPauseLatch);
   return true;
@@ -132,6 +133,7 @@ async function fetchFresh(): Promise<AIStatusResponse | null> {
           resetAtUtc: null,
           hasShownPaidInterest: preservedInterest,
           contextualTutorEnabled: false,
+          contextualTutorModelEligible: false,
         };
     // Don't cache the fallback (next tick should retry) but still broadcast.
     for (const fn of subscribers) fn(fallback);

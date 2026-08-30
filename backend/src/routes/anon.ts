@@ -424,7 +424,16 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
   // isolates lookup failures and returns false rather than breaking this
   // lightweight status surface.
   router.get("/ai-status", async (_req, res) => {
-    res.json({ contextualTutorEnabled: await isContextualTutorEnabled() });
+    const [contextualTutorEnabled, platformTutorModel] = await Promise.all([
+      isContextualTutorEnabled(),
+      getEffectivePlatformTutorModel(),
+    ]);
+    res.json({
+      contextualTutorEnabled,
+      contextualTutorModelEligible: isEvaluatedContextualOfferModel(
+        platformTutorModel.model,
+      ),
+    });
   });
 
   // -------- POST /api/anon/run -----------------------------------------

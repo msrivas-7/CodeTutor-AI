@@ -134,6 +134,7 @@ let server: Server;
 let baseUrl: string;
 
 const unusedBackend = {} as ExecutionBackend;
+const signedEvidenceTokenFixture = "e30.AQ";
 
 function validBody(overrides: Record<string, unknown> = {}) {
   return {
@@ -230,7 +231,10 @@ describe("GET /api/anon/ai-status", () => {
     const response = await fetch(`${baseUrl}/api/anon/ai-status`);
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ contextualTutorEnabled: true });
+    await expect(response.json()).resolves.toEqual({
+      contextualTutorEnabled: true,
+      contextualTutorModelEligible: true,
+    });
   });
 
   it("reports a disabled gate so the trial never advertises unavailable help", async () => {
@@ -239,7 +243,29 @@ describe("GET /api/anon/ai-status", () => {
     const response = await fetch(`${baseUrl}/api/anon/ai-status`);
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ contextualTutorEnabled: false });
+    await expect(response.json()).resolves.toEqual({
+      contextualTutorEnabled: false,
+      contextualTutorModelEligible: true,
+    });
+  });
+
+  it("reports an unevaluated platform override before the learner accepts help", async () => {
+    vi.mocked(getEffectivePlatformTutorModel).mockResolvedValueOnce({
+      model: "gpt-5.1",
+      source: "override",
+      setBy: "admin-1",
+      setAt: "2026-08-30T20:00:00.000Z",
+      reason: "test",
+      invalidOverride: null,
+    });
+
+    const response = await fetch(`${baseUrl}/api/anon/ai-status`);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      contextualTutorEnabled: true,
+      contextualTutorModelEligible: false,
+    });
   });
 });
 
@@ -392,7 +418,7 @@ describe("POST /api/anon/ai/ask/stream — platform model routing", () => {
         contextVersion: 0,
         contextEpoch: "lesson:python-fundamentals/hello-world",
         projectRevision: 2,
-        evidenceToken: "signed-evidence-token",
+        evidenceToken: signedEvidenceTokenFixture,
         moveId: "notice-unclosed-parenthesis",
         evidence: {
           code: "python-unclosed-parenthesis",
@@ -442,7 +468,7 @@ describe("POST /api/anon/ai/ask/stream — platform model routing", () => {
         contextVersion: 0,
         contextEpoch: "lesson:python-fundamentals/hello-world",
         projectRevision: 2,
-        evidenceToken: "signed-evidence-token",
+        evidenceToken: signedEvidenceTokenFixture,
         moveId: "notice-unclosed-parenthesis",
         evidence: {
           code: "python-unclosed-parenthesis",
@@ -466,7 +492,7 @@ describe("POST /api/anon/ai/ask/stream — platform model routing", () => {
         contextVersion: 0,
         contextEpoch: "lesson:python-fundamentals/hello-world",
         projectRevision: 2,
-        evidenceToken: "signed-evidence-token",
+        evidenceToken: signedEvidenceTokenFixture,
         moveId: "notice-unclosed-parenthesis",
         evidence: {
           code: "python-unclosed-parenthesis",

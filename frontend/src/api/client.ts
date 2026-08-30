@@ -294,6 +294,8 @@ export interface AIStatusResponse {
   hasShownPaidInterest: boolean;
   /** Independent Release 1C runtime model-call gate. */
   contextualTutorEnabled: boolean;
+  /** Whether the effective platform model passed the contextual-offer eval gate. */
+  contextualTutorModelEligible: boolean;
 }
 
 // Phase 18b: per-user data API surface. Every shape here mirrors the
@@ -1492,7 +1494,10 @@ export const api = {
   getAIStatus: () =>
     get<AIStatusResponse>("/api/user/ai-status"),
   getAnonAIStatus: () =>
-    get<{ contextualTutorEnabled: boolean }>("/api/anon/ai-status"),
+    get<{
+      contextualTutorEnabled: boolean;
+      contextualTutorModelEligible: boolean;
+    }>("/api/anon/ai-status"),
   // Exhaustion card telemetry — all three button outcomes feed this counter.
   // Both endpoints return 204 so we can't go through `post<T>` (which parses
   // JSON). Inline fetch with the shared auth + CSRF headers.

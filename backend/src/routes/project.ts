@@ -1,7 +1,10 @@
 import { Router } from "express";
 import { z } from "zod";
 import { requireActiveSession } from "../services/session/requireActiveSession.js";
-import { touchSession } from "../services/session/sessionManager.js";
+import {
+  touchSession,
+  withSessionWorkspaceLock,
+} from "../services/session/sessionManager.js";
 import type { ExecutionBackend } from "../services/execution/backends/index.js";
 
 // Per-file cap matches the Express body cap divided across the `files` array.
@@ -49,10 +52,12 @@ export function createProjectRouter(backend: ExecutionBackend): Router {
     }
     try {
       const session = requireActiveSession(sessionId, userId);
-      await backend.replaceSnapshot(session.handle, files);
-      session.contextualSnapshot = parsed.data.contextualEvidence
-        ? { files, identity: parsed.data.contextualEvidence }
-        : undefined;
+      await withSessionWorkspaceLock(sessionId, async () => {
+        await backend.replaceSnapshot(session.handle, files);
+        session.contextualSnapshot = parsed.data.contextualEvidence
+          ? { files, identity: parsed.data.contextualEvidence }
+          : undefined;
+      });
       touchSession(sessionId);
       res.json({ ok: true, fileCount: files.length });
     } catch (err) {

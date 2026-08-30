@@ -16,15 +16,15 @@
     "walkthrough": "gpt-5.6-luna",
     "checkin": "gpt-5.6-luna"
   },
-  "approvedAt": "2026-08-30T11:00:30.072Z",
-  "qualityContractFingerprint": "c606a5fa101d595b1337a3d1cf81b15aa19299b0e267a3b35d861bda8b17d388",
-  "postureOverall": 0.9861111111111112,
+  "approvedAt": "2026-08-30T20:39:07.054Z",
+  "qualityContractFingerprint": "4a6c29e28b2ad904d5c5d70e257cfc255d02eb83d0cc40c51fbe2ab617cdbccf",
+  "postureOverall": 1,
   "postureByIntent": {
     "socratic": 1,
     "debug": 1,
     "concept": 1,
     "howto": 1,
-    "walkthrough": 0.9090909090909091,
+    "walkthrough": 1,
     "checkin": 1
   },
   "helpfulCorrectByIntent": {
@@ -35,13 +35,13 @@
     "walkthrough": 1,
     "checkin": 1
   },
-  "observedPostureOverall": 0.9861111111111112,
+  "observedPostureOverall": 1,
   "observedPostureByIntent": {
     "socratic": 1,
     "debug": 1,
     "concept": 1,
     "howto": 1,
-    "walkthrough": 0.9090909090909091,
+    "walkthrough": 1,
     "checkin": 1
   },
   "observedHelpfulCorrectByIntent": {

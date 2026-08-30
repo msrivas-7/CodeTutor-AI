@@ -80,7 +80,9 @@ describe("isContextualOfferModelReady", () => {
     expect(isContextualOfferModelReady("byok", "gpt-5.1", [
       { ...model, id: "gpt-5.1", contextualOfferEligible: false },
     ])).toBe(false);
-    expect(isContextualOfferModelReady("platform", null, [])).toBe(true);
+    expect(isContextualOfferModelReady("platform", null, [], true)).toBe(true);
+    expect(isContextualOfferModelReady("platform", null, [], false)).toBe(false);
+    expect(isContextualOfferModelReady("none", null, [], true)).toBe(false);
   });
 });
 

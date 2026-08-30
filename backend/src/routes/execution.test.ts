@@ -10,9 +10,12 @@ process.env.BYOK_ENCRYPTION_KEY = Buffer.alloc(32, 19).toString("base64");
 vi.mock("../services/session/requireActiveSession.js", () => ({
   requireActiveSession: vi.fn(),
 }));
-vi.mock("../services/session/sessionManager.js", () => ({
-  touchSession: vi.fn(),
-}));
+vi.mock("../services/session/sessionManager.js", async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import("../services/session/sessionManager.js")
+  >();
+  return { ...actual, touchSession: vi.fn() };
+});
 vi.mock("../services/execution/router.js", async (importOriginal) => {
   const actual = await importOriginal<
     typeof import("../services/execution/router.js")
@@ -24,6 +27,7 @@ vi.mock("../services/metrics.js", () => ({
 }));
 
 const { createExecutionRouter } = await import("./execution.js");
+const { createProjectRouter } = await import("./project.js");
 const { requireActiveSession } = await import(
   "../services/session/requireActiveSession.js"
 );
@@ -57,19 +61,23 @@ const result: RunResult = {
 
 let server: Server;
 let base: string;
+let replaceSnapshot: ReturnType<typeof vi.fn>;
 let session: {
   handle: { sessionId: string; __kind: string };
   contextualSnapshot?: { files: typeof oldFiles; identity: typeof oldIdentity };
 };
 
 beforeAll(async () => {
+  replaceSnapshot = vi.fn(async () => {});
+  const backend = { replaceSnapshot } as unknown as ExecutionBackend;
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
     req.userId = req.header("x-test-user") ?? undefined;
     next();
   });
-  app.use("/api/execution", createExecutionRouter({} as ExecutionBackend));
+  app.use("/api/execution", createExecutionRouter(backend));
+  app.use("/api/project", createProjectRouter(backend));
   app.use(errorHandler);
   await new Promise<void>((resolve) => {
     server = app.listen(0, "127.0.0.1", resolve);
@@ -91,16 +99,24 @@ beforeEach(() => {
   };
   vi.mocked(requireActiveSession).mockReturnValue(session as never);
   vi.mocked(runProject).mockReset();
+  replaceSnapshot.mockReset();
+  replaceSnapshot.mockResolvedValue(undefined);
 });
 
 describe("POST /api/execution", () => {
   it("binds evidence to the snapshot captured when the run started", async () => {
-    vi.mocked(runProject).mockImplementation(async () => {
-      session.contextualSnapshot = { files: newFiles, identity: newIdentity };
-      return result;
+    let releaseRun!: () => void;
+    const runStarted = new Promise<void>((resolve) => {
+      vi.mocked(runProject).mockImplementation(async () => {
+        resolve();
+        await new Promise<void>((release) => {
+          releaseRun = release;
+        });
+        return result;
+      });
     });
 
-    const response = await fetch(`${base}/api/execution`, {
+    const executionRequest = fetch(`${base}/api/execution`, {
       method: "POST",
       headers: { "content-type": "application/json", "x-test-user": "u-1" },
       body: JSON.stringify({
@@ -108,7 +124,25 @@ describe("POST /api/execution", () => {
         language: "python",
       }),
     });
+    await runStarted;
+    const snapshotRequest = fetch(`${base}/api/project/snapshot`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-test-user": "u-1" },
+      body: JSON.stringify({
+        sessionId: "session-1",
+        files: newFiles,
+        contextualEvidence: newIdentity,
+      }),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(replaceSnapshot).not.toHaveBeenCalled();
+
+    releaseRun();
+    const response = await executionRequest;
+    const snapshotResponse = await snapshotRequest;
     expect(response.status).toBe(200);
+    expect(snapshotResponse.status).toBe(200);
+    expect(replaceSnapshot).toHaveBeenCalledWith(session.handle, newFiles);
     const payload = await response.json() as RunResult & {
       contextualEvidenceToken: string;
     };

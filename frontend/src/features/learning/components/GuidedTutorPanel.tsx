@@ -129,9 +129,13 @@ export function isContextualOfferModelReady(
   source: "byok" | "platform" | "none",
   selectedModel: string | null,
   models: readonly AIModel[],
+  platformModelEligible = false,
 ): boolean {
-  if (source !== "byok") return true;
-  return models.find((model) => model.id === selectedModel)?.contextualOfferEligible === true;
+  if (source === "platform") return platformModelEligible;
+  if (source === "byok") {
+    return models.find((model) => model.id === selectedModel)?.contextualOfferEligible === true;
+  }
+  return false;
 }
 
 export function resolveTutorSource(
@@ -213,8 +217,11 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
   const [anonQuotaExhausted, setAnonQuotaExhausted] = useState(
     () => mode === "anon" && Boolean(initialAnonTutorState?.exhausted),
   );
-  const [anonContextualTutorEnabled, setAnonContextualTutorEnabled] = useState<boolean | null>(
-    mode === "anon" ? null : true,
+  const [anonContextualTutorStatus, setAnonContextualTutorStatus] = useState<{
+    enabled: boolean;
+    modelEligible: boolean;
+  } | null>(
+    mode === "anon" ? null : { enabled: true, modelEligible: true },
   );
   const [contextualRuntimeDisabled, setContextualRuntimeDisabled] = useState(false);
   const skipInitialAnonPersistRef = useRef(Boolean(initialAnonTutorState));
@@ -241,13 +248,20 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
   useEffect(() => {
     if (mode !== "anon") return;
     let active = true;
-    setAnonContextualTutorEnabled(null);
+    setAnonContextualTutorStatus(null);
     void api.getAnonAIStatus()
-      .then(({ contextualTutorEnabled }) => {
-        if (active) setAnonContextualTutorEnabled(contextualTutorEnabled);
+      .then(({ contextualTutorEnabled, contextualTutorModelEligible }) => {
+        if (active) {
+          setAnonContextualTutorStatus({
+            enabled: contextualTutorEnabled,
+            modelEligible: contextualTutorModelEligible,
+          });
+        }
       })
       .catch(() => {
-        if (active) setAnonContextualTutorEnabled(false);
+        if (active) {
+          setAnonContextualTutorStatus({ enabled: false, modelEligible: false });
+        }
       });
     return () => {
       active = false;
@@ -255,7 +269,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
   }, [mode]);
 
   const statusLoading = mode === "anon"
-    ? anonContextualTutorEnabled === null
+    ? anonContextualTutorStatus === null
     : !hasKey && aiStatus === null;
   const effectiveSource = resolveTutorSource(mode, hasKey, aiStatus?.source);
   const onPlatform = effectiveSource === "platform";
@@ -269,6 +283,9 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
     effectiveSource,
     selectedModel,
     models,
+    mode === "anon"
+      ? anonContextualTutorStatus?.modelEligible === true
+      : aiStatus?.contextualTutorModelEligible === true,
   );
   const exhausted = effectiveSource === "none" && aiStatus?.reason === "free_exhausted";
   useEffect(() => {
@@ -296,7 +313,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
           !exhausted &&
           !anonQuotaExhausted &&
           (mode === "anon"
-            ? anonContextualTutorEnabled === true
+            ? anonContextualTutorStatus?.enabled === true
             : aiStatus?.contextualTutorEnabled === true)
         ? "ready"
         : "unavailable";
@@ -393,7 +410,12 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
         // advertising an action that will only return 503. The deterministic
         // guide remains available and falls back to opening the regular Tutor.
         setContextualRuntimeDisabled(true);
-        if (mode === "anon") setAnonContextualTutorEnabled(false);
+        if (mode === "anon") {
+          setAnonContextualTutorStatus((current) => ({
+            enabled: false,
+            modelEligible: current?.modelEligible ?? false,
+          }));
+        }
       }
     },
     onAskComplete: ({ ok }) => {

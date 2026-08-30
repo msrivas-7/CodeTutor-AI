@@ -37,6 +37,8 @@ import {
 import { getAIStatusPrefs } from "../db/preferences.js";
 import { aiExhaustionCtaClicks } from "../services/metrics.js";
 import { isContextualTutorEnabled } from "../services/ai/contextualTutor.js";
+import { getEffectivePlatformTutorModel } from "../services/ai/platformTutorModel.js";
+import { isEvaluatedContextualOfferModel } from "../services/ai/modelRegistry.js";
 
 export const aiStatusRouter = Router();
 
@@ -49,10 +51,14 @@ aiStatusRouter.get("/ai-status", async (req, res, next) => {
     // getOpenAIKey round-trip. Net: two user_preferences reads on every
     // /ai-status poll collapse into one.
     const prefs = await getAIStatusPrefs(userId);
-    const [cred, contextualTutorEnabled] = await Promise.all([
+    const [cred, contextualTutorEnabled, platformTutorModel] = await Promise.all([
       resolveAICredential(userId, prefs.openaiKey),
       isContextualTutorEnabled(),
+      getEffectivePlatformTutorModel(),
     ]);
+    const contextualTutorModelEligible = isEvaluatedContextualOfferModel(
+      platformTutorModel.model,
+    );
     const shownInterest = prefs.hasShownPaidInterest;
     if (cred.source === "byok") {
       return res.json({
@@ -62,6 +68,7 @@ aiStatusRouter.get("/ai-status", async (req, res, next) => {
         resetAtUtc: null,
         hasShownPaidInterest: shownInterest,
         contextualTutorEnabled,
+        contextualTutorModelEligible: true,
       });
     }
     if (cred.source === "platform") {
@@ -72,6 +79,7 @@ aiStatusRouter.get("/ai-status", async (req, res, next) => {
         resetAtUtc: cred.resetAtUtc.toISOString(),
         hasShownPaidInterest: shownInterest,
         contextualTutorEnabled,
+        contextualTutorModelEligible,
       });
     }
     // source === "none"
@@ -83,6 +91,7 @@ aiStatusRouter.get("/ai-status", async (req, res, next) => {
       resetAtUtc: cred.resetAtUtc ? cred.resetAtUtc.toISOString() : null,
       hasShownPaidInterest: shownInterest,
       contextualTutorEnabled,
+      contextualTutorModelEligible: false,
     });
   } catch (err) {
     next(err);

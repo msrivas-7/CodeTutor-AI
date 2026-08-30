@@ -1,6 +1,9 @@
 import { Router } from "express";
 import { z } from "zod";
-import { touchSession } from "../services/session/sessionManager.js";
+import {
+  touchSession,
+  withSessionWorkspaceLock,
+} from "../services/session/sessionManager.js";
 import { requireActiveSession } from "../services/session/requireActiveSession.js";
 import { runProject } from "../services/execution/router.js";
 import { languageSchema } from "../services/execution/commands.js";
@@ -47,17 +50,19 @@ export function createExecutionRouter(backend: ExecutionBackend): Router {
 
     try {
       const session = requireActiveSession(sessionId, userId);
-      // Capture the evidence snapshot before execution starts. A later
-      // /project/snapshot request may replace the session field while this
-      // run is in flight; its files must never be signed alongside this
-      // run's older result.
-      const contextualSnapshot = session.contextualSnapshot;
       const started = Date.now();
-      const result = await runProject(backend, {
-        handle: session.handle,
-        language,
-        stdin,
-      });
+      const { result, contextualSnapshot } = await withSessionWorkspaceLock(
+        sessionId,
+        async () => {
+          const lockedSnapshot = session.contextualSnapshot;
+          const lockedResult = await runProject(backend, {
+            handle: session.handle,
+            language,
+            stdin,
+          });
+          return { result: lockedResult, contextualSnapshot: lockedSnapshot };
+        },
+      );
       const response = contextualSnapshot
         ? {
             ...result,

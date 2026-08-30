@@ -38,7 +38,18 @@ function digest(value: string): string {
 
 /** Stable hex claim key; the raw signed token is never persisted. */
 export function digestContextualEvidenceToken(token: string): string {
-  return createHash("sha256").update(token, "utf8").digest("hex");
+  const [encoded, signature, ...extra] = token.split(".");
+  if (!encoded || !signature || extra.length) {
+    throw new Error("invalid contextual evidence token");
+  }
+  // Hash the signed bytes, not their textual base64url representation. Node's
+  // decoder intentionally accepts padded and whitespace-bearing aliases; the
+  // database replay claim must collapse every such alias to one identity.
+  return createHash("sha256")
+    .update(Buffer.from(encoded, "base64url"))
+    .update(Buffer.from([0]))
+    .update(Buffer.from(signature, "base64url"))
+    .digest("hex");
 }
 
 export function digestProjectFiles(files: readonly ProjectFile[]): string {
@@ -137,6 +148,13 @@ export function verifyContextualEvidenceToken(
   } catch {
     return false;
   }
+  // Accept only the single unpadded base64url spelling minted above. Besides
+  // shrinking the parser surface, this prevents a replay from being presented
+  // under several equivalent textual encodings.
+  if (
+    Buffer.from(encoded, "base64url").toString("base64url") !== encoded ||
+    provided.toString("base64url") !== signature
+  ) return false;
   if (!isPayload(parsed)) return false;
   const keyring = options.keyring ?? activeKeyring();
   let expected: Buffer;

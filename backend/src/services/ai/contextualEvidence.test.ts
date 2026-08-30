@@ -28,11 +28,19 @@ const result = {
 
 describe("contextual evidence tokens", () => {
   it("derives a stable non-reversible database claim key", () => {
-    expect(digestContextualEvidenceToken("signed-token")).toMatch(/^[0-9a-f]{64}$/);
-    expect(digestContextualEvidenceToken("signed-token")).toBe(
-      digestContextualEvidenceToken("signed-token"),
+    const token = mintContextualEvidenceToken(actor, identity, files, result, {
+      keyring,
+      nowMs: 1_000,
+    });
+    expect(digestContextualEvidenceToken(token)).toMatch(/^[0-9a-f]{64}$/);
+    expect(digestContextualEvidenceToken(token)).toBe(
+      digestContextualEvidenceToken(token),
     );
-    expect(digestContextualEvidenceToken("signed-token")).not.toContain("signed-token");
+    expect(digestContextualEvidenceToken(token)).not.toContain(token);
+    const [payload, signature] = token.split(".");
+    expect(digestContextualEvidenceToken(`${payload}=.${signature}`)).toBe(
+      digestContextualEvidenceToken(token),
+    );
   });
 
   it("binds the actor, lesson epoch, revision, exact files, and exact run", () => {
@@ -72,6 +80,15 @@ describe("contextual evidence tokens", () => {
       nowMs: 1_000 + 15 * 60 * 1_000,
     })).toBe(false);
     expect(verifyContextualEvidenceToken(`${token}x`, actor, identity, files, result, {
+      keyring,
+      nowMs: 2_000,
+    })).toBe(false);
+    const [payload, signature] = token.split(".");
+    expect(verifyContextualEvidenceToken(`${payload}=.${signature}`, actor, identity, files, result, {
+      keyring,
+      nowMs: 2_000,
+    })).toBe(false);
+    expect(verifyContextualEvidenceToken(`${payload}.${signature}=`, actor, identity, files, result, {
       keyring,
       nowMs: 2_000,
     })).toBe(false);
