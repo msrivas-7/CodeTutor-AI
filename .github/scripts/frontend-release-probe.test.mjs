@@ -14,6 +14,7 @@ test("polls unique cache-busted URLs until the exact candidate propagates", asyn
   const urls = [];
   const sleeps = [];
   const observations = [];
+  let clock = 0;
   const replies = [
     response({ gitSha: staleSha }),
     response({ gitSha: expectedSha, workflowRunId: "123" }),
@@ -22,15 +23,18 @@ test("polls unique cache-busted URLs until the exact candidate propagates", asyn
   const release = await waitForFrontendRelease({
     url: "https://codetutor.example/release.json",
     expectedSha,
-    attempts: 3,
+    deadlineMs: 100,
     delayMs: 1,
     timeoutMs: 10,
-    now: () => 1000,
+    now: () => clock,
     fetchImpl: async (url, options) => {
       urls.push({ url: url.toString(), cacheControl: options.headers["cache-control"] });
       return replies.shift();
     },
-    sleepImpl: async (delay) => sleeps.push(delay),
+    sleepImpl: async (delay) => {
+      sleeps.push(delay);
+      clock += delay;
+    },
     onAttempt: (observation) => observations.push(observation),
   });
 
@@ -50,25 +54,54 @@ test("retries transport, HTTP, and malformed payload failures within one bound",
     response("not-json"),
   ];
   const observations = [];
+  let clock = 0;
 
   await assert.rejects(
     waitForFrontendRelease({
       url: "https://codetutor.example/release.json",
       expectedSha,
-      attempts: 3,
-      delayMs: 1,
+      deadlineMs: 25,
+      delayMs: 10,
       timeoutMs: 10,
+      now: () => clock,
       fetchImpl: async () => {
         const reply = replies.shift();
         if (reply instanceof Error) throw reply;
         return reply;
       },
-      sleepImpl: async () => {},
+      sleepImpl: async (delay) => {
+        clock += delay;
+      },
       onAttempt: ({ observation }) => observations.push(observation),
     }),
-    /after 3 cache-busted probes; last observation: invalid JSON/,
+    /within 25ms \(3 cache-busted probes\); last observation: invalid JSON/,
   );
   assert.deepEqual(observations, ["network unavailable", "HTTP 503", "invalid JSON"]);
+});
+
+test("one wall-clock deadline also bounds slow request failures", async () => {
+  let clock = 0;
+  let requests = 0;
+  await assert.rejects(
+    waitForFrontendRelease({
+      url: "https://codetutor.example/release.json",
+      expectedSha,
+      deadlineMs: 25,
+      delayMs: 10,
+      timeoutMs: 20,
+      now: () => clock,
+      fetchImpl: async () => {
+        requests += 1;
+        clock += 25;
+        throw new Error("request timed out");
+      },
+      sleepImpl: async (delay) => {
+        clock += delay;
+      },
+    }),
+    /within 25ms \(1 cache-busted probes\)/,
+  );
+  assert.equal(requests, 1);
 });
 
 test("rejects partial SHAs and invalid retry bounds", async () => {
@@ -76,7 +109,7 @@ test("rejects partial SHAs and invalid retry bounds", async () => {
     waitForFrontendRelease({
       url: "https://codetutor.example/release.json",
       expectedSha: "abc123",
-      attempts: 1,
+      deadlineMs: 1,
       delayMs: 1,
       timeoutMs: 1,
     }),
@@ -86,10 +119,10 @@ test("rejects partial SHAs and invalid retry bounds", async () => {
     waitForFrontendRelease({
       url: "https://codetutor.example/release.json",
       expectedSha,
-      attempts: 0,
+      deadlineMs: 0,
       delayMs: 1,
       timeoutMs: 1,
     }),
-    /attempts must be a positive integer/,
+    /deadlineMs must be a positive integer/,
   );
 });

@@ -23,7 +23,7 @@ function releaseProbeUrl(baseUrl, expectedSha, attempt, now) {
 export async function waitForFrontendRelease({
   url,
   expectedSha,
-  attempts = 18,
+  deadlineMs = 300_000,
   delayMs = 10_000,
   timeoutMs = 20_000,
   fetchImpl = globalThis.fetch,
@@ -35,18 +35,22 @@ export async function waitForFrontendRelease({
   if (!/^[0-9a-f]{40}$/.test(expectedSha ?? "")) {
     throw new Error("expectedSha must be a full lowercase Git SHA");
   }
-  attempts = positiveInteger(attempts, "attempts");
+  deadlineMs = positiveInteger(deadlineMs, "deadlineMs");
   delayMs = positiveInteger(delayMs, "delayMs");
   timeoutMs = positiveInteger(timeoutMs, "timeoutMs");
 
+  const deadlineAt = now() + deadlineMs;
   let lastObservation = "no response";
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+  let attempt = 0;
+  while (now() < deadlineAt) {
+    attempt += 1;
     const probeUrl = releaseProbeUrl(url, expectedSha, attempt, now());
     try {
+      const requestBudgetMs = Math.max(1, Math.min(timeoutMs, deadlineAt - now()));
       const response = await fetchImpl(probeUrl, {
         headers: { "cache-control": "no-cache" },
         redirect: "follow",
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: AbortSignal.timeout(requestBudgetMs),
       });
       const body = await response.text();
       if (!response.ok) {
@@ -70,11 +74,12 @@ export async function waitForFrontendRelease({
     }
 
     onAttempt({ attempt, matched: false, observation: lastObservation, url: probeUrl });
-    if (attempt < attempts) await sleepImpl(delayMs);
+    const remainingMs = deadlineAt - now();
+    if (remainingMs > 0) await sleepImpl(Math.min(delayMs, remainingMs));
   }
 
   throw new Error(
-    `deployed frontend did not report ${expectedSha} after ${attempts} cache-busted probes; last observation: ${lastObservation}`,
+    `deployed frontend did not report ${expectedSha} within ${deadlineMs}ms (${attempt} cache-busted probes); last observation: ${lastObservation}`,
   );
 }
 
@@ -100,7 +105,7 @@ async function main() {
   const release = await waitForFrontendRelease({
     url: args.url,
     expectedSha: args["expected-sha"],
-    attempts: args.attempts ? Number(args.attempts) : undefined,
+    deadlineMs: args["deadline-ms"] ? Number(args["deadline-ms"]) : undefined,
     delayMs: args["delay-ms"] ? Number(args["delay-ms"]) : undefined,
     timeoutMs: args["timeout-ms"] ? Number(args["timeout-ms"]) : undefined,
     onAttempt: ({ attempt, matched, observation }) => {
