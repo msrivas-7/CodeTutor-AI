@@ -1240,7 +1240,6 @@ export default function LessonPage({
     if (outcome.ok) {
       contextualGuide.accept();
     } else {
-      acceptedContextualEvidenceRef.current = null;
       if (outcome.invalidation === "stale") {
         // Hide the expired offer now, but let the next Run re-arm the same
         // authored error with a fresh server-signed evidence token.
@@ -1250,6 +1249,12 @@ export default function LessonPage({
         // the authored guide, but the mounted panel will expose only the
         // non-spending Open Tutor action while the runtime pause is latched.
         contextualGuide.dismiss();
+      } else {
+        // The signed proof is single-use at admission. Even when transport or
+        // provider recovery fails, retire this consent surface so the learner
+        // cannot keep resubmitting the same evidence. The visible Retry action
+        // continues as ordinary Tutor help against the current lesson context.
+        contextualGuide.accept();
       }
     }
     setContextualAskPending(false);

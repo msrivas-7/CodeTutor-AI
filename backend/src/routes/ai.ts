@@ -68,6 +68,7 @@ import {
   routeTutorModel,
 } from "../services/ai/modelRouting.js";
 import { getEffectivePlatformTutorModel } from "../services/ai/platformTutorModel.js";
+import { digestContextualEvidenceToken } from "../services/ai/contextualEvidence.js";
 import {
   mintTutorProgressToken,
   resolveTutorStage,
@@ -302,6 +303,7 @@ async function reserveUserAction(args: {
   countsTowardQuota: boolean;
   reservedInputTokens: number;
   reservedOutputTokens: number;
+  contextualEvidenceDigest?: string;
 }): Promise<ReserveAIRequestResult> {
   const priced = safePrice(
     args.model,
@@ -332,6 +334,7 @@ async function reserveUserAction(args: {
     reservedCostUsd: priced.costUsd,
     priceVersion: priced.priceVersion,
     expiresInMs: reservationTtlMs(),
+    contextualEvidenceDigest: args.contextualEvidenceDigest,
     caps,
   });
 }
@@ -346,6 +349,10 @@ function respondReservationResult(
   }
   if (result.kind === "conflict") {
     res.status(409).json({ error: "AI_REQUEST_ID_CONFLICT" });
+    return;
+  }
+  if (result.kind === "evidence_replay") {
+    res.status(409).json({ error: "CONTEXTUAL_EVIDENCE_REPLAYED" });
     return;
   }
   const statusByReason: Record<AIAdmissionDeniedReason, number> = {
@@ -657,6 +664,9 @@ aiRouter.post("/ask", async (req, res, next) => {
       model: providerParams.model,
       route: "ask",
       countsTowardQuota: cred.source === "platform",
+      contextualEvidenceDigest: parsed.data.contextualOffer
+        ? digestContextualEvidenceToken(parsed.data.contextualOffer.evidenceToken)
+        : undefined,
       ...estimate,
     });
   } catch (err) {
@@ -889,6 +899,9 @@ aiRouter.post("/ask/stream", async (req, res) => {
       model: providerParams.model,
       route: "ask_stream",
       countsTowardQuota: cred.source === "platform",
+      contextualEvidenceDigest: parsed.data.contextualOffer
+        ? digestContextualEvidenceToken(parsed.data.contextualOffer.evidenceToken)
+        : undefined,
       reservedInputTokens: estimate.reservedInputTokens,
       reservedOutputTokens: estimate.reservedOutputTokens,
     });

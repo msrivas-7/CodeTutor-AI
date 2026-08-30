@@ -38,6 +38,7 @@ interface ReserveBase {
   reservedCostUsd: number;
   priceVersion: number;
   expiresInMs: number;
+  contextualEvidenceDigest?: string;
 }
 
 export type ReserveAIRequestInput =
@@ -64,6 +65,7 @@ export type ReserveAIRequestResult =
       kind: "duplicate";
       state: AIReservationState;
     }
+  | { ok: false; kind: "evidence_replay" }
   | { ok: false; kind: "conflict" };
 
 interface ReservationRow {
@@ -314,12 +316,37 @@ export async function reserveAIRequest(
   if (!Number.isInteger(input.expiresInMs) || input.expiresInMs <= 0 || input.expiresInMs > 60_000) {
     throw new Error(`reservation TTL must be an integer in 1..60000 ms (got ${input.expiresInMs})`);
   }
+  if (
+    input.contextualEvidenceDigest !== undefined &&
+    !/^[0-9a-f]{64}$/.test(input.contextualEvidenceDigest)
+  ) {
+    throw new Error("contextual evidence digest must be 64 lowercase hex characters");
+  }
   const sql = db();
   return (await sql.begin(async (tx) => {
     if (input.fundingSource === "platform") {
       await tx`SELECT pg_advisory_xact_lock(hashtext(${ADMISSION_LOCK_KEY})::bigint)`;
       await reconcileExpiredReservations(tx);
     }
+    // The token-specific lock covers platform and BYOK admission across every
+    // backend replica. The unique index remains the final database invariant.
+    if (input.contextualEvidenceDigest) {
+      await tx`
+        SELECT pg_advisory_xact_lock(
+          hashtext(${`codetutor:contextual-evidence:${input.contextualEvidenceDigest}`})::bigint
+        )
+      `;
+      const claims = await tx<Array<{ request_id: string }>>`
+        SELECT request_id
+          FROM public.ai_request_reservations
+         WHERE contextual_evidence_digest = ${input.contextualEvidenceDigest}
+         FOR UPDATE
+      `;
+      if (claims[0] && claims[0].request_id !== input.requestId) {
+        return { ok: false, kind: "evidence_replay" } as const;
+      }
+    }
+
     // Serializes identical BYOK requests too. Without this, two transactions
     // can both observe no row and the loser surfaces a raw unique violation
     // instead of a stable duplicate result.
@@ -491,7 +518,8 @@ export async function reserveAIRequest(
     await tx`
       INSERT INTO public.ai_request_reservations (
         request_id, actor_kind, user_id, ip_hash, funding_source, model,
-        route, request_fingerprint, counts_toward_quota,
+        route, request_fingerprint, contextual_evidence_digest,
+        counts_toward_quota,
         reserved_input_tokens, reserved_output_tokens, reserved_cost_usd,
         price_version, expires_at
       ) VALUES (
@@ -499,7 +527,8 @@ export async function reserveAIRequest(
         ${input.actorKind === "user" ? input.userId : null},
         ${input.actorKind === "anonymous" ? input.ipHash : null},
         ${input.fundingSource}, ${input.model}, ${input.route},
-        ${input.requestFingerprint}, ${input.countsTowardQuota},
+        ${input.requestFingerprint}, ${input.contextualEvidenceDigest ?? null},
+        ${input.countsTowardQuota},
         ${input.reservedInputTokens}, ${input.reservedOutputTokens},
         ${input.reservedCostUsd}, ${input.priceVersion},
         now() + (${input.expiresInMs} * interval '1 millisecond')

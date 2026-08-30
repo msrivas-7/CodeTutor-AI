@@ -323,7 +323,7 @@ test.describe("contextual guidance and Tutor offer", () => {
     await expect(page.getByText("STALE_CONTEXT_SHOULD_NEVER_RENDER")).toHaveCount(0);
   });
 
-  test("a retry keeps the accepted contextual evidence while it is current", criticalTest({
+  test("a retry remains useful without replaying accepted contextual evidence", criticalTest({
     risk: "p0",
     owner: "learning",
     browsers: ["chromium", "webkit"],
@@ -361,14 +361,16 @@ test.describe("contextual guidance and Tutor offer", () => {
     await runCode(page);
     await page.getByTestId("contextual-guide-ask").click();
     await expect(page.getByRole("button", { name: /retry the last question/i })).toBeVisible();
+    await expect(page.getByTestId("contextual-guide-bridge")).toHaveCount(0);
     await page.getByRole("button", { name: /retry the last question/i }).click();
     await expect(page.getByText(/count the opening and closing parentheses/i)).toBeVisible();
 
     expect(requestBodies).toHaveLength(2);
     expect(requestBodies[1]).toMatchObject({
-      tutorAction: "contextual-help",
-      contextualOffer: requestBodies[0].contextualOffer,
+      question: "Help me spot the issue without giving me the answer.",
     });
+    expect(requestBodies[1].tutorAction).toBeUndefined();
+    expect(requestBodies[1].contextualOffer).toBeUndefined();
   });
 
   test("a kill-switch refusal retires contextual spending without a retry loop", criticalTest({

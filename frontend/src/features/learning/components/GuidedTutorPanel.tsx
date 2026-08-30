@@ -402,8 +402,11 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
           ok,
           contextualInvalidationRef.current ?? undefined,
         );
+        // A signed run proof funds one admitted contextual attempt. Retire it
+        // after every terminal outcome; Retry remains useful, but continues as
+        // ordinary Tutor help instead of replaying the same billed evidence.
+        updateActiveContextualOffer(null);
       }
-      if (ok || contextualInvalidationRef.current) updateActiveContextualOffer(null);
       contextualInvalidationRef.current = null;
       if (pendingHintRef.current) {
         pendingHintRef.current = false;

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  digestContextualEvidenceToken,
   mintContextualEvidenceToken,
   verifyContextualEvidenceToken,
 } from "./contextualEvidence.js";
@@ -26,6 +27,14 @@ const result = {
 };
 
 describe("contextual evidence tokens", () => {
+  it("derives a stable non-reversible database claim key", () => {
+    expect(digestContextualEvidenceToken("signed-token")).toMatch(/^[0-9a-f]{64}$/);
+    expect(digestContextualEvidenceToken("signed-token")).toBe(
+      digestContextualEvidenceToken("signed-token"),
+    );
+    expect(digestContextualEvidenceToken("signed-token")).not.toContain("signed-token");
+  });
+
   it("binds the actor, lesson epoch, revision, exact files, and exact run", () => {
     const token = mintContextualEvidenceToken(actor, identity, files, result, {
       keyring,

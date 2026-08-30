@@ -36,6 +36,11 @@ function digest(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("base64url");
 }
 
+/** Stable hex claim key; the raw signed token is never persisted. */
+export function digestContextualEvidenceToken(token: string): string {
+  return createHash("sha256").update(token, "utf8").digest("hex");
+}
+
 export function digestProjectFiles(files: readonly ProjectFile[]): string {
   return digest(JSON.stringify(
     [...files]

@@ -405,6 +405,11 @@ describe("POST /api/anon/ai/ask/stream — platform model routing", () => {
     expect(response.status).toBe(200);
     await response.text();
     expect(vi.mocked(openaiProvider.askStream)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(reserveAIRequest)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contextualEvidenceDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
+      }),
+    );
     expect(vi.mocked(openaiProvider.askStream).mock.calls[0][0]).toEqual(
       expect.objectContaining({
         tutorAction: "contextual-help",
@@ -414,6 +419,42 @@ describe("POST /api/anon/ai/ask/stream — platform model routing", () => {
         }),
       }),
     );
+  });
+
+  it("rejects a replayed contextual proof before the provider call", async () => {
+    vi.mocked(reserveAIRequest).mockResolvedValueOnce({
+      ok: false,
+      kind: "evidence_replay",
+    });
+    const response = await post(validBody({
+      question: "Help me spot the issue without giving me the answer.",
+      tutorAction: "contextual-help",
+      files: [{ path: "main.py", content: 'print("Hello"\n' }],
+      lastRun: {
+        stdout: "",
+        stderr: 'File "/workspace/main.py", line 1\nSyntaxError: \'(\' was never closed',
+        exitCode: 1,
+        errorType: "runtime",
+        durationMs: 10,
+        stage: "run",
+      },
+      contextualOffer: {
+        contextVersion: 0,
+        contextEpoch: "lesson:python-fundamentals/hello-world",
+        projectRevision: 2,
+        evidenceToken: "signed-evidence-token",
+        moveId: "notice-unclosed-parenthesis",
+        evidence: {
+          code: "python-unclosed-parenthesis",
+          path: "main.py",
+          line: 1,
+        },
+        scaffoldLevel: 1,
+      },
+    }));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "CONTEXTUAL_EVIDENCE_REPLAYED" });
+    expect(vi.mocked(openaiProvider.askStream)).not.toHaveBeenCalled();
   });
 
   it("makes no reservation or provider call when contextual offers are drained", async () => {

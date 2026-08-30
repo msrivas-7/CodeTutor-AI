@@ -581,6 +581,11 @@ describe("POST /api/ai/ask/stream — contextual Tutor 1C", () => {
     expect(res.status).toBe(200);
     await res.text();
     expect(vi.mocked(openaiProvider.askStream)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(reserveAIRequest)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contextualEvidenceDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
+      }),
+    );
     expect(vi.mocked(openaiProvider.askStream)).toHaveBeenCalledWith(
       expect.objectContaining({
         tutorAction: "contextual-help",
@@ -592,6 +597,20 @@ describe("POST /api/ai/ask/stream — contextual Tutor 1C", () => {
       }),
       expect.any(Object),
     );
+  });
+
+  it("rejects a replayed contextual proof before the provider call", async () => {
+    vi.mocked(reserveAIRequest).mockResolvedValueOnce({
+      ok: false,
+      kind: "evidence_replay",
+    });
+    const res = await req("u-1", "/api/ai/ask/stream", {
+      method: "POST",
+      body: JSON.stringify(contextualAskBody()),
+    });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "CONTEXTUAL_EVIDENCE_REPLAYED" });
+    expect(vi.mocked(openaiProvider.askStream)).not.toHaveBeenCalled();
   });
 
   it("rejects a forged contextual payload without the accepted action", async () => {

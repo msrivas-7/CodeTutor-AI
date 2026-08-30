@@ -115,7 +115,10 @@ import {
   resolveTutorStage,
   tutorTaskScope,
 } from "../services/ai/tutorProgress.js";
-import { mintContextualEvidenceToken } from "../services/ai/contextualEvidence.js";
+import {
+  digestContextualEvidenceToken,
+  mintContextualEvidenceToken,
+} from "../services/ai/contextualEvidence.js";
 
 // Anon AI is locked to lesson 1 of python-fundamentals. The marketing
 // surface (/try/lesson/...) only links to this one lesson; this server-
@@ -803,6 +806,9 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
         model: providerParams.model,
         route: "ask_stream",
         countsTowardQuota: true,
+        contextualEvidenceDigest: parsed.data.contextualOffer
+          ? digestContextualEvidenceToken(parsed.data.contextualOffer.evidenceToken)
+          : undefined,
         reservedInputTokens: estimate.reservedInputTokens,
         reservedOutputTokens: estimate.reservedOutputTokens,
         reservedCostUsd: reservedPrice.costUsd,
@@ -827,6 +833,9 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
       }
       if (reservation.kind === "conflict") {
         return res.status(409).json({ error: "AI_REQUEST_ID_CONFLICT" });
+      }
+      if (reservation.kind === "evidence_replay") {
+        return res.status(409).json({ error: "CONTEXTUAL_EVIDENCE_REPLAYED" });
       }
       respondAnonCredentialDenied(res, reservation.reason, "ask_stream");
       return;

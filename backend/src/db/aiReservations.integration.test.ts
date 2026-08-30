@@ -89,6 +89,16 @@ integrationDescribe("AI request reservations (real Postgres)", () => {
     });
   });
 
+  it("admits a signed contextual evidence proof only once across request IDs", async () => {
+    const contextualEvidenceDigest = "c".repeat(64);
+    const results = await Promise.all([
+      reserveAIRequest(reservation(randomUUID(), { contextualEvidenceDigest })),
+      reserveAIRequest(reservation(randomUUID(), { contextualEvidenceDigest })),
+    ]);
+    expect(results.filter((result) => result.ok)).toHaveLength(1);
+    expect(results).toContainEqual({ ok: false, kind: "evidence_replay" });
+  });
+
   it("keeps anonymous dollar caps isolated between IP identities", async () => {
     const caps = {
       globalDailyUsd: 100,
