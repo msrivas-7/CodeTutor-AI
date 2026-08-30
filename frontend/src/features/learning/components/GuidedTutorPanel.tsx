@@ -351,6 +351,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
       !configured ||
       asking ||
       Boolean(inputLocked) ||
+      !externalAskReady ||
       anonQuotaExhausted,
     onSettled: settleFocusComposer,
   });
