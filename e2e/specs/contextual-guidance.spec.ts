@@ -58,7 +58,10 @@ test.describe("contextual guidance and Tutor offer", () => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ contextualTutorEnabled: true }),
+        body: JSON.stringify({
+          contextualTutorEnabled: true,
+          contextualTutorModelEligible: true,
+        }),
       });
     });
   });
@@ -75,7 +78,10 @@ test.describe("contextual guidance and Tutor offer", () => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ contextualTutorEnabled: false }),
+        body: JSON.stringify({
+          contextualTutorEnabled: false,
+          contextualTutorModelEligible: true,
+        }),
       });
     });
     await page.route("**/api/anon/ai/ask/stream", async (route) => {
