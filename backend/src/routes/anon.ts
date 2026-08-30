@@ -400,6 +400,15 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
     })();
   });
 
+  // Public, actor-free gate state for the anonymous lesson. The trial UI
+  // cannot call the authenticated /api/user/ai-status endpoint, but it must
+  // still fail closed before advertising contextual help. The shared helper
+  // isolates lookup failures and returns false rather than breaking this
+  // lightweight status surface.
+  router.get("/ai-status", async (_req, res) => {
+    res.json({ contextualTutorEnabled: await isContextualTutorEnabled() });
+  });
+
   // -------- POST /api/anon/run -----------------------------------------
   // One-shot Python execution. Creates an ephemeral session per request;
   // tears it down in a finally block so a thrown executor doesn't leak

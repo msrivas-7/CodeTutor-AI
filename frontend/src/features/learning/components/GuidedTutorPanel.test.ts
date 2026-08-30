@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   canSubmitGuidedTutorTurn,
+  currentContextualOfferForRetry,
   resolveTutorPersona,
 } from "./GuidedTutorPanel";
+import type { ContextualTutorOfferRequest } from "../../../types";
 
 describe("resolveTutorPersona", () => {
   it.each(["beginner", "intermediate", "advanced"] as const)(
@@ -38,5 +40,22 @@ describe("canSubmitGuidedTutorTurn", () => {
     expect(canSubmitGuidedTutorTurn({ ...ready, configured: false })).toBe(false);
     expect(canSubmitGuidedTutorTurn({ ...ready, asking: true })).toBe(false);
     expect(canSubmitGuidedTutorTurn({ ...ready, exhausted: true })).toBe(false);
+  });
+});
+
+describe("currentContextualOfferForRetry", () => {
+  const offer: ContextualTutorOfferRequest = {
+    contextVersion: 0,
+    contextEpoch: "lesson:python-fundamentals/hello-world",
+    projectRevision: 7,
+    moveId: "python-unclosed-parenthesis",
+    evidence: { code: "python-unclosed-parenthesis", path: "main.py", line: 2 },
+    scaffoldLevel: 1,
+  };
+
+  it("retains the accepted offer only while its source revision is current", () => {
+    expect(currentContextualOfferForRetry(offer, 7)).toBe(offer);
+    expect(currentContextualOfferForRetry(offer, 8)).toBeNull();
+    expect(currentContextualOfferForRetry(null, 7)).toBeNull();
   });
 });

@@ -203,6 +203,8 @@ beforeEach(() => {
   vi.mocked(deleteEvalSamplesForSubjectToken).mockResolvedValue(0);
   vi.mocked(isAnonLessonEnabled).mockResolvedValue(true);
   vi.mocked(isAiEvalSamplingEnabled).mockResolvedValue(true);
+  vi.mocked(isContextualTutorEnabled).mockReset();
+  vi.mocked(isContextualTutorEnabled).mockResolvedValue(true);
   vi.mocked(getEffectivePlatformTutorModel).mockReset();
   vi.mocked(getEffectivePlatformTutorModel).mockResolvedValue({
     model: "gpt-5.6-luna",
@@ -221,6 +223,24 @@ beforeEach(() => {
       );
     },
   );
+});
+
+describe("GET /api/anon/ai-status", () => {
+  it("returns the authoritative contextual Tutor gate without authentication", async () => {
+    const response = await fetch(`${baseUrl}/api/anon/ai-status`);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ contextualTutorEnabled: true });
+  });
+
+  it("reports a disabled gate so the trial never advertises unavailable help", async () => {
+    vi.mocked(isContextualTutorEnabled).mockResolvedValueOnce(false);
+
+    const response = await fetch(`${baseUrl}/api/anon/ai-status`);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ contextualTutorEnabled: false });
+  });
 });
 
 describe("POST /api/anon/ai/ask/cancel", () => {

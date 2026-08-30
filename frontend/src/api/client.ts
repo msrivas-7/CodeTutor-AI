@@ -1476,6 +1476,8 @@ export const api = {
   // (source=byok), or the ExhaustionCard (source=none / free_exhausted).
   getAIStatus: () =>
     get<AIStatusResponse>("/api/user/ai-status"),
+  getAnonAIStatus: () =>
+    get<{ contextualTutorEnabled: boolean }>("/api/anon/ai-status"),
   // Exhaustion card telemetry — all three button outcomes feed this counter.
   // Both endpoints return 204 so we can't go through `post<T>` (which parses
   // JSON). Inline fetch with the shared auth + CSRF headers.

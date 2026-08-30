@@ -21,6 +21,13 @@ export function ContextualGuideBridge({
 }: ContextualGuideBridgeProps) {
   if (decision.kind !== "result_bridge" || !evidence) return null;
 
+  const tutorOfferDescription =
+    tutorOfferState === "loading"
+      ? "Checking whether contextual Tutor help is available. Nothing is sent yet."
+      : tutorOfferState === "ready"
+        ? "Help me spot it sends your current code and run evidence to the AI Tutor as one question."
+        : "Open Tutor moves focus to the Tutor without sending a question.";
+
   return (
     <section
       data-testid="contextual-guide-bridge"
@@ -85,7 +92,7 @@ export function ContextualGuideBridge({
             </button>
           )}
           <span id="contextual-guide-consent" className="sr-only">
-            Help me spot it sends your current code and run evidence to the AI Tutor as one question.
+            {tutorOfferDescription}
           </span>
         </div>
       )}

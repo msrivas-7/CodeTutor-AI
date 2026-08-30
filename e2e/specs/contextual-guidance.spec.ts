@@ -53,6 +53,46 @@ test.describe("contextual guidance and Tutor offer", () => {
   test.beforeEach(async ({ page }) => {
     await installStableTrial(page);
     await installRunMock(page);
+    await page.route("**/api/anon/ai-status", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ contextualTutorEnabled: true }),
+      });
+    });
+  });
+
+  test("an authoritative disabled gate keeps anonymous contextual help unavailable", criticalTest({
+    risk: "p0",
+    owner: "learning",
+    browsers: ["chromium", "webkit"],
+    devices: ["desktop"],
+    quarantine: { state: "none" },
+  }), async ({ page }) => {
+    let aiCalls = 0;
+    await page.route("**/api/anon/ai-status", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ contextualTutorEnabled: false }),
+      });
+    });
+    await page.route("**/api/anon/ai/ask/stream", async (route) => {
+      aiCalls += 1;
+      await route.abort();
+    });
+
+    await page.goto(PATH);
+    await waitForMonacoReady(page);
+    await setMonacoValue(page, 'print("Hello"\n');
+    await runCode(page);
+    await setMonacoValue(page, 'print("Hello, learner"\n');
+    await runCode(page);
+
+    await expect(page.getByTestId("contextual-guide-question")).toBeVisible();
+    await expect(page.getByTestId("contextual-guide-ask")).toHaveText("Open Tutor");
+    await expect(page.getByText("Help me spot it", { exact: true })).toHaveCount(0);
+    expect(aiCalls).toBe(0);
   });
 
   test("repeated evidence selects authored guidance without an automatic AI request", criticalTest({
@@ -275,6 +315,54 @@ test.describe("contextual guidance and Tutor offer", () => {
     await expect(page.getByText("Code changed", { exact: true })).toBeVisible();
     await expect(page.getByText("Your code changed while I was thinking—ask again when ready.")).toBeVisible();
     await expect(page.getByText("STALE_CONTEXT_SHOULD_NEVER_RENDER")).toHaveCount(0);
+  });
+
+  test("a retry keeps the accepted contextual evidence while it is current", criticalTest({
+    risk: "p0",
+    owner: "learning",
+    browsers: ["chromium", "webkit"],
+    devices: ["desktop"],
+    quarantine: { state: "none" },
+  }), async ({ page }) => {
+    const requestBodies: Array<Record<string, unknown>> = [];
+    await page.route("**/api/anon/ai/ask/stream", async (route) => {
+      requestBodies.push(route.request().postDataJSON() as Record<string, unknown>);
+      if (requestBodies.length === 1) {
+        await route.fulfill({
+          status: 502,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "provider unavailable" }),
+        });
+        return;
+      }
+      const sections = {
+        intent: "debug",
+        hint: "Count the opening and closing parentheses on the cited line.",
+        checkQuestions: ["Which opening parenthesis still needs its partner?"],
+      };
+      await route.fulfill({
+        status: 200,
+        contentType: "text/event-stream",
+        body: `data: ${JSON.stringify({ done: true, raw: JSON.stringify(sections), sections })}\n\n`,
+      });
+    });
+
+    await page.goto(PATH);
+    await waitForMonacoReady(page);
+    await setMonacoValue(page, 'print("Hello"\n');
+    await runCode(page);
+    await setMonacoValue(page, 'print("Hello, learner"\n');
+    await runCode(page);
+    await page.getByTestId("contextual-guide-ask").click();
+    await expect(page.getByRole("button", { name: /retry the last question/i })).toBeVisible();
+    await page.getByRole("button", { name: /retry the last question/i }).click();
+    await expect(page.getByText(/count the opening and closing parentheses/i)).toBeVisible();
+
+    expect(requestBodies).toHaveLength(2);
+    expect(requestBodies[1]).toMatchObject({
+      tutorAction: "contextual-help",
+      contextualOffer: requestBodies[0].contextualOffer,
+    });
   });
 
   test("a kill-switch refusal preserves the deterministic guide without a retry loop", criticalTest({
