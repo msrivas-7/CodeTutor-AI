@@ -640,13 +640,18 @@ export default function LessonPage({
     // Collapse and immediately opens the panel again.
     if (tutorOpenNonce <= handledTutorOpenNonceRef.current) return;
     handledTutorOpenNonceRef.current = tutorOpenNonce;
+    const focusState = useAIStore.getState();
+    const shouldFocusPanel =
+      layout.tutorCollapsed &&
+      focusState.focusComposerNonce <= focusState.focusComposerSettledNonce;
     layout.setTutorCollapsed(false);
+    if (!shouldFocusPanel) return;
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => {
         layout.tutorRef.current?.focus({ preventScroll: true });
       });
     });
-  }, [tutorOpenNonce, layout.setTutorCollapsed]);
+  }, [tutorOpenNonce, layout.setTutorCollapsed, layout.tutorCollapsed]);
   useEffect(() => {
     // A stale device-level layout preference must not hide the surface that
     // currently owns the welcome. This also keeps the explicit Skip welcome
@@ -1016,6 +1021,10 @@ export default function LessonPage({
     handledPhoneTutorOpenNonceRef.current = tutorOpenNonce;
     if (!isPhoneNative) return;
 
+    const focusState = useAIStore.getState();
+    const shouldFocusPanel =
+      focusState.focusComposerNonce <= focusState.focusComposerSettledNonce;
+
     requestAnimationFrame(() => {
       const tutor = layout.tutorRef.current;
       if (!tutor) return;
@@ -1026,7 +1035,10 @@ export default function LessonPage({
         behavior: reduceMotion ? "auto" : "smooth",
         block: "start",
       });
-      tutor.focus({ preventScroll: true });
+      // An Open Tutor recovery can carry a more specific composer-focus
+      // ticket. Preserve that ownership while still scrolling the compact
+      // Tutor into view; only generic open requests focus the panel itself.
+      if (shouldFocusPanel) tutor.focus({ preventScroll: true });
     });
   }, [isPhoneNative, layout.tutorRef, tutorOpenNonce]);
 
@@ -1187,11 +1199,15 @@ export default function LessonPage({
     const evidence = contextualGuide.context.latestRunEvidence;
     const evidenceToken = contextualEvidenceToken;
     if (decision.kind !== "result_bridge" || !decision.move || !evidence) return;
-    requestTutorOpen();
     if (contextualOfferState !== "ready" || !evidenceToken) {
       bumpTutorComposerFocus();
+      // Compact workspaces always mount the Tutor; focusing its composer also
+      // reveals it and avoids a competing parent-level panel focus. Desktop
+      // still needs the explicit open edge to cross a collapsed inert rail.
+      if (!isPhoneNative) requestTutorOpen();
       return;
     }
+    requestTutorOpen();
     if (acceptedContextualEvidenceRef.current === evidence.key) return;
     acceptedContextualEvidenceRef.current = evidence.key;
     contextualAskOutcomeRef.current = null;
@@ -1218,6 +1234,7 @@ export default function LessonPage({
     contextualGuide,
     contextualEvidenceToken,
     contextualOfferState,
+    isPhoneNative,
     requestTutorOpen,
     setPendingTutorAsk,
   ]);
@@ -1244,6 +1261,7 @@ export default function LessonPage({
       if (outcome.invalidation === "stale") {
         // Hide the expired offer now, but let the next Run re-arm the same
         // authored error with a fresh server-signed evidence token.
+        acceptedContextualEvidenceRef.current = null;
         contextualGuide.expireEvidence();
       } else if (
         outcome.invalidation === "disabled" ||
@@ -2405,6 +2423,7 @@ export default function LessonPage({
                 onDismiss={contextualGuide.dismiss}
                 onAskTutor={askContextualTutor}
                 tutorOfferState={contextualOfferState}
+                tutorSurfaceVisible={!layout.tutorCollapsed}
               />
               {/* Row 1 — Primary actions */}
               <div className="flex flex-wrap items-center gap-2 px-3 py-2">

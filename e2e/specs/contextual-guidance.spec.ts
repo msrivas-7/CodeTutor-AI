@@ -414,7 +414,10 @@ test.describe("contextual guidance and Tutor offer", () => {
     expect(calls).toBe(1);
 
     // The same authored guide remains useful, but its action now opens and
-    // focuses the ordinary non-spending Tutor path.
+    // focuses the ordinary non-spending Tutor path, even when that path has
+    // to cross the collapsed panel's inert boundary first.
+    await page.getByRole("button", { name: "Collapse tutor" }).click();
+    await expect(page.getByRole("button", { name: "Show tutor panel" })).toBeVisible();
     await page.getByTestId("contextual-guide-ask").click();
     await expect(page.getByLabel(/ask the tutor/i)).toBeFocused();
     expect(calls).toBe(1);
@@ -490,6 +493,12 @@ test.describe("contextual guidance and Tutor offer", () => {
     await runCode(page);
     await expect(page.getByTestId("contextual-guide-ask")).toHaveText("Help me spot it");
     expect(calls).toBe(1);
+
+    // A fresh token for the same code/path/line must be actionable. The stale
+    // token's accepted key cannot leave this replacement button inert.
+    await page.getByTestId("contextual-guide-ask").click();
+    await expect(page.getByText("Run evidence expired")).toBeVisible();
+    expect(calls).toBe(2);
   });
 
   test("phone keyboard height keeps the current cue and recovery controls reachable", criticalTest({
@@ -515,5 +524,35 @@ test.describe("contextual guidance and Tutor offer", () => {
     await expect(page.locator(".contextual-guide-editor-line")).toBeInViewport();
     await expect(page.getByRole("button", { name: /^run code/i }).first()).toBeInViewport();
     await expect(page.getByRole("button", { name: /check my work/i }).first()).toBeInViewport();
+  });
+
+  test("compact Open Tutor recovery scrolls to and focuses the composer", criticalTest({
+    risk: "p1",
+    owner: "learning",
+    browsers: ["chromium", "webkit"],
+    devices: ["phone"],
+    quarantine: { state: "none" },
+  }), async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 500 });
+    await page.route("**/api/anon/ai-status", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          contextualTutorEnabled: false,
+          contextualTutorModelEligible: true,
+        }),
+      });
+    });
+    await page.goto(PATH);
+    await waitForMonacoReady(page);
+    await setMonacoValue(page, 'print("Hello"\n');
+    await runCode(page);
+    await setMonacoValue(page, 'print("Hello, compact"\n');
+    await runCode(page);
+
+    await page.getByTestId("contextual-guide-ask").click();
+    await expect(page.getByLabel(/ask the tutor/i)).toBeFocused();
+    await expect(page.getByLabel(/ask the tutor/i)).toBeInViewport();
   });
 });

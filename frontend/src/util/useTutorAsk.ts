@@ -61,6 +61,18 @@ export function tutorRequestModel({
     : null;
 }
 
+export function contextualOfferInvalidationForError(
+  message: string,
+  mode: "authed" | "anon",
+): "stale" | "disabled" | "model" | "quota" | null {
+  if (/CONTEXTUAL_EVIDENCE_STALE/i.test(message)) return "stale";
+  if (/CONTEXTUAL_TUTOR_DISABLED/i.test(message)) return "disabled";
+  if (/MODEL_NOT_EVALUATED_FOR_CONTEXTUAL_OFFER/i.test(message)) return "model";
+  if (mode === "anon" && /ANON_EXHAUSTED/i.test(message)) return "quota";
+  if (mode === "authed" && /FREE_TIER_EXHAUSTED/i.test(message)) return "quota";
+  return null;
+}
+
 /** Load a current compatible choice before an existing BYOK user can ask. */
 export function useByokTutorModelReady(enabled: boolean): boolean {
   const selectedModel = useAIStore((state) => state.selectedModel);
@@ -449,27 +461,32 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
               committed = true;
               return;
             }
-            if (
-              options.contextualOffer &&
-              /CONTEXTUAL_EVIDENCE_STALE/i.test(message)
-            ) {
+            const contextualInvalidation = options.contextualOffer
+              ? contextualOfferInvalidationForError(
+                  message,
+                  isAnon ? "anon" : "authed",
+                )
+              : null;
+            if (contextualInvalidation === "stale") {
               opts.onContextualOfferInvalidated?.("stale");
               setAskError("CONTEXTUAL_EVIDENCE_STALE");
               clearStream();
               committed = true;
               return;
             }
-            if (
-              options.contextualOffer &&
-              /CONTEXTUAL_TUTOR_DISABLED/i.test(message)
-            ) {
+            if (contextualInvalidation === "disabled") {
               opts.onContextualOfferInvalidated?.("disabled");
             }
-            if (
-              options.contextualOffer &&
-              /MODEL_NOT_EVALUATED_FOR_CONTEXTUAL_OFFER/i.test(message)
-            ) {
+            if (contextualInvalidation === "model") {
               opts.onContextualOfferInvalidated?.("model");
+            }
+            if (!isAnon && contextualInvalidation === "quota") {
+              // Another signed-in tab can consume the last platform turn
+              // after this panel advertises contextual help. Admission did
+              // not spend this proof, so retain the authored guide and
+              // refresh the server-owned allowance before offering AI again.
+              opts.onContextualOfferInvalidated?.("quota");
+              invalidateAIStatus();
             }
             // Phase 27-v2.1 audit pass 1 fix #5: detect the L_anon
             // cap-exceeded error code and route to the wall instead

@@ -119,7 +119,11 @@ export function AskErrorView({
     showDetails = true,
   } = classifyAskError(message);
   const canRetry = onRetry && retryable;
-  const informational = kind === "canceled" || kind === "contextChanged" || kind === "platformPaused";
+  const informational =
+    kind === "canceled" ||
+    kind === "contextChanged" ||
+    kind === "platformPaused" ||
+    kind === "freeTierExhausted";
   return (
     <div
       role={informational ? "status" : "alert"}
@@ -207,6 +211,15 @@ export function classifyAskError(raw: string): {
       kind: "contextualEvidenceStale",
       title: "Run evidence expired",
       hint: "Run your code again to refresh the error, then use the new help offer.",
+      retryable: false,
+      showDetails: false,
+    };
+  }
+  if (m.includes("free_tier_exhausted")) {
+    return {
+      kind: "freeTierExhausted",
+      title: "Free tutor questions used for today",
+      hint: "Your code and current error guide are still here. Keep working now, or return after the daily reset.",
       retryable: false,
       showDetails: false,
     };

@@ -67,6 +67,23 @@ describe("ContextualGuideBridge", () => {
     expect(html).not.toContain("sends your current code and run evidence");
   });
 
+  it("removes the redundant unavailable action when Tutor is already visible", () => {
+    const html = renderToStaticMarkup(
+      <ContextualGuideBridge
+        decision={{ kind: "result_bridge", move }}
+        evidence={evidence}
+        onViewError={vi.fn()}
+        onDismiss={vi.fn()}
+        onAskTutor={vi.fn()}
+        tutorOfferState="unavailable"
+        tutorSurfaceVisible
+      />,
+    );
+    expect(html).not.toContain("Open Tutor");
+    expect(html).toContain("Jump to line 3");
+    expect(html).toContain(move.question);
+  });
+
   it("does not imply that context is sent while Tutor access is loading", () => {
     const html = renderToStaticMarkup(
       <ContextualGuideBridge

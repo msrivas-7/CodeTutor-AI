@@ -8,6 +8,7 @@ interface ContextualGuideBridgeProps {
   onDismiss: () => void;
   onAskTutor?: () => void;
   tutorOfferState?: "loading" | "ready" | "unavailable";
+  tutorSurfaceVisible?: boolean;
   compact?: boolean;
 }
 export function ContextualGuideBridge({
@@ -17,9 +18,14 @@ export function ContextualGuideBridge({
   onDismiss,
   onAskTutor,
   tutorOfferState = "unavailable",
+  tutorSurfaceVisible = false,
   compact = false,
 }: ContextualGuideBridgeProps) {
   if (decision.kind !== "result_bridge" || !evidence) return null;
+
+  const showTutorAction =
+    Boolean(onAskTutor) &&
+    !(tutorOfferState === "unavailable" && tutorSurfaceVisible);
 
   const tutorOfferDescription =
     tutorOfferState === "loading"
@@ -75,11 +81,11 @@ export function ContextualGuideBridge({
           >
             {decision.move.question}
           </p>
-          {onAskTutor && (
+          {showTutorAction && (
             <button
               type="button"
               data-testid="contextual-guide-ask"
-              onClick={onAskTutor}
+              onClick={onAskTutor!}
               disabled={tutorOfferState === "loading"}
               className="inline-flex min-h-11 shrink-0 items-center rounded-lg bg-accent px-3 text-xs font-semibold text-panel transition hover:bg-accent/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-panel disabled:cursor-wait disabled:opacity-60"
               aria-describedby="contextual-guide-consent"
@@ -91,9 +97,11 @@ export function ContextualGuideBridge({
                   : "Open Tutor"}
             </button>
           )}
-          <span id="contextual-guide-consent" className="sr-only">
-            {tutorOfferDescription}
-          </span>
+          {showTutorAction && (
+            <span id="contextual-guide-consent" className="sr-only">
+              {tutorOfferDescription}
+            </span>
+          )}
         </div>
       )}
     </section>

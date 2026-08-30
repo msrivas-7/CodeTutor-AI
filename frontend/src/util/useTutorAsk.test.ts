@@ -1,8 +1,28 @@
 import { describe, expect, it } from "vitest";
 import {
+  contextualOfferInvalidationForError,
   historyForTutor,
   tutorRequestModel,
 } from "./useTutorAsk";
+
+describe("contextualOfferInvalidationForError", () => {
+  it("classifies both anonymous and signed-in pre-admission quota refusals", () => {
+    expect(contextualOfferInvalidationForError(
+      '{"error":"ANON_EXHAUSTED"}',
+      "anon",
+    )).toBe("quota");
+    expect(contextualOfferInvalidationForError(
+      'Request failed (429): {"error":"FREE_TIER_EXHAUSTED"}',
+      "authed",
+    )).toBe("quota");
+  });
+
+  it("does not confuse unrelated or cross-mode quota errors with an invalidation", () => {
+    expect(contextualOfferInvalidationForError("HTTP 429", "authed")).toBeNull();
+    expect(contextualOfferInvalidationForError("ANON_EXHAUSTED", "authed")).toBeNull();
+    expect(contextualOfferInvalidationForError("FREE_TIER_EXHAUSTED", "anon")).toBeNull();
+  });
+});
 
 describe("tutorRequestModel", () => {
   it("ignores stale selected models for platform and anonymous funding", () => {

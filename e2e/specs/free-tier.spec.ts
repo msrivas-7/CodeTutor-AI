@@ -28,7 +28,7 @@ import {
   mockValidateKey,
 } from "../fixtures/aiMocks";
 import { loadProfile, markOnboardingDone } from "../fixtures/profiles";
-import { waitForMonacoReady } from "../fixtures/monaco";
+import { setMonacoValue, waitForMonacoReady } from "../fixtures/monaco";
 import * as S from "../utils/selectors";
 
 const COURSE_ID = "python-fundamentals";
@@ -41,6 +41,8 @@ type AIStatusBody = {
   capToday: number | null;
   resetAtUtc: string | null;
   hasShownPaidInterest?: boolean;
+  contextualTutorEnabled?: boolean;
+  contextualTutorModelEligible?: boolean;
 };
 
 // Routed per-test: we want the ai-status response to change as the test
@@ -1057,6 +1059,70 @@ test.describe("free AI tier", () => {
     await expect(
       page.getByText(/You've used today's free tutor questions/i),
     ).toBeVisible({ timeout: 5_000 });
+  });
+
+  test("cross-tab platform exhaustion preserves the current error guide", async ({ page }) => {
+    const resetAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    let exhausted = false;
+    let askCalls = 0;
+    let statusCalls = 0;
+    await page.route("**/api/user/ai-status", async (route) => {
+      statusCalls += 1;
+      const body: AIStatusBody = exhausted
+        ? {
+            source: "none",
+            reason: "free_exhausted",
+            remainingToday: null,
+            capToday: null,
+            resetAtUtc: resetAt,
+            contextualTutorEnabled: true,
+            contextualTutorModelEligible: false,
+          }
+        : {
+            source: "platform",
+            remainingToday: 1,
+            capToday: 30,
+            resetAtUtc: resetAt,
+            contextualTutorEnabled: true,
+            contextualTutorModelEligible: true,
+          };
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(body),
+      });
+    });
+    await page.route("**/api/ai/ask/stream", async (route) => {
+      askCalls += 1;
+      exhausted = true;
+      await route.fulfill({
+        status: 429,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "FREE_TIER_EXHAUSTED" }),
+      });
+    });
+    await loadProfile(page, "empty");
+    await page.goto(`/learn/course/${COURSE_ID}/lesson/${LESSON_ID}`);
+    await waitForMonacoReady(page);
+
+    const run = page.getByRole("button", { name: /^run code/i }).first();
+    await setMonacoValue(page, 'print("Hello"\n');
+    await run.click();
+    await expect(run).toBeEnabled();
+    await setMonacoValue(page, 'print("Hello, learner"\n');
+    await run.click();
+    await expect(run).toBeEnabled();
+    await expect(page.getByTestId("contextual-guide-ask")).toHaveText("Help me spot it");
+
+    await page.getByTestId("contextual-guide-ask").click();
+    await expect(page.getByText("Free tutor questions used for today")).toBeVisible();
+    await expect(page.getByTestId("contextual-guide-bridge")).toBeVisible();
+    await expect(page.getByTestId("contextual-guide-ask")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Jump to line 1" })).toBeVisible();
+    await expect(page.getByText(/You've used today's free tutor questions/i)).toBeVisible();
+    await expect(page.getByRole("button", { name: /retry the last question/i })).toHaveCount(0);
+    expect(askCalls).toBe(1);
+    expect(statusCalls).toBeGreaterThanOrEqual(2);
   });
 
   test("platform pill amber variant uses warn palette; non-amber uses accent", async ({

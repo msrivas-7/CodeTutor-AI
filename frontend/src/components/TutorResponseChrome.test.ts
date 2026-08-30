@@ -66,6 +66,16 @@ describe("tutor recovery copy", () => {
     });
   });
 
+  it("turns a signed-in allowance race into clear non-retryable recovery", () => {
+    expect(classifyAskError('{"error":"FREE_TIER_EXHAUSTED"}')).toEqual({
+      kind: "freeTierExhausted",
+      title: "Free tutor questions used for today",
+      hint: "Your code and current error guide are still here. Keep working now, or return after the daily reset.",
+      retryable: false,
+      showDetails: false,
+    });
+  });
+
   it("turns the contextual kill switch into a deterministic non-retryable recovery", () => {
     const result = classifyAskError('{"error":"CONTEXTUAL_TUTOR_DISABLED"}');
     expect(result).toMatchObject({
