@@ -36,7 +36,12 @@ export function normalizeRunEvidence(
   result: RunResult | null,
   projectPaths: readonly string[],
 ): AssistanceEvidence | null {
-  if (!result?.stderr || !PYTHON_UNCLOSED_PARENTHESIS.test(result.stderr)) {
+  if (
+    result?.stage !== "compile" ||
+    result.errorType !== "compile" ||
+    !result.stderr ||
+    !PYTHON_UNCLOSED_PARENTHESIS.test(result.stderr)
+  ) {
     return null;
   }
 

@@ -21,9 +21,9 @@ function pythonUnclosedParenthesis(line: number, receipt = `line-${line}`) {
     stdout: "",
     stderr: `  File "/workspace/main.py", line ${line}\n    print("Hello"\n         ^\nSyntaxError: '(' was never closed\n`,
     exitCode: 1,
-    errorType: "runtime",
+    errorType: "compile",
     durationMs: 4,
-    stage: "run",
+    stage: "compile",
     contextualEvidenceToken: `signed-contextual-evidence-${receipt}`,
   };
 }
@@ -72,6 +72,47 @@ test.describe("contextual guidance and Tutor offer", () => {
         }),
       });
     });
+  });
+
+  test("learner-authored stderr cannot impersonate a parser diagnostic", criticalTest({
+    risk: "p0",
+    owner: "learning",
+    browsers: ["chromium"],
+    devices: ["desktop"],
+    quarantine: { state: "none" },
+  }), async ({ page }) => {
+    await page.unroute("**/api/anon/run");
+    let aiCalls = 0;
+    await page.route("**/api/anon/ai/ask/stream", async (route) => {
+      aiCalls += 1;
+      await route.abort();
+    });
+
+    await page.goto(PATH);
+    await waitForMonacoReady(page);
+    await setMonacoValue(
+      page,
+      "import sys\nsys.stderr.write('File \\\"/workspace/main.py\\\", line 1\\nSyntaxError: \\\'(\\\' was never closed\\n')\nraise SystemExit(1)\n",
+    );
+    await runCode(page);
+    await expect(page.getByRole("region", { name: "Program output" }))
+      .toContainText("Runtime error");
+    await expect(page.getByTestId("contextual-guide-bridge")).toHaveCount(0);
+    await expect(page.getByTestId("contextual-guide-ask")).toHaveCount(0);
+
+    await setMonacoValue(page, 'print("alpha"\n');
+    await runCode(page);
+    await setMonacoValue(page, 'print("beta"\n');
+    await runCode(page);
+    await expect(page.getByRole("region", { name: "Program output" }))
+      .toContainText("Compile error");
+    await expect(page.getByTestId("contextual-guide-question")).toHaveText(
+      "Which opening parenthesis still needs a closing partner?",
+    );
+    await expect(page.getByTestId("contextual-guide-ask")).toHaveText(
+      "Help me spot it",
+    );
+    expect(aiCalls).toBe(0);
   });
 
   test("an authoritative disabled gate keeps anonymous contextual help unavailable", criticalTest({

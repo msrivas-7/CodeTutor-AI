@@ -87,7 +87,15 @@ function runMatchesContextualEvidence(
   files: readonly ProjectFile[],
   lastRun: RunResult | null | undefined,
 ): boolean {
-  if (!lastRun?.stderr || !UNCLOSED_PARENTHESIS.test(lastRun.stderr)) return false;
+  // Python is parsed in the sandbox before learner code runs. Only that
+  // server-owned compile stage may fund contextual help; runtime stderr is
+  // arbitrary learner-program output and can impersonate interpreter text.
+  if (
+    lastRun?.stage !== "compile" ||
+    lastRun.errorType !== "compile" ||
+    !lastRun.stderr ||
+    !UNCLOSED_PARENTHESIS.test(lastRun.stderr)
+  ) return false;
   const locations = [...lastRun.stderr.matchAll(PYTHON_LOCATION)];
   const location = locations.at(-1);
   if (!location || Number.parseInt(location[2], 10) !== offer.evidence.line) return false;

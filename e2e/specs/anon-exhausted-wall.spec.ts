@@ -104,9 +104,9 @@ test.describe("Phase 27-v2.1 — ANON_EXHAUSTED → wall pivot", () => {
           stderr:
             '  File "/workspace/main.py", line 1\n    print(\n         ^\nSyntaxError: \'(\' was never closed\n',
           exitCode: 1,
-          errorType: "runtime",
+          errorType: "compile",
           durationMs: 8,
-          stage: "run",
+          stage: "compile",
           contextualEvidenceToken: "signed-contextual-evidence",
         }),
       }),

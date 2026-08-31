@@ -1,7 +1,7 @@
 {
   "datasetVersion": "2.14.0",
   "datasetFingerprint": "b7adbdfe610a7bbddcd8e179078966c48baaec86f5957e7a4e2dfd861ea7e938",
-  "evaluatorVersion": "2.21.0",
+  "evaluatorVersion": "2.22.0",
   "approvedModel": "platform-tutor-config.v2",
   "approvedJudgeModel": "gpt-5.6-terra",
   "approvedRoutingPolicyVersion": "platform-tutor-config.v2",
@@ -16,8 +16,8 @@
     "walkthrough": "gpt-5.6-luna",
     "checkin": "gpt-5.6-luna"
   },
-  "approvedAt": "2026-08-31T04:25:35.723Z",
-  "qualityContractFingerprint": "878cec23a65401a2b5c7bbb301a642b9567e9d0d0c2330841ec07a60f018bee5",
+  "approvedAt": "2026-08-31T04:51:10.727Z",
+  "qualityContractFingerprint": "c0866e3b97a0a7e83ccc4d829664b5ef16052871022d68058edc20131aac46e0",
   "postureOverall": 1,
   "postureByIntent": {
     "socratic": 1,

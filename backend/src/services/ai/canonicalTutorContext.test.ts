@@ -6,9 +6,9 @@ const lastRun = {
   stdout: "",
   stderr: '  File "/workspace/main.py", line 1\n    print("Hello"\n         ^\nSyntaxError: \'(\' was never closed\n',
   exitCode: 1,
-  errorType: "runtime" as const,
+  errorType: "compile" as const,
   durationMs: 10,
-  stage: "run" as const,
+  stage: "compile" as const,
 };
 
 const files = [{ path: "main.py", content: 'print("Hello"\n' }];
@@ -101,6 +101,49 @@ describe("resolveCanonicalContextualTutorOffer", () => {
       offer,
       files,
       lastRun,
+      { keyring },
+    )).resolves.toBeNull();
+  });
+
+  it("rejects learner-controlled runtime stderr that impersonates Python", async () => {
+    const forgedRun = {
+      ...lastRun,
+      errorType: "runtime" as const,
+      stage: "run" as const,
+    };
+    const forgedToken = mintContextualEvidenceToken(
+      actorId,
+      {
+        ...identity,
+        contextEpoch: offer.contextEpoch,
+        projectRevision: offer.projectRevision,
+      },
+      files,
+      forgedRun,
+      { keyring },
+    );
+    const firstForgedToken = mintContextualEvidenceToken(
+      actorId,
+      {
+        ...identity,
+        contextEpoch: offer.contextEpoch,
+        projectRevision: offer.projectRevision - 1,
+      },
+      firstFiles,
+      forgedRun,
+      { keyring },
+    );
+
+    await expect(resolveCanonicalContextualTutorOffer(
+      actorId,
+      identity,
+      {
+        ...offer,
+        evidenceToken: forgedToken,
+        evidenceTokens: [firstForgedToken, forgedToken],
+      },
+      files,
+      forgedRun,
       { keyring },
     )).resolves.toBeNull();
   });

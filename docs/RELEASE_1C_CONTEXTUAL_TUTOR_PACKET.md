@@ -15,7 +15,9 @@ hint, and a canonical file/line reference without revealing the answer.
   lesson-authored move and rejects mismatched lesson, evidence, revision,
   context epoch/version, path, line, error code, or scaffold level.
 - Source code, stderr, conversation history, and browser fields remain
-  untrusted prompt content. They cannot select the teaching contract.
+  untrusted prompt content. Python is parsed before learner code executes, and
+  only that server-owned compile diagnostic can qualify the authored offer;
+  runtime stderr cannot select or fund the teaching contract.
 - Acceptance is episode-idempotent in the client and request-idempotent at the
   existing server admission boundary.
 - A source/context change invalidates an in-flight generation. Stale content is
@@ -35,10 +37,10 @@ Focused Luna evidence passed 6/6 twice. One representative run cost $0.046303
 total, or $0.007717 per accepted call, with 35,887 input and 1,736 output tokens;
 the contextual payload added about 280 input tokens versus the normal path.
 The final production-routed artifact
-`backend/eval/runs/2026-08-31T01-44-39-965Z-v2.json` passed all 72 cases,
+`backend/eval/runs/2026-08-31T04-51-10-727Z-v2.json` passed all 72 cases,
 every intent at 100%, and zero deterministic failures. It used the approved
-`54d6d1a685df3ab1…` quality-contract fingerprint; the independent baseline
-verifier passed. The full run cost $0.552507 across all 72 judged cases.
+`c0866e3b97a0a7e8…` quality-contract fingerprint; the independent baseline
+verifier passed. The full run cost $0.550599 across all 72 judged cases.
 
 ## Browser evidence contract
 
@@ -51,9 +53,11 @@ The final rebuilt local replay passed. Actual-browser evidence includes the
 zero-charge offer, double-click one-call protection, current receipt and
 citation, useful bounded response, dismissal persistence, target focus,
 390×500 cue/target coexistence, light/dark themes, reduced motion, and stale
-generation recovery. Finding audit:
-`05f1c23e-b616-4e7b-b3fa-9c00e1e1e208`; phase audit:
-`84ad08b1-9eff-44cb-90c4-c4b97cee4215`.
+generation recovery. The release-boundary replay also proved that forged
+Python-looking runtime stderr cannot show or fund contextual help, while two
+genuine parser failures still produce the authored guide. Finding audit:
+`8a292b5d-dcb6-4678-9e24-11c330d0d987`; phase audit:
+`41617175-7bc9-4905-982c-df5cf735438e`.
 
 ## Rollback
 

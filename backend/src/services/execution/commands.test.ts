@@ -30,9 +30,11 @@ describe("isLanguage", () => {
 describe("commandFor", () => {
   describe("python", () => {
     const cmd = commandFor("python");
-    it("uses main.py as entrypoint and has no compile step", () => {
+    it("parses main.py without executing learner code before the run", () => {
       expect(cmd.entrypoint).toBe("main.py");
-      expect(cmd.compile).toBeNull();
+      expect(cmd.compile?.label).toBe("compile");
+      expect(cmd.compile?.shell).toContain("python3 -m py_compile main.py");
+      expect(cmd.compile?.shell).toContain("PYTHONPYCACHEPREFIX=/tmp/");
     });
     it("runs via python3", () => {
       expect(cmd.run.shell).toBe("python3 main.py");
@@ -166,12 +168,12 @@ describe("commandFor", () => {
 
   it("marks compile-less languages correctly", () => {
     const compileless = LANGUAGES.filter((l) => commandFor(l).compile === null);
-    expect(compileless.slice().sort()).toEqual(["javascript", "python", "ruby", "typescript"]);
+    expect(compileless.slice().sort()).toEqual(["javascript", "ruby", "typescript"]);
   });
 
   it("marks compiled languages with a compile step labelled 'compile'", () => {
     const compiled = LANGUAGES.filter((l): l is Language => commandFor(l).compile !== null);
-    expect(compiled.slice().sort()).toEqual(["c", "cpp", "go", "java", "rust"]);
+    expect(compiled.slice().sort()).toEqual(["c", "cpp", "go", "java", "python", "rust"]);
     for (const lang of compiled) {
       expect(commandFor(lang).compile?.label).toBe("compile");
     }
