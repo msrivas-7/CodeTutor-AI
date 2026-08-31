@@ -281,9 +281,9 @@ jobs:
       - name: Run Playwright tests
         working-directory: e2e
         # --shard partitions specs across the matrix — each runner
-        # picks up ~1/10 of the suite and runs it in parallel with the
+        # picks up ~1/16 of the suite and runs it in parallel with the
         # other shards. Each shard has its own docker-compose stack +
-        # 2 Playwright workers, so the effective parallelism is 20
+        # 2 Playwright workers, so the effective parallelism is 32
         # without any single runner being starved.
         run: npx playwright test --shard=${{ matrix.shard }}/${{ strategy.job-total }}
 
