@@ -106,7 +106,7 @@ npm run test:real
 
 See `.github/workflows/e2e.yml`. The current PR model is:
 
-- sixteen blocking Chromium shards for all 437 tests, selected by a same-commit,
+- sixteen blocking Chromium shards for all 439 tests, selected by a same-commit,
   zero-retry capacity benchmark with no regression-coverage reduction;
 - blocking Firefox and WebKit focused journeys;
 - one advisory, zero-retry Chromium critical lane (currently 41 tests in 15 files);
