@@ -80,6 +80,21 @@ test("advisory critical coverage is split across two isolated duration-balanced 
   assert.match(workflow, /critical-shadow-summary:[\s\S]+files\.length!==2/);
 });
 
+test("duration planning receives the authenticated fixture environment required for discovery", () => {
+  const planningJob = workflow.match(/\n  duration-plan:\n([\s\S]+?)\n  prepare-backend:/)?.[1] ?? "";
+  for (const variable of [
+    "SUPABASE_URL",
+    "SUPABASE_ANON_KEY",
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "VITE_SUPABASE_URL",
+    "VITE_SUPABASE_ANON_KEY",
+    "DATABASE_URL",
+    "BYOK_ENCRYPTION_KEY",
+  ]) {
+    assert.match(planningJob, new RegExp(`${variable}: \\$\\{\\{ secrets\\.${variable} }}`));
+  }
+});
+
 test("accepts the measured inventory and normal growth", () => {
   assert.equal(evaluateShardCapacity({ record, totalTests: 439, activeShards: 16 }).eligible, true);
   assert.equal(evaluateShardCapacity({ record, totalTests: 466, activeShards: 16 }).eligible, true);
