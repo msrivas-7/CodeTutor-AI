@@ -99,7 +99,10 @@ interface GuidedTutorPanelProps {
   onContextualTutorAskComplete?: (
     ok: boolean,
     invalidation?: "stale" | "disabled" | "model" | "quota" | "availability",
+    interruption?: "panel-remounted",
   ) => void;
+  /** Reports an in-flight ask canceled by a responsive panel replacement. */
+  onTutorAskInterrupted?: () => void;
   /** Promotes an admission refusal to lesson scope before this panel can remount. */
   onContextualTutorOfferInvalidated?: (
     invalidation: "disabled" | "model" | "quota" | "availability",
@@ -156,7 +159,7 @@ export function resolveTutorSource(
   return hasKey ? "byok" : (statusSource ?? "none");
 }
 
-export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, priorConcepts, activePracticeExercise, onCollapse, onOpenSettings, resetNonce, inputLocked, clearHidden, mode = "authed", onAnonExhausted, onAnonTrialPaused, onAnonSaveRequested, onSkipWelcome, initialAnonTutorState, onContextualTutorAvailabilityChange, onContextualTutorAskComplete, onContextualTutorOfferInvalidated, externalAskReady = true, contextualRuntimeUnavailable: parentContextualRuntimeUnavailable = false }: GuidedTutorPanelProps) {
+export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, priorConcepts, activePracticeExercise, onCollapse, onOpenSettings, resetNonce, inputLocked, clearHidden, mode = "authed", onAnonExhausted, onAnonTrialPaused, onAnonSaveRequested, onSkipWelcome, initialAnonTutorState, onContextualTutorAvailabilityChange, onContextualTutorAskComplete, onContextualTutorOfferInvalidated, onTutorAskInterrupted, externalAskReady = true, contextualRuntimeUnavailable: parentContextualRuntimeUnavailable = false }: GuidedTutorPanelProps) {
   const incrementHint = useProgressStore((s) => s.incrementHint);
   // Derive the hint cap from the DB-backed hint_count (not local component
   // state) so the limit survives navigation + reload. Local state rewinds on
@@ -434,11 +437,13 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
         }
       }
     },
-    onAskComplete: ({ ok }) => {
+    onAskComplete: ({ ok, interruption }) => {
+      if (interruption === "panel-remounted") onTutorAskInterrupted?.();
       if (activeContextualOfferRef.current) {
         onContextualTutorAskComplete?.(
           ok,
           contextualInvalidationRef.current ?? undefined,
+          interruption,
         );
         // A signed run proof funds one admitted contextual attempt. Retire it
         // after every terminal outcome; Retry remains useful, but continues as

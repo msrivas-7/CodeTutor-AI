@@ -8,6 +8,14 @@ import { criticalTest } from "../fixtures/testMetadata";
 
 const PATH = "/try/lesson/python-fundamentals/hello-world";
 
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
 function pythonUnclosedParenthesis(line: number, receipt = `line-${line}`) {
   return {
     stdout: "",
@@ -479,6 +487,72 @@ test.describe("contextual guidance and Tutor offer", () => {
     await page.getByTestId("contextual-guide-ask").click();
     await expect(page.getByLabel(/ask the tutor/i)).toBeFocused();
     expect(calls).toBe(1);
+  });
+
+  test("a responsive Tutor remount refunds pending contextual help and preserves recovery", criticalTest({
+    risk: "p0",
+    owner: "learning",
+    browsers: ["chromium", "webkit"],
+    devices: ["desktop"],
+    quarantine: { state: "none" },
+  }), async ({ page }) => {
+    const firstRelease = deferred();
+    const firstStarted = deferred();
+    let askCalls = 0;
+    let cancelCalls = 0;
+    await page.route("**/api/anon/ai/ask/cancel", async (route) => {
+      cancelCalls += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ canceled: true, refunded: true }),
+      });
+    });
+    await page.route("**/api/anon/ai/ask/stream", async (route) => {
+      askCalls += 1;
+      if (askCalls === 1) {
+        firstStarted.resolve();
+        await firstRelease.promise;
+      }
+      const sections = {
+        intent: "debug",
+        hint: "Count the opening and closing parentheses on the cited line.",
+        checkQuestions: ["Which opening parenthesis still needs its partner?"],
+      };
+      try {
+        await route.fulfill({
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+          body: `data: ${JSON.stringify({ done: true, raw: JSON.stringify(sections), sections })}\n\n`,
+        });
+      } catch {
+        // The first transport is expected to be gone after the responsive
+        // subtree replacement. Callback guards still protect a losing race.
+      }
+    });
+
+    await page.goto(PATH);
+    await waitForMonacoReady(page);
+    await setMonacoValue(page, 'print("Hello"\n');
+    await runCode(page);
+    await setMonacoValue(page, 'print("Hello, learner"\n');
+    await runCode(page);
+    await page.getByTestId("contextual-guide-ask").click();
+    await firstStarted.promise;
+    await expect(page.getByRole("status", { name: /tutor is thinking/i })).toBeVisible();
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    firstRelease.resolve();
+    await expect.poll(() => cancelCalls).toBe(1);
+    await expect(page.getByText("Tutor view changed", { exact: true })).toBeVisible();
+    await expect(page.getByText(/turn was released from your daily allowance/i)).toBeVisible();
+    await expect(page.getByTestId("contextual-guide-question")).toBeVisible();
+    await expect(page.getByRole("button", { name: /retry the last question/i })).toBeVisible();
+
+    await page.getByRole("button", { name: /retry the last question/i }).click();
+    await expect(page.getByText(/count the opening and closing parentheses/i)).toBeVisible();
+    expect(askCalls).toBe(2);
+    expect(cancelCalls).toBe(1);
   });
 
   test("a lesson-context refusal preserves the free guide without replaying consent", criticalTest({

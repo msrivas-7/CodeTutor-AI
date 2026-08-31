@@ -126,7 +126,10 @@ export interface UseTutorAskOpts {
   // cancel / abort / thrown. Used for side-effects bound to the ask outcome
   // — e.g. the guided panel's hint counter only commits on success, so the
   // student doesn't burn a hint on a 500 they never saw.
-  onAskComplete?: (outcome: { ok: boolean }) => void;
+  onAskComplete?: (outcome: {
+    ok: boolean;
+    interruption?: "panel-remounted";
+  }) => void;
   /** Invalidates a contextual offer whose signed evidence can no longer be used. */
   onContextualOfferInvalidated?: (
     reason: "stale" | "disabled" | "model" | "quota" | "availability",
@@ -239,7 +242,9 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
   const { status: aiStatus } = useAIStatus({ skip: isAnon });
   const abortRef = useRef<AbortController | null>(null);
   const activeRequestIdRef = useRef<string | null>(null);
-  const activeCompletionRef = useRef<(() => void) | null>(null);
+  const activeCompletionRef = useRef<((
+    interruption?: "panel-remounted",
+  ) => void) | null>(null);
 
   const refundDiscardedRequest = useCallback((requestId: string): void => {
     const endpoint = isAnon
@@ -280,7 +285,11 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
     activeRequestIdRef.current = null;
     if (requestId) refundDiscardedRequestRef.current(requestId);
     controller.abort();
-    activeCompletionRef.current?.();
+    // The responsive lesson workspace replaces the Tutor subtree at its
+    // compact breakpoint. Surface that lifecycle interruption explicitly so
+    // the lesson can preserve its deterministic guide instead of treating the
+    // canceled contextual turn as an ordinary provider failure.
+    activeCompletionRef.current?.("panel-remounted");
     activeCompletionRef.current = null;
     clearStream();
     setAsking(false);
@@ -352,14 +361,19 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
       useAIStore.getState().conversationRevision === conversationRevisionForTurn &&
       useRunStore.getState().inputRevision === inputRevisionForTurn &&
       isProjectOperationCurrent(operation);
-    const notifyCompletion = (ok: boolean): void => {
+    const notifyCompletion = (
+      ok: boolean,
+      interruption?: "panel-remounted",
+    ): void => {
       if (completionNotified) return;
       completionNotified = true;
-      opts.onAskComplete?.({ ok });
+      opts.onAskComplete?.({ ok, interruption });
     };
     // Read askOk at cleanup time so a route transition that races just after
     // onDone does not relabel an already-completed answer as a failed turn.
-    activeCompletionRef.current = () => notifyCompletion(askOk);
+    activeCompletionRef.current = (interruption) => {
+      notifyCompletion(askOk, askOk ? undefined : interruption);
+    };
     let raw = "";
     let committed = false;
 

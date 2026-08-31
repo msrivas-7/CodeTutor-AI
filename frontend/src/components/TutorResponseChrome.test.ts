@@ -56,6 +56,14 @@ describe("tutor recovery copy", () => {
     });
   });
 
+  it("explains a responsive Tutor remount as a retryable released turn", () => {
+    expect(classifyAskError("TUTOR_PANEL_REMOUNTED")).toEqual({
+      kind: "contextChanged",
+      title: "Tutor view changed",
+      hint: "The Tutor moved while I was thinking, so that turn was released from your daily allowance. Your error guide is still here; retry when you’re ready.",
+    });
+  });
+
   it("retires expired signed evidence and directs the learner to run again", () => {
     expect(classifyAskError("CONTEXTUAL_EVIDENCE_STALE")).toEqual({
       kind: "contextualEvidenceStale",

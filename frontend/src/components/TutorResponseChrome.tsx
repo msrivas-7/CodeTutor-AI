@@ -224,6 +224,13 @@ export function classifyAskError(raw: string): {
       hint: "The response stopped, and this turn is released from your daily allowance. You can retry the same question when you’re ready.",
     };
   }
+  if (m.includes("tutor_panel_remounted")) {
+    return {
+      kind: "contextChanged",
+      title: "Tutor view changed",
+      hint: "The Tutor moved while I was thinking, so that turn was released from your daily allowance. Your error guide is still here; retry when you’re ready.",
+    };
+  }
   if (m.includes("contextual_evidence_stale")) {
     return {
       kind: "contextualEvidenceStale",

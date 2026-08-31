@@ -141,6 +141,7 @@ test.describe(
     await waitForMonacoReady(page);
     await expect.poll(() => cancelCalls).toBe(1);
     await expect(S.tutorInput(page)).toBeEnabled({ timeout: 10_000 });
+    await expect(page.getByText("Tutor view changed", { exact: true })).toHaveCount(0);
 
     release.resolve();
     await settled.promise;

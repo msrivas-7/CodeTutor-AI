@@ -630,6 +630,7 @@ export default function LessonPage({
   const resetCodeButtonRef = useRef<HTMLButtonElement>(null);
   const tutorOpenNonce = useAIStore((s) => s.tutorOpenNonce);
   const setPendingTutorAsk = useAIStore((s) => s.setPendingAsk);
+  const setTutorAskError = useAIStore((s) => s.setAskError);
   const requestTutorOpen = useAIStore((s) => s.requestTutorOpen);
   const bumpTutorComposerFocus = useAIStore((s) => s.bumpFocusComposer);
   const handledTutorOpenNonceRef = useRef(0);
@@ -1131,11 +1132,31 @@ export default function LessonPage({
     !practiceMode &&
     !!loader.lesson?.assistanceMoves;
   const guidedTutorLessonKey = `${courseId}/${lessonId}`;
+  const [tutorRemountInterruption, setTutorRemountInterruption] = useState<{
+    lessonKey: string;
+    sequence: number;
+  } | null>(null);
+  const handleTutorAskInterrupted = useCallback(() => {
+    setTutorRemountInterruption((current) => ({
+      lessonKey: guidedTutorLessonKey,
+      sequence: (current?.sequence ?? 0) + 1,
+    }));
+  }, [guidedTutorLessonKey]);
+  useEffect(() => {
+    if (!tutorRemountInterruption) return;
+    if (tutorRemountInterruption.lessonKey === guidedTutorLessonKey) {
+      setTutorAskError("TUTOR_PANEL_REMOUNTED");
+    }
+    // This is an edge, not remembered lesson state. Consuming it prevents a
+    // later return to this route from replaying an old responsive interruption.
+    setTutorRemountInterruption(null);
+  }, [guidedTutorLessonKey, setTutorAskError, tutorRemountInterruption]);
   const [contextualAskPending, setContextualAskPending] = useState(false);
   const contextualAskOutcomeRef = useRef<{
     lessonKey: string;
     ok: boolean;
     invalidation?: "stale" | "disabled" | "model" | "quota" | "availability";
+    interruption?: "panel-remounted";
   } | null>(null);
   useEffect(() => {
     // The keyed Tutor reports an aborted in-flight ask while the route is
@@ -1263,6 +1284,7 @@ export default function LessonPage({
   const handleContextualTutorAskComplete = useCallback((
     ok: boolean,
     invalidation?: "stale" | "disabled" | "model" | "quota" | "availability",
+    interruption?: "panel-remounted",
   ) => {
     if (
       !ok &&
@@ -1283,6 +1305,7 @@ export default function LessonPage({
       lessonKey: guidedTutorLessonKey,
       ok,
       invalidation,
+      interruption,
     };
   }, [guidedTutorLessonKey]);
   const handleContextualTutorOfferInvalidated = useCallback(() => {
@@ -1301,6 +1324,13 @@ export default function LessonPage({
     }
     if (outcome.ok) {
       contextualGuide.accept();
+    } else if (outcome.interruption === "panel-remounted") {
+      // A same-lesson responsive remount canceled and refunded the request.
+      // The signed evidence may already have been admitted, so do not replay
+      // it. Keep the free guide visible and expose ordinary, retryable Tutor
+      // help while the replacement panel explains what happened.
+      acceptedContextualEvidenceRef.current = null;
+      setContextualRuntimeUnavailable(true);
     } else {
       if (outcome.invalidation === "stale") {
         // Hide the expired offer now, but let the next Run re-arm the same
@@ -2133,6 +2163,7 @@ export default function LessonPage({
                 onContextualTutorAvailabilityChange={handleContextualTutorAvailability}
                 onContextualTutorAskComplete={handleContextualTutorAskComplete}
                 onContextualTutorOfferInvalidated={handleContextualTutorOfferInvalidated}
+                onTutorAskInterrupted={handleTutorAskInterrupted}
               />
             </section>
           </div>
@@ -2896,6 +2927,7 @@ export default function LessonPage({
               onContextualTutorAvailabilityChange={handleContextualTutorAvailability}
               onContextualTutorAskComplete={handleContextualTutorAskComplete}
               onContextualTutorOfferInvalidated={handleContextualTutorOfferInvalidated}
+              onTutorAskInterrupted={handleTutorAskInterrupted}
             />
           </motion.aside>
         </motion.main>
