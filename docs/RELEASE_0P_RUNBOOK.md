@@ -190,3 +190,26 @@ previous successful 0P candidate and then forward-promote the latest candidate
 again. Record both run URLs in the release issue/audit. The automated failure
 harness is required pre-merge; the live drill is required before declaring
 the operational release gate fully exercised.
+
+## Live drill record
+
+The required first controlled production drill passed on 2026-08-31:
+
+- rollback run
+  [`33409584774`](https://github.com/msrivas-7/CodeTutor-AI/actions/runs/33409584774)
+  promoted successful retained candidate
+  `297a09b4d4873d10e1b1e688f151f8a3a325fcb3` in 2m39s;
+- cache-busted frontend identity and backend deep health independently passed on
+  the rolled-back candidate;
+- forced forward release
+  [`33409904066`](https://github.com/msrivas-7/CodeTutor-AI/actions/runs/33409904066)
+  restored exact current candidate
+  `4edcd73fa3a8669ac09495fbb7d5234d8ccfc742` after the complete CI, E2E, and
+  security gate;
+- production synthetic
+  [`33411478984`](https://github.com/msrivas-7/CodeTutor-AI/actions/runs/33411478984)
+  passed on the restored SHA;
+- in-app Browser phase audit `fcaf8da5-d989-46be-8f94-3f634c469050`
+  passed the anonymous Contextual Tutor journey at desktop and 390×844,
+  duplicate-click admission, focus restoration, and zero-console-error checks;
+- no database migration existed between the rollback and forward candidates.

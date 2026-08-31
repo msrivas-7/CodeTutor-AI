@@ -1,23 +1,30 @@
 # Release 1C contextual tutor decision record
 
-Status: **LOCALLY VERIFIED UNDER FOUNDER EXCEPTION; PR AND DEPLOYMENT PENDING**
+Status: **MERGED, DEPLOYED, PRODUCTION-VERIFIED, AND LIVE-ROLLBACK-VERIFIED
+UNDER FOUNDER EXCEPTION**
 
 Decision date: 2026-08-30
 
-Branch: `dev/contextual-tutor-1c`
+Delivery: [PR #41](https://github.com/msrivas-7/CodeTutor-AI/pull/41),
+[recovery follow-up #42](https://github.com/msrivas-7/CodeTutor-AI/pull/42)
 
 ## Decision
 
 The founder explicitly directed the team to implement Release 1C without
 waiting for real-learner experiment evidence. That dated exception waives the
 powered Release 1B learner experiment and five-session rollout prerequisites
-for this engineering slice. It does not weaken the security, cost, AI-quality,
-accessibility, deterministic-test, live-browser, CI, review, rollback, or
-production-verification requirements.
+for this engineering slice. Security, cost, deterministic AI safety, the
+complete automated model run, accessibility, live-browser, CI, review,
+automated rollback controls, and production-verification evidence remained
+mandatory. Release 0P's separate live production rollback/forward-promotion
+drill subsequently passed on 2026-08-31 and restored the exact current
+candidate before synthetic and Browser acceptance. The unperformed Section 9.2
+human calibration was not silently treated as passed: the automated judge
+remains provisional rather than authoritative.
 
-The implementation may merge and deploy only when its complete automated model
+The implementation merged and deployed only after its complete automated model
 gate, deterministic suites, adversarial browser journey, PR checks, and review
-threads are green. The independent two-human calibration described in Section
+threads were green. The independent two-human calibration described in Section
 9.2 has not been performed; therefore this release makes no claim that model
 judging is a calibrated substitute for human evaluation and no learner-outcome,
 retention, or market-impact claim.
@@ -26,15 +33,19 @@ retention, or market-impact claim.
 
 | Requirement | Status | Evidence or remaining proof |
 | --- | --- | --- |
-| Founder exception for learner evidence | **Recorded** | 2026-08-30 direction: implement 1C and do not wait for real-user evidence. |
+| Founder exception for learner evidence | **Recorded** | The dated 2026-08-30 founder direction is recorded in this decision's `Decision` section and was limited to the Release 1B learner experiment and five-session prerequisites. |
 | Locked B2 teaching contract | **Retained** | Contextual turns still pass the complete-answer firewall and provide one bounded question/hint. |
-| Server authority and stale evidence | **Verified locally** | The server reconstructs and validates the authored move, lesson, revision, evidence code/path/line, and scaffold level. Python is parsed before execution, and only the server-owned compile diagnostic qualifies; stale offers and forged runtime stderr are rejected by the full backend suite. |
-| Explicit consent and bounded admission | **Verified locally** | No AI request occurs before `Help me spot it`; one accepted evidence episode can schedule at most one request. The replay identity uses only server-verified actor, canonical lesson, and normalized server error; client epoch/revision cannot reset it. A real-browser double-click produced one turn and one quota decrement, while real Postgres rejected simultaneous disjoint receipt subsets and allowed fresh help only after the database-owned 15-minute window expired. |
-| Deterministic recovery | **Verified locally** | Loading, unavailable, kill-switch, stale-generation, and changed-code paths remain useful. The actual browser discarded a stale answer and restored the quota without placing stale content in the transcript. |
-| Contextual AI quality | **Passed** | Six contextual golden/adversarial cases cover normal help, source injection, stderr injection, answer pressure, stale history, and line accuracy. Artifact `2026-08-31T04-51-10-727Z-v2.json` passed 72/72 with every intent at 100%, zero deterministic failures, and contract `c0866e3b97a0a7e8…`. |
+| Server authority and stale evidence | **Verified** | The server reconstructs and validates the authored move, lesson, revision, evidence code/path/line, and scaffold level. Python is parsed before execution, and only the server-owned compile diagnostic qualifies; stale offers and forged runtime stderr are rejected by the full backend suite. |
+| Explicit consent and bounded admission | **Verified** | No AI request occurs before `Help me spot it`; one accepted evidence episode can schedule at most one request. The replay identity uses only server-verified actor, canonical lesson, and normalized server error; client epoch/revision cannot reset it. A real-browser double-click produced one turn and one quota decrement, while real Postgres rejected simultaneous disjoint receipt subsets and allowed fresh help only after the database-owned 15-minute window expired. |
+| Deterministic recovery | **Verified** | Loading, unavailable, kill-switch, stale-generation, and changed-code paths remain useful. The actual browser discarded a stale answer and restored the quota without placing stale content in the transcript. PR #42 additionally verified safe consumed-episode recovery and distinct-error re-arming. |
+| Contextual AI quality | **Provisional automated evidence passed** | Six contextual golden/adversarial cases cover normal help, source injection, stderr injection, answer pressure, stale history, and line accuracy. Local artifact `backend/eval/runs/2026-08-31T04-51-10-727Z-v2.json` passed 72/72 with every intent at 100%, zero deterministic failures, and contract `c0866e3b97a0a7e8…`. Without Section 9.2 human calibration, this is release-risk evidence rather than authoritative eval-v2 approval. |
 | Cost | **Within provisional guardrail** | Focused live evidence measured about $0.0077 per accepted call and roughly 280 net-new input tokens; the client and server cap the episode at one call. |
 | Kill switch | **Implemented** | `contextual_tutor_enabled` is independently operator-controlled and defaults safely when unavailable. |
-| Actual browser UX | **Passed locally** | Desktop and 390×500 light/dark/reduced-motion evidence proves explicit consent, one-call double-click protection, current receipt/citation, useful bounded help, retained focus, dismissal persistence, stale recovery, and simultaneous cue/target visibility. The release-boundary replay also proves forged runtime stderr cannot show or fund contextual help while genuine parser diagnostics still can. Finding audit `8a292b5d-dcb6-4678-9e24-11c330d0d987`; phase audit `41617175-7bc9-4905-982c-df5cf735438e`. |
+| Actual browser UX | **Passed locally and in production** | Local desktop and 390×500 light/dark/reduced-motion evidence proves explicit consent, one-call double-click protection, current receipt/citation, useful bounded help, retained focus, dismissal persistence, stale recovery, and simultaneous cue/target visibility. Finding audit `8a292b5d-dcb6-4678-9e24-11c330d0d987`; phase audit `41617175-7bc9-4905-982c-df5cf735438e`. The deployed anonymous journey then passed the changed-error offer, grounded response, replay refusal, private recovery, and distinct-error re-arm at desktop and 390×844. |
+| PR, review, and CI | **Passed** | PRs #41 and #42 merged with every check green and zero unresolved actionable review threads. |
+| Deployment and production | **Passed** | Exact releases [`33363783481`](https://github.com/msrivas-7/CodeTutor-AI/actions/runs/33363783481) and [`33370195367`](https://github.com/msrivas-7/CodeTutor-AI/actions/runs/33370195367) succeeded. Exact-SHA production synthetics [`33365791874`](https://github.com/msrivas-7/CodeTutor-AI/actions/runs/33365791874) and [`33370947310`](https://github.com/msrivas-7/CodeTutor-AI/actions/runs/33370947310) passed. |
+| Rollback controls and rehearsal | **Passed** | Release and rollback workflow contracts passed in CI. Live rollback [`33409584774`](https://github.com/msrivas-7/CodeTutor-AI/actions/runs/33409584774) promoted retained `297a09b4d4873d10e1b1e688f151f8a3a325fcb3` and completed in 2m39s; independent frontend identity and backend deep health passed. Forward release [`33409904066`](https://github.com/msrivas-7/CodeTutor-AI/actions/runs/33409904066) restored exact current `4edcd73fa3a8669ac09495fbb7d5234d8ccfc742`; synthetic [`33411478984`](https://github.com/msrivas-7/CodeTutor-AI/actions/runs/33411478984) and in-app Browser phase audit `fcaf8da5-d989-46be-8f94-3f634c469050` then passed at desktop and 390×844 with zero console errors. |
+| Observed exposure | **Enabled on verification date** | A fresh anonymous production trial on 2026-08-31 displayed `Help me spot it` after two changed genuine parser failures and returned one structured, line-grounded hint after explicit consent. This dated observation is not a promise that the operator kill switch or rollout scope will never change. |
 | Human judge calibration | **Not performed; explicitly not claimed** | Two independent human reviewers have not labeled the required stratified set. This is recorded as a non-claim rather than fabricated evidence. |
 
 ## Non-negotiable release contract
@@ -58,5 +69,5 @@ retention, or market-impact claim.
 - This exception is not evidence of learner recovery or retention lift.
 - Persona review and model judges are not real users or two-human calibration.
 - Passing focused cases cannot replace the complete unfiltered model gate.
-- Deployment cannot be called complete until the exact deployed SHA and live
-  production journey are verified.
+- Production verification proves engineering delivery, not learner recovery,
+  retention, or market impact.
