@@ -1,6 +1,6 @@
 # Contextual Learning and Delivery Velocity Plan
 
-> **Status:** Every previously eligible engineering lane is implemented and green through B8. Release 1C entered engineering validation on 2026-08-30 under a dated founder exception that waives waiting for real-learner evidence but preserves its security, cost, quality, accessibility, CI, review, rollback, and production-browser gates. Human judge calibration and learner outcomes remain explicit non-claims. B6 still requires its DAU trigger.
+> **Status:** Every previously eligible engineering lane is implemented and green through B8. Release 1C merged, deployed, and passed exact-SHA production verification on 2026-08-31 under the dated founder exception that waived waiting for real-learner evidence while preserving its security, cost, quality, accessibility, CI, review, rollback, and production-browser gates. Human judge calibration and learner outcomes remain explicit non-claims. B6 still requires its DAU trigger.
 >
 > **Prepared:** 2026-07-30
 >
@@ -699,15 +699,21 @@ Exit:
 
 ### Release 1C — Contextual tutor offer
 
-**Founder exception and implementation status (2026-08-30):** engineering work
-is in final validation on `dev/contextual-tutor-1c`. The founder explicitly
-waived waiting for real-learner experiment evidence. The exception does not
-weaken the security, cost, AI-quality, deterministic, accessibility,
-live-browser, CI, review, rollback, or production-verification gates. The
-two-human judge calibration is not complete and is not claimed. See
-`docs/RELEASE_1C_ENTRY_GATE.md` for the decision record and current matrix.
+**Founder exception and delivery status (2026-08-31):** Release 1C merged in
+PR #41, its evidence-scoped recovery follow-up merged in PR #42, and both exact
+SHAs passed release, production synthetic, and interactive production-browser
+verification. The founder explicitly waived waiting for real-learner
+experiment evidence. The exception did not weaken the security, cost,
+AI-quality, deterministic, accessibility, live-browser, CI, review, rollback,
+or production-verification gates. The two-human judge calibration is not
+complete and is not claimed. See `docs/RELEASE_1C_ENTRY_GATE.md` for the
+decision record and evidence matrix.
 
-**Entry gate:** Release 1B's preregistered experiment passes the primary recovery rule and every applicable guardrail in Section 10.3; B2, eval v2, authority, idempotency, cost, and security gates also pass. Five qualitative sessions alone cannot unlock 1C.
+**Applied entry gate:** the dated founder exception superseded only Release
+1B's preregistered learner experiment and five-session prerequisites. B2, eval
+v2, authority, idempotency, cost, security, accessibility, CI, review,
+rollback, and production-verification requirements remained mandatory and
+passed. This exception does not establish learner recovery or retention.
 
 **Complexity:** two to four weeks.
 

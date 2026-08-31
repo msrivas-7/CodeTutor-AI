@@ -1,5 +1,11 @@
 # Contextual learning roadmap — final engineering audit
 
+> **Historical cutoff notice (updated 2026-08-31):** This document records the
+> 2026-07-31 gate state. Its Release 1C hold was later superseded by the dated
+> founder exception and the verified delivery recorded in
+> [`RELEASE_1C_ENTRY_GATE.md`](RELEASE_1C_ENTRY_GATE.md). Do not use the 1C row
+> below as the current release status.
+
 Status: every currently eligible engineering lane is complete; deliberately
 gated learner, traffic, post-merge observation, and future-phase work remains
 held rather than being claimed without evidence
@@ -25,8 +31,10 @@ the full retained browser suite have current evidence.
 Five categories are intentionally not represented as completed product or
 operational outcomes:
 
-1. Release 1C cannot start until its locked learner experiment, two-human eval
-   calibration, named ownership, and approvals exist.
+1. At this audit's cutoff, Release 1C could not start until its locked learner
+   experiment, two-human eval calibration, named ownership, and approvals
+   existed. The later founder exception and delivery record supersede this
+   historical hold without claiming human calibration or learner outcomes.
 2. B6 cannot ship until seven-day-average DAU reaches 100. No dated metric
    artifact proving that trigger exists, so the gate remains closed; if it does
    not fire, the locked roadmap carries B6 into Phase C unchanged.
@@ -52,7 +60,7 @@ Cinematic duration remains paused exactly as requested.
 | **0D — AI trust** | Complete | `7d4b4fb` plus provenance/test fixes provides atomic admission, server-owned trusted context, evaluated-model enforcement, output safety, and authoritative eval gates. Required migrations are applied to the linked development Supabase project; production migration remains part of promotion. |
 | **1A — context correctness** | Complete | `b03dc13` rejects stale Run, Check, tutor, selection, completion, and stdin results by revision and operation identity without adding an AI request. |
 | **1B — deterministic guide** | Engineering/internal-dogfood complete | `cf9f0a7` supplies the default-off, authored repeated-error guide with one attention owner and no automatic AI call. Browser, phone-keyboard, accessibility, and reduced-motion evidence pass. The five-session learner gate remains held, so external rollout is not claimed. |
-| **1C — contextual tutor offer** | Correctly not started | `e811e20` and `RELEASE_1C_ENTRY_GATE.md` prove the conjunctive entry gate is not met. Implementing it now would violate the approved plan. |
+| **1C — contextual tutor offer** | Correctly not started at this audit's cutoff; superseded | `e811e20` captured the 2026-07-31 hold. The current status and later founder exception are recorded in `RELEASE_1C_ENTRY_GATE.md`. |
 | **1D — CI shadow pilot** | Additive implementation complete | `ded15ae` through `0398a4e` adds risk metadata, the advisory critical lane, frozen catch corpus, retained full browser coverage, and measured six-shard execution. The post-merge observation window has not begun and no demotion decision has been made. |
 | **B1 — memory read-side** | Complete | `c81c514` through `2a0f6b9` adds server-scored retrieval evidence, own-user RLS, backend-only writes, export/deletion, authored warm-ups, and failure recovery. It does not claim real-user D7 improvement or expose the Phase C mastery graph. |
 | **B2 — Socratic default** | Complete | `9994ae4` through `74c99b6` enforces one clarifying question first, bounded later help, and no complete answer across scripted/model and auth/anonymous paths; the 60-case gate, preview, persona, and remote checks pass. |
