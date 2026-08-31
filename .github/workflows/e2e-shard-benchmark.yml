@@ -24,6 +24,8 @@ concurrency:
 permissions:
   actions: read
   contents: read
+  # The duration candidate calls the real E2E workflow, whose three image
+  # preparation jobs publish immutable run-scoped candidates before reuse.
   packages: write
   pull-requests: read
 
