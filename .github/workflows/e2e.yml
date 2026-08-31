@@ -50,6 +50,8 @@ env:
   CI_BACKEND_IMAGE: ghcr.io/${{ github.repository_owner }}/codetutor-ci-backend
   CI_RUNNER_IMAGE: ghcr.io/${{ github.repository_owner }}/codetutor-ci-runner
   CI_FRONTEND_IMAGE: ghcr.io/${{ github.repository_owner }}/codetutor-ci-frontend
+  SOCKET_PROXY_IMAGE: tecnativa/docker-socket-proxy:0.3.0
+  SOCKET_PROXY_HEALTH_INTERVAL: "1s"
 
 jobs:
   duration-plan:
@@ -324,7 +326,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -n "$BACKEND_IMAGE" ] && [ -n "$RUNNER_IMAGE" ] && [ -n "$FRONTEND_IMAGE" ]; then
-            .github/scripts/pull-container-images.sh "$BACKEND_IMAGE" "$RUNNER_IMAGE" "$FRONTEND_IMAGE"
+            .github/scripts/pull-container-images.sh "$BACKEND_IMAGE" "$RUNNER_IMAGE" "$FRONTEND_IMAGE" "$SOCKET_PROXY_IMAGE"
             docker compose up -d --no-build backend frontend
           else
             docker compose up -d backend frontend
@@ -348,9 +350,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-playwright-
 
-      - name: Install Playwright browser
+      - name: Prepare Playwright browser runtime
         working-directory: e2e
-        run: npx playwright install --with-deps chromium
+        run: |
+          set -euo pipefail
+          npx playwright install chromium
+          node scripts/ensure-browser-runtime.mjs chromium
 
       - name: Run critical lane without retries
         id: critical
@@ -480,7 +485,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -n "$BACKEND_IMAGE" ] && [ -n "$RUNNER_IMAGE" ] && [ -n "$FRONTEND_IMAGE" ]; then
-            .github/scripts/pull-container-images.sh "$BACKEND_IMAGE" "$RUNNER_IMAGE" "$FRONTEND_IMAGE"
+            .github/scripts/pull-container-images.sh "$BACKEND_IMAGE" "$RUNNER_IMAGE" "$FRONTEND_IMAGE" "$SOCKET_PROXY_IMAGE"
             docker compose up -d --no-build backend frontend
           else
             docker compose up -d backend frontend
@@ -516,9 +521,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-playwright-
 
-      - name: Install Playwright browsers
+      - name: Prepare Playwright browser runtime
         working-directory: e2e
-        run: npx playwright install --with-deps chromium
+        run: |
+          set -euo pipefail
+          npx playwright install chromium
+          node scripts/ensure-browser-runtime.mjs chromium
 
       - name: Run Playwright tests
         working-directory: e2e
@@ -614,7 +622,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -n "$BACKEND_IMAGE" ] && [ -n "$RUNNER_IMAGE" ] && [ -n "$FRONTEND_IMAGE" ]; then
-            .github/scripts/pull-container-images.sh "$BACKEND_IMAGE" "$RUNNER_IMAGE" "$FRONTEND_IMAGE"
+            .github/scripts/pull-container-images.sh "$BACKEND_IMAGE" "$RUNNER_IMAGE" "$FRONTEND_IMAGE" "$SOCKET_PROXY_IMAGE"
             docker compose up -d --no-build backend frontend
           else
             docker compose up -d backend frontend
@@ -632,9 +640,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-playwright-${{ matrix.browser }}-
 
-      - name: Install Playwright browser
+      - name: Prepare Playwright browser runtime
         working-directory: e2e
-        run: npx playwright install --with-deps ${{ matrix.browser }}
+        run: |
+          set -euo pipefail
+          npx playwright install ${{ matrix.browser }}
+          node scripts/ensure-browser-runtime.mjs ${{ matrix.browser }}
 
       - name: Run cross-browser critical journey
         working-directory: e2e

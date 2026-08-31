@@ -6,6 +6,8 @@ import { spawnSync } from "node:child_process";
 import test from "node:test";
 
 const script = resolve(".github/scripts/pull-container-images.sh");
+const workflow = readFileSync(resolve(".github/workflows/e2e.yml"), "utf8");
+const compose = readFileSync(resolve("docker-compose.yml"), "utf8");
 
 function fixture() {
   const directory = mkdtempSync(join(tmpdir(), "parallel-pulls-"));
@@ -36,4 +38,15 @@ test("waits for every pull but fails closed when any one pull fails", () => {
   assert.equal(result.status, 1);
   assert.match(result.stderr.toString(), /one or more container image pulls failed/);
   assert.deepEqual(readFileSync(log, "utf8").trim().split("\n").sort(), ["backend", "frontend", "runner"]);
+});
+
+test("E2E pre-pulls the pinned socket proxy and probes it faster without changing local defaults", () => {
+  assert.match(workflow, /SOCKET_PROXY_IMAGE: tecnativa\/docker-socket-proxy:0\.3\.0/);
+  assert.match(workflow, /SOCKET_PROXY_HEALTH_INTERVAL: "1s"/);
+  assert.equal(
+    workflow.match(/pull-container-images\.sh[^\n]+"\$SOCKET_PROXY_IMAGE"/g)?.length,
+    3,
+  );
+  assert.match(compose, /image: \$\{SOCKET_PROXY_IMAGE:-tecnativa\/docker-socket-proxy:0\.3\.0}/);
+  assert.match(compose, /interval: \$\{SOCKET_PROXY_HEALTH_INTERVAL:-5s}/);
 });

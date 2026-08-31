@@ -23,7 +23,7 @@ services:
   # to "can manage containers and exec in them." Map matches the API calls
   # LocalDockerBackend actually makes — see backends/localDocker.ts.
   socket-proxy:
-    image: tecnativa/docker-socket-proxy:0.3.0
+    image: ${SOCKET_PROXY_IMAGE:-tecnativa/docker-socket-proxy:0.3.0}
     environment:
       CONTAINERS: "1"  # create/start/stop/inspect/remove + self-inspect
       EXEC: "1"        # exec create/start/inspect for runner commands
@@ -33,7 +33,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:2375/_ping"]
-      interval: 5s
+      interval: ${SOCKET_PROXY_HEALTH_INTERVAL:-5s}
       timeout: 2s
       retries: 10
     # Audit-v2 SRE-C3 (companion to the runner LogConfig in localDocker.ts):
