@@ -212,6 +212,9 @@ services:
       VITE_BACKEND_URL: "${VITE_BACKEND_URL:-http://backend:4000}"
       VITE_SUPABASE_URL: "${VITE_SUPABASE_URL}"
       VITE_SUPABASE_ANON_KEY: "${VITE_SUPABASE_ANON_KEY}"
+      # CI-only trusted-proxy identity. Empty in local development and
+      # production, so ordinary browser requests retain their natural IP.
+      E2E_FORWARDED_FOR: "${E2E_FORWARDED_FOR:-}"
     ports:
       # Default loopback-only. Prod deploys override FRONTEND_BIND.
       - "${FRONTEND_BIND:-127.0.0.1}:${FRONTEND_PORT:-5173}:5173"

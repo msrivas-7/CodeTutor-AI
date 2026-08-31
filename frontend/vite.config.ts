@@ -3,6 +3,8 @@ import react from "@vitejs/plugin-react";
 import { courseRegistryPlugin } from "./scripts/vitePluginCourseRegistry";
 import { discoveryBuildPlugin, discoverySitePlugin } from "./scripts/vitePluginDiscovery";
 
+const e2eForwardedFor = process.env.E2E_FORWARDED_FOR?.trim();
+
 export default defineConfig({
   plugins: [
     react(),
@@ -25,6 +27,13 @@ export default defineConfig({
       "/api": {
         target: process.env.VITE_BACKEND_URL ?? "http://localhost:4000",
         changeOrigin: true,
+        // GitHub-hosted shards all reach their isolated Compose stacks from
+        // the same Docker gateway address. An explicit CI-only identity keeps
+        // real per-IP quota coverage without making unrelated shards share a
+        // daily counter. Production and ordinary local Vite omit the env var.
+        ...(e2eForwardedFor
+          ? { headers: { "x-forwarded-for": e2eForwardedFor } }
+          : {}),
       },
     },
   },

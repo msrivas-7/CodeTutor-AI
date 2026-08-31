@@ -112,6 +112,10 @@ See `.github/workflows/e2e.yml`. The current PR model is:
 - one advisory, zero-retry Chromium critical lane (currently 41 tests in 15 files);
 - CI retries retain diagnostic traces, but `failOnFlakyTests` makes a flaky
   result fail its shard so a targeted rerun cannot erase the original signal;
+- each lane, shard, attempt, and benchmark stage receives a stable synthetic
+  address from the reserved `2001:db8::/32` range through the Vite proxy, so
+  the real per-IP abuse controls are tested without unrelated jobs sharing one
+  daily database counter;
 - versioned shadow evidence that records queue-inclusive readiness and any miss where the critical lane passes but the full suite fails.
 
 `e2e/shadow/regression-corpus.json` freezes the initial P0/P1 catch corpus.

@@ -95,6 +95,9 @@ jobs:
           cache: npm
           cache-dependency-path: e2e/package-lock.json
 
+      - name: Allocate isolated anonymous client identity
+        run: echo "E2E_FORWARDED_FOR=$(node .github/scripts/e2e-forwarded-ip.mjs "$E2E_USER_SUFFIX")" >> "$GITHUB_ENV"
+
       - name: Install tcpdump for the host sentinel
         # tcpdump is preinstalled on ubuntu-latest. This step is a
         # belt-and-suspenders no-op on the default runner; keeps the

@@ -82,7 +82,7 @@ jobs:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       BYOK_ENCRYPTION_KEY: ${{ secrets.BYOK_ENCRYPTION_KEY }}
       METRICS_TOKEN: e2e-test-metrics-token
-      E2E_USER_SUFFIX: benchmark-${{ inputs.total }}-${{ matrix.shard }}-run${{ github.run_id }}-attempt${{ github.run_attempt }}
+      E2E_USER_SUFFIX: benchmark-${{ inputs.experiment || inputs.total }}-${{ matrix.shard }}-run${{ github.run_id }}-attempt${{ github.run_attempt }}
       MAX_SESSIONS_PER_USER: "60"
       MAX_SESSIONS_GLOBAL: "240"
       DOCKER_EXEC_CONCURRENCY: "16"
@@ -105,6 +105,8 @@ jobs:
           node-version: '20'
           cache: npm
           cache-dependency-path: e2e/package-lock.json
+      - name: Allocate isolated anonymous client identity
+        run: echo "E2E_FORWARDED_FOR=$(node .github/scripts/e2e-forwarded-ip.mjs "$E2E_USER_SUFFIX")" >> "$GITHUB_ENV"
       - name: Boot docker-compose stack
         run: |
           set -euo pipefail
