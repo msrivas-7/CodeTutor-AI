@@ -4,8 +4,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const TOPOLOGIES = [10, 12, 14, 16, 17, 20];
-const STANDARD_RUNNER_CONCURRENCY = 20;
+const TOPOLOGIES = [16, 20];
+const STANDARD_RUNNER_CONCURRENCY = 40;
 const RESERVED_NON_SHARD_JOBS = 3;
 const MINIMUM_RELATIVE_GAIN = 0.05;
 const MINIMUM_ABSOLUTE_GAIN_SECONDS = 20;
@@ -22,17 +22,24 @@ function stepSeconds(job, stepName) {
   return step ? secondsBetween(step.started_at, step.completed_at) : null;
 }
 
-function modeledTestCriticalPath(testSeconds, parallelism) {
-  if (testSeconds.length === 0 || parallelism < 1) return null;
-  const lanes = Array.from({ length: Math.min(parallelism, testSeconds.length) }, () => 0);
-  for (const duration of [...testSeconds].sort((left, right) => right - left)) {
-    let lightest = 0;
-    for (let index = 1; index < lanes.length; index += 1) {
-      if (lanes[index] < lanes[lightest]) lightest = index;
-    }
-    lanes[lightest] += duration;
+function modeledTestCriticalPath(selected, topologyStartedAt, parallelism) {
+  if (selected.length === 0 || parallelism < 1 || !topologyStartedAt) return null;
+  const observations = selected.map((job) => ({
+    allocationOffset: secondsBetween(topologyStartedAt, job.started_at),
+    testSeconds: stepSeconds(job, TEST_STEP_NAME),
+  }));
+  if (observations.some(({ allocationOffset, testSeconds }) =>
+    allocationOffset === null || testSeconds === null)) return null;
+
+  // When every shard can start at once, runner-allocation jitter is setup noise,
+  // so selection remains the slowest retry-free test partition. Above that
+  // ceiling, however, the recorded job-start offset is the queue cost: later
+  // shards cannot begin their test work until GitHub allocates another runner.
+  if (selected.length <= parallelism) {
+    return Math.max(...observations.map(({ testSeconds }) => testSeconds));
   }
-  return Math.max(...lanes);
+  return Math.max(...observations.map(({ allocationOffset, testSeconds }) =>
+    allocationOffset + testSeconds));
 }
 
 function summarizeTopology({ total, run, jobs, totalTests }) {
@@ -64,7 +71,7 @@ function summarizeTopology({ total, run, jobs, totalTests }) {
   const fastestTestSeconds = testValues.length === total ? Math.min(...testValues) : null;
   const testParallelism = Math.min(total, STANDARD_RUNNER_CONCURRENCY - RESERVED_NON_SHARD_JOBS);
   const modeledTestCriticalPathSeconds = testValues.length === total
-    ? modeledTestCriticalPath(testValues, testParallelism)
+    ? modeledTestCriticalPath(selected, topologyStartedAt, testParallelism)
     : null;
 
   return {
@@ -118,7 +125,12 @@ function selectTopology(topologies) {
   return selected;
 }
 
-export function compareShardTopologies({ benchmarkRun, benchmarkJobs, totalTests }) {
+export function compareShardTopologies({
+  benchmarkRun,
+  benchmarkJobs,
+  totalTests,
+  suppressSelection = false,
+}) {
   if (!Number.isSafeInteger(totalTests) || totalTests < 1) {
     throw new Error("totalTests must be a positive integer");
   }
@@ -126,7 +138,7 @@ export function compareShardTopologies({ benchmarkRun, benchmarkJobs, totalTests
   const topologies = TOPOLOGIES.map((total) =>
     summarizeTopology({ total, run: benchmarkRun, jobs, totalTests }),
   );
-  const selected = selectTopology(topologies);
+  const selected = suppressSelection ? null : selectTopology(topologies);
   return {
     schemaVersion: 2,
     headSha: benchmarkRun.head_sha,
@@ -140,7 +152,8 @@ export function compareShardTopologies({ benchmarkRun, benchmarkJobs, totalTests
       selectionMetric: "reliable modeled Playwright critical path",
       minimumRelativeGain: MINIMUM_RELATIVE_GAIN,
       minimumAbsoluteGainSeconds: MINIMUM_ABSOLUTE_GAIN_SECONDS,
-      status: "topologies run sequentially on the same commit; setup and queue-inclusive wall time are reported as operational context; selection models only the retry-free Playwright critical path, including the 20-shard queued test tail under the 17-job reserve",
+      status: `topologies run sequentially on the same commit; setup and queue-inclusive wall time are reported as operational context; selection uses the slowest retry-free test partition within the ${STANDARD_RUNNER_CONCURRENCY - RESERVED_NON_SHARD_JOBS}-job reserve and adds recorded runner-allocation delay above that reserve`,
+      selectionSuppressed: suppressSelection,
     },
     topologies,
     provisionalSelection: selected?.shards ?? null,
@@ -162,6 +175,7 @@ function main() {
     benchmarkRun: JSON.parse(fs.readFileSync(argument("--benchmark-run"), "utf8")),
     benchmarkJobs: JSON.parse(fs.readFileSync(argument("--benchmark-jobs"), "utf8")),
     totalTests: Number(argument("--total-tests")),
+    suppressSelection: process.argv.includes("--suppress-selection"),
   });
   const output = argument("--output");
   fs.mkdirSync(path.dirname(output), { recursive: true });

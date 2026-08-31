@@ -5,7 +5,7 @@ import test from "node:test";
 import { compareShardTopologies } from "./e2e-shard-benchmark.mjs";
 
 const benchmarkRun = { id: 2, head_sha: "abc" };
-const candidates = [10, 12, 14, 16, 17, 20];
+const candidates = [16, 20];
 const benchmarkWorkflow = readFileSync(new URL("../workflows/e2e-shard-benchmark.yml", import.meta.url), "utf8");
 const topologyWorkflow = readFileSync(new URL("../workflows/e2e-shard-topology.yml", import.meta.url), "utf8");
 
@@ -35,7 +35,12 @@ function job(
 
 function topology(total, durationSeconds, conclusion = "success", offsetSeconds = 0, prefix = "") {
   return Array.from({ length: total }, (_, index) =>
-    job(`${prefix}Playwright benchmark ${total} shards (${index + 1}/${total})`, durationSeconds, conclusion, offsetSeconds),
+    job(
+      `${prefix}Playwright benchmark ${total} shards (${index + 1}/${total})`,
+      durationSeconds,
+      conclusion,
+      offsetSeconds,
+    ),
   );
 }
 
@@ -52,25 +57,26 @@ function allTopologies(durations, options = {}) {
 test("selects a larger topology only for a material gain", () => {
   const result = compareShardTopologies({
     benchmarkRun,
-    benchmarkJobs: { jobs: allTopologies([400, 350, 340, 330, 320, 315]) },
+    benchmarkJobs: { jobs: allTopologies([330, 280]) },
     totalTests: 420,
   });
-  assert.equal(result.provisionalSelection, 16);
+  assert.equal(result.provisionalSelection, 20);
   assert.deepEqual(
     result.topologies.map((item) => item.averageTestsPerShard),
-    [42, 35, 30, 26.3, 24.7, 21],
+    [26.3, 21],
   );
   assert.deepEqual(result.policy, {
     workersPerShard: 2,
     retries: 0,
     candidates,
-    standardRunnerConcurrency: 20,
+    standardRunnerConcurrency: 40,
     reservedNonShardJobs: 3,
-    unconstrainedShardCeiling: 17,
+    unconstrainedShardCeiling: 37,
     selectionMetric: "reliable modeled Playwright critical path",
     minimumRelativeGain: 0.05,
     minimumAbsoluteGainSeconds: 20,
-    status: "topologies run sequentially on the same commit; setup and queue-inclusive wall time are reported as operational context; selection models only the retry-free Playwright critical path, including the 20-shard queued test tail under the 17-job reserve",
+    status: "topologies run sequentially on the same commit; setup and queue-inclusive wall time are reported as operational context; selection uses the slowest retry-free test partition within the 37-job reserve and adds recorded runner-allocation delay above that reserve",
+    selectionSuppressed: false,
   });
 });
 
@@ -78,7 +84,7 @@ test("matches reusable-workflow job prefixes", () => {
   const result = compareShardTopologies({
     benchmarkRun,
     benchmarkJobs: { jobs: allTopologies(
-      [400, 360, 340, 330, 325, 320],
+      [330, 280],
       { prefix: "benchmark-call / " },
     ) },
     totalTests: 420,
@@ -90,29 +96,40 @@ test("workflow benchmarks the complete measured range under the account ceiling"
   const configuredTotals = [...benchmarkWorkflow.matchAll(/^\s{6}total: (\d+)$/gm)]
     .map((match) => Number(match[1]));
   assert.deepEqual(configuredTotals, candidates);
-  assert.match(benchmarkWorkflow, /total: 20\n\s+shards: '\[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]'\n\s+max_parallel: 17/);
+  assert.match(benchmarkWorkflow, /total: 20\n\s+shards: '\[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]'\n\s+max_parallel: 20/);
   assert.match(topologyWorkflow, /max-parallel: \$\{\{ inputs\.max_parallel }}/);
   assert.match(topologyWorkflow, /shard: \$\{\{ fromJSON\(inputs\.shards\) }}/);
   assert.match(topologyWorkflow, /--shard=\$\{\{ matrix\.shard }}\/\$\{\{ inputs\.total }}/);
-  assert.match(benchmarkWorkflow, /github\.event\.label\.name == 'ci-shard-benchmark-20'/);
 });
 
 test("does not treat preceding-experiment wait time as test work", () => {
   const result = compareShardTopologies({
     benchmarkRun,
-    benchmarkJobs: { jobs: allTopologies([410, 390, 370, 350, 330, 300], { offsetStep: 1_000 }) },
+    benchmarkJobs: { jobs: allTopologies([350, 300], { offsetStep: 1_000 }) },
     totalTests: 420,
   });
-  assert.equal(result.topologies[1].topologyReadySeconds, 390);
-  assert.equal(result.provisionalSelection, 17);
-  assert.equal(result.topologies[4].modeledTestCriticalPathSeconds, 200);
-  assert.equal(result.topologies[5].modeledTestCriticalPathSeconds, 340);
+  assert.equal(result.topologies[1].topologyReadySeconds, 300);
+  assert.equal(result.provisionalSelection, 20);
+  assert.equal(result.topologies[0].modeledTestCriticalPathSeconds, 220);
+  assert.equal(result.topologies[1].modeledTestCriticalPathSeconds, 170);
+});
+
+test("suppresses a focused topology's standalone selection", () => {
+  const result = compareShardTopologies({
+    benchmarkRun,
+    benchmarkJobs: { jobs: topology(20, 300) },
+    totalTests: 420,
+    suppressSelection: true,
+  });
+
+  assert.equal(result.topologies[1].reliable, true);
+  assert.equal(result.provisionalSelection, null);
+  assert.equal(result.policy.selectionSuppressed, true);
 });
 
 test("reports but does not select on a one-run setup outlier", () => {
-  const jobs = allTopologies([400, 350, 330, 310, 300, 290]);
-  const sixteenStart = 10 + 12 + 14;
-  jobs[sixteenStart] = job(
+  const jobs = allTopologies([310, 305]);
+  jobs[0] = job(
     "Playwright benchmark 16 shards (1/16)",
     900,
     "success",
@@ -120,7 +137,7 @@ test("reports but does not select on a one-run setup outlier", () => {
     180,
   );
   const result = compareShardTopologies({ benchmarkRun, benchmarkJobs: { jobs }, totalTests: 420 });
-  const sixteen = result.topologies[3];
+  const sixteen = result.topologies[0];
   assert.equal(sixteen.topologyReadySeconds, 900);
   assert.equal(sixteen.modeledTestCriticalPathSeconds, 180);
   assert.equal(result.provisionalSelection, 16);
@@ -129,32 +146,32 @@ test("reports but does not select on a one-run setup outlier", () => {
 test("prefers fewer shards when every gain is below the noise floor", () => {
   const result = compareShardTopologies({
     benchmarkRun,
-    benchmarkJobs: { jobs: allTopologies([400, 390, 389, 388, 387, 386]) },
+    benchmarkJobs: { jobs: allTopologies([330, 315]) },
     totalTests: 420,
   });
-  assert.equal(result.provisionalSelection, 10);
+  assert.equal(result.provisionalSelection, 16);
 });
 
 test("never selects an incomplete or failing topology", () => {
   const jobs = allTopologies(
-    [400, 360, 330, 300, 270, 240],
-    { conclusion: { 12: "failure" } },
-  ).filter((item) => !item.name.includes("Playwright benchmark 20 shards (20/20)"));
+    [330, 280],
+    { conclusion: { 20: "failure" } },
+  );
   const result = compareShardTopologies({ benchmarkRun, benchmarkJobs: { jobs }, totalTests: 420 });
-  assert.equal(result.provisionalSelection, 17);
+  assert.equal(result.provisionalSelection, 16);
+  assert.equal(result.topologies[0].reliable, true);
   assert.equal(result.topologies[1].reliable, false);
-  assert.equal(result.topologies[5].reliable, false);
 });
 
 test("reports aggregate setup overhead and test imbalance", () => {
-  const jobs = allTopologies([400, 350, 330, 310, 300, 290]);
-  jobs[0] = job("Playwright benchmark 10 shards (1/10)", 430);
+  const jobs = allTopologies([400, 290]);
+  jobs[0] = job("Playwright benchmark 16 shards (1/16)", 430);
   const result = compareShardTopologies({ benchmarkRun, benchmarkJobs: { jobs }, totalTests: 420 });
-  const ten = result.topologies[0];
-  assert.equal(ten.slowestTestSeconds, 300);
-  assert.equal(ten.fastestTestSeconds, 270);
-  assert.equal(ten.testImbalanceSeconds, 30);
-  assert.equal(ten.nonTestOverheadSeconds, 1_300);
+  const sixteen = result.topologies[0];
+  assert.equal(sixteen.slowestTestSeconds, 300);
+  assert.equal(sixteen.fastestTestSeconds, 270);
+  assert.equal(sixteen.testImbalanceSeconds, 30);
+  assert.equal(sixteen.nonTestOverheadSeconds, 2_080);
 });
 
 test("rejects an invalid test inventory", () => {

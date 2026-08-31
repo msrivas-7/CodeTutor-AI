@@ -18,7 +18,7 @@
         "topologies": [20]
       }
     ],
-    "method": "Clean 12/14/16/17 results came from the controlled sequential run; the invalid 10-shard result was retained as unreliable. A focused clean 20-shard confirmation followed synchronization-only test repairs with the Chromium inventory unchanged at 437 tests.",
+    "method": "Clean 12/14/16/17 results came from the controlled sequential run; the invalid 10-shard result was retained as unreliable. A focused clean 20-shard confirmation followed synchronization-only test repairs with the Chromium inventory unchanged at 437 tests. The 20-shard critical path includes its recorded second-wave runner-allocation delay above the 17-job reserve.",
     "totalTests": 437,
     "topologies": [
       { "shards": 10, "modeledTestCriticalPathSeconds": 260, "topologyReadySeconds": 406, "reliable": false },
@@ -26,7 +26,7 @@
       { "shards": 14, "modeledTestCriticalPathSeconds": 233, "topologyReadySeconds": 370, "reliable": true },
       { "shards": 16, "modeledTestCriticalPathSeconds": 178, "topologyReadySeconds": 440, "reliable": true },
       { "shards": 17, "modeledTestCriticalPathSeconds": 241, "topologyReadySeconds": 379, "reliable": true },
-      { "shards": 20, "modeledTestCriticalPathSeconds": 170, "topologyReadySeconds": 434, "reliable": true }
+      { "shards": 20, "modeledTestCriticalPathSeconds": 303, "topologyReadySeconds": 434, "reliable": true }
     ],
     "selectedModeledTestCriticalPathSeconds": 178,
     "selectedTopologyReadySeconds": 440,

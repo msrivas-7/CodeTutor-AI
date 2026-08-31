@@ -46,7 +46,7 @@ test("tracked decision preserves the clean controlled benchmark evidence", () =>
       { shards: 14, modeledTestCriticalPathSeconds: 233, topologyReadySeconds: 370, reliable: true },
       { shards: 16, modeledTestCriticalPathSeconds: 178, topologyReadySeconds: 440, reliable: true },
       { shards: 17, modeledTestCriticalPathSeconds: 241, topologyReadySeconds: 379, reliable: true },
-      { shards: 20, modeledTestCriticalPathSeconds: 170, topologyReadySeconds: 434, reliable: true },
+      { shards: 20, modeledTestCriticalPathSeconds: 303, topologyReadySeconds: 434, reliable: true },
     ],
   );
   assert.equal(record.benchmark.selectedModeledTestCriticalPathSeconds, 178);

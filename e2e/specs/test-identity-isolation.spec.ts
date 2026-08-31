@@ -122,6 +122,34 @@ test.describe("test identity namespace guard", () => {
     ).toBe(false);
   });
 
+  test("recognizes every measured Chromium shard for abandoned cleanup", () => {
+    for (let shard = 1; shard <= 20; shard += 1) {
+      expect(
+        isRecognizedCiRunSuffix(`shard-${shard}-run100-attempt1`),
+      ).toBe(true);
+    }
+
+    expect(isRecognizedCiRunSuffix("shard-21-run100-attempt1")).toBe(false);
+  });
+
+  test("reaps an abandoned shard-16 identity despite its nested length marker", async () => {
+    const suffix = "shard-16-run1015-attempt1";
+    const user = fakeUser("shard-16", buildCurrentRunTestEmail("w0", suffix));
+    const fake = createFakeAdmin([user]);
+
+    const report = await reapAbandonedCiTestUsers(fake.client, {
+      now: new Date("2026-07-31T00:00:00.000Z"),
+    });
+
+    expect(report).toEqual({
+      scanned: 1,
+      eligible: 1,
+      deleted: 1,
+      truncated: false,
+    });
+    expect(fake.deletedIds).toEqual([user.id]);
+  });
+
   test("reaps only recognized CI users older than 24 hours", async () => {
     const old = "2026-07-28T00:00:00.000Z";
     const recent = "2026-07-29T18:00:00.000Z";
@@ -206,8 +234,8 @@ test.describe("test identity namespace guard", () => {
 
   test("600 varied overlapping namespaces record zero cross-run deletions", async () => {
     for (let iteration = 0; iteration < 600; iteration += 1) {
-      const runA = `shard-${(iteration % 10) + 1}-run${1000 + iteration}-attempt1`;
-      const runB = `shard-${((iteration + 1) % 10) + 1}-run${2000 + iteration}-attempt2`;
+      const runA = `shard-${(iteration % 20) + 1}-run${1000 + iteration}-attempt1`;
+      const runB = `shard-${((iteration + 1) % 20) + 1}-run${2000 + iteration}-attempt2`;
       const a = fakeUser(`a-${iteration}`, buildCurrentRunTestEmail("w0", runA));
       const b = fakeUser(`b-${iteration}`, buildCurrentRunTestEmail("w1", runB));
       const order = iteration % 2 === 0 ? [a, b] : [b, a];

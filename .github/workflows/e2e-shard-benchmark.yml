@@ -2,15 +2,14 @@ name: E2E shard benchmark
 
 # Controlled capacity benchmark for the exhaustive Chromium suite. Apply the
 # `ci-shard-benchmark` label only to a stable PR commit. The workflow runs the
-# identical suite at 10, 12, 14, 16, 17, and 20 shards, with two workers per
+# identical suite at 16 and 20 shards, with two workers per
 # shard and no retries. Topologies run sequentially so they do not contend with
-# each other for the shared Supabase project. Recent PR runs reached the
-# account's observed 20-job standard-runner ceiling; the normal E2E workflow
-# reserves three jobs for the advisory and cross-browser lanes, so 17 is the
-# unconstrained shard ceiling. The 20-shard
-# candidate runs with max-parallel 17. Selection models the retry-free
-# Playwright critical path, including that queued test tail; Docker/setup wall
-# time is retained as operational context rather than treated as test work.
+# each other for the shared Supabase project. The GitHub Pro account's 40-job
+# standard-runner ceiling is account-wide. A normal
+# PR also runs the advisory and cross-browser lanes plus CI, preview, and
+# security jobs, so 20 Chromium shards is the practical no-starvation ceiling.
+# Docker/setup wall time is retained as operational context rather than treated
+# as test work.
 # Remove the label after measurement.
 on:
   pull_request:
@@ -27,38 +26,8 @@ permissions:
   pull-requests: read
 
 jobs:
-  benchmark-ten:
-    if: github.event.label.name == 'ci-shard-benchmark'
-    uses: ./.github/workflows/e2e-shard-topology.yml
-    with:
-      total: 10
-      shards: '[1,2,3,4,5,6,7,8,9,10]'
-      max_parallel: 10
-    secrets: inherit
-
-  benchmark-twelve:
-    if: always() && github.event.label.name == 'ci-shard-benchmark'
-    needs: benchmark-ten
-    uses: ./.github/workflows/e2e-shard-topology.yml
-    with:
-      total: 12
-      shards: '[1,2,3,4,5,6,7,8,9,10,11,12]'
-      max_parallel: 12
-    secrets: inherit
-
-  benchmark-fourteen:
-    if: always() && github.event.label.name == 'ci-shard-benchmark'
-    needs: benchmark-twelve
-    uses: ./.github/workflows/e2e-shard-topology.yml
-    with:
-      total: 14
-      shards: '[1,2,3,4,5,6,7,8,9,10,11,12,13,14]'
-      max_parallel: 14
-    secrets: inherit
-
   benchmark-sixteen:
-    if: always() && github.event.label.name == 'ci-shard-benchmark'
-    needs: benchmark-fourteen
+    if: github.event.label.name == 'ci-shard-benchmark'
     uses: ./.github/workflows/e2e-shard-topology.yml
     with:
       total: 16
@@ -66,41 +35,21 @@ jobs:
       max_parallel: 16
     secrets: inherit
 
-  benchmark-seventeen:
+  benchmark-twenty:
     if: always() && github.event.label.name == 'ci-shard-benchmark'
     needs: benchmark-sixteen
     uses: ./.github/workflows/e2e-shard-topology.yml
     with:
-      total: 17
-      shards: '[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17]'
-      max_parallel: 17
-    secrets: inherit
-
-  benchmark-twenty:
-    if: >-
-      always() &&
-      (github.event.label.name == 'ci-shard-benchmark' ||
-      github.event.label.name == 'ci-shard-benchmark-20')
-    needs: benchmark-seventeen
-    uses: ./.github/workflows/e2e-shard-topology.yml
-    with:
       total: 20
       shards: '[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]'
-      max_parallel: 17
+      max_parallel: 20
     secrets: inherit
 
   compare:
-    name: Compare 10/12/14/16/17/20 shards
-    if: >-
-      always() &&
-      (github.event.label.name == 'ci-shard-benchmark' ||
-      github.event.label.name == 'ci-shard-benchmark-20')
+    name: Compare 16/20 shards
+    if: always() && github.event.label.name == 'ci-shard-benchmark'
     needs:
-      - benchmark-ten
-      - benchmark-twelve
-      - benchmark-fourteen
       - benchmark-sixteen
-      - benchmark-seventeen
       - benchmark-twenty
     runs-on: ubuntu-latest
     env:
@@ -138,6 +87,7 @@ jobs:
           echo "TOTAL_TESTS=$total_tests" >> "$GITHUB_ENV"
       - name: Select the fastest reliable topology
         run: |
+          set -euo pipefail
           node .github/scripts/e2e-shard-benchmark.mjs \
             --benchmark-run e2e/shard-benchmark/benchmark-run.json \
             --benchmark-jobs e2e/shard-benchmark/benchmark-jobs.json \
