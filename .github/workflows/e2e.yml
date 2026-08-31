@@ -162,15 +162,17 @@ jobs:
     # Sharding splits the exhaustive suite across isolated runners. The
     # capacity record owns the measured decision and the shard-1 guard below
     # forces a new benchmark after one shard-equivalent of suite growth or
-    # shrinkage. Run 33295206692 selected 10×2 workers: 325s versus 367s for
-    # eight and 504s for six, with all 420 tests retained and zero retries.
+    # shrinkage. Runs 33377525950 and 33381912250 selected 16×2 workers:
+    # 178s of modeled retry-free test work versus 233s for 14, 241s for 17,
+    # and 170s for 20. The eight-second 20-shard gain missed the required
+    # 20-second / 5% adoption threshold and consumed the account ceiling.
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
     # Bumped from 15 → 25 in Phase 22C: full e2e sweep grew past the 15-min
     # ceiling once the marketing specs landed. Sharding (Phase 27-v2.2)
-    # each shard now runs ~1/10 of the suite, so 25 stays generous.
+    # each shard now runs ~1/16 of the suite, so 25 stays generous.
     timeout-minutes: 25
     # Phase 18d: cloud-only Supabase model. These feed both docker compose
     # (which reads process env for ${VAR} interpolation in docker-compose.yml)

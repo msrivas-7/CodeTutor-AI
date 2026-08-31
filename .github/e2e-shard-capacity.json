@@ -1,25 +1,41 @@
 {
   "schemaVersion": 1,
-  "selectedShards": 10,
+  "selectedShards": 16,
   "workersPerShard": 2,
   "retriesDuringBenchmark": 0,
   "benchmark": {
-    "runId": 33295206692,
-    "url": "https://github.com/msrivas-7/CodeTutor-AI/actions/runs/33295206692",
-    "headSha": "f4dceeefa292e378eab4a18d5b14c60ddf1d5f97",
-    "totalTests": 420,
-    "topologies": [
-      { "shards": 6, "topologyReadySeconds": 504, "reliable": true },
-      { "shards": 8, "topologyReadySeconds": 367, "reliable": true },
-      { "shards": 10, "topologyReadySeconds": 325, "reliable": true }
+    "runs": [
+      {
+        "runId": 33377525950,
+        "url": "https://github.com/msrivas-7/CodeTutor-AI/actions/runs/33377525950",
+        "headSha": "78653c28ebe132606fd592a5a6a24dcc66cfc1f6",
+        "topologies": [10, 12, 14, 16, 17]
+      },
+      {
+        "runId": 33381912250,
+        "url": "https://github.com/msrivas-7/CodeTutor-AI/actions/runs/33381912250",
+        "headSha": "b3daabe0a6cee4cdfe66cb32aa14d843c6744038",
+        "topologies": [20]
+      }
     ],
-    "selectedTopologyReadySeconds": 325,
-    "selectedAverageTestsPerShard": 42,
-    "measuredAt": "2026-08-30T06:00:38Z"
+    "method": "Clean 12/14/16/17 results came from the controlled sequential run; the invalid 10-shard result was retained as unreliable. A focused clean 20-shard confirmation followed synchronization-only test repairs with the Chromium inventory unchanged at 437 tests.",
+    "totalTests": 437,
+    "topologies": [
+      { "shards": 10, "modeledTestCriticalPathSeconds": 260, "topologyReadySeconds": 406, "reliable": false },
+      { "shards": 12, "modeledTestCriticalPathSeconds": 256, "topologyReadySeconds": 400, "reliable": true },
+      { "shards": 14, "modeledTestCriticalPathSeconds": 233, "topologyReadySeconds": 370, "reliable": true },
+      { "shards": 16, "modeledTestCriticalPathSeconds": 178, "topologyReadySeconds": 440, "reliable": true },
+      { "shards": 17, "modeledTestCriticalPathSeconds": 241, "topologyReadySeconds": 379, "reliable": true },
+      { "shards": 20, "modeledTestCriticalPathSeconds": 170, "topologyReadySeconds": 434, "reliable": true }
+    ],
+    "selectedModeledTestCriticalPathSeconds": 178,
+    "selectedTopologyReadySeconds": 440,
+    "selectedAverageTestsPerShard": 27.3,
+    "measuredAt": "2026-08-31T10:27:14Z"
   },
   "rebenchmark": {
-    "atOrBelowTests": 378,
-    "atOrAboveTests": 462,
+    "atOrBelowTests": 409,
+    "atOrAboveTests": 465,
     "rule": "Rebenchmark when the suite changes by one selected shard's measured average workload."
   },
   "selectionPolicy": {
