@@ -90,6 +90,7 @@ services:
       SUPABASE_URL: "${SUPABASE_URL}"
       SUPABASE_SERVICE_ROLE_KEY: "${SUPABASE_SERVICE_ROLE_KEY}"
       DATABASE_URL: "${DATABASE_URL}"
+      DATABASE_POOL_MAX: "${DATABASE_POOL_MAX:-}"
       # Master key for encrypting per-user BYOK OpenAI keys at rest. 32-byte
       # base64; required — assertConfigValid() refuses to boot without it.
       BYOK_ENCRYPTION_KEY: "${BYOK_ENCRYPTION_KEY}"

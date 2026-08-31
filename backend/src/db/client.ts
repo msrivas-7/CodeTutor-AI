@@ -18,12 +18,10 @@ export function db(): Sql {
     );
   }
   pool = postgres(url, {
-    // P-H5: bumped 10 → 25 to match the Supabase Pro pooler's per-client
-    // budget (the pooler accepts ~200 client conns across the project, so
-    // 25 per backend replica leaves plenty of headroom while removing the
-    // queue-behind-DB stall we'd hit when ~11 concurrent asks + lesson
-    // heartbeats + sessionManager reads competed for a 10-slot pool.
-    max: 25,
+    // Production defaults to the calibrated 25-connection ceiling. Highly
+    // parallel E2E runs lower this per isolated backend so their aggregate
+    // cannot exhaust the shared Supabase transaction-pooler client limit.
+    max: config.databasePoolMax,
     idle_timeout: 30,
     connect_timeout: 10,
     // Supabase's transaction pooler (port 6543) recycles connections between

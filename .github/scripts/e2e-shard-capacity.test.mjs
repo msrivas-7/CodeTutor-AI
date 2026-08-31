@@ -9,6 +9,7 @@ import {
 
 const record = JSON.parse(readFileSync(new URL("../e2e-shard-capacity.json", import.meta.url), "utf8"));
 const workflow = readFileSync(new URL("../workflows/e2e.yml", import.meta.url), "utf8");
+const compose = readFileSync(new URL("../../docker-compose.yml", import.meta.url), "utf8");
 
 test("derives a one-shard-workload rebenchmark band", () => {
   assert.deepEqual(deriveRebenchmarkBounds(439, 16), {
@@ -106,6 +107,12 @@ test("duration planning receives the authenticated fixture environment required 
   ]) {
     assert.match(planningJob, new RegExp(`${variable}: \\$\\{\\{ secrets\\.${variable} }}`));
   }
+});
+
+test("parallel browser stacks stay below the shared database client ceiling", () => {
+  assert.match(workflow, /DATABASE_POOL_MAX: "6"/);
+  assert.match(workflow, /26 isolated backends[\s\S]+156[\s\S]+200-client ceiling/);
+  assert.match(compose, /DATABASE_POOL_MAX: "\$\{DATABASE_POOL_MAX:-}"/);
 });
 
 test("accepts the measured inventory and normal growth", () => {
