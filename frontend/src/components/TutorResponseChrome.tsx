@@ -173,6 +173,15 @@ export function classifyAskError(raw: string): {
 } {
   const parsed = parseTutorError(raw);
   const errorCode = parsed.code?.toUpperCase();
+  if (errorCode === "AI_ADMISSION_UNAVAILABLE") {
+    return {
+      kind: "admissionUnavailable",
+      title: "Tutor admission temporarily unavailable",
+      hint: "Your current error guide is still here. Keep working and ask the Tutor again after the service recovers.",
+      retryable: false,
+      showDetails: false,
+    };
+  }
   if (
     errorCode === "LESSON_CONTEXT_NOT_FOUND" ||
     errorCode === "LESSON_CONTEXT_UNAVAILABLE"

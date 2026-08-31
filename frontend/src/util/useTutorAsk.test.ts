@@ -33,6 +33,14 @@ describe("contextualOfferInvalidationForError", () => {
 
   it("preserves authored guidance when lesson authority refuses admission", () => {
     expect(contextualOfferInvalidationForError(
+      'Request failed (503): {"error":"AI_ADMISSION_UNAVAILABLE"}',
+      "authed",
+    )).toBe("availability");
+    expect(contextualOfferInvalidationForError(
+      'Request failed (503): {"error":"AI_ADMISSION_UNAVAILABLE"}',
+      "anon",
+    )).toBe("availability");
+    expect(contextualOfferInvalidationForError(
       'Request failed (404): {"error":"LESSON_CONTEXT_NOT_FOUND"}',
       "authed",
     )).toBe("availability");

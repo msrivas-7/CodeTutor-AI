@@ -96,6 +96,23 @@ describe("tutor recovery copy", () => {
     expect(result.hint).toMatch(/latest error is still in Output/i);
   });
 
+  it("keeps admission storage failures private and non-retryable", () => {
+    const raw = JSON.stringify({ error: "AI_ADMISSION_UNAVAILABLE" });
+    expect(classifyAskError(raw)).toEqual({
+      kind: "admissionUnavailable",
+      title: "Tutor admission temporarily unavailable",
+      hint: "Your current error guide is still here. Keep working and ask the Tutor again after the service recovers.",
+      retryable: false,
+      showDetails: false,
+    });
+    const markup = renderToStaticMarkup(createElement(AskErrorView, {
+      message: raw,
+      onRetry: vi.fn(),
+    }));
+    expect(markup).not.toContain("AI_ADMISSION_UNAVAILABLE");
+    expect(markup).not.toContain("Try again");
+  });
+
   it("turns runtime model ineligibility into a non-retryable guide recovery", () => {
     expect(classifyAskError("MODEL_NOT_EVALUATED_FOR_CONTEXTUAL_OFFER")).toMatchObject({
       kind: "contextualModel",
