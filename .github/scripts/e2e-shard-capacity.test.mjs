@@ -63,12 +63,21 @@ test("tracked decision preserves the clean controlled benchmark evidence", () =>
 });
 
 test("blocking workflow uses the selected matrix and derives its denominator", () => {
-  const shardMatrix = workflow.match(/matrix:\n\s+shard: \[([^\]]+)]/)?.[1]
+  const exhaustiveJob = workflow.match(/\n  e2e:\n([\s\S]+?)\n  cross-browser-core:/)?.[1] ?? "";
+  const shardMatrix = exhaustiveJob.match(/matrix:\n\s+shard: \[([^\]]+)]/)?.[1]
     .split(",")
     .map((value) => Number(value.trim()));
   assert.deepEqual(shardMatrix, Array.from({ length: record.selectedShards }, (_, index) => index + 1));
-  assert.match(workflow, /--active-shards "\$\{\{ strategy\.job-total }}/);
-  assert.match(workflow, /--shard=\$\{\{ matrix\.shard }}\/\$\{\{ strategy\.job-total }}/);
+  assert.match(exhaustiveJob, /--active-shards "\$\{\{ strategy\.job-total }}/);
+  assert.match(workflow, /--output e2e\/duration-plan\/full[\s\S]+--shards 16/);
+  assert.match(exhaustiveJob, /--test-list=duration-plan-artifact\/full\/shard-\$\{\{ matrix\.shard }}\.txt/);
+  assert.match(exhaustiveJob, /name: Upload test-duration evidence/);
+});
+
+test("advisory critical coverage is split across two isolated duration-balanced jobs", () => {
+  assert.match(workflow, /--output e2e\/duration-plan\/critical[\s\S]+--shards 2[\s\S]+--tag lane:critical/);
+  assert.match(workflow, /critical-shadow:[\s\S]+matrix:\n\s+shard: \[1, 2]/);
+  assert.match(workflow, /critical-shadow-summary:[\s\S]+files\.length!==2/);
 });
 
 test("accepts the measured inventory and normal growth", () => {

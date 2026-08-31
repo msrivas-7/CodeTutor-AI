@@ -111,9 +111,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -n "$BACKEND_IMAGE" ] && [ -n "$RUNNER_IMAGE" ] && [ -n "$FRONTEND_IMAGE" ]; then
-            docker pull "$BACKEND_IMAGE"
-            docker pull "$RUNNER_IMAGE"
-            docker pull "$FRONTEND_IMAGE"
+            .github/scripts/pull-container-images.sh "$BACKEND_IMAGE" "$RUNNER_IMAGE" "$FRONTEND_IMAGE"
             docker compose up -d --no-build backend frontend
           else
             docker compose up -d backend frontend
