@@ -120,8 +120,8 @@ browser boundary retained for each. The earlier shard benchmark measured four,
 six, and eight shards on commit `c6aa5f0`; at the then-smaller suite size, six
 was fastest at 316 seconds versus 340 for eight and 495 for four. The suite has
 since grown to 420 Chromium tests, so
-`.github/workflows/e2e-shard-benchmark.yml` now compares 6, 8, and 10 shards on
-the same commit, sequentially and without retries. Run
+`.github/workflows/e2e-shard-benchmark.yml` selected 10 shards from the earlier
+6/8/10 comparison on the same commit, sequentially and without retries. Run
 [`33295206692`](https://github.com/msrivas-7/CodeTutor-AI/actions/runs/33295206692)
 selected ten shards at 325 seconds, versus 367 for eight and 504 for six; every
 job passed and all 420 tests remained blocking. It reports end-to-end
@@ -129,6 +129,24 @@ completion, slowest test time, shard imbalance, aggregate runner time, setup
 overhead, and tests per shard. A larger topology is recommended only when every
 shard passes and it improves completion by at least 20 seconds and 5%; this
 avoids buying more runner/setup overhead for a noisy or negligible gain.
+
+The next capacity pass compares 10, 12, 14, 16, 17, and 20 shards. This is not
+a preference for a round number: recent PR runs reached the account's observed
+20-job standard-runner ceiling, while the normal E2E workflow needs three
+simultaneous non-shard jobs for Firefox, WebKit, and the advisory critical lane.
+Seventeen is therefore the
+largest shard topology that can start without an E2E-owned queue. The 20-shard
+candidate is deliberately capped at 17 parallel jobs to measure whether finer
+partitions can still overcome the queued tail. Counts above 20 are supported by
+GitHub's matrix syntax but cannot improve this topology without a higher account
+concurrency limit; they would add fresh-runner setup waves before the suite can
+finish.
+
+Re-evaluate the candidate ceiling whenever the GitHub plan, runner class, or
+observed account concurrency changes. The matrix supports up to 256 jobs, but
+that syntax limit is not useful capacity unless the account can actually start
+the jobs concurrently.
+
 `.github/e2e-shard-capacity.json` records the measured decision. Shard 1 counts
 the live Chromium inventory and fails closed when it reaches 462 tests or falls
 to 378, one measured shard-workload from the 420-test baseline. Re-run the

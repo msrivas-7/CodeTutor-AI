@@ -4,7 +4,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const TOPOLOGIES = [6, 8, 10];
+const TOPOLOGIES = [10, 12, 14, 16, 17, 20];
+const STANDARD_RUNNER_CONCURRENCY = 20;
+const RESERVED_NON_SHARD_JOBS = 3;
 const MINIMUM_RELATIVE_GAIN = 0.05;
 const MINIMUM_ABSOLUTE_GAIN_SECONDS = 20;
 const TEST_STEP_NAME = "Run identical full suite without retries";
@@ -22,7 +24,10 @@ function stepSeconds(job, stepName) {
 
 function summarizeTopology({ total, run, jobs, totalTests }) {
   const namePrefix = `Playwright benchmark ${total} shards`;
-  const selected = jobs.filter((job) => job.name.startsWith(namePrefix));
+  // Reusable-workflow jobs are reported as
+  // `benchmark-ten / Playwright benchmark 10 shards (1/10)`. Match the owned
+  // segment instead of coupling the comparator to the caller job id.
+  const selected = jobs.filter((job) => job.name.includes(namePrefix));
   const startedValues = selected.map((job) => Date.parse(job.started_at)).filter(Number.isFinite);
   const topologyStartedAt = startedValues.length === total
     ? new Date(Math.min(...startedValues)).toISOString()
@@ -109,10 +114,13 @@ export function compareShardTopologies({ benchmarkRun, benchmarkJobs, totalTests
       workersPerShard: 2,
       retries: 0,
       candidates: TOPOLOGIES,
+      standardRunnerConcurrency: STANDARD_RUNNER_CONCURRENCY,
+      reservedNonShardJobs: RESERVED_NON_SHARD_JOBS,
+      unconstrainedShardCeiling: STANDARD_RUNNER_CONCURRENCY - RESERVED_NON_SHARD_JOBS,
       selectionMetric: "reliable topology-relative completion",
       minimumRelativeGain: MINIMUM_RELATIVE_GAIN,
       minimumAbsoluteGainSeconds: MINIMUM_ABSOLUTE_GAIN_SECONDS,
-      status: "topologies run sequentially on the same commit; a larger topology wins only when it is both reliable and materially faster",
+      status: "topologies run sequentially on the same commit; 20 shards is capped at 17 parallel jobs to model the normal workflow reserve; a larger topology wins only when it is reliable and materially faster",
     },
     topologies,
     provisionalSelection: selected?.shards ?? null,
