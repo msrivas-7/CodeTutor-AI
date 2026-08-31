@@ -1,0 +1,37 @@
+name: E2E image retention
+
+on:
+  schedule:
+    - cron: '23 9 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: e2e-image-retention
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    name: Remove stale temporary E2E images
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - codetutor-ci-backend
+          - codetutor-ci-runner
+          - codetutor-ci-frontend
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Keep one fallback and remove versions older than 48 hours
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          node .github/scripts/ghcr-retention.mjs
+          --owner "$GITHUB_REPOSITORY_OWNER"
+          --package "${{ matrix.package }}"
+          --older-than-hours 48
+          --keep-newest 1

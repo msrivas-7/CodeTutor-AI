@@ -21,7 +21,7 @@ jobs:
         with:
           node-version: '20'
       - name: Test immutable manifest and VM promotion rollback
-        run: node --test .github/scripts/e2e-shadow-evidence.test.mjs .github/scripts/e2e-shard-benchmark.test.mjs .github/scripts/e2e-shard-capacity.test.mjs .github/scripts/frontend-release-probe.test.mjs .github/scripts/production-synthetic.test.mjs .github/scripts/release-manifest.test.mjs .github/scripts/release-permissions.test.mjs .github/scripts/vm-promote-candidate.test.mjs scripts/agent-harness.test.mjs scripts/e2e-shadow-contract.test.mjs scripts/production-dependency-audit.test.mjs
+        run: node --test .github/scripts/e2e-forwarded-ip.test.mjs .github/scripts/e2e-shadow-evidence.test.mjs .github/scripts/e2e-shard-benchmark.test.mjs .github/scripts/e2e-runtime-benchmark.test.mjs .github/scripts/e2e-shard-capacity.test.mjs .github/scripts/frontend-release-probe.test.mjs .github/scripts/production-synthetic.test.mjs .github/scripts/release-manifest.test.mjs .github/scripts/release-permissions.test.mjs .github/scripts/vm-promote-candidate.test.mjs scripts/agent-harness.test.mjs scripts/e2e-shadow-contract.test.mjs scripts/production-dependency-audit.test.mjs
       - name: Validate agent harness contract
         run: node scripts/agent-harness.mjs doctor --ci
       - name: Audit production dependencies

@@ -41,6 +41,25 @@ test("tracked decision preserves the clean controlled benchmark evidence", () =>
     ],
   );
   assert.equal(record.benchmark.selectedModeledTestCriticalPathSeconds, 160);
+  assert.deepEqual(record.runtimeOptimization.imageReuse, {
+    localBuildEndToEndSeconds: 369,
+    prebuiltEndToEndSecondsIncludingPreparation: 338,
+    preparationSeconds: 24,
+    absoluteGainSeconds: 31,
+    relativeGain: 0.084,
+    selected: true,
+  });
+  assert.deepEqual(
+    record.runtimeOptimization.workerCandidates.map(
+      ({ workers, reliable, selected }) => ({ workers, reliable, selected }),
+    ),
+    [
+      { workers: 2, reliable: true, selected: true },
+      { workers: 3, reliable: false, selected: false },
+      { workers: 4, reliable: false, selected: false },
+    ],
+  );
+  assert.equal(record.runtimeOptimization.maximumChromiumShards, 20);
 });
 
 test("blocking workflow uses the selected matrix and derives its denominator", () => {

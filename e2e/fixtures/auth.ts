@@ -394,16 +394,29 @@ export function trackSessionCleanup(
       // resume endpoint. This also covers sessions created from peer tabs that
       // disappeared before their response event reached the coordinator.
       for (let attempt = 0; attempt < 20; attempt += 1) {
-        const resume = await ctx.post(`${BACKEND_URL}/api/session/resume`);
+        let resume: import("@playwright/test").APIResponse;
+        try {
+          resume = await ctx.post(`${BACKEND_URL}/api/session/resume`);
+        } catch {
+          // The product assertion has already completed. A backend shutdown or
+          // transient socket failure during this best-effort drain must not
+          // retroactively fail it; the idle-session sweeper is the final guard.
+          break;
+        }
         if (resume.status() === 404) break;
         if (!resume.ok()) break;
         const body = (await resume.json().catch(() => null)) as {
           sessionId?: unknown;
         } | null;
         if (typeof body?.sessionId !== "string" || body.sessionId.length === 0) break;
-        const ended = await ctx.post(`${BACKEND_URL}/api/session/end`, {
-          data: { sessionId: body.sessionId },
-        });
+        let ended: import("@playwright/test").APIResponse;
+        try {
+          ended = await ctx.post(`${BACKEND_URL}/api/session/end`, {
+            data: { sessionId: body.sessionId },
+          });
+        } catch {
+          break;
+        }
         if (!ended.ok()) break;
       }
     } finally {

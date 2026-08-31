@@ -112,6 +112,10 @@ See `.github/workflows/e2e.yml`. The current PR model is:
 - one advisory, zero-retry Chromium critical lane (currently 41 tests in 15 files);
 - CI retries retain diagnostic traces, but `failOnFlakyTests` makes a flaky
   result fail its shard so a targeted rerun cannot erase the original signal;
+- each lane, shard, attempt, and benchmark stage receives a stable synthetic
+  address from the reserved `2001:db8::/32` range through the Vite proxy, so
+  the real per-IP abuse controls are tested without unrelated jobs sharing one
+  daily database counter;
 - versioned shadow evidence that records queue-inclusive readiness and any miss where the critical lane passes but the full suite fails.
 
 `e2e/shadow/regression-corpus.json` freezes the initial P0/P1 catch corpus.
@@ -119,9 +123,8 @@ See `.github/workflows/e2e.yml`. The current PR model is:
 browser boundary retained for each. The earlier shard benchmark measured four,
 six, and eight shards on commit `c6aa5f0`; at the then-smaller suite size, six
 was fastest at 316 seconds versus 340 for eight and 495 for four. The suite has
-since grown to 420 Chromium tests, so
-`.github/workflows/e2e-shard-benchmark.yml` later compared 16 and 20 shards
-sequentially on the same stable GitHub Pro commit and without retries. Run
+since grown to 439 Chromium tests, so the capacity benchmark compared 16 and 20
+shards sequentially on the same stable GitHub Pro commit and without retries. Run
 [`33385421742`](https://github.com/msrivas-7/CodeTutor-AI/actions/runs/33385421742)
 selected sixteen shards: its retry-free test critical path was 160 seconds and
 its topology completed in 379 seconds, versus 198 and 416 seconds for 20
@@ -144,6 +147,15 @@ Re-evaluate the candidate ceiling whenever the GitHub plan, runner class, or
 observed account concurrency changes. The matrix supports up to 256 jobs, but
 that syntax limit is not useful capacity unless the account can actually start
 the jobs concurrently.
+
+The labeled `.github/workflows/e2e-runtime-benchmark.yml` runtime experiment
+uses the `ci-runtime-benchmark` label and holds those sixteen shards constant.
+It first compares the existing per-shard
+Docker build with one digest-pinned backend, runner, and development-frontend
+build reused by every shard, then measures two, three, and four Playwright
+workers on the reused images. Each stage is sequential, retry-free, and must be
+fully green. Image reuse is adopted only from a material end-to-end gain;
+worker count is selected independently from the Playwright test critical path.
 
 `.github/e2e-shard-capacity.json` records the measured decision. Shard 1 counts
 the live Chromium inventory and fails closed when it reaches 467 tests or falls

@@ -1,0 +1,222 @@
+name: E2E runtime benchmark
+
+# Controlled, same-commit benchmark for the two remaining large E2E costs:
+# rebuilding three Docker images in every shard and Playwright worker count.
+# The selected 16-shard topology stays fixed throughout so each stage changes
+# exactly one variable. Stages run sequentially and never exceed 16 concurrent
+# shards, leaving headroom beneath the account-wide 40-job ceiling.
+on:
+  pull_request:
+    types: [labeled]
+
+concurrency:
+  group: e2e-runtime-benchmark-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  actions: read
+  contents: read
+  packages: write
+  pull-requests: read
+
+env:
+  CI_BACKEND_IMAGE: ghcr.io/${{ github.repository_owner }}/codetutor-ci-backend
+  CI_RUNNER_IMAGE: ghcr.io/${{ github.repository_owner }}/codetutor-ci-runner
+  CI_FRONTEND_IMAGE: ghcr.io/${{ github.repository_owner }}/codetutor-ci-frontend
+
+jobs:
+  prepare-backend:
+    name: Build backend E2E image once
+    if: github.event.label.name == 'ci-runtime-benchmark' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    outputs:
+      ref: ${{ steps.ref.outputs.value }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Build and publish backend benchmark image
+        id: backend
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: ./backend/Dockerfile
+          push: true
+          tags: ${{ env.CI_BACKEND_IMAGE }}:run-${{ github.run_id }}
+          cache-from: type=gha,scope=e2e-backend
+          cache-to: type=gha,scope=e2e-backend,mode=max
+      - name: Export immutable backend reference
+        id: ref
+        run: echo "value=$CI_BACKEND_IMAGE@${{ steps.backend.outputs.digest }}" >> "$GITHUB_OUTPUT"
+
+  prepare-runner:
+    name: Build runner E2E image once
+    if: github.event.label.name == 'ci-runtime-benchmark' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    outputs:
+      ref: ${{ steps.ref.outputs.value }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Build and publish runner benchmark image
+        id: runner
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: ./runner-image
+          push: true
+          tags: ${{ env.CI_RUNNER_IMAGE }}:run-${{ github.run_id }}
+          cache-from: type=gha,scope=e2e-runner
+          cache-to: type=gha,scope=e2e-runner,mode=max
+      - name: Export immutable runner reference
+        id: ref
+        run: echo "value=$CI_RUNNER_IMAGE@${{ steps.runner.outputs.digest }}" >> "$GITHUB_OUTPUT"
+
+  prepare-frontend:
+    name: Build frontend E2E image once
+    if: github.event.label.name == 'ci-runtime-benchmark' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    outputs:
+      ref: ${{ steps.ref.outputs.value }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Build and publish frontend benchmark image
+        id: frontend
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: ./frontend/Dockerfile
+          target: dev
+          push: true
+          tags: ${{ env.CI_FRONTEND_IMAGE }}:run-${{ github.run_id }}
+          cache-from: type=gha,scope=e2e-frontend
+          cache-to: type=gha,scope=e2e-frontend,mode=max
+      - name: Export immutable frontend reference
+        id: ref
+        run: echo "value=$CI_FRONTEND_IMAGE@${{ steps.frontend.outputs.digest }}" >> "$GITHUB_OUTPUT"
+
+  baseline-local-w2:
+    if: github.event.label.name == 'ci-runtime-benchmark'
+    needs: [prepare-backend, prepare-runner, prepare-frontend]
+    uses: ./.github/workflows/e2e-shard-topology.yml
+    with:
+      total: 16
+      shards: '[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]'
+      max_parallel: 16
+      experiment: local-w2
+      workers: 2
+    secrets: inherit
+
+  prebuilt-w2:
+    if: always() && github.event.label.name == 'ci-runtime-benchmark' && needs.prepare-backend.result == 'success' && needs.prepare-runner.result == 'success' && needs.prepare-frontend.result == 'success' && needs.baseline-local-w2.result == 'success'
+    needs: [prepare-backend, prepare-runner, prepare-frontend, baseline-local-w2]
+    uses: ./.github/workflows/e2e-shard-topology.yml
+    with:
+      total: 16
+      shards: '[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]'
+      max_parallel: 16
+      experiment: prebuilt-w2
+      workers: 2
+      backend_image_ref: ${{ needs.prepare-backend.outputs.ref }}
+      runner_image_ref: ${{ needs.prepare-runner.outputs.ref }}
+      frontend_image_ref: ${{ needs.prepare-frontend.outputs.ref }}
+    secrets: inherit
+
+  prebuilt-w3:
+    if: always() && github.event.label.name == 'ci-runtime-benchmark' && needs.prepare-backend.result == 'success' && needs.prepare-runner.result == 'success' && needs.prepare-frontend.result == 'success' && needs.prebuilt-w2.result == 'success'
+    needs: [prepare-backend, prepare-runner, prepare-frontend, prebuilt-w2]
+    uses: ./.github/workflows/e2e-shard-topology.yml
+    with:
+      total: 16
+      shards: '[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]'
+      max_parallel: 16
+      experiment: prebuilt-w3
+      workers: 3
+      backend_image_ref: ${{ needs.prepare-backend.outputs.ref }}
+      runner_image_ref: ${{ needs.prepare-runner.outputs.ref }}
+      frontend_image_ref: ${{ needs.prepare-frontend.outputs.ref }}
+    secrets: inherit
+
+  prebuilt-w4:
+    if: always() && github.event.label.name == 'ci-runtime-benchmark' && needs.prepare-backend.result == 'success' && needs.prepare-runner.result == 'success' && needs.prepare-frontend.result == 'success' && needs.prebuilt-w3.result == 'success'
+    needs: [prepare-backend, prepare-runner, prepare-frontend, prebuilt-w3]
+    uses: ./.github/workflows/e2e-shard-topology.yml
+    with:
+      total: 16
+      shards: '[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]'
+      max_parallel: 16
+      experiment: prebuilt-w4
+      workers: 4
+      backend_image_ref: ${{ needs.prepare-backend.outputs.ref }}
+      runner_image_ref: ${{ needs.prepare-runner.outputs.ref }}
+      frontend_image_ref: ${{ needs.prepare-frontend.outputs.ref }}
+    secrets: inherit
+
+  compare:
+    name: Compare Docker reuse and worker counts
+    if: always() && github.event.label.name == 'ci-runtime-benchmark'
+    needs: [prepare-backend, prepare-runner, prepare-frontend, baseline-local-w2, prebuilt-w2, prebuilt-w3, prebuilt-w4]
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Collect same-commit benchmark data
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p e2e/runtime-benchmark
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" > e2e/runtime-benchmark/benchmark-run.json
+          gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?per_page=100" --slurp \
+            | node -e 'let d=""; process.stdin.on("data",c=>d+=c).on("end",()=>{const pages=JSON.parse(d); process.stdout.write(JSON.stringify({jobs:pages.flatMap(page=>page.jobs||[])},null,2)+"\n")})' \
+            > e2e/runtime-benchmark/benchmark-jobs.json
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+      - name: Count the benchmarked Chromium tests
+        working-directory: e2e
+        run: |
+          set -euo pipefail
+          npm ci
+          total_tests=$(npx playwright test --list --project=chromium | sed -nE 's/^Total: ([0-9]+) tests.*/\1/p' | tail -1)
+          test -n "$total_tests"
+          echo "TOTAL_TESTS=$total_tests" >> "$GITHUB_ENV"
+      - name: Compare reliable experiments
+        run: |
+          set -euo pipefail
+          node .github/scripts/e2e-runtime-benchmark.mjs \
+            --benchmark-run e2e/runtime-benchmark/benchmark-run.json \
+            --benchmark-jobs e2e/runtime-benchmark/benchmark-jobs.json \
+            --total-tests "$TOTAL_TESTS" \
+            --output e2e/runtime-benchmark/result.json
+          cat e2e/runtime-benchmark/result.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload benchmark result
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: e2e-runtime-benchmark-result
+          path: e2e/runtime-benchmark
+          retention-days: 90
+          if-no-files-found: error
