@@ -181,6 +181,10 @@ services:
         max-file: "3"
 
   frontend:
+    # CI can provide a digest-pinned development image so every browser shard
+    # exercises the exact same frontend build without rebuilding it locally.
+    # Local development keeps the familiar Compose-built image below.
+    image: ${FRONTEND_IMAGE:-codetutor-ai-frontend:latest}
     build:
       context: .
       dockerfile: frontend/Dockerfile
