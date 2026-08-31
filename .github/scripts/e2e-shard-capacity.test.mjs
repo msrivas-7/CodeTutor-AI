@@ -86,6 +86,7 @@ test("advisory critical coverage is split across two isolated duration-balanced 
 test("explicit benchmark workflow exercises the candidate without changing pull-request defaults", () => {
   const benchmark = readFileSync(new URL("../workflows/e2e-shard-benchmark.yml", import.meta.url), "utf8");
   assert.match(benchmark, /github\.event\.label\.name == 'ci-duration-benchmark'/);
+  assert.match(benchmark, /permissions:[\s\S]+packages: write/);
   assert.match(benchmark, /uses: \.\/\.github\/workflows\/e2e\.yml/);
   assert.match(benchmark, /exhaustive_shards: 20/);
   assert.match(benchmark, /critical_shards: 4/);
