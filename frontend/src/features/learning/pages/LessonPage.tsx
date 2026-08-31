@@ -1433,6 +1433,10 @@ export default function LessonPage({
   if (!courseId || !lessonId) return null;
 
   const lesson = loader.lesson;
+  // React Router reuses LessonPage across lesson parameters. Give the Tutor a
+  // lesson-scoped lifecycle so refusal, consent, and recovery state cannot
+  // leak into the next lesson or reappear when the learner returns.
+  const guidedTutorLessonKey = `${courseId}/${lessonId}`;
   // `/try/` is an intentionally anonymous product surface even when a signed-in
   // learner opens it in another tab. Never let their authenticated progress
   // bleed into the anonymous status, coach, telemetry, practice, completion, or
@@ -2080,6 +2084,7 @@ export default function LessonPage({
               className="h-[52vh] min-h-[280px] focus:outline-none"
             >
               <GuidedTutorPanel
+                key={guidedTutorLessonKey}
                 lessonMeta={lesson}
                 totalLessons={loader.totalLessons}
                 priorConcepts={loader.priorConcepts}
@@ -2838,6 +2843,7 @@ export default function LessonPage({
             {...((layout.tutorCollapsed ? { inert: "" } : {}) as Record<string, unknown>)}
           >
             <GuidedTutorPanel
+              key={guidedTutorLessonKey}
               lessonMeta={lesson}
               totalLessons={loader.totalLessons}
               priorConcepts={loader.priorConcepts}
