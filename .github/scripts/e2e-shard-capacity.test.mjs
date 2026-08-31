@@ -9,7 +9,6 @@ import {
 
 const record = JSON.parse(readFileSync(new URL("../e2e-shard-capacity.json", import.meta.url), "utf8"));
 const workflow = readFileSync(new URL("../workflows/e2e.yml", import.meta.url), "utf8");
-const compose = readFileSync(new URL("../../docker-compose.yml", import.meta.url), "utf8");
 
 test("derives a one-shard-workload rebenchmark band", () => {
   assert.deepEqual(deriveRebenchmarkBounds(439, 16), {
@@ -63,35 +62,23 @@ test("tracked decision preserves the clean controlled benchmark evidence", () =>
   assert.equal(record.runtimeOptimization.maximumChromiumShards, 20);
 });
 
-test("blocking workflow defaults to the selected matrix and derives its denominator", () => {
+test("blocking workflow uses the selected matrix and derives its denominator", () => {
   const exhaustiveJob = workflow.match(/\n  e2e:\n([\s\S]+?)\n  cross-browser-core:/)?.[1] ?? "";
-  const shardMatrix = workflow.match(/default: '\[([0-9,]+)]'\n\s+type: string\n\s+critical_shards:/)?.[1]
+  const shardMatrix = exhaustiveJob.match(/matrix:\n\s+shard: \[([^\]]+)]/)?.[1]
     .split(",")
     .map((value) => Number(value.trim()));
   assert.deepEqual(shardMatrix, Array.from({ length: record.selectedShards }, (_, index) => index + 1));
-  assert.match(exhaustiveJob, /fromJSON\(inputs\.exhaustive_matrix \|\| '\[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]'\)/);
   assert.match(exhaustiveJob, /--active-shards "\$\{\{ strategy\.job-total }}/);
-  assert.match(workflow, /--output e2e\/duration-plan\/full[\s\S]+--shards "\$\{\{ inputs\.exhaustive_shards \|\| 16 }}"/);
+  assert.match(workflow, /--output e2e\/duration-plan\/full[\s\S]+--shards 16/);
   assert.match(exhaustiveJob, /--test-list=duration-plan-artifact\/full\/shard-\$\{\{ matrix\.shard }}\.txt/);
   assert.match(exhaustiveJob, /name: Upload test-duration evidence/);
-  assert.match(exhaustiveJob, /if: matrix\.shard == 1 && inputs\.benchmark_mode != true/);
 });
 
 test("advisory critical coverage is split across two isolated duration-balanced jobs", () => {
-  assert.match(workflow, /--output e2e\/duration-plan\/critical[\s\S]+--shards "\$\{\{ inputs\.critical_shards \|\| 2 }}"[\s\S]+--tag lane:critical/);
-  assert.match(workflow, /critical-shadow:[\s\S]+fromJSON\(inputs\.critical_matrix \|\| '\[1,2]'\)/);
+  assert.match(workflow, /--output e2e\/duration-plan\/critical[\s\S]+--shards 2[\s\S]+--tag lane:critical/);
+  assert.match(workflow, /critical-shadow:[\s\S]+matrix:\n\s+shard: \[1, 2]/);
   assert.doesNotMatch(workflow, /critical-shadow-summary:/);
-  assert.match(workflow, /shadow-evidence:[\s\S]+needs: \[duration-plan, critical-shadow, e2e, cross-browser-core][\s\S]+files\.length!==expected/);
-});
-
-test("explicit benchmark workflow exercises the candidate without changing pull-request defaults", () => {
-  const benchmark = readFileSync(new URL("../workflows/e2e-shard-benchmark.yml", import.meta.url), "utf8");
-  assert.match(benchmark, /github\.event\.label\.name == 'ci-duration-benchmark'/);
-  assert.match(benchmark, /permissions:[\s\S]+packages: write/);
-  assert.match(benchmark, /uses: \.\/\.github\/workflows\/e2e\.yml/);
-  assert.match(benchmark, /exhaustive_shards: 20/);
-  assert.match(benchmark, /critical_shards: 4/);
-  assert.match(benchmark, /benchmark_mode: true/);
+  assert.match(workflow, /shadow-evidence:[\s\S]+needs: \[duration-plan, critical-shadow, e2e, cross-browser-core][\s\S]+files\.length!==2/);
 });
 
 test("duration planning receives the authenticated fixture environment required for discovery", () => {
@@ -107,13 +94,6 @@ test("duration planning receives the authenticated fixture environment required 
   ]) {
     assert.match(planningJob, new RegExp(`${variable}: \\$\\{\\{ secrets\\.${variable} }}`));
   }
-});
-
-test("parallel browser stacks stay below the shared database client ceiling", () => {
-  assert.match(workflow, /DATABASE_POOL_MAX: "1"/);
-  assert.match(workflow, /26 isolated backends[\s\S]+aggregate[\s\S]+26/);
-  assert.match(workflow, /preserves postgres\.js transaction ownership/);
-  assert.match(compose, /DATABASE_POOL_MAX: "\$\{DATABASE_POOL_MAX:-}"/);
 });
 
 test("accepts the measured inventory and normal growth", () => {

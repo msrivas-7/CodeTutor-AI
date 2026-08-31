@@ -1,5 +1,3 @@
-import { resolveDatabasePoolMax } from "./db/poolConfig.js";
-
 const num = (v: string | undefined, d: number) => (v ? Number(v) : d);
 
 function parseIntEnv(v: string | undefined): number | undefined {
@@ -163,7 +161,6 @@ export const config = {
   // project). Points at the Supabase-managed Postgres for the current
   // environment (transaction pooler URL from Project Settings → Database).
   databaseUrl: process.env.DATABASE_URL,
-  databasePoolMax: resolveDatabasePoolMax(process.env.DATABASE_POOL_MAX),
 
   // Phase 18e + Phase 26 (audit M-1): master keys for AES-256-GCM
   // envelope encryption of user BYOK OpenAI keys. 32 raw bytes each,

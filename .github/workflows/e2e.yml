@@ -35,31 +35,6 @@ on:
         required: false
         default: ''
         type: string
-      exhaustive_shards:
-        description: Number of duration-balanced exhaustive Chromium shards
-        required: false
-        default: 16
-        type: number
-      exhaustive_matrix:
-        description: JSON matrix matching exhaustive_shards
-        required: false
-        default: '[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]'
-        type: string
-      critical_shards:
-        description: Number of duration-balanced advisory critical shards
-        required: false
-        default: 2
-        type: number
-      critical_matrix:
-        description: JSON matrix matching critical_shards
-        required: false
-        default: '[1,2]'
-        type: string
-      benchmark_mode:
-        description: Allow an unselected topology only in an explicit benchmark run
-        required: false
-        default: false
-        type: boolean
 
 concurrency:
   group: e2e-${{ github.ref }}
@@ -75,11 +50,6 @@ env:
   CI_BACKEND_IMAGE: ghcr.io/${{ github.repository_owner }}/codetutor-ci-backend
   CI_RUNNER_IMAGE: ghcr.io/${{ github.repository_owner }}/codetutor-ci-runner
   CI_FRONTEND_IMAGE: ghcr.io/${{ github.repository_owner }}/codetutor-ci-frontend
-  # At the 20/4 candidate topology, 26 isolated backends share the development
-  # Supabase transaction pooler. One connection per E2E stack keeps aggregate
-  # demand at 26 and also preserves postgres.js transaction ownership under
-  # concurrent test workers. Production keeps its calibrated default of 25.
-  DATABASE_POOL_MAX: "1"
 
 jobs:
   duration-plan:
@@ -131,12 +101,12 @@ jobs:
             --inventory e2e/duration-plan/inventory.json \
             --history .e2e-duration/history.json \
             --output e2e/duration-plan/full \
-            --shards "${{ inputs.exhaustive_shards || 16 }}"
+            --shards 16
           node .github/scripts/e2e-duration-plan.mjs \
             --inventory e2e/duration-plan/inventory.json \
             --history .e2e-duration/history.json \
             --output e2e/duration-plan/critical \
-            --shards "${{ inputs.critical_shards || 2 }}" \
+            --shards 2 \
             --tag lane:critical
       - name: Validate critical metadata and frozen regression coverage
         id: contract
@@ -303,7 +273,7 @@ jobs:
           fi
 
   critical-shadow:
-    name: Playwright critical lane (advisory ${{ matrix.shard }}/${{ inputs.critical_shards || 2 }})
+    name: Playwright critical lane (advisory ${{ matrix.shard }}/2)
     needs: [duration-plan, prepare-backend, prepare-runner, prepare-frontend]
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -313,7 +283,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: ${{ fromJSON(inputs.critical_matrix || '[1,2]') }}
+        shard: [1, 2]
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
@@ -431,7 +401,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: ${{ fromJSON(inputs.exhaustive_matrix || '[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]') }}
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
     # Bumped from 15 → 25 in Phase 22C: full e2e sweep grew past the 15-min
     # ceiling once the marketing specs landed. Sharding (Phase 27-v2.2)
     # each shard now runs ~1/16 of the suite, so 25 stays generous.
@@ -527,7 +497,7 @@ jobs:
           path: e2e/duration-plan-artifact
 
       - name: Enforce measured shard capacity
-        if: matrix.shard == 1 && inputs.benchmark_mode != true
+        if: matrix.shard == 1
         working-directory: e2e
         run: |
           set -euo pipefail
@@ -748,11 +718,9 @@ jobs:
 
       - name: Aggregate critical outcome
         id: critical-summary
-        env:
-          EXPECTED_CRITICAL_SHARDS: ${{ inputs.critical_shards || 2 }}
         run: |
           set -euo pipefail
-          outcome=$(node -e 'const fs=require("fs"),path=require("path"); if(!fs.existsSync("critical-shadow")){process.stdout.write("failure");process.exit(0)} const files=fs.readdirSync("critical-shadow",{recursive:true}).filter(file=>file.endsWith("outcome.json")); const expected=Number(process.env.EXPECTED_CRITICAL_SHARDS); const failed=files.length!==expected||files.some(file=>JSON.parse(fs.readFileSync(path.join("critical-shadow",file),"utf8")).critical!=="success"); process.stdout.write(failed?"failure":"success")')
+          outcome=$(node -e 'const fs=require("fs"),path=require("path"); if(!fs.existsSync("critical-shadow")){process.stdout.write("failure");process.exit(0)} const files=fs.readdirSync("critical-shadow",{recursive:true}).filter(file=>file.endsWith("outcome.json")); const failed=files.length!==2||files.some(file=>JSON.parse(fs.readFileSync(path.join("critical-shadow",file),"utf8")).critical!=="success"); process.stdout.write(failed?"failure":"success")')
           echo "critical-outcome=$outcome" >> "$GITHUB_OUTPUT"
 
       - name: Collect run and job timing
