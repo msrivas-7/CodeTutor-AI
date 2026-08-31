@@ -1130,11 +1130,20 @@ export default function LessonPage({
   const contextualGuideEnabled =
     !practiceMode &&
     !!loader.lesson?.assistanceMoves;
+  const guidedTutorLessonKey = `${courseId}/${lessonId}`;
   const [contextualAskPending, setContextualAskPending] = useState(false);
   const contextualAskOutcomeRef = useRef<{
+    lessonKey: string;
     ok: boolean;
     invalidation?: "stale" | "disabled" | "model" | "quota" | "availability";
   } | null>(null);
+  useEffect(() => {
+    // The keyed Tutor reports an aborted in-flight ask while the route is
+    // changing. Retire only the old lesson's pending transaction; never let
+    // that late outcome accept, expire, or block guidance in the destination.
+    contextualAskOutcomeRef.current = null;
+    setContextualAskPending(false);
+  }, [guidedTutorLessonKey]);
   const historicalLessonComplete =
     mode === "authed" && courseId && lessonId
       ? lessonProgressMap[`${courseId}/${lessonId}`]?.status === "completed"
@@ -1270,8 +1279,12 @@ export default function LessonPage({
     }
     // useTutorAsk reports completion before its final render releases
     // `asking`. Defer episode ownership changes until the stream is idle.
-    contextualAskOutcomeRef.current = { ok, invalidation };
-  }, []);
+    contextualAskOutcomeRef.current = {
+      lessonKey: guidedTutorLessonKey,
+      ok,
+      invalidation,
+    };
+  }, [guidedTutorLessonKey]);
   const handleContextualTutorOfferInvalidated = useCallback(() => {
     // The Tutor subtree changes identity across the desktop/compact boundary.
     // Promote admission refusals immediately so a remount cannot re-advertise
@@ -1282,6 +1295,10 @@ export default function LessonPage({
     const outcome = contextualAskOutcomeRef.current;
     if (!outcome || tutorAsking) return;
     contextualAskOutcomeRef.current = null;
+    if (outcome.lessonKey !== guidedTutorLessonKey) {
+      setContextualAskPending(false);
+      return;
+    }
     if (outcome.ok) {
       contextualGuide.accept();
     } else {
@@ -1310,7 +1327,7 @@ export default function LessonPage({
       }
     }
     setContextualAskPending(false);
-  }, [contextualGuide, tutorAsking]);
+  }, [contextualGuide, guidedTutorLessonKey, tutorAsking]);
 
   // Phase 27-v2.1 — the praise turn parses the learner's typed name
   // out of the editor buffer (option d in the v2 plan). Authed users
@@ -1436,7 +1453,6 @@ export default function LessonPage({
   // React Router reuses LessonPage across lesson parameters. Give the Tutor a
   // lesson-scoped lifecycle so refusal, consent, and recovery state cannot
   // leak into the next lesson or reappear when the learner returns.
-  const guidedTutorLessonKey = `${courseId}/${lessonId}`;
   // `/try/` is an intentionally anonymous product surface even when a signed-in
   // learner opens it in another tab. Never let their authenticated progress
   // bleed into the anonymous status, coach, telemetry, practice, completion, or

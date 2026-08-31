@@ -239,6 +239,7 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
   const { status: aiStatus } = useAIStatus({ skip: isAnon });
   const abortRef = useRef<AbortController | null>(null);
   const activeRequestIdRef = useRef<string | null>(null);
+  const activeCompletionRef = useRef<(() => void) | null>(null);
 
   const refundDiscardedRequest = useCallback((requestId: string): void => {
     const endpoint = isAnon
@@ -263,6 +264,27 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
   useEffect(() => {
     refundDiscardedRequestRef.current = refundDiscardedRequest;
   }, [refundDiscardedRequest]);
+
+  // A keyed Tutor remount is a real request-lifecycle boundary, not merely a
+  // visual replacement. Abort and refund before the old panel disappears,
+  // then report the terminal outcome synchronously so parent-owned contextual
+  // state cannot remain latched in a later lesson. Clearing abortRef first
+  // also prevents the old async finally block from releasing a newer panel's
+  // global asking state after it mounts.
+  useEffect(() => () => {
+    const controller = abortRef.current;
+    if (!controller) return;
+
+    abortRef.current = null;
+    const requestId = activeRequestIdRef.current;
+    activeRequestIdRef.current = null;
+    if (requestId) refundDiscardedRequestRef.current(requestId);
+    controller.abort();
+    activeCompletionRef.current?.();
+    activeCompletionRef.current = null;
+    clearStream();
+    setAsking(false);
+  }, [clearStream, setAsking]);
 
   // An edit or context switch makes every in-flight tutor chunk stale. Abort
   // promptly to avoid spending tokens on a response that is no longer allowed
@@ -323,6 +345,7 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
     const controller = new AbortController();
     abortRef.current = controller;
     let completionNotified = false;
+    let askOk = false;
     const operationIsCurrent = (): boolean =>
       abortRef.current === controller &&
       useAIStore.getState().chatContext === conversationForTurn &&
@@ -334,6 +357,9 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
       completionNotified = true;
       opts.onAskComplete?.({ ok });
     };
+    // Read askOk at cleanup time so a route transition that races just after
+    // onDone does not relabel an already-completed answer as a failed turn.
+    activeCompletionRef.current = () => notifyCompletion(askOk);
     let raw = "";
     let committed = false;
 
@@ -409,7 +435,6 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
           : undefined,
       };
 
-      let askOk = false;
       await api.askAIStream(
         body,
         {
@@ -581,6 +606,7 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
       if (abortRef.current === controller) {
         activeRequestIdRef.current = null;
         notifyCompletion(false);
+        activeCompletionRef.current = null;
         // Same conversation but edited source: clear the now-orphaned stream.
         // A context switch already loaded its own clean stream state.
         if (useAIStore.getState().chatContext === conversationForTurn) {
