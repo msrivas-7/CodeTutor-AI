@@ -62,4 +62,10 @@ describe("public product contract v1", () => {
     ].join("\n");
     expect(beginnerSurfaces).not.toMatch(/cold retrieval question|Starting session…/);
   });
+
+  it("hydrates auth immediately when a public visit enters the protected app", () => {
+    const publicApp = read("src/PublicApp.tsx");
+    expect(publicApp).toContain('import("./auth/authStore")');
+    expect(publicApp).toMatch(/initAuth\(\);\s+return appModule;/);
+  });
 });

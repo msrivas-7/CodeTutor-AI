@@ -7,7 +7,9 @@ const SAFE_SEGMENT = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 const MIN_ABANDONED_AGE_MS = 24 * 60 * 60 * 1000;
 const MAX_ABANDONED_DELETES = 100;
 const CI_RUN_SUFFIX =
-  /^(?:shard-(?:[1-9]|10)|benchmark-(?:6|8|10)-(?:[1-9]|10)|cross-browser-(?:firefox|webkit)|security)-run\d+-attempt\d+$/;
+  /^(?:shard-(?:[1-9]|10)|cross-browser-(?:firefox|webkit)|security)-run\d+-attempt\d+$/;
+const BENCHMARK_RUN_SUFFIX =
+  /^benchmark-(6|8|10|12|14|16|17|20)-([1-9]|1\d|20)-run\d+-attempt\d+$/;
 const JANITOR_LEADER_SUFFIX = /^shard-1-run\d+-attempt\d+$/;
 
 export type TestUserIdentity = Pick<User, "id" | "email">;
@@ -110,7 +112,10 @@ export function extractTestRunSuffix(
 }
 
 export function isRecognizedCiRunSuffix(suffix: string): boolean {
-  return SAFE_SEGMENT.test(suffix) && CI_RUN_SUFFIX.test(suffix);
+  if (!SAFE_SEGMENT.test(suffix)) return false;
+  if (CI_RUN_SUFFIX.test(suffix)) return true;
+  const benchmark = BENCHMARK_RUN_SUFFIX.exec(suffix);
+  return benchmark !== null && Number(benchmark[2]) <= Number(benchmark[1]);
 }
 
 export function shouldReapAbandonedCiUsers(
