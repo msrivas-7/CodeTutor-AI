@@ -10,10 +10,10 @@ informs the separation of stakeholders, concerns, and views;
 [arc42](https://docs.arc42.org/home/) informs the selective use of context,
 runtime, deployment, cross-cutting, decision, quality, and risk sections; and
 [C4](https://c4model.com/diagrams) informs diagram scope and zoom level. The
-result starts with a system-context view, opens the production deployment, then
-uses focused integration and dynamic views where sequence and trust matter.
-Code-level detail stays in the adjacent module map rather than crowding the
-picture.
+result starts with a system-context view, opens the primary application
+containers, places them into the production deployment, then uses focused
+dynamic views where sequence and trust matter. Code-level detail stays in the
+adjacent module map rather than crowding the picture.
 
 ## Stakeholders, concerns, and quality drivers
 
@@ -43,17 +43,18 @@ The design optimizes for these quality drivers, in order:
 ## Architecture views and navigation
 
 The diagrams deliberately zoom rather than repeat one overloaded picture. The
-first view treats CodeTutor AI as a single system in its environment; the next
-opens that boundary into the production topology; focused runtime views then
-explain the interactions where ordering, authority, or failure behavior matter.
-Simple modules remain in tables and prose instead of receiving decorative
-component diagrams.
+first view treats CodeTutor AI as a single system in its environment; the
+container view opens that boundary into the primary applications and data
+dependencies; the deployment view then places those responsibilities onto the
+production platform. Focused runtime views explain the interactions where
+ordering, authority, or failure behavior matter. Simple modules remain in
+tables and prose instead of receiving decorative component diagrams.
 
 | View | Scope and intended reader | Question it answers |
 | --- | --- | --- |
 | System context | One software system; any product or technical reader | Who uses CodeTutor AI, and which external systems does it depend on? |
-| Production topology | Deployable applications and compute boundaries; engineers and operators | Where do the web, API, and execution responsibilities run? |
-| API integrations | Data, provider, and operational dependencies; backend, security, and operations engineers | Which managed services does the API use beyond identity and execution? |
+| Container architecture | Primary interactive applications, data stores, and providers; product and technical readers | Which runnable parts make up the learning path, and what does each one own? |
+| Deployment topology | Production hosting and compute boundaries; engineers and operators | Where do the web, API, and execution responsibilities run? |
 | Authentication runtime | One protected-request journey; application and security engineers | Where is identity established and verified? |
 | Execution runtime | One code-run journey; backend and security engineers | How does untrusted code reach an isolated runner and return safely? |
 | Tutor pipeline | One AI-turn journey; product, AI, backend, and finance owners | Where are context, admission, policy, and spend controlled? |
@@ -62,7 +63,7 @@ component diagrams.
 ### System context
 
 This is the deliberately small entry diagram. CodeTutor AI is one system here;
-the production topology below opens that box.
+the container architecture below opens that box.
 
 ```mermaid
 %%{init: {"flowchart":{"curve":"basis","htmlLabels":true}}}%%
@@ -94,7 +95,61 @@ flowchart LR
 and gray boxes are external software systems or platforms. Every arrow is a
 labeled dependency directed from its user to its provider.
 
-### Production topology
+### Container architecture
+
+This C4-style container view is the primary technical overview of the
+interactive learning path. A container in this view is a runnable application
+or data boundary, not necessarily a Docker container. The crawler-facing share
+adapter and hosting details stay in the deployment view below; secondary
+operational services stay in the observability section.
+
+```mermaid
+%%{init: {"flowchart":{"curve":"basis","htmlLabels":true}}}%%
+flowchart LR
+  accTitle: CodeTutor AI container architecture
+  accDescr: Shows the primary interactive applications, data boundaries, external providers, and their responsibilities.
+  learner["Learner"]
+  operator["Maintainer"]
+
+  subgraph system["CodeTutor AI"]
+    direction LR
+    web["Web application<br/><b>React, TypeScript, Vite, Monaco</b><br/>lessons, editor, tutor, and progress"]
+    api["Application API<br/><b>Express and TypeScript</b><br/>authorization, canonical learning state,<br/>execution and tutor orchestration"]
+    execution["Execution plane<br/><b>ExecutionBackend and isolated runners</b><br/>safe code runs and protected grading"]
+  end
+
+  auth["Supabase Auth<br/>session identity"]
+  data[("Supabase data plane<br/>Postgres, RLS, and object storage")]
+  openai["OpenAI Responses API<br/>structured tutor generation"]
+
+  learner -->|"uses"| web
+  operator -->|"administers through"| web
+  web <-->|"authenticates and refreshes"| auth
+  web -->|"HTTPS product requests"| api
+  api -->|"reads and writes canonical state"| data
+  api -->|"dispatches code and tests;<br/>receives normalized results"| execution
+  api -->|"requests bounded tutor turns"| openai
+
+  classDef person fill:#eef2ff,stroke:#4f46e5,color:#0f172a,stroke-width:2px;
+  classDef client fill:#e0f2fe,stroke:#0284c7,color:#0f172a,stroke-width:2px;
+  classDef authority fill:#f5f3ff,stroke:#7c3aed,color:#0f172a,stroke-width:3px;
+  classDef compute fill:#fff7ed,stroke:#ea580c,color:#0f172a,stroke-width:2px;
+  classDef dataNode fill:#ecfdf5,stroke:#059669,color:#0f172a,stroke-width:2px;
+  classDef external fill:#f8fafc,stroke:#64748b,color:#0f172a,stroke-width:2px;
+  class learner,operator person;
+  class web client;
+  class api authority;
+  class execution compute;
+  class data dataNode;
+  class auth,openai external;
+```
+
+**Legend:** blue boxes are people and browser presentation, purple is the
+application authority, orange is isolated execution, green is durable product
+data, and gray boxes are external managed systems. Arrows are labeled runtime
+request or data paths.
+
+### Deployment topology
 
 Three boundaries shape the system:
 
@@ -102,19 +157,18 @@ Three boundaries shape the system:
 2. **The API is the application authority.** It authenticates requests, resolves curriculum and learner state, meters AI usage, manages execution sessions, and persists product data.
 3. **Learner code runs outside the API process.** Each active workspace receives an isolated runner. A socket proxy exposes only the Docker operations the session manager needs; optional Azure Container Instances provide bounded overflow capacity.
 
-This deployment view opens the CodeTutor AI system boundary into the actual
-production applications and compute planes. The following integration view
-separates the API's managed-service dependencies so neither picture becomes a
-wall of small boxes.
-Arrows describe a request, data, configuration, or telemetry relationship; they
-do not imply shared trust.
+This view places the web, API, and execution responsibilities onto the actual
+production applications and compute planes. Managed-service dependencies stay
+in the container view so this diagram can focus on hosting and traffic. Arrows
+describe a request or data relationship; they do not imply shared trust.
 
 ```mermaid
 %%{init: {"flowchart":{"curve":"basis","htmlLabels":true}}}%%
 flowchart TB
-  accTitle: CodeTutor AI production topology
+  accTitle: CodeTutor AI deployment topology
   accDescr: Shows the browser, static web edge, authentication, API ingress, application authority, and local or overflow execution planes.
   learner["Learner<br/>uses a web browser"]
+  crawler["Search or social crawler<br/>requests public share metadata"]
   swa["Azure Static Web Apps<br/>application and prerendered catalog"]
   sharefn["SWA managed Function<br/>crawler share metadata"]
   auth["Supabase Auth<br/>browser session identity"]
@@ -126,7 +180,8 @@ flowchart TB
   learner -->|"loads HTML, JS, CSS"| swa
   learner <-->|"authenticates and refreshes"| auth
   learner -->|"calls HTTPS /api"| caddy
-  caddy -->|"forwards authenticated API traffic"| api
+  crawler -->|"loads a public share URL"| sharefn
+  caddy -->|"forwards API traffic"| api
   sharefn -->|"HMAC-signed preview request"| caddy
   api -->|"runs learner code by default"| local
   api -->|"bursts when enabled and at capacity"| aci
@@ -136,55 +191,17 @@ flowchart TB
   classDef app fill:#f5f3ff,stroke:#7c3aed,color:#0f172a,stroke-width:2px;
   classDef compute fill:#fff7ed,stroke:#ea580c,color:#0f172a,stroke-width:2px;
   classDef managed fill:#f8fafc,stroke:#64748b,color:#0f172a,stroke-width:2px;
-  class learner client;
+  class learner,crawler client;
   class swa,sharefn,caddy edgeNode;
   class api app;
   class auth managed;
   class local,aci compute;
 ```
 
-**Legend:** blue is the learner; cyan is the public edge/ingress; purple is
-CodeTutor application authority; orange is isolated execution; and gray is an
-external identity system. Solid arrows are runtime request/data paths.
-
-### API integration view
-
-The API is the only product-authority box in this view. Identity and execution
-are already covered by the topology; this view names the intent of each data,
-provider, and operational dependency without exposing those services directly
-to the browser.
-
-```mermaid
-%%{init: {"flowchart":{"curve":"basis","htmlLabels":true}}}%%
-flowchart TB
-  accTitle: Express API managed-service integrations
-  accDescr: Shows the application API using Postgres, object storage, OpenAI, transactional email, Key Vault, and Azure Monitor.
-  api["Express API<br/>application authority"]
-  postgres["Supabase Postgres<br/>canonical state and RLS"]
-  storage["Supabase Storage<br/>share and Open Graph assets"]
-  openai["OpenAI Responses API<br/>structured tutor output"]
-  acs["Azure Communication Services<br/>transactional email"]
-  vault["Azure Key Vault<br/>managed-identity secrets"]
-  monitor["Azure Monitor<br/>logs, metrics, probes, alerts"]
-
-  api -->|"reads and writes product state"| postgres
-  api -->|"stores generated assets"| storage
-  api -->|"requests bounded tutor turns"| openai
-  api -->|"sends transactional email"| acs
-  vault -. "supplies secrets" .-> api
-  api -. "emits telemetry" .-> monitor
-
-  classDef app fill:#f5f3ff,stroke:#7c3aed,color:#0f172a,stroke-width:3px;
-  classDef dataNode fill:#ecfdf5,stroke:#059669,color:#0f172a,stroke-width:2px;
-  classDef managed fill:#f8fafc,stroke:#64748b,color:#0f172a,stroke-width:2px;
-  class api app;
-  class postgres,storage dataNode;
-  class openai,acs,vault,monitor managed;
-```
-
-**Legend:** purple is CodeTutor application authority, green is managed product
-data, and gray is another managed dependency. Solid arrows are runtime calls or
-data paths; dashed arrows are configuration or telemetry.
+**Legend:** blue boxes are external requesters; cyan is the public edge/ingress;
+purple is CodeTutor application authority; orange is isolated execution; and
+gray is an external identity system. Solid arrows are runtime request/data
+paths.
 
 ### Production building-block map
 
@@ -194,7 +211,7 @@ data paths; dashed arrows are configuration or telemetry.
 | Static web edge | SPA/static assets, prerendered catalog and lesson pages, crawler share adapter | [`frontend/vite.config.ts`](../frontend/vite.config.ts), [`swa-api/src/sharePage.js`](../swa-api/src/sharePage.js) |
 | Application API | Authentication boundary, canonical state, execution orchestration, AI admission and policy | [`backend/src/index.ts`](../backend/src/index.ts), [`backend/src/routes`](../backend/src/routes) |
 | Execution plane | Session ownership, local runner lifecycle, optional ACI overflow, function-test harness | [`backend/src/services/session`](../backend/src/services/session), [`backend/src/services/execution`](../backend/src/services/execution) |
-| Data plane | Auth, durable learner/product state, RLS, share assets | [`backend/src/db`](../backend/src/db), [`supabase/migrations`](../supabase/migrations) |
+| Data plane | Durable learner/product state, RLS, share assets | [`backend/src/db`](../backend/src/db), [`supabase/migrations`](../supabase/migrations) |
 | Delivery and operations | Immutable images, candidate validation, promotion, rollback, telemetry | [`.github/workflows/release.yml`](../.github/workflows/release.yml), [`infra/azure`](../infra/azure), [`docker-compose.prod.yml`](../docker-compose.prod.yml) |
 
 ## Constraints and solution strategy
@@ -270,9 +287,26 @@ sequenceDiagram
   B->>B: Validate request
   B->>S: Require owned active session
   S->>E: Dispatch by session handle
-  E->>R: Write files and launch command
-  R-->>E: stdout, stderr, status, test envelope
+
+  alt Local capacity available
+    E->>R: Execute through allowlisted socket proxy
+  else Bounded overflow admitted
+    E->>R: Execute through authenticated ACI sidecar
+  end
+
+  Note over R: Non-root, no network, read-only rootfs,<br/>writable session workspace, CPU, memory, PID, and time limits
+  R->>R: Write files and launch learner process
+
+  opt Protected function tests
+    R->>R: Remove hidden expectations before learner code
+    R->>R: Trusted parent harness consumes one-time nonce,<br/>then signs the post-exit result
+  end
+
+  R-->>E: stdout, stderr, status, optional test envelope
   E-->>B: Normalized execution result
+  opt Guided completion
+    B->>B: Verify proof and apply canonical completion rules
+  end
   B-->>W: Output or canonical result
 ```
 
@@ -318,15 +352,18 @@ flowchart TB
     request["Tutor request<br/>question plus untrusted workspace evidence"]
     authz["Credential and access<br/>platform allowance or learner BYOK"]
     context["Canonical context<br/>lesson, progress, evidence, stage"]
+    evidence["Contextual evidence verification<br/>API-minted run-receipt chain<br/>server-owned episode identity"]
     modelPolicy["Server model policy<br/>operator override or compiled fallback"]
     route["Model resolution<br/>platform authority or learner BYOK choice"]
     request --> authz --> context --> route
+    request -. "submits prior signed run receipts" .-> evidence
+    context -. "binds receipts to canonical state" .-> evidence
     modelPolicy --> route
   end
 
   subgraph generation["2 · Generate bounded teaching output"]
     direction LR
-    reserve["Atomic reservation<br/>quota and spend caps"]
+    reserve["Atomic database admission<br/>quota, spend, and replay claims"]
     prompt["Prompt builder<br/>intent, pedagogy, bounded context"]
     model["OpenAI Responses API<br/>strict structured output"]
     reserve --> prompt --> model
@@ -341,6 +378,7 @@ flowchart TB
   end
 
   route --> reserve
+  evidence --> reserve
   model --> policy
 
   classDef input fill:#eef2ff,stroke:#4f46e5,color:#0f172a,stroke-width:2px;
@@ -348,7 +386,7 @@ flowchart TB
   classDef provider fill:#fff7ed,stroke:#ea580c,color:#0f172a,stroke-width:2px;
   classDef result fill:#ecfdf5,stroke:#059669,color:#0f172a,stroke-width:2px;
   class request input;
-  class authz,context,modelPolicy,route,reserve,prompt,policy,settle authority;
+  class authz,context,evidence,modelPolicy,route,reserve,prompt,policy,settle authority;
   class model provider;
   class render result;
 ```
@@ -361,17 +399,18 @@ Key modules:
 
 - [`backend/src/routes/ai.ts`](../backend/src/routes/ai.ts) is the request and streaming composition boundary.
 - [`canonicalTutorContext.ts`](../backend/src/services/ai/canonicalTutorContext.ts) resolves server-authoritative lesson and learner context.
+- [`contextualTutor.ts`](../backend/src/services/ai/contextualTutor.ts) resolves a contextual offer from canonical lesson state, current files, and the latest server result. [`contextualEvidence.ts`](../backend/src/services/ai/contextualEvidence.ts) verifies the complete signed run-evidence chain and derives the server-owned error-episode identity.
 - [`tutorIntent.ts`](../backend/src/services/ai/tutorIntent.ts), [`tutorProgress.ts`](../backend/src/services/ai/tutorProgress.ts), and the prompt builders turn that context into teaching instructions.
 - [`modelRouting.ts`](../backend/src/services/ai/modelRouting.ts) owns the single compiled platform fallback. [`platformTutorModel.ts`](../backend/src/services/ai/platformTutorModel.ts) resolves an optional audited `system_config` override and fails safely to that fallback when configuration is absent, invalid, unpriced, or temporarily unreadable. Platform-funded browser requests do not carry a model choice.
 - [`modelRegistry.ts`](../backend/src/services/ai/modelRegistry.ts) defines Tutor compatibility and records which models completed the teaching-quality gate. The admin and BYOK pickers discover compatible GPT-5+ text models from the relevant OpenAI key; Luna is ranked first as the recommended evaluated choice. Specialized audio, realtime, image, Codex, search, and long-running Pro variants are excluded from the current bounded Tutor request contract.
 - Platform candidates must also have a backend-owned price entry before activation. A more expensive override requires an explicit cost acknowledgement, a reason, a final confirmation, optimistic concurrency against `set_at`, and an append-only admin audit event. Clearing the override is a separately confirmed, audited rollback to the compiled fallback.
 - BYOK remains a learner-owned credential and model-choice path. Existing retired selections are rehydrated from the key's current compatible model list before the Tutor composer becomes interactive; the server still rejects a BYOK request that omits the learner-selected model.
-- [`aiReservations.ts`](../backend/src/db/aiReservations.ts) makes platform admission atomic and reconciles abandoned reservations.
+- [`aiReservations.ts`](../backend/src/db/aiReservations.ts) makes quota and spend admission atomic, claims both the qualifying evidence chain and its error episode against replay, and reconciles abandoned reservations.
 - [`openaiProvider.ts`](../backend/src/services/ai/openaiProvider.ts) calls the Responses API with bounded output and structured schemas.
 - [`tutorOutput.ts`](../backend/src/services/ai/tutorOutput.ts) and [`tutorPolicy.ts`](../backend/src/services/ai/tutorPolicy.ts) validate usefulness and safety before visible usage is finalized.
 - [`frontend/src/util/useTutorAsk.ts`](../frontend/src/util/useTutorAsk.ts) is the shared client request path; [`TutorResponseViews.tsx`](../frontend/src/components/TutorResponseViews.tsx) is the shared visual renderer.
 
-Only a turn that passes the product's teaching-value contract counts as a visible question. Reservations fail closed under uncertainty, while cancellation and crash reconciliation prevent abandoned work from silently consuming capacity forever.
+Only a turn that passes the product's teaching-value contract counts as a visible question. The execution endpoint mints each signed run receipt from the workspace snapshot and server result captured together under the session workspace lock. A contextual offer cannot then be replayed by changing client-owned epoch or revision fields: the database claims the server-owned error episode and its complete receipt chain inside the bounded evidence window. Reservations fail closed under uncertainty, while cancellation and crash reconciliation prevent abandoned work from silently consuming capacity forever.
 
 ### Learning state and public shares
 
@@ -429,7 +468,7 @@ The backend uses a privileged server connection where an operation genuinely req
 Representative durable domains include:
 
 - user preferences, editor projects, course and lesson progress;
-- usage ledgers, atomic AI reservations, overrides, deny lists, and audit events;
+- usage ledgers, atomic AI reservations, contextual evidence and episode claims, overrides, deny lists, and audit events;
 - saved tutor messages, streaks, streak days, shares, and view telemetry;
 - concept ledger, evidence, retrieval, and memory-warmup state;
 - system configuration, release/operations state, and evaluation governance.
@@ -445,7 +484,7 @@ Server boundaries own authorization, quota, protected curriculum data, mastery e
 | Runner isolation | Non-root process, read-only root filesystem, dropped capabilities, `no-new-privileges`, disabled network, PID/CPU/memory/time limits. |
 | Docker control | API reaches an allowlisted socket proxy, not a broadly exposed Docker socket. |
 | Function tests | Expected values are removed before learner code; results require a per-run HMAC envelope. |
-| Tutor context | Browser content is untrusted evidence; canonical lesson/progress context is resolved by the server. |
+| Tutor context | Browser content is untrusted evidence; canonical lesson/progress context is resolved by the server, and contextual offers require a signed run-evidence chain plus a database-owned episode claim. |
 | Platform AI | Server-controlled model allowlist, atomic admission, per-user/global caps, deny list, and kill switch. |
 | BYOK | Keys are encrypted with AES-256-GCM using a server-held master key and are never returned to the browser. |
 | Logging | Project, execution, and AI payloads redact to bounded metadata unless an explicit local-only debugging switch is enabled. |
@@ -501,7 +540,8 @@ flowchart TB
   ghcr["GHCR immutable digests"]
   web["Build frontend and SWA function bundle"]
   manifest["Candidate manifest<br/>artifact digests and release metadata"]
-  gates["Reusable CI, E2E, security, migration, and contract gates"]
+  gates["Reusable CI, E2E, security,<br/>and contract gates"]
+  migrations["Conditional migration-state check<br/>backend changes only"]
   selected["Selected verified candidate<br/>manifest and immutable artifacts"]
   promotevm["VM promotion<br/>Caddy, API, runner digest"]
   promoteswa["SWA promotion<br/>static client and share function"]
@@ -513,10 +553,10 @@ flowchart TB
   scope --> build --> ghcr --> manifest
   scope --> web --> manifest
   manifest --> gates
-  gates --> selected
+  gates --> migrations --> selected
   promotevm --> probes
   promoteswa --> probes
-  manifest -. "retained after success" .-> retained
+  probes -. "retain successful candidate" .-> retained
   retained --> rollback
   rollback --> selected
   selected --> promotevm
@@ -529,7 +569,7 @@ flowchart TB
   classDef safety fill:#f8fafc,stroke:#64748b,color:#0f172a,stroke-width:2px;
   class change,scope source;
   class build,ghcr,web,manifest,selected artifact;
-  class gates gate;
+  class gates,migrations gate;
   class promotevm,promoteswa,probes deploy;
   class retained,rollback safety;
 ```
@@ -545,6 +585,10 @@ flow selects and promotes a verified candidate.
 successful prior production release run, its full recorded Git SHA, and an
 explicit acknowledgement. It verifies that immutable manifest, promotes its VM
 image digests and SWA bundle, then probes deployed identity and readiness.
+VM promotion can restore its prior candidate when that step fails; promotion
+across the VM and SWA is not one distributed transaction. A later surface or
+probe failure leaves the release failed for operator assessment and, when
+needed, the explicit rollback workflow.
 Rollback does **not** reverse database migrations; forward migrations must stay
 compatible with the previous application or be repaired by a new compensating
 migration.
@@ -586,6 +630,7 @@ When extending the system, prefer the existing seams: a route module rather than
 | ACI | Azure Container Instances, used only as optional overflow inside the hybrid execution shape |
 | BYOK | Bring your own OpenAI key; encrypted server-side and distinct from platform-funded usage |
 | Canonical context | Lesson, progress, and teaching state resolved from server-owned sources rather than trusted from the browser |
+| Contextual evidence episode | Server-owned identity for one learner, canonical lesson, and normalized run error inside a database-owned claim window; client-selected state cannot mint a fresh boundary, while a genuinely later post-expiry occurrence can qualify again |
 | RLS | Postgres row-level security, used as defense in depth for user-scoped data |
 | Runner | Ephemeral isolated container that executes one learner session's project |
 | SWA | Azure Static Web Apps, which hosts the web client and the crawler-facing share function |
