@@ -33,6 +33,8 @@ describe("ContextualGuideBridge", () => {
         evidence={evidence}
         onViewError={vi.fn()}
         onDismiss={vi.fn()}
+        onAskTutor={vi.fn()}
+        tutorOfferState="ready"
       />,
     );
 
@@ -42,6 +44,60 @@ describe("ContextualGuideBridge", () => {
     expect(html).toContain("min-h-11");
     expect(html).toContain("h-11 w-11");
     expect(html).toContain('aria-live="polite"');
+    expect(html).toContain("Help me spot it");
+    expect(html).toContain("sends your current code and run evidence");
+  });
+
+  it("does not promise an AI call while Tutor access is unavailable", () => {
+    const html = renderToStaticMarkup(
+      <ContextualGuideBridge
+        decision={{ kind: "result_bridge", move }}
+        evidence={evidence}
+        onViewError={vi.fn()}
+        onDismiss={vi.fn()}
+        onAskTutor={vi.fn()}
+        tutorOfferState="unavailable"
+      />,
+    );
+    expect(html).toContain("Open Tutor");
+    expect(html).not.toContain(">Help me spot it<");
+    expect(html).toContain(
+      "Open Tutor moves focus to the Tutor without sending a question.",
+    );
+    expect(html).not.toContain("sends your current code and run evidence");
+  });
+
+  it("removes the redundant unavailable action when Tutor is already visible", () => {
+    const html = renderToStaticMarkup(
+      <ContextualGuideBridge
+        decision={{ kind: "result_bridge", move }}
+        evidence={evidence}
+        onViewError={vi.fn()}
+        onDismiss={vi.fn()}
+        onAskTutor={vi.fn()}
+        tutorOfferState="unavailable"
+        tutorSurfaceVisible
+      />,
+    );
+    expect(html).not.toContain("Open Tutor");
+    expect(html).toContain("Jump to line 3");
+    expect(html).toContain(move.question);
+  });
+
+  it("does not imply that context is sent while Tutor access is loading", () => {
+    const html = renderToStaticMarkup(
+      <ContextualGuideBridge
+        decision={{ kind: "result_bridge", move }}
+        evidence={evidence}
+        onViewError={vi.fn()}
+        onDismiss={vi.fn()}
+        onAskTutor={vi.fn()}
+        tutorOfferState="loading"
+      />,
+    );
+    expect(html).toContain("Checking Tutor…");
+    expect(html).toContain("Nothing is sent yet.");
+    expect(html).not.toContain("sends your current code and run evidence");
   });
 
   it("renders nothing when policy is hidden", () => {

@@ -1,11 +1,15 @@
 import { Router } from "express";
 import { z } from "zod";
-import { touchSession } from "../services/session/sessionManager.js";
+import {
+  touchSession,
+  withSessionWorkspaceLock,
+} from "../services/session/sessionManager.js";
 import { requireActiveSession } from "../services/session/requireActiveSession.js";
 import { runProject } from "../services/execution/router.js";
 import { languageSchema } from "../services/execution/commands.js";
 import type { ExecutionBackend } from "../services/execution/backends/index.js";
 import { execDuration } from "../services/metrics.js";
+import { mintContextualEvidenceToken } from "../services/ai/contextualEvidence.js";
 
 // `language` is validated against the shared languageSchema so an unknown
 // language is rejected at the Zod layer — no downstream `isLanguage` branch.
@@ -47,11 +51,29 @@ export function createExecutionRouter(backend: ExecutionBackend): Router {
     try {
       const session = requireActiveSession(sessionId, userId);
       const started = Date.now();
-      const result = await runProject(backend, {
-        handle: session.handle,
-        language,
-        stdin,
-      });
+      const { result, contextualSnapshot } = await withSessionWorkspaceLock(
+        sessionId,
+        async () => {
+          const lockedSnapshot = session.contextualSnapshot;
+          const lockedResult = await runProject(backend, {
+            handle: session.handle,
+            language,
+            stdin,
+          });
+          return { result: lockedResult, contextualSnapshot: lockedSnapshot };
+        },
+      );
+      const response = contextualSnapshot
+        ? {
+            ...result,
+            contextualEvidenceToken: mintContextualEvidenceToken(
+              `user:${userId}`,
+              contextualSnapshot.identity,
+              contextualSnapshot.files,
+              result,
+            ),
+          }
+        : result;
       // Wall-clock covers compile + run + FS checks — what a caller sees as
       // "how long did my run take". ok label is boolean-ish (Prom labels are
       // strings) so the series splits into passing vs failing runs for
@@ -61,7 +83,7 @@ export function createExecutionRouter(backend: ExecutionBackend): Router {
         (Date.now() - started) / 1000,
       );
       touchSession(sessionId);
-      res.json(result);
+      res.json(response);
     } catch (err) {
       next(err);
     }

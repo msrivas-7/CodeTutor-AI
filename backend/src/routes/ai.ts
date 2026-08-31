@@ -1,6 +1,10 @@
 import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import {
+  hasUniqueProjectFilePaths,
+  UNIQUE_PROJECT_FILE_PATHS_MESSAGE,
+} from "../schema/projectFiles.js";
+import {
   estimateReservationForAsk,
   estimateReservationForSummary,
   openaiProvider,
@@ -54,13 +58,24 @@ import {
   getEffectiveDailyUsdCapPerUser,
   getEffectiveLifetimeUsdCapPerUser,
 } from "../services/ai/effectiveCaps.js";
-import { resolveCanonicalTutorContext } from "../services/ai/canonicalTutorContext.js";
-import { isContextualTutorModel } from "../services/ai/modelRegistry.js";
+import {
+  resolveCanonicalContextualTutorOffer,
+  resolveCanonicalTutorContext,
+} from "../services/ai/canonicalTutorContext.js";
+import {
+  isContextualTutorModel,
+  isEvaluatedContextualOfferModel,
+} from "../services/ai/modelRegistry.js";
+import { isContextualTutorEnabled } from "../services/ai/contextualTutor.js";
 import {
   canonicalTutorRequestModel,
   routeTutorModel,
 } from "../services/ai/modelRouting.js";
 import { getEffectivePlatformTutorModel } from "../services/ai/platformTutorModel.js";
+import {
+  digestContextualEvidenceEpisode,
+  digestContextualEvidenceToken,
+} from "../services/ai/contextualEvidence.js";
 import {
   mintTutorProgressToken,
   resolveTutorStage,
@@ -295,6 +310,8 @@ async function reserveUserAction(args: {
   countsTowardQuota: boolean;
   reservedInputTokens: number;
   reservedOutputTokens: number;
+  contextualEvidenceEpisodeDigest?: string;
+  contextualEvidenceDigests?: readonly string[];
 }): Promise<ReserveAIRequestResult> {
   const priced = safePrice(
     args.model,
@@ -325,6 +342,8 @@ async function reserveUserAction(args: {
     reservedCostUsd: priced.costUsd,
     priceVersion: priced.priceVersion,
     expiresInMs: reservationTtlMs(),
+    contextualEvidenceEpisodeDigest: args.contextualEvidenceEpisodeDigest,
+    contextualEvidenceDigests: args.contextualEvidenceDigests,
     caps,
   });
 }
@@ -339,6 +358,10 @@ function respondReservationResult(
   }
   if (result.kind === "conflict") {
     res.status(409).json({ error: "AI_REQUEST_ID_CONFLICT" });
+    return;
+  }
+  if (result.kind === "evidence_replay") {
+    res.status(409).json({ error: "CONTEXTUAL_EVIDENCE_REPLAYED" });
     return;
   }
   const statusByReason: Record<AIAdmissionDeniedReason, number> = {
@@ -435,6 +458,21 @@ const selectionSchema = z.object({
   text: z.string(),
 });
 
+const contextualOfferSchema = z.object({
+  contextVersion: z.literal(0),
+  contextEpoch: z.string().min(1).max(256),
+  projectRevision: z.number().int().min(0),
+  evidenceToken: z.string().min(1).max(4_096),
+  evidenceTokens: z.array(z.string().min(1).max(4_096)).min(1).max(10),
+  moveId: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/),
+  evidence: z.object({
+    code: z.literal("python-unclosed-parenthesis"),
+    path: safePathSchema,
+    line: z.number().int().min(1).max(100_000),
+  }),
+  scaffoldLevel: z.literal(1),
+});
+
 const askBody = z.object({
   requestId: z.string().uuid(),
   // Platform-funded callers intentionally omit model: the server-owned
@@ -444,11 +482,16 @@ const askBody = z.object({
   question: z.string().min(1),
   tutorAction: z.enum([
     "explain-lesson-task",
+    "stronger-hint",
     "explain-more",
     "concrete-example",
     "why-it-matters",
+    "contextual-help",
   ]).optional(),
-  files: z.array(projectFileSchema).max(50),
+  files: z.array(projectFileSchema).max(50).refine(
+    hasUniqueProjectFilePaths,
+    UNIQUE_PROJECT_FILE_PATHS_MESSAGE,
+  ),
   activeFile: z.string().optional(),
   language: languageSchema.optional(),
   lastRun: runResultSchema.nullish(),
@@ -465,6 +508,22 @@ const askBody = z.object({
     lessonId: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/),
     exerciseId: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/).nullish(),
   }).nullish(),
+  contextualOffer: contextualOfferSchema.nullish(),
+}).superRefine((body, ctx) => {
+  if (body.contextualOffer && (!body.lessonContext || body.tutorAction !== "contextual-help")) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["contextualOffer"],
+      message: "contextualOffer requires lessonContext and contextual-help action",
+    });
+  }
+  if (body.tutorAction === "contextual-help" && (!body.lessonContext || !body.contextualOffer)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["tutorAction"],
+      message: "contextual-help requires lessonContext and contextualOffer",
+    });
+  }
 });
 
 const summarizeBody = z.object({
@@ -516,6 +575,8 @@ aiRouter.post("/ask", async (req, res, next) => {
   if (!enforceModelAllowlist(cred, requestModel, res, "ask")) return;
 
   let canonicalLessonContext = null;
+  let canonicalContextualOffer = null;
+  let contextualEvidenceEpisodeDigest: string | undefined;
   try {
     if (parsed.data.lessonContext) {
       if (!isContextualTutorModel(requestModel)) {
@@ -527,6 +588,37 @@ aiRouter.post("/ask", async (req, res, next) => {
       );
       if (!canonicalLessonContext) {
         return res.status(404).json({ error: "LESSON_CONTEXT_NOT_FOUND" });
+      }
+    }
+    if (parsed.data.contextualOffer) {
+      if (!(await isContextualTutorEnabled())) {
+        return res.status(503).json({ error: "CONTEXTUAL_TUTOR_DISABLED" });
+      }
+      if (!isEvaluatedContextualOfferModel(requestModel)) {
+        return res.status(403).json({ error: "MODEL_NOT_EVALUATED_FOR_CONTEXTUAL_OFFER" });
+      }
+      canonicalContextualOffer = await resolveCanonicalContextualTutorOffer(
+        `user:${userId}`,
+        parsed.data.lessonContext!,
+        parsed.data.contextualOffer,
+        parsed.data.files,
+        parsed.data.lastRun,
+      );
+      if (!canonicalContextualOffer) {
+        return res.status(409).json({ error: "CONTEXTUAL_EVIDENCE_STALE" });
+      }
+      contextualEvidenceEpisodeDigest = digestContextualEvidenceEpisode(
+        parsed.data.contextualOffer.evidenceToken,
+        `user:${userId}`,
+        {
+          courseId: parsed.data.lessonContext!.courseId,
+          lessonId: parsed.data.lessonContext!.lessonId,
+          contextEpoch: parsed.data.contextualOffer.contextEpoch,
+          projectRevision: parsed.data.contextualOffer.projectRevision,
+        },
+      ) ?? undefined;
+      if (!contextualEvidenceEpisodeDigest) {
+        return res.status(409).json({ error: "CONTEXTUAL_EVIDENCE_STALE" });
       }
     }
   } catch (err) {
@@ -553,6 +645,7 @@ aiRouter.post("/ask", async (req, res, next) => {
     learnerName: learnerFirstNameFromClaims(req.authClaims),
     selection: parsed.data.selection ?? null,
     lessonContext: canonicalLessonContext,
+    contextualOffer: canonicalContextualOffer,
     tutorStage: "clarify" as const,
   };
   const progressIdentity = {
@@ -571,6 +664,7 @@ aiRouter.post("/ask", async (req, res, next) => {
       files: parsed.data.files,
       history: parsed.data.history,
       tutorStage: providerParams.tutorStage,
+      tutorAction: parsed.data.tutorAction,
       platformModel,
     }).model;
   } catch (err) {
@@ -593,10 +687,15 @@ aiRouter.post("/ask", async (req, res, next) => {
         ...parsed.data,
         model: requestModel,
         lessonContext: canonicalLessonContext,
+        contextualOffer: canonicalContextualOffer,
       }),
       model: providerParams.model,
       route: "ask",
       countsTowardQuota: cred.source === "platform",
+      contextualEvidenceEpisodeDigest,
+      contextualEvidenceDigests: parsed.data.contextualOffer
+        ? parsed.data.contextualOffer.evidenceTokens.map(digestContextualEvidenceToken)
+        : undefined,
       ...estimate,
     });
   } catch (err) {
@@ -726,6 +825,8 @@ aiRouter.post("/ask/stream", async (req, res) => {
   if (!enforceModelAllowlist(cred, requestModel, res, "ask_stream")) return;
 
   let canonicalLessonContext = null;
+  let canonicalContextualOffer = null;
+  let contextualEvidenceEpisodeDigest: string | undefined;
   try {
     if (parsed.data.lessonContext) {
       if (!isContextualTutorModel(requestModel)) {
@@ -737,6 +838,37 @@ aiRouter.post("/ask/stream", async (req, res) => {
       );
       if (!canonicalLessonContext) {
         return res.status(404).json({ error: "LESSON_CONTEXT_NOT_FOUND" });
+      }
+    }
+    if (parsed.data.contextualOffer) {
+      if (!(await isContextualTutorEnabled())) {
+        return res.status(503).json({ error: "CONTEXTUAL_TUTOR_DISABLED" });
+      }
+      if (!isEvaluatedContextualOfferModel(requestModel)) {
+        return res.status(403).json({ error: "MODEL_NOT_EVALUATED_FOR_CONTEXTUAL_OFFER" });
+      }
+      canonicalContextualOffer = await resolveCanonicalContextualTutorOffer(
+        `user:${userId}`,
+        parsed.data.lessonContext!,
+        parsed.data.contextualOffer,
+        parsed.data.files,
+        parsed.data.lastRun,
+      );
+      if (!canonicalContextualOffer) {
+        return res.status(409).json({ error: "CONTEXTUAL_EVIDENCE_STALE" });
+      }
+      contextualEvidenceEpisodeDigest = digestContextualEvidenceEpisode(
+        parsed.data.contextualOffer.evidenceToken,
+        `user:${userId}`,
+        {
+          courseId: parsed.data.lessonContext!.courseId,
+          lessonId: parsed.data.lessonContext!.lessonId,
+          contextEpoch: parsed.data.contextualOffer.contextEpoch,
+          projectRevision: parsed.data.contextualOffer.projectRevision,
+        },
+      ) ?? undefined;
+      if (!contextualEvidenceEpisodeDigest) {
+        return res.status(409).json({ error: "CONTEXTUAL_EVIDENCE_STALE" });
       }
     }
   } catch (err) {
@@ -763,6 +895,7 @@ aiRouter.post("/ask/stream", async (req, res) => {
     learnerName: learnerFirstNameFromClaims(req.authClaims),
     selection: parsed.data.selection ?? null,
     lessonContext: canonicalLessonContext,
+    contextualOffer: canonicalContextualOffer,
     tutorStage: "clarify" as const,
   };
   const progressIdentity = {
@@ -781,6 +914,7 @@ aiRouter.post("/ask/stream", async (req, res) => {
       files: parsed.data.files,
       history: parsed.data.history,
       tutorStage: providerParams.tutorStage,
+      tutorAction: parsed.data.tutorAction,
       platformModel,
     }).model;
   } catch (err) {
@@ -804,10 +938,15 @@ aiRouter.post("/ask/stream", async (req, res) => {
         ...parsed.data,
         model: requestModel,
         lessonContext: canonicalLessonContext,
+        contextualOffer: canonicalContextualOffer,
       }),
       model: providerParams.model,
       route: "ask_stream",
       countsTowardQuota: cred.source === "platform",
+      contextualEvidenceEpisodeDigest,
+      contextualEvidenceDigests: parsed.data.contextualOffer
+        ? parsed.data.contextualOffer.evidenceTokens.map(digestContextualEvidenceToken)
+        : undefined,
       reservedInputTokens: estimate.reservedInputTokens,
       reservedOutputTokens: estimate.reservedOutputTokens,
     });

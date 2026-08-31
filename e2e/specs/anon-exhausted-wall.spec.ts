@@ -104,9 +104,10 @@ test.describe("Phase 27-v2.1 — ANON_EXHAUSTED → wall pivot", () => {
           stderr:
             '  File "/workspace/main.py", line 1\n    print(\n         ^\nSyntaxError: \'(\' was never closed\n',
           exitCode: 1,
-          errorType: "runtime",
+          errorType: "compile",
           durationMs: 8,
-          stage: "run",
+          stage: "compile",
+          contextualEvidenceToken: "signed-contextual-evidence",
         }),
       }),
     );
@@ -117,17 +118,36 @@ test.describe("Phase 27-v2.1 — ANON_EXHAUSTED → wall pivot", () => {
         body: JSON.stringify({ error: "ANON_EXHAUSTED" }),
       }),
     );
+    await page.route("**/api/anon/ai-status", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          contextualTutorEnabled: true,
+          contextualTutorModelEligible: true,
+        }),
+      }),
+    );
 
     await page.goto(PATH);
     await waitForMonacoReady(page);
-    await setMonacoValue(page, "print(\n");
+    await setMonacoValue(page, 'print("Hello"\n');
     await page.getByRole("button", { name: /^run code/i }).first().click();
 
-    const errorHelp = page.getByRole("button", {
-      name: /ask the tutor what went wrong/i,
+    // Release 1C replaces the generic error-help CTA with the deterministic
+    // evidence bridge. Preserve the same authored error through an edit and
+    // second Run to reach the explicit-consent contextual Tutor offer.
+    await expect(
+      page.getByRole("button", { name: /ask the tutor what went wrong/i }),
+    ).toHaveCount(0);
+    await setMonacoValue(page, 'print("Hello, learner"\n');
+    await page.getByRole("button", { name: /^run code/i }).first().click();
+
+    const contextualHelp = page.getByRole("button", {
+      name: "Help me spot it",
     });
-    await expect(errorHelp).toBeVisible();
-    await errorHelp.click();
+    await expect(contextualHelp).toBeVisible();
+    await contextualHelp.click();
     await expect(page.getByRole("dialog", { name: /you're getting it/i })).toBeVisible();
     await page.getByRole("button", { name: /not yet/i }).click();
 
@@ -136,6 +156,11 @@ test.describe("Phase 27-v2.1 — ANON_EXHAUSTED → wall pivot", () => {
     );
     await expect(quotaMessage).toBeVisible();
     await expect(quotaMessage).toBeInViewport();
+    await expect(page.getByTestId("contextual-guide-bridge")).toBeVisible();
+    // At a normal phone height the Tutor is already visible, so an extra
+    // Open Tutor action would be redundant. The short-keyboard viewport
+    // recovery is covered by contextual-guidance.spec.ts.
+    await expect(page.getByTestId("contextual-guide-ask")).toHaveCount(0);
     const tutor = page.getByRole("region", { name: "AI tutor" });
     await expect(tutor).toBeInViewport();
     await expect(tutor).toBeFocused();

@@ -5,6 +5,7 @@ export interface AssistanceEpisodeState {
   trackedEvidenceKey: string | null;
   currentEvidence: AssistanceEvidence | null;
   attempts: number;
+  evidenceTokens: string[];
   lastAttemptRevision: number | null;
   suppressedEvidenceKey: string | null;
 }
@@ -15,10 +16,13 @@ export type AssistanceEpisodeEvent =
       evidence: AssistanceEvidence;
       projectRevision: number;
       minAttempts: number;
+      evidenceToken?: string;
     }
   | { type: "non_matching_result" }
   | { type: "source_changed"; minAttempts: number }
-  | { type: "dismissed" };
+  | { type: "evidence_expired" }
+  | { type: "dismissed" }
+  | { type: "accepted" };
 
 export function createAssistanceEpisodeState(scopeKey: string): AssistanceEpisodeState {
   return {
@@ -26,6 +30,7 @@ export function createAssistanceEpisodeState(scopeKey: string): AssistanceEpisod
     trackedEvidenceKey: null,
     currentEvidence: null,
     attempts: 0,
+    evidenceTokens: [],
     lastAttemptRevision: null,
     suppressedEvidenceKey: null,
   };
@@ -47,13 +52,14 @@ export function assistanceEpisodeReducer(
         : createAssistanceEpisodeState(event.scopeKey);
 
     case "result_observed": {
-      const { evidence, projectRevision, minAttempts } = event;
+      const { evidence, projectRevision, minAttempts, evidenceToken } = event;
       if (state.trackedEvidenceKey !== evidence.key) {
         return {
           ...createAssistanceEpisodeState(state.scopeKey),
           trackedEvidenceKey: evidence.key,
           currentEvidence: evidence,
           attempts: 1,
+          evidenceTokens: evidenceToken ? [evidenceToken] : [],
           lastAttemptRevision: projectRevision,
         };
       }
@@ -77,6 +83,10 @@ export function assistanceEpisodeReducer(
         ...state,
         currentEvidence: evidence,
         attempts: revisionChanged ? state.attempts + 1 : state.attempts,
+        evidenceTokens:
+          revisionChanged && evidenceToken
+            ? [...state.evidenceTokens, evidenceToken].slice(-10)
+            : state.evidenceTokens,
         lastAttemptRevision: projectRevision,
       };
     }
@@ -94,7 +104,22 @@ export function assistanceEpisodeReducer(
             : state.suppressedEvidenceKey,
       };
 
+    case "evidence_expired":
+      // Retire the complete signed chain without suppressing this evidence
+      // key forever. A chain may contain an expired receipt or a receipt from
+      // a previous token format, so retaining any of it would make every
+      // subsequent offer fail closed until the ten-token window rolled over.
+      return {
+        ...state,
+        currentEvidence: null,
+        attempts: 0,
+        evidenceTokens: [],
+        lastAttemptRevision: null,
+        suppressedEvidenceKey: null,
+      };
+
     case "dismissed":
+    case "accepted":
       return state.currentEvidence
         ? {
             ...state,

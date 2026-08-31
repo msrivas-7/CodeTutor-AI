@@ -91,6 +91,7 @@ export function classifyTutorIntent({
   // Application-owned controls carry semantic identity separately from their
   // visible copy. Free-form learner text never enters this branch and remains
   // the model's language-understanding job.
+  if (tutorAction === "contextual-help") return "debug";
   if (tutorAction) return "concept";
   // Browser history is learner-controlled evidence, not progression proof.
   // Explicit read-only help promises are safe on the first turn because the

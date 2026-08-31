@@ -6,6 +6,14 @@ import type { ExecutionBackend } from "../services/execution/backends/index.js";
 
 process.env.BYOK_ENCRYPTION_KEY = Buffer.alloc(32, 11).toString("base64");
 
+vi.mock("../services/ai/contextualEvidence.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../services/ai/contextualEvidence.js")>();
+  return {
+    ...actual,
+    digestContextualEvidenceEpisode: vi.fn(() => "a".repeat(64)),
+  };
+});
+
 vi.mock("../services/share/killSwitches.js", () => ({
   isAnonLessonEnabled: vi.fn(async () => true),
   isAiEvalSamplingEnabled: vi.fn(async () => true),
@@ -87,6 +95,14 @@ vi.mock("../services/ai/canonicalTutorContext.js", () => ({
     completionCriteria: ["Program prints Hello"],
     studentProgressSummary: "Anonymous first session",
   })),
+  resolveCanonicalContextualTutorOffer: vi.fn(async (_actor, _identity, offer) => ({
+    ...offer,
+    evidence: { ...offer.evidence, label: "Syntax error" as const },
+    authoredQuestion: "Which opening parenthesis still needs a closing partner?",
+  })),
+}));
+vi.mock("../services/ai/contextualTutor.js", () => ({
+  isContextualTutorEnabled: vi.fn(async () => true),
 }));
 vi.mock("../services/ai/openaiProvider.js", () => ({
   estimateReservationForAsk: vi.fn(() => ({
@@ -120,11 +136,14 @@ const {
 const { isAnonLessonEnabled, isAiEvalSamplingEnabled } = await import("../services/share/killSwitches.js");
 const { shouldSampleEvalRequest } = await import("../services/ai/evalSampling.js");
 const { getEffectivePlatformTutorModel } = await import("../services/ai/platformTutorModel.js");
+const { isContextualTutorEnabled } = await import("../services/ai/contextualTutor.js");
 
 let server: Server;
 let baseUrl: string;
 
 const unusedBackend = {} as ExecutionBackend;
+const signedEvidenceTokenFixture = "e30.AQ";
+const priorSignedEvidenceTokenFixture = "e30.AA";
 
 function validBody(overrides: Record<string, unknown> = {}) {
   return {
@@ -145,6 +164,14 @@ function validBody(overrides: Record<string, unknown> = {}) {
 
 async function post(body: Record<string, unknown>) {
   return fetch(`${baseUrl}/api/anon/ai/ask/stream`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+async function postRun(body: Record<string, unknown>) {
+  return fetch(`${baseUrl}/api/anon/run`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -194,6 +221,8 @@ beforeEach(() => {
   vi.mocked(deleteEvalSamplesForSubjectToken).mockResolvedValue(0);
   vi.mocked(isAnonLessonEnabled).mockResolvedValue(true);
   vi.mocked(isAiEvalSamplingEnabled).mockResolvedValue(true);
+  vi.mocked(isContextualTutorEnabled).mockReset();
+  vi.mocked(isContextualTutorEnabled).mockResolvedValue(true);
   vi.mocked(getEffectivePlatformTutorModel).mockReset();
   vi.mocked(getEffectivePlatformTutorModel).mockResolvedValue({
     model: "gpt-5.6-luna",
@@ -212,6 +241,49 @@ beforeEach(() => {
       );
     },
   );
+});
+
+describe("GET /api/anon/ai-status", () => {
+  it("returns the authoritative contextual Tutor gate without authentication", async () => {
+    const response = await fetch(`${baseUrl}/api/anon/ai-status`);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      contextualTutorEnabled: true,
+      contextualTutorModelEligible: true,
+    });
+  });
+
+  it("reports a disabled gate so the trial never advertises unavailable help", async () => {
+    vi.mocked(isContextualTutorEnabled).mockResolvedValueOnce(false);
+
+    const response = await fetch(`${baseUrl}/api/anon/ai-status`);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      contextualTutorEnabled: false,
+      contextualTutorModelEligible: true,
+    });
+  });
+
+  it("reports an unevaluated platform override before the learner accepts help", async () => {
+    vi.mocked(getEffectivePlatformTutorModel).mockResolvedValueOnce({
+      model: "gpt-5.1",
+      source: "override",
+      setBy: "admin-1",
+      setAt: "2026-08-30T20:00:00.000Z",
+      reason: "test",
+      invalidOverride: null,
+    });
+
+    const response = await fetch(`${baseUrl}/api/anon/ai-status`);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      contextualTutorEnabled: true,
+      contextualTutorModelEligible: false,
+    });
+  });
 });
 
 describe("POST /api/anon/ai/ask/cancel", () => {
@@ -235,6 +307,8 @@ describe("POST /api/anon/ai/ask/cancel", () => {
 
     expect(response.status).toBe(404);
   });
+  vi.mocked(isContextualTutorEnabled).mockReset();
+  vi.mocked(isContextualTutorEnabled).mockResolvedValue(true);
 });
 
 describe("B8 governed anonymous eval sampling", () => {
@@ -334,6 +408,150 @@ describe("B8 governed anonymous eval sampling", () => {
 });
 
 describe("POST /api/anon/ai/ask/stream — platform model routing", () => {
+  it("rejects duplicate project paths before run or Tutor work", async () => {
+    const files = [
+      { path: "main.py", content: "first" },
+      { path: "main.py", content: "second" },
+    ];
+    const runResponse = await postRun({ language: "python", files });
+    const askResponse = await post(validBody({ files }));
+
+    expect(runResponse.status).toBe(400);
+    expect(askResponse.status).toBe(400);
+    expect(vi.mocked(reserveAIRequest)).not.toHaveBeenCalled();
+    expect(vi.mocked(openaiProvider.askStream)).not.toHaveBeenCalled();
+  });
+
+  it("rejects contextual-help without canonicalizable offer metadata", async () => {
+    const response = await post(validBody({
+      question: "Help me spot it.",
+      tutorAction: "contextual-help",
+    }));
+    expect(response.status).toBe(400);
+    expect(vi.mocked(reserveAIRequest)).not.toHaveBeenCalled();
+    expect(vi.mocked(openaiProvider.askStream)).not.toHaveBeenCalled();
+  });
+
+  it("passes one learner-accepted contextual offer to the evaluated model", async () => {
+    const response = await post(validBody({
+      question: "Help me spot the issue without giving me the answer.",
+      tutorAction: "contextual-help",
+      files: [{ path: "main.py", content: 'print("Hello"\n' }],
+      lastRun: {
+        stdout: "",
+        stderr: 'File "/workspace/main.py", line 1\nSyntaxError: \'(\' was never closed',
+        exitCode: 1,
+        errorType: "runtime",
+        durationMs: 10,
+        stage: "run",
+      },
+      contextualOffer: {
+        contextVersion: 0,
+        contextEpoch: "lesson:python-fundamentals/hello-world",
+        projectRevision: 2,
+        evidenceToken: signedEvidenceTokenFixture,
+        evidenceTokens: [
+          priorSignedEvidenceTokenFixture,
+          signedEvidenceTokenFixture,
+        ],
+        moveId: "notice-unclosed-parenthesis",
+        evidence: {
+          code: "python-unclosed-parenthesis",
+          path: "main.py",
+          line: 1,
+        },
+        scaffoldLevel: 1,
+      },
+    }));
+    expect(response.status).toBe(200);
+    await response.text();
+    expect(vi.mocked(openaiProvider.askStream)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(reserveAIRequest)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contextualEvidenceEpisodeDigest: "a".repeat(64),
+        contextualEvidenceDigests: [
+          expect.stringMatching(/^[0-9a-f]{64}$/),
+          expect.stringMatching(/^[0-9a-f]{64}$/),
+        ],
+      }),
+    );
+    const contextualEvidenceDigests = vi.mocked(reserveAIRequest).mock.calls[0][0]
+      .contextualEvidenceDigests;
+    expect(new Set(contextualEvidenceDigests).size).toBe(2);
+    expect(vi.mocked(openaiProvider.askStream).mock.calls[0][0]).toEqual(
+      expect.objectContaining({
+        tutorAction: "contextual-help",
+        contextualOffer: expect.objectContaining({
+          moveId: "notice-unclosed-parenthesis",
+          authoredQuestion: "Which opening parenthesis still needs a closing partner?",
+        }),
+      }),
+    );
+  });
+
+  it("rejects a replayed contextual proof before the provider call", async () => {
+    vi.mocked(reserveAIRequest).mockResolvedValueOnce({
+      ok: false,
+      kind: "evidence_replay",
+    });
+    const response = await post(validBody({
+      question: "Help me spot the issue without giving me the answer.",
+      tutorAction: "contextual-help",
+      files: [{ path: "main.py", content: 'print("Hello"\n' }],
+      lastRun: {
+        stdout: "",
+        stderr: 'File "/workspace/main.py", line 1\nSyntaxError: \'(\' was never closed',
+        exitCode: 1,
+        errorType: "runtime",
+        durationMs: 10,
+        stage: "run",
+      },
+      contextualOffer: {
+        contextVersion: 0,
+        contextEpoch: "lesson:python-fundamentals/hello-world",
+        projectRevision: 2,
+        evidenceToken: signedEvidenceTokenFixture,
+        evidenceTokens: [signedEvidenceTokenFixture],
+        moveId: "notice-unclosed-parenthesis",
+        evidence: {
+          code: "python-unclosed-parenthesis",
+          path: "main.py",
+          line: 1,
+        },
+        scaffoldLevel: 1,
+      },
+    }));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "CONTEXTUAL_EVIDENCE_REPLAYED" });
+    expect(vi.mocked(openaiProvider.askStream)).not.toHaveBeenCalled();
+  });
+
+  it("makes no reservation or provider call when contextual offers are drained", async () => {
+    vi.mocked(isContextualTutorEnabled).mockResolvedValueOnce(false);
+    const response = await post(validBody({
+      question: "Help me spot it.",
+      tutorAction: "contextual-help",
+      contextualOffer: {
+        contextVersion: 0,
+        contextEpoch: "lesson:python-fundamentals/hello-world",
+        projectRevision: 2,
+        evidenceToken: signedEvidenceTokenFixture,
+        evidenceTokens: [signedEvidenceTokenFixture],
+        moveId: "notice-unclosed-parenthesis",
+        evidence: {
+          code: "python-unclosed-parenthesis",
+          path: "main.py",
+          line: 1,
+        },
+        scaffoldLevel: 1,
+      },
+    }));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "CONTEXTUAL_TUTOR_DISABLED" });
+    expect(vi.mocked(reserveAIRequest)).not.toHaveBeenCalled();
+    expect(vi.mocked(openaiProvider.askStream)).not.toHaveBeenCalled();
+  });
+
   it("honors the server-side operator override for anonymous tutoring", async () => {
     vi.mocked(getEffectivePlatformTutorModel).mockResolvedValueOnce({
       model: "gpt-5.6-terra",

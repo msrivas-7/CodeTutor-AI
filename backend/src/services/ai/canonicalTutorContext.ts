@@ -1,16 +1,43 @@
 import { getTutorConceptEvidence } from "../../db/conceptLedger.js";
 import { listLessonProgress } from "../../db/lessonProgress.js";
+import { hasUniqueProjectFilePaths } from "../../schema/projectFiles.js";
 import {
   getTutorLessonSnapshot,
   type TutorLessonSnapshot,
 } from "../share/lessonCatalog.js";
 import type { LessonContext } from "./prompts/lessonContext.js";
+import type {
+  ContextualTutorOffer,
+  ProjectFile,
+  RunResult,
+} from "./provider.js";
+import {
+  verifyContextualEvidenceToken,
+  verifyContextualEvidenceAttemptChain,
+  type EvidenceOptions,
+} from "./contextualEvidence.js";
 
 /** The only lesson fields a browser may nominate for guided mode. */
 export interface ClientLessonIdentity {
   courseId: string;
   lessonId: string;
   exerciseId?: string | null;
+}
+
+/** Browser-observed 1C evidence. Every field is validated and remains untrusted. */
+export interface ClientContextualTutorOffer {
+  contextVersion: 0;
+  contextEpoch: string;
+  projectRevision: number;
+  evidenceToken: string;
+  evidenceTokens: string[];
+  moveId: string;
+  evidence: {
+    code: "python-unclosed-parenthesis";
+    path: string;
+    line: number;
+  };
+  scaffoldLevel: 1;
 }
 
 /**
@@ -36,6 +63,121 @@ export const TUTOR_EVIDENCE_TRUST: ClientObservedTutorEvidence = {
   diff: "untrusted",
   history: "untrusted",
 };
+
+const UNCLOSED_PARENTHESIS = /SyntaxError:\s*['"]\(['"]\s+was never closed/i;
+const PYTHON_LOCATION = /File\s+["']([^"']+)["'],\s+line\s+(\d+)/g;
+
+function resolveExecutedProjectPath(
+  rawPath: string,
+  projectPaths: readonly string[],
+): string | null {
+  const normalized = rawPath.replaceAll("\\", "/");
+  const exact = projectPaths.find((path) => normalized === path);
+  if (exact) return exact;
+
+  return (
+    projectPaths
+      .filter((path) => normalized.endsWith(`/${path}`))
+      .sort((left, right) => right.length - left.length)[0] ?? null
+  );
+}
+
+function runMatchesContextualEvidence(
+  offer: ClientContextualTutorOffer,
+  files: readonly ProjectFile[],
+  lastRun: RunResult | null | undefined,
+): boolean {
+  // Python is parsed in the sandbox before learner code runs. Only that
+  // server-owned compile stage may fund contextual help; runtime stderr is
+  // arbitrary learner-program output and can impersonate interpreter text.
+  if (
+    lastRun?.stage !== "compile" ||
+    lastRun.errorType !== "compile" ||
+    !lastRun.stderr ||
+    !UNCLOSED_PARENTHESIS.test(lastRun.stderr)
+  ) return false;
+  const locations = [...lastRun.stderr.matchAll(PYTHON_LOCATION)];
+  const location = locations.at(-1);
+  if (!location || Number.parseInt(location[2], 10) !== offer.evidence.line) return false;
+  const executedPath = resolveExecutedProjectPath(
+    location[1],
+    files.map((candidate) => candidate.path),
+  );
+  if (executedPath !== offer.evidence.path) return false;
+  const file = files.find((candidate) => candidate.path === offer.evidence.path);
+  if (!file) return false;
+  return offer.evidence.line <= file.content.split("\n").length + 1;
+}
+
+/**
+ * Resolve a learner-accepted 1C offer against server-authored lesson moves.
+ * The browser may nominate current evidence, but it cannot author the teaching
+ * move, raise the scaffold level, select hidden completion data, or turn raw
+ * stderr into instructions.
+ */
+export async function resolveCanonicalContextualTutorOffer(
+  actorId: string,
+  identity: ClientLessonIdentity,
+  offer: ClientContextualTutorOffer,
+  files: readonly ProjectFile[],
+  lastRun: RunResult | null | undefined,
+  evidenceOptions: EvidenceOptions = {},
+): Promise<ContextualTutorOffer | null> {
+  if (!hasUniqueProjectFilePaths(files)) return null;
+  const lesson = await getTutorLessonSnapshot(
+    identity.courseId,
+    identity.lessonId,
+    identity.exerciseId,
+  );
+  if (!lesson || lesson.exerciseId || !lesson.assistanceMoves) return null;
+  const move = lesson.assistanceMoves.moves.find(
+    (candidate) => candidate.id === offer.moveId,
+  );
+  if (
+    !move ||
+    move.trigger.errorCode !== offer.evidence.code ||
+    offer.scaffoldLevel > move.maxScaffoldLevel ||
+    !runMatchesContextualEvidence(offer, files, lastRun) ||
+    !verifyContextualEvidenceAttemptChain(
+      offer.evidenceTokens,
+      offer.evidenceToken,
+      actorId,
+      {
+        courseId: identity.courseId,
+        lessonId: identity.lessonId,
+        contextEpoch: offer.contextEpoch,
+        projectRevision: offer.projectRevision,
+      },
+      move.trigger.minAttempts,
+      evidenceOptions,
+    ) ||
+    !verifyContextualEvidenceToken(
+      offer.evidenceToken,
+      actorId,
+      {
+        courseId: identity.courseId,
+        lessonId: identity.lessonId,
+        contextEpoch: offer.contextEpoch,
+        projectRevision: offer.projectRevision,
+      },
+      files,
+      lastRun,
+      evidenceOptions,
+    )
+  ) return null;
+  return {
+    contextVersion: 0,
+    contextEpoch: offer.contextEpoch,
+    projectRevision: offer.projectRevision,
+    moveId: move.id,
+    evidence: {
+      ...offer.evidence,
+      label: "Syntax error",
+    },
+    scaffoldLevel: offer.scaffoldLevel,
+    authoredQuestion: move.question,
+  };
+}
 
 function buildProgressSummary(
   lesson: TutorLessonSnapshot,

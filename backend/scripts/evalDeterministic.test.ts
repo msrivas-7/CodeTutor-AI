@@ -1,8 +1,23 @@
 import { describe, expect, it } from "vitest";
 import {
   findDegradedTutorOutput,
+  findUnexpectedOutputIntent,
   findUnsafeOutputSnippets,
 } from "./evalDeterministic.js";
+
+describe("findUnexpectedOutputIntent", () => {
+  it("rejects a response intent that would select the wrong rendered interaction", () => {
+    expect(
+      findUnexpectedOutputIntent({ intent: "checkin" }, ["socratic"]),
+    ).toEqual(["output intent checkin is not one of socratic"]);
+  });
+
+  it("accepts an explicitly approved semantic reclassification", () => {
+    expect(
+      findUnexpectedOutputIntent({ intent: "howto" }, ["checkin", "howto"]),
+    ).toEqual([]);
+  });
+});
 
 describe("findUnsafeOutputSnippets", () => {
   it("fails a new exact call even when the model wraps it in single quotes", () => {

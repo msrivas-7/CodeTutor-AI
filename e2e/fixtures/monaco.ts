@@ -9,11 +9,13 @@
 
 import type { Page } from "@playwright/test";
 
-// Polls until @monaco-editor/react has registered at least one model. 15s
-// keeps a genuinely missing editor from consuming the whole test timeout;
-// a normal cold boot clears in ~2s. Include the final URL in the error because
-// a prerequisite redirect can otherwise masquerade as a slow Monaco import.
-export async function waitForMonacoReady(page: Page, timeout = 15_000): Promise<void> {
+// Polls until @monaco-editor/react has registered at least one model. The
+// editor's first mount downloads its versioned runtime from the CDN; GitHub
+// runner cold starts can exceed 15s under parallel load even though every
+// response succeeds. 30s remains bounded while avoiding a retry-only pass.
+// Include the final URL because a prerequisite redirect can otherwise
+// masquerade as a slow Monaco import.
+export async function waitForMonacoReady(page: Page, timeout = 30_000): Promise<void> {
   try {
     await page.waitForFunction(
       () => {

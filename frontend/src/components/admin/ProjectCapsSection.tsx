@@ -64,6 +64,7 @@ const KEY_LABEL: Record<SystemConfigKey, string> = {
   anon_daily_usd_cap: "Anon daily $ cap (global)",
   anon_daily_runs_per_ip: "Anon daily runs per IP",
   ai_eval_sampling_enabled: "Anonymous eval sampling enabled",
+  contextual_tutor_enabled: "Contextual tutor offers enabled",
 };
 
 // Inline help for each row — surfaced as a one-line description so the
@@ -111,6 +112,8 @@ const KEY_DESCRIPTION: Partial<Record<SystemConfigKey, string>> = {
     "Per-IP daily cap on /api/anon/run container spawns (the expensive anon op). Bursts are bounded by the 30/min limiter; this stops sustained abuse. Over-cap requests get 429 ANON_RUN_CAP_EXCEEDED until UTC midnight. 0 drains the run surface without killing the whole trial.",
   ai_eval_sampling_enabled:
     "Master switch for new explicitly-consented, redacted 5% anonymous tutor samples. Existing samples still honor deletion and automatic expiry while this is off.",
+  contextual_tutor_enabled:
+    "Independent Release 1C gate. When off, the deterministic error guide remains available but Help me spot it makes no AI call.",
 };
 
 type ConfigGroupId = "learning" | "trial" | "sharing" | "capacity";
@@ -148,6 +151,7 @@ const KEY_GROUP: Record<SystemConfigKey, ConfigGroupId> = {
   free_tier_daily_usd_per_user: "learning",
   free_tier_lifetime_usd_per_user: "learning",
   free_tier_daily_usd_cap: "learning",
+  contextual_tutor_enabled: "learning",
   share_public_disabled: "sharing",
   share_create_disabled: "sharing",
   share_render_disabled: "sharing",
@@ -172,6 +176,7 @@ const KEY_IMPACT: Record<SystemConfigKey, string> = {
   free_tier_daily_usd_per_user: "Changes each learner's daily platform-AI spend ceiling.",
   free_tier_lifetime_usd_per_user: "Changes each learner's lifetime platform-AI allowance.",
   free_tier_daily_usd_cap: "Changes the global platform-AI daily budget backstop.",
+  contextual_tutor_enabled: "Can stop or restore learner-accepted contextual Tutor calls.",
   share_public_disabled: "Can make every existing public share unavailable.",
   share_create_disabled: "Can stop learners from publishing new shares.",
   share_render_disabled: "Changes whether new share images are rendered.",

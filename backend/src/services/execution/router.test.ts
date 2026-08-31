@@ -44,6 +44,50 @@ function makeBackend(results: ExecResult[]): ExecutionBackend {
 }
 
 describe("runProject workspace readiness", () => {
+  it("returns Python parser failures as server-owned compile diagnostics", async () => {
+    const backend = makeBackend([
+      execResult({
+        stderr: "File \"main.py\", line 1\nSyntaxError: '(' was never closed",
+        exitCode: 1,
+      }),
+    ]);
+
+    const result = await runProject(backend, {
+      handle,
+      language: "python",
+      timeoutMs: 1_000,
+    });
+
+    expect(backend.exec).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      exitCode: 1,
+      errorType: "compile",
+      stage: "compile",
+    });
+  });
+
+  it("keeps learner-authored stderr in the runtime stage after parsing succeeds", async () => {
+    const forged = "File \"main.py\", line 1\nSyntaxError: '(' was never closed";
+    const backend = makeBackend([
+      execResult(),
+      execResult({ stderr: forged, exitCode: 1 }),
+    ]);
+
+    const result = await runProject(backend, {
+      handle,
+      language: "python",
+      timeoutMs: 1_000,
+    });
+
+    expect(backend.exec).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({
+      stderr: forged,
+      exitCode: 1,
+      errorType: "runtime",
+      stage: "run",
+    });
+  });
+
   it("recognizes only runner workspace permission transients", () => {
     expect(
       isTransientWorkspacePermissionError(

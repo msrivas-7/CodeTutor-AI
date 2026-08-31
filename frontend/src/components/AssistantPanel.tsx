@@ -93,6 +93,7 @@ export function AssistantPanel({
   const commitSummary = useAIStore((s) => s.commitSummary);
   const setSummarizing = useAIStore((s) => s.setSummarizing);
   const setActiveSelection = useAIStore((s) => s.setActiveSelection);
+  const bumpFocusComposer = useAIStore((s) => s.bumpFocusComposer);
   const settleFocusComposer = useAIStore((s) => s.settleFocusComposer);
 
   const hasKey = usePreferencesStore((s) => s.hasOpenaiKey);
@@ -184,7 +185,7 @@ export function AssistantPanel({
     requestNonce: focusComposerNonce,
     settledNonce: focusComposerSettledNonce,
     targetRef: textareaRef,
-    blocked: statusLoading || !configured || inputLocked,
+    blocked: statusLoading || !configured || asking || inputLocked,
     onSettled: settleFocusComposer,
   });
 
@@ -266,7 +267,13 @@ export function AssistantPanel({
     if (pendingAsk && configured && !asking && !inputLocked) {
       const ask = pendingAsk;
       setPendingAsk(null);
-      submitAsk(ask.question, { tutorAction: ask.action });
+      void submitAsk(ask.question, { tutorAction: ask.action }).finally(() => {
+        // Route focus through the persistent nonce gate. The request remains
+        // pending while the response render keeps the textarea disabled, then
+        // settles only after the browser accepts focus. Contextual help
+        // deliberately preserves its editor/guide target.
+        if (ask.action && ask.action !== "contextual-help") bumpFocusComposer();
+      });
     }
     // submitAsk closes over a lot of state; we intentionally depend only on
     // the trigger + readiness gates so we don't re-fire on unrelated re-renders.

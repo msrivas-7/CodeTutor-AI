@@ -24,6 +24,7 @@ export const QUALITY_CONTRACT_FILES = [
   "scripts/eval-tutor.ts",
   "scripts/evalDeterministic.ts",
   "scripts/evalGate.ts",
+  "scripts/evalRubrics.ts",
   "scripts/judgeModel.ts",
   "scripts/suspectApiCalibration.ts",
   "src/services/ai/openaiProvider.ts",

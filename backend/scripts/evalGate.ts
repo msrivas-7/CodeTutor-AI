@@ -1,7 +1,14 @@
-export const EVAL_DATASET_VERSION = "2.9.0";
-export const EVAL_EVALUATOR_VERSION = "2.15.0";
-export const EXPECTED_EVAL_CASE_COUNT = 66;
-export const EXPECTED_EVAL_CASES_PER_INTENT = 11;
+export const EVAL_DATASET_VERSION = "2.14.0";
+export const EVAL_EVALUATOR_VERSION = "2.22.0";
+export const EXPECTED_EVAL_CASE_COUNT = 72;
+export const EXPECTED_EVAL_CASES_PER_INTENT: Record<EvalIntent, number> = {
+  socratic: 11,
+  debug: 17,
+  concept: 11,
+  howto: 11,
+  walkthrough: 11,
+  checkin: 11,
+};
 export const REQUIRED_EVAL_TAGS = [
   "multi-turn",
   "stale-context",
@@ -13,6 +20,7 @@ export const REQUIRED_EVAL_TAGS = [
   "greeting",
   "redirect",
   "hostile",
+  "contextual-offer",
 ] as const;
 
 export type EvalIntent =
@@ -123,10 +131,10 @@ export function evaluateGate(
   for (const intent of EVAL_INTENTS) {
     if (
       summary.results.filter((result) => result.intent === intent).length !==
-      EXPECTED_EVAL_CASES_PER_INTENT
+      EXPECTED_EVAL_CASES_PER_INTENT[intent]
     ) {
       reasons.push(
-        `gate requires exactly ${EXPECTED_EVAL_CASES_PER_INTENT} ${intent} cases`,
+        `gate requires exactly ${EXPECTED_EVAL_CASES_PER_INTENT[intent]} ${intent} cases`,
       );
     }
   }

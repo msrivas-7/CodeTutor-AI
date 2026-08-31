@@ -22,6 +22,15 @@ describe("per-task tutor progression proof", () => {
       question: "Could you orient me?",
       action: "explain-lesson-task",
     });
+
+    useAIStore.getState().setPendingAsk(
+      "I'm still stuck on this — can you give me a stronger hint?",
+      "stronger-hint",
+    );
+    expect(useAIStore.getState().pendingAsk).toEqual({
+      question: "I'm still stuck on this — can you give me a stronger hint?",
+      action: "stronger-hint",
+    });
   });
 
   it("caches proof with its chat context and restores it atomically", () => {

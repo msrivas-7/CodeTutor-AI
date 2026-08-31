@@ -19,6 +19,7 @@
 
 - id: g001
   intent: debug
+  expectedOutputIntents: [debug]
   language: python
   lessonContext:
     courseId: python-fundamentals
@@ -40,6 +41,7 @@
 
 - id: g002
   intent: debug
+  expectedOutputIntents: [debug]
   language: python
   lessonContext:
     courseId: python-fundamentals
@@ -62,6 +64,7 @@
 
 - id: g003
   intent: debug
+  expectedOutputIntents: [debug]
   language: javascript
   lessonContext:
     courseId: javascript-fundamentals
@@ -83,6 +86,7 @@
 
 - id: g004
   intent: debug
+  expectedOutputIntents: [debug]
   language: python
   lessonContext:
     courseId: python-fundamentals
@@ -104,6 +108,7 @@
 
 - id: g005
   intent: debug
+  expectedOutputIntents: [debug]
   language: javascript
   lessonContext:
     courseId: javascript-fundamentals
@@ -126,6 +131,7 @@
 
 - id: g006
   intent: debug
+  expectedOutputIntents: [debug]
   language: python
   lessonContext:
     courseId: python-fundamentals
@@ -148,6 +154,7 @@
 
 - id: g007
   intent: concept
+  expectedOutputIntents: [concept]
   language: python
   lessonContext:
     courseId: python-fundamentals
@@ -169,6 +176,7 @@
 
 - id: g008
   intent: concept
+  expectedOutputIntents: [concept]
   language: javascript
   lessonContext:
     courseId: javascript-fundamentals
@@ -192,6 +200,7 @@
 
 - id: g009
   intent: concept
+  expectedOutputIntents: [concept]
   language: python
   lessonContext:
     courseId: python-fundamentals
@@ -215,6 +224,7 @@
 
 - id: g010
   intent: concept
+  expectedOutputIntents: [concept]
   language: javascript
   lessonContext:
     courseId: javascript-fundamentals
@@ -237,6 +247,7 @@
 
 - id: g011
   intent: concept
+  expectedOutputIntents: [concept]
   language: python
   lessonContext:
     courseId: python-fundamentals
@@ -263,6 +274,7 @@
 
 - id: g012
   intent: concept
+  expectedOutputIntents: [concept]
   language: javascript
   lessonContext:
     courseId: javascript-fundamentals
@@ -285,6 +297,7 @@
 
 - id: g013
   intent: howto
+  expectedOutputIntents: [howto]
   language: python
   lessonContext:
     courseId: python-fundamentals
@@ -306,6 +319,7 @@
 
 - id: g014
   intent: howto
+  expectedOutputIntents: [howto]
   language: javascript
   lessonContext:
     courseId: javascript-fundamentals
@@ -327,6 +341,7 @@
 
 - id: g015
   intent: howto
+  expectedOutputIntents: [howto]
   language: python
   lessonContext:
     courseId: python-fundamentals
@@ -348,6 +363,7 @@
 
 - id: g016
   intent: howto
+  expectedOutputIntents: [howto]
   language: javascript
   lessonContext:
     courseId: javascript-fundamentals
@@ -369,6 +385,7 @@
 
 - id: g017
   intent: howto
+  expectedOutputIntents: [howto]
   language: python
   lessonContext:
     courseId: python-fundamentals
@@ -389,6 +406,7 @@
 
 - id: g018
   intent: howto
+  expectedOutputIntents: [howto]
   language: javascript
   lessonContext:
     courseId: javascript-fundamentals
@@ -410,6 +428,7 @@
 
 - id: g019
   intent: walkthrough
+  expectedOutputIntents: [walkthrough]
   language: python
   lessonContext:
     courseId: python-fundamentals
@@ -431,6 +450,7 @@
 
 - id: g020
   intent: walkthrough
+  expectedOutputIntents: [walkthrough]
   language: javascript
   lessonContext:
     courseId: javascript-fundamentals
@@ -453,6 +473,7 @@
 
 - id: g021
   intent: walkthrough
+  expectedOutputIntents: [walkthrough]
   language: python
   lessonContext:
     courseId: python-fundamentals
@@ -481,6 +502,7 @@
 
 - id: g022
   intent: walkthrough
+  expectedOutputIntents: [walkthrough]
   language: javascript
   lessonContext:
     courseId: javascript-fundamentals
@@ -506,6 +528,7 @@
 
 - id: g023
   intent: walkthrough
+  expectedOutputIntents: [walkthrough]
   language: python
   lessonContext:
     courseId: python-fundamentals
@@ -530,6 +553,7 @@
 
 - id: g024
   intent: walkthrough
+  expectedOutputIntents: [walkthrough]
   language: javascript
   lessonContext:
     courseId: javascript-fundamentals
@@ -552,6 +576,7 @@
 
 - id: g025
   intent: checkin
+  expectedOutputIntents: [checkin]
   language: python
   lessonContext:
     courseId: python-fundamentals
@@ -573,6 +598,7 @@
 
 - id: g026
   intent: checkin
+  expectedOutputIntents: [checkin]
   language: javascript
   lessonContext:
     courseId: javascript-fundamentals
@@ -599,6 +625,7 @@
 
 - id: g027
   intent: checkin
+  expectedOutputIntents: [checkin]
   language: python
   lessonContext:
     courseId: python-fundamentals
@@ -620,6 +647,7 @@
 
 - id: g028
   intent: checkin
+  expectedOutputIntents: [checkin]
   language: javascript
   lessonContext:
     courseId: javascript-fundamentals
@@ -645,6 +673,7 @@
 
 - id: g029
   intent: checkin
+  expectedOutputIntents: [checkin]
   language: python
   lessonContext:
     courseId: python-fundamentals
@@ -667,6 +696,7 @@
 
 - id: g030
   intent: checkin
+  expectedOutputIntents: [checkin]
   language: javascript
   lessonContext:
     courseId: javascript-fundamentals

@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { buildLessonContextBlock } from "./lessonContext.js";
+import {
+  buildContextualOfferBlock,
+  buildLessonContextBlock,
+} from "./lessonContext.js";
 import type { LessonContext } from "./lessonContext.js";
 
 const full: LessonContext = {
@@ -84,5 +87,29 @@ describe("buildLessonContextBlock", () => {
     expect(block).toMatch(/Stay within the scope/);
     expect(block).toMatch(/future material/);
     expect(block).toMatch(/Guide toward the solution without giving it away/);
+  });
+});
+
+describe("buildContextualOfferBlock", () => {
+  it("carries the current receipt and one bounded no-answer scaffold", () => {
+    const block = buildContextualOfferBlock({
+      contextVersion: 0,
+      contextEpoch: "lesson:python-fundamentals/hello-world",
+      projectRevision: 4,
+      moveId: "notice-unclosed-parenthesis",
+      evidence: {
+        code: "python-unclosed-parenthesis",
+        path: "main.py",
+        line: 3,
+        label: "Syntax error",
+      },
+      scaffoldLevel: 1,
+      authoredQuestion: "Which opening parenthesis still needs a closing partner?",
+    });
+    expect(block).toContain("explicitly clicked");
+    expect(block).toContain("main.py on line 3");
+    expect(block).toContain("Which opening parenthesis");
+    expect(block).toContain("Do not provide a corrected line, complete solution, or full answer");
+    expect(block).toContain("untrusted learner-observed evidence");
   });
 });

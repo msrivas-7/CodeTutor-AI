@@ -23,6 +23,7 @@ export interface RunResult {
   errorType: ErrorType;
   durationMs: number;
   stage: "compile" | "run" | "setup";
+  contextualEvidenceToken?: string;
 }
 
 export const LANGUAGES: Language[] = [
@@ -74,9 +75,26 @@ export type TutorIntent =
 // without trying to infer button identity from prose.
 export type TutorAction =
   | "explain-lesson-task"
+  | "stronger-hint"
   | "explain-more"
   | "concrete-example"
-  | "why-it-matters";
+  | "why-it-matters"
+  | "contextual-help";
+
+export interface ContextualTutorOfferRequest {
+  contextVersion: 0;
+  contextEpoch: string;
+  projectRevision: number;
+  evidenceToken: string;
+  evidenceTokens: string[];
+  moveId: string;
+  evidence: {
+    code: "python-unclosed-parenthesis";
+    path: string;
+    line: number;
+  };
+  scaffoldLevel: 1;
+}
 
 export type Persona = "beginner" | "intermediate" | "advanced";
 
@@ -153,6 +171,7 @@ export interface AIModel {
   label: string;
   qualityStatus: "evaluated" | "unevaluated";
   contextualTutorEligible: boolean;
+  contextualOfferEligible: boolean;
   qualityLabel: string;
   evalSetVersion: string | null;
   registryVersion: string;

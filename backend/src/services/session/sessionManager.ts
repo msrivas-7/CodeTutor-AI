@@ -25,9 +25,45 @@ export interface SessionRecord {
   lastSeen: number;
   createdAt: number;
   selectedModel: string | null;
+  contextualSnapshot?: {
+    files: Array<{ path: string; content: string }>;
+    identity: {
+      courseId: string;
+      lessonId: string;
+      contextEpoch: string;
+      projectRevision: number;
+    };
+  };
 }
 
 const sessions = new Map<string, SessionRecord>();
+
+// Snapshot replacement and execution both act on the same mutable workspace.
+// Keep those operations atomic per session across every backend (local, ACI,
+// and hybrid) so a second tab cannot replace files while a run is producing
+// the result that will be signed as contextual evidence.
+const workspaceOperationTails = new Map<string, Promise<void>>();
+
+export async function withSessionWorkspaceLock<T>(
+  sessionId: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const prior = workspaceOperationTails.get(sessionId) ?? Promise.resolve();
+  let release!: () => void;
+  const tail = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  workspaceOperationTails.set(sessionId, tail);
+  await prior.catch(() => {});
+  try {
+    return await operation();
+  } finally {
+    release();
+    if (workspaceOperationTails.get(sessionId) === tail) {
+      workspaceOperationTails.delete(sessionId);
+    }
+  }
+}
 
 /**
  * QA-L5: a per-process boot identifier. Included in every session route

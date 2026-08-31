@@ -1,7 +1,14 @@
 import { Router } from "express";
 import { z } from "zod";
+import {
+  hasUniqueProjectFilePaths,
+  UNIQUE_PROJECT_FILE_PATHS_MESSAGE,
+} from "../schema/projectFiles.js";
 import { requireActiveSession } from "../services/session/requireActiveSession.js";
-import { touchSession } from "../services/session/sessionManager.js";
+import {
+  touchSession,
+  withSessionWorkspaceLock,
+} from "../services/session/sessionManager.js";
 import type { ExecutionBackend } from "../services/execution/backends/index.js";
 
 // Per-file cap matches the Express body cap divided across the `files` array.
@@ -25,7 +32,17 @@ const snapshotBody = z.object({
         content: z.string().max(200_000),
       })
     )
-    .max(50),
+    .max(50)
+    .refine(
+      hasUniqueProjectFilePaths,
+      UNIQUE_PROJECT_FILE_PATHS_MESSAGE,
+    ),
+  contextualEvidence: z.object({
+    courseId: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/),
+    lessonId: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/),
+    contextEpoch: z.string().min(1).max(256),
+    projectRevision: z.number().int().min(0),
+  }).optional(),
 });
 
 export function createProjectRouter(backend: ExecutionBackend): Router {
@@ -43,7 +60,12 @@ export function createProjectRouter(backend: ExecutionBackend): Router {
     }
     try {
       const session = requireActiveSession(sessionId, userId);
-      await backend.replaceSnapshot(session.handle, files);
+      await withSessionWorkspaceLock(sessionId, async () => {
+        await backend.replaceSnapshot(session.handle, files);
+        session.contextualSnapshot = parsed.data.contextualEvidence
+          ? { files, identity: parsed.data.contextualEvidence }
+          : undefined;
+      });
       touchSession(sessionId);
       res.json({ ok: true, fileCount: files.length });
     } catch (err) {

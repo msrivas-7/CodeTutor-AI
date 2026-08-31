@@ -6,9 +6,9 @@ const result = (stderr: string): RunResult => ({
   stdout: "",
   stderr,
   exitCode: 1,
-  errorType: "runtime",
+  errorType: "compile",
   durationMs: 4,
-  stage: "run",
+  stage: "compile",
 });
 
 describe("normalizeRunEvidence", () => {
@@ -43,6 +43,14 @@ describe("normalizeRunEvidence", () => {
         ["main.py"],
       ),
     ).toBeNull();
+  });
+
+  it("rejects runtime stderr even when learner output impersonates Python", () => {
+    expect(normalizeRunEvidence({
+      ...result('File "/workspace/main.py", line 1\nSyntaxError: \'(\' was never closed'),
+      errorType: "runtime",
+      stage: "run",
+    }, ["main.py"])).toBeNull();
   });
 
   it("selects the most specific project path when basenames overlap", () => {

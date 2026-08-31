@@ -39,17 +39,62 @@ describe("gradeRubric", () => {
       fetchImpl: mockOk("Y"),
     });
     expect(r.pass).toBe(true);
-    expect(r.raw).toBe("Y");
+    expect(r.raw).toBe("Y\nADJUDICATION:Y");
   });
 
   it("treats 'N' as fail", async () => {
+    let calls = 0;
     const r = await gradeRubric({
       apiKey: "test",
       tutorResponse: "{}",
       rubricQuestion: "?",
-      fetchImpl: mockOk("N"),
+      fetchImpl: async () => {
+        calls += 1;
+        return mockOk("N")("", {
+          method: "POST",
+          headers: {},
+          body: "",
+        });
+      },
     });
     expect(r.pass).toBe(false);
+    expect(r.raw).toBe("N\nADJUDICATION:N");
+    expect(calls).toBe(2);
+  });
+
+  it("uses a third vote only when an initial N and adjudication disagree", async () => {
+    const votes = ["N", "Y", "Y"];
+    const r = await gradeRubric({
+      apiKey: "test",
+      tutorResponse: "{}",
+      rubricQuestion: "?",
+      fetchImpl: async () => mockOk(votes.shift() ?? "N")("", {
+        method: "POST",
+        headers: {},
+        body: "",
+      }),
+    });
+
+    expect(r.pass).toBe(true);
+    expect(r.raw).toBe("N\nADJUDICATION:Y\nTIEBREAK:Y");
+    expect(votes).toHaveLength(0);
+  });
+
+  it("retains a majority N after a split adjudication", async () => {
+    const votes = ["N", "Y", "N"];
+    const r = await gradeRubric({
+      apiKey: "test",
+      tutorResponse: "{}",
+      rubricQuestion: "?",
+      fetchImpl: async () => mockOk(votes.shift() ?? "N")("", {
+        method: "POST",
+        headers: {},
+        body: "",
+      }),
+    });
+
+    expect(r.pass).toBe(false);
+    expect(r.raw).toBe("N\nADJUDICATION:Y\nTIEBREAK:N");
   });
 
   it("tolerates leading whitespace", async () => {
@@ -60,6 +105,7 @@ describe("gradeRubric", () => {
       fetchImpl: mockOk(" Y\n"),
     });
     expect(r.pass).toBe(true);
+    expect(r.raw).toBe("Y\nADJUDICATION:Y");
   });
 
   it("tolerates trailing punctuation/newline", async () => {
@@ -82,7 +128,7 @@ describe("gradeRubric", () => {
     expect(r.pass).toBe(true);
   });
 
-  it("treats empty/garbage response as fail (defaults to N)", async () => {
+  it("treats repeated empty/garbage responses as fail (defaults to N)", async () => {
     const r = await gradeRubric({
       apiKey: "test",
       tutorResponse: "{}",
@@ -112,8 +158,8 @@ describe("gradeRubric", () => {
       fetchImpl,
     });
     expect(r.pass).toBe(true);
-    expect(calls).toBe(2);
-    expect(maxTokens).toEqual([300, 600]);
+    expect(calls).toBe(3);
+    expect(maxTokens).toEqual([300, 600, 300]);
   });
 
   it("treats anything other than Y as fail (e.g. 'maybe')", async () => {

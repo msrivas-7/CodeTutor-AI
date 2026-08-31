@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { api } from "../../../api/client";
 import { useAIStore } from "../../../state/aiStore";
 import {
   usePreferencesStore,
@@ -30,11 +31,14 @@ import { useSavedTutorMessages } from "../hooks/useSavedTutorMessages";
 import { useProgressStore } from "../stores/progressStore";
 import { usePendingElementFocus } from "../../../hooks/usePendingElementFocus";
 import type { LessonMeta, PracticeExercise } from "../types";
+import type { AIModel, ContextualTutorOfferRequest } from "../../../types";
 import { EvalSamplingConsentControl } from "../../anon/EvalSamplingConsentControl";
 import {
   type AnonTutorStateV1,
   writeAnonTutorState,
 } from "../../anon/anonStash";
+
+export type ContextualTutorAvailability = "loading" | "ready" | "unavailable";
 
 interface GuidedTutorPanelProps {
   lessonMeta: LessonMeta;
@@ -89,6 +93,24 @@ interface GuidedTutorPanelProps {
   onSkipWelcome?: () => void;
   /** Same-tab anonymous continuity, hydrated before the composer is enabled. */
   initialAnonTutorState?: AnonTutorStateV1 | null;
+  /** Reports whether an external contextual offer can safely spend a turn. */
+  onContextualTutorAvailabilityChange?: (state: ContextualTutorAvailability) => void;
+  /** Reports whether an accepted contextual turn completed successfully. */
+  onContextualTutorAskComplete?: (
+    ok: boolean,
+    invalidation?: "stale" | "disabled" | "model" | "quota" | "availability",
+    interruption?: "panel-remounted",
+  ) => void;
+  /** Reports an in-flight ask canceled by a responsive panel replacement. */
+  onTutorAskInterrupted?: () => void;
+  /** Promotes an admission refusal to lesson scope before this panel can remount. */
+  onContextualTutorOfferInvalidated?: (
+    invalidation: "disabled" | "model" | "quota" | "availability",
+  ) => void;
+  /** External one-shot asks wait until the owning Tutor surface is visible. */
+  externalAskReady?: boolean;
+  /** Parent-owned refusal latch survives desktop/compact Tutor remounts. */
+  contextualRuntimeUnavailable?: boolean;
 }
 
 export function canSubmitGuidedTutorTurn({
@@ -105,7 +127,39 @@ export function canSubmitGuidedTutorTurn({
   return configured && !asking && !inputLocked && !exhausted;
 }
 
-export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, priorConcepts, activePracticeExercise, onCollapse, onOpenSettings, resetNonce, inputLocked, clearHidden, mode = "authed", onAnonExhausted, onAnonTrialPaused, onAnonSaveRequested, onSkipWelcome, initialAnonTutorState }: GuidedTutorPanelProps) {
+export function currentContextualOfferForRetry(
+  offer: ContextualTutorOfferRequest | null,
+  currentProjectRevision: number,
+): ContextualTutorOfferRequest | null {
+  return offer?.projectRevision === currentProjectRevision ? offer : null;
+}
+
+export function isContextualOfferModelReady(
+  source: "byok" | "platform" | "none",
+  selectedModel: string | null,
+  models: readonly AIModel[],
+  platformModelEligible = false,
+): boolean {
+  if (source === "platform") return platformModelEligible;
+  if (source === "byok") {
+    return models.find((model) => model.id === selectedModel)?.contextualOfferEligible === true;
+  }
+  return false;
+}
+
+export function resolveTutorSource(
+  mode: "authed" | "anon",
+  hasKey: boolean,
+  statusSource: "byok" | "platform" | "none" | undefined,
+): "byok" | "platform" | "none" {
+  // Anonymous requests are always platform-funded. A signed-in visitor can
+  // still have BYOK preferences in local state while using /try; those must
+  // never affect eligibility or the request model for the public lesson.
+  if (mode === "anon") return "platform";
+  return hasKey ? "byok" : (statusSource ?? "none");
+}
+
+export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, priorConcepts, activePracticeExercise, onCollapse, onOpenSettings, resetNonce, inputLocked, clearHidden, mode = "authed", onAnonExhausted, onAnonTrialPaused, onAnonSaveRequested, onSkipWelcome, initialAnonTutorState, onContextualTutorAvailabilityChange, onContextualTutorAskComplete, onContextualTutorOfferInvalidated, onTutorAskInterrupted, externalAskReady = true, contextualRuntimeUnavailable: parentContextualRuntimeUnavailable = false }: GuidedTutorPanelProps) {
   const incrementHint = useProgressStore((s) => s.incrementHint);
   // Derive the hint cap from the DB-backed hint_count (not local component
   // state) so the limit survives navigation + reload. Local state rewinds on
@@ -117,6 +171,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
   const keys = useShortcutLabels();
   const {
     selectedModel,
+    models,
     history,
     asking,
     askError,
@@ -132,6 +187,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
     setActiveSelection,
     focusComposerNonce,
     focusComposerSettledNonce,
+    bumpFocusComposer,
     settleFocusComposer,
   } = useAIStore();
   const hasKey = usePreferencesStore((s) => s.hasOpenaiKey);
@@ -157,7 +213,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
     unsave: unsaveTutorMessage,
   } = useSavedTutorMessages(savedScope, mode);
 
-  const { activeFile } = useProjectStore();
+  const { activeFile, revision: projectRevision } = useProjectStore();
   const lastRun = useRunStore((s) => s.result);
   const stdin = useRunStore((s) => s.stdin);
 
@@ -170,8 +226,24 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
   const [anonQuotaExhausted, setAnonQuotaExhausted] = useState(
     () => mode === "anon" && Boolean(initialAnonTutorState?.exhausted),
   );
+  const [anonContextualTutorStatus, setAnonContextualTutorStatus] = useState<{
+    enabled: boolean;
+    modelEligible: boolean;
+  } | null>(
+    mode === "anon" ? null : { enabled: true, modelEligible: true },
+  );
+  const [contextualRuntimeUnavailable, setContextualRuntimeUnavailable] = useState(false);
   const skipInitialAnonPersistRef = useRef(Boolean(initialAnonTutorState));
   const [clearConfirm, setClearConfirm] = useState(false);
+  const [activeContextualOffer, setActiveContextualOffer] = useState<ContextualTutorOfferRequest | null>(null);
+  const activeContextualOfferRef = useRef<ContextualTutorOfferRequest | null>(null);
+  const contextualInvalidationRef = useRef<
+    "stale" | "disabled" | "model" | "quota" | "availability" | null
+  >(null);
+  const updateActiveContextualOffer = (offer: ContextualTutorOfferRequest | null) => {
+    activeContextualOfferRef.current = offer;
+    setActiveContextualOffer(offer);
+  };
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const clearButtonRef = useRef<HTMLButtonElement>(null);
@@ -184,9 +256,33 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
   const pendingHintRef = useRef<boolean>(false);
 
   // Phase 20-P4: BYOK wins; otherwise mirror what ai-status tells us.
-  const statusLoading = mode === "authed" && !hasKey && aiStatus === null;
-  const effectiveSource: "byok" | "platform" | "none" =
-    hasKey ? "byok" : (aiStatus?.source ?? "none");
+  useEffect(() => {
+    if (mode !== "anon") return;
+    let active = true;
+    setAnonContextualTutorStatus(null);
+    void api.getAnonAIStatus()
+      .then(({ contextualTutorEnabled, contextualTutorModelEligible }) => {
+        if (active) {
+          setAnonContextualTutorStatus({
+            enabled: contextualTutorEnabled,
+            modelEligible: contextualTutorModelEligible,
+          });
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setAnonContextualTutorStatus({ enabled: false, modelEligible: false });
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [mode]);
+
+  const statusLoading = mode === "anon"
+    ? anonContextualTutorStatus === null
+    : !hasKey && aiStatus === null;
+  const effectiveSource = resolveTutorSource(mode, hasKey, aiStatus?.source);
   const onPlatform = effectiveSource === "platform";
   const effectiveModel = tutorRequestModel({
     selectedModel,
@@ -194,6 +290,14 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
     isAnon: mode === "anon",
   });
   const byokModelReady = useByokTutorModelReady(mode === "authed" && hasKey);
+  const contextualModelReady = isContextualOfferModelReady(
+    effectiveSource,
+    selectedModel,
+    models,
+    mode === "anon"
+      ? anonContextualTutorStatus?.modelEligible === true
+      : aiStatus?.contextualTutorModelEligible === true,
+  );
   const exhausted = effectiveSource === "none" && aiStatus?.reason === "free_exhausted";
   useEffect(() => {
     if (!exhausted) setExhaustionDismissed(false);
@@ -211,6 +315,24 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
   // for the persona we're trying to land. Mirrors the gate inside
   // useTutorAsk where submitAsk treats anon as configured.
   const configured = mode === "anon" || onPlatform || byokModelReady;
+  const contextualTutorAvailability: ContextualTutorAvailability =
+    statusLoading
+      ? "loading"
+      : configured &&
+          contextualModelReady &&
+          !contextualRuntimeUnavailable &&
+          !parentContextualRuntimeUnavailable &&
+          !exhausted &&
+          !anonQuotaExhausted &&
+          (mode === "anon"
+            ? anonContextualTutorStatus?.enabled === true
+            : aiStatus?.contextualTutorEnabled === true)
+        ? "ready"
+        : "unavailable";
+
+  useEffect(() => {
+    onContextualTutorAvailabilityChange?.(contextualTutorAvailability);
+  }, [contextualTutorAvailability, onContextualTutorAvailabilityChange]);
 
   const prepareAnswer = (value: string) => {
     setDraft(value);
@@ -234,7 +356,13 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
     requestNonce: focusComposerNonce,
     settledNonce: focusComposerSettledNonce,
     targetRef: textareaRef,
-    blocked: statusLoading || !configured || Boolean(inputLocked) || anonQuotaExhausted,
+    blocked:
+      statusLoading ||
+      !configured ||
+      asking ||
+      Boolean(inputLocked) ||
+      !externalAskReady ||
+      anonQuotaExhausted,
     onSettled: settleFocusComposer,
   });
 
@@ -288,7 +416,41 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
         setAnonQuotaExhausted(true);
       }
     },
-    onAskComplete: ({ ok }) => {
+    onContextualOfferInvalidated: (reason) => {
+      contextualInvalidationRef.current = reason;
+      if (
+        reason === "disabled" ||
+        reason === "model" ||
+        reason === "quota" ||
+        reason === "availability"
+      ) {
+        // Runtime admission is authoritative for this mounted lesson. Stop
+        // advertising an action that will only be refused. The deterministic
+        // guide remains available and falls back to opening the regular Tutor.
+        setContextualRuntimeUnavailable(true);
+        onContextualTutorOfferInvalidated?.(reason);
+        if (mode === "anon") {
+          setAnonContextualTutorStatus((current) => ({
+            enabled: reason === "disabled" ? false : (current?.enabled ?? false),
+            modelEligible: reason === "model" ? false : (current?.modelEligible ?? false),
+          }));
+        }
+      }
+    },
+    onAskComplete: ({ ok, interruption }) => {
+      if (interruption === "panel-remounted") onTutorAskInterrupted?.();
+      if (activeContextualOfferRef.current) {
+        onContextualTutorAskComplete?.(
+          ok,
+          contextualInvalidationRef.current ?? undefined,
+          interruption,
+        );
+        // A signed run proof funds one admitted contextual attempt. Retire it
+        // after every terminal outcome; Retry remains useful, but continues as
+        // ordinary Tutor help instead of replaying the same billed evidence.
+        updateActiveContextualOffer(null);
+      }
+      contextualInvalidationRef.current = null;
       if (pendingHintRef.current) {
         pendingHintRef.current = false;
         // Phase 27-v2.1 — anon doesn't write hint counts to /api/user/*.
@@ -297,11 +459,12 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
         if (ok && mode === "authed") incrementHint(lessonMeta.courseId, lessonMeta.id);
       }
     },
-    buildBody: ({ question, tutorAction, files, diffSinceLastTurn, historyForSend, selection }) => ({
+    buildBody: ({ question, tutorAction, contextualOffer, files, diffSinceLastTurn, historyForSend, selection }) => ({
       // Platform and anonymous funding ignore stale persisted BYOK choices.
       model: effectiveModel ?? undefined,
       question,
       tutorAction,
+      contextualOffer,
       files,
       activeFile: activeFile ?? undefined,
       language: lessonMeta.language,
@@ -333,6 +496,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
     })) return;
     const q = draft.trim();
     setDraft("");
+    updateActiveContextualOffer(null);
     submitAsk(q);
   };
 
@@ -344,7 +508,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
   };
 
   useEffect(() => {
-    if (pendingAsk && canSubmitGuidedTutorTurn({
+    if (externalAskReady && pendingAsk && canSubmitGuidedTutorTurn({
       configured,
       asking,
       inputLocked,
@@ -352,10 +516,16 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
     })) {
       const ask = pendingAsk;
       setPendingAsk(null);
-      submitAsk(ask.question, { tutorAction: ask.action });
+      updateActiveContextualOffer(ask.contextualOffer ?? null);
+      void submitAsk(ask.question, {
+        tutorAction: ask.action,
+        contextualOffer: ask.contextualOffer,
+      }).finally(() => {
+        if (ask.action && ask.action !== "contextual-help") bumpFocusComposer();
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingAsk, configured, asking, inputLocked, anonQuotaExhausted]);
+  }, [pendingAsk, configured, asking, inputLocked, anonQuotaExhausted, externalAskReady]);
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
@@ -570,7 +740,9 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
                             ];
                             const idx = Math.min(hintLevel, prompts.length - 1);
                             pendingHintRef.current = true;
-                            setPendingAsk(prompts[idx]);
+                            setPendingAsk(idx === 0
+                              ? prompts[idx]
+                              : { question: prompts[idx], action: "stronger-hint" });
                           }}
                           disabled={asking || inputLocked || anonQuotaExhausted}
                           aria-label={
@@ -632,9 +804,20 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
         })}
 
         {asking && (
-          pending && hasTutorContent(pending.sections)
-            ? <TutorResponseView sections={pending.sections} disabled streaming scripted={pendingScripted} />
-            : <ThinkingSkeleton />
+          <>
+            {activeContextualOffer && (
+              <div
+                role="status"
+                data-testid="contextual-tutor-receipt"
+                className="mb-2 rounded-lg border border-accent/30 bg-accent/[0.08] px-3 py-2 text-xs text-ink"
+              >
+                Using your latest run: syntax error on line {activeContextualOffer.evidence.line}.
+              </div>
+            )}
+            {pending && hasTutorContent(pending.sections)
+              ? <TutorResponseView sections={pending.sections} disabled streaming scripted={pendingScripted} />
+              : <ThinkingSkeleton />}
+          </>
         )}
         {askError && (
           <AskErrorView
@@ -642,8 +825,21 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
             onRetry={() => {
               const lastUser = [...history].reverse().find((m) => m.role === "user");
               if (lastUser) {
+                const contextualOffer = currentContextualOfferForRetry(
+                  activeContextualOffer,
+                  projectRevision,
+                );
+                if (activeContextualOffer && !contextualOffer) {
+                  updateActiveContextualOffer(null);
+                  setAskError("TUTOR_CONTEXT_CHANGED");
+                  return;
+                }
                 setAskError(null);
-                void submitAsk(lastUser.content, { appendUser: false });
+                void submitAsk(lastUser.content, {
+                  appendUser: false,
+                  tutorAction: contextualOffer ? "contextual-help" : undefined,
+                  contextualOffer: contextualOffer ?? undefined,
+                });
               }
             }}
             retryDisabled={asking || !configured}

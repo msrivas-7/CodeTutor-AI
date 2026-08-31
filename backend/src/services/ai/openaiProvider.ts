@@ -321,6 +321,7 @@ function buildPromptInputs(params: AIAskParams): {
     persona: params.persona,
     tutorStage: params.tutorStage ?? "clarify",
     learnerName: params.learnerName ?? null,
+    contextualOffer: params.contextualOffer ?? null,
   };
   const baseInstructions = guided
     ? buildGuidedSystemPrompt(params.history, params.question, params.lessonContext!, promptOpts)

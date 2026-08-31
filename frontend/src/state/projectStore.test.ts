@@ -128,6 +128,42 @@ describe("project revision contract", () => {
     });
   });
 
+  it("rejects noncanonical paths before they can enter client state", () => {
+    const store = useProjectStore.getState();
+
+    for (const path of ["./helper.py", "/helper.py", "src//helper.py", "src/./helper.py"]) {
+      expect(store.createFile(path)).toEqual({ ok: false, error: "invalid path" });
+      expect(store.renameFile("main.py", path)).toEqual({ ok: false, error: "invalid path" });
+    }
+
+    expect(useProjectStore.getState().files).toEqual({ "main.py": "print('one')\n" });
+  });
+
+  it("repairs persisted path aliases without dropping colliding file contents", () => {
+    useProjectStore.getState().replaceProject({
+      language: "python",
+      files: {
+        "src//helper.py": "alias content\n",
+        "src/helper.py": "canonical content\n",
+        "./main.py": "main content\n",
+      },
+      order: ["./main.py", "src//helper.py", "src/helper.py"],
+      activeFile: "src//helper.py",
+      openTabs: ["./main.py", "src//helper.py", "src/helper.py"],
+    });
+
+    expect(useProjectStore.getState()).toMatchObject({
+      files: {
+        "main.py": "main content\n",
+        "src/helper-recovered-2.py": "alias content\n",
+        "src/helper.py": "canonical content\n",
+      },
+      order: ["main.py", "src/helper-recovered-2.py", "src/helper.py"],
+      activeFile: "src/helper-recovered-2.py",
+      openTabs: ["main.py", "src/helper-recovered-2.py", "src/helper.py"],
+    });
+  });
+
   it("binds captured versions and operations to both context and revision", () => {
     const version = captureProjectVersion();
     const operation = beginProjectOperation();

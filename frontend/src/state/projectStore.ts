@@ -16,6 +16,85 @@ interface ProjectSnapshot {
   openTabs: string[];
 }
 
+const PROJECT_PATH_RE = /^[A-Za-z0-9_./-]+$/;
+
+function canonicalProjectFilePath(rawPath: string): string | null {
+  if (!PROJECT_PATH_RE.test(rawPath)) return null;
+  const cleaned = rawPath.replace(/\\/g, "/").replace(/^\/+/, "");
+  if (cleaned === "" || cleaned.includes("..")) return null;
+  const segments = cleaned.split("/").filter((segment) => segment !== "" && segment !== ".");
+  if (segments.length === 0 || segments.some((segment) => segment.startsWith("-"))) {
+    return null;
+  }
+  return segments.join("/");
+}
+
+function recoveredProjectFilePath(preferred: string | null, used: Set<string>): string {
+  const safePreferred = preferred ?? "recovered-file.txt";
+  const slash = safePreferred.lastIndexOf("/");
+  const directory = slash >= 0 ? safePreferred.slice(0, slash + 1) : "";
+  const filename = slash >= 0 ? safePreferred.slice(slash + 1) : safePreferred;
+  const dot = filename.lastIndexOf(".");
+  const stem = dot > 0 ? filename.slice(0, dot) : filename;
+  const extension = dot > 0 ? filename.slice(dot) : "";
+  for (let suffix = 2; ; suffix += 1) {
+    const candidate = `${directory}${stem}-recovered-${suffix}${extension}`;
+    if (!used.has(candidate)) return candidate;
+  }
+}
+
+/**
+ * Repair projects saved before canonical paths became a server invariant.
+ * Every file is retained; colliding aliases receive an explicit recovered
+ * filename so hydration never strands a learner behind a server-side 400.
+ */
+function normalizeProjectSnapshot(snapshot: ProjectSnapshot): ProjectSnapshot {
+  const entries = Object.entries(snapshot.files);
+  const reservedCanonical = new Set(
+    entries
+      .filter(([path]) => canonicalProjectFilePath(path) === path)
+      .map(([path]) => path),
+  );
+  const used = new Set<string>();
+  const pathMap = new Map<string, string>();
+  const files: Record<string, string> = {};
+
+  for (const [rawPath, content] of entries) {
+    const canonical = canonicalProjectFilePath(rawPath);
+    const collides = canonical === null || used.has(canonical) || (
+      rawPath !== canonical && reservedCanonical.has(canonical)
+    );
+    const path = collides
+      ? recoveredProjectFilePath(canonical, new Set([...used, ...reservedCanonical]))
+      : canonical;
+    used.add(path);
+    pathMap.set(rawPath, path);
+    files[path] = content;
+  }
+
+  const mapExisting = (path: string): string | null => {
+    const mapped = pathMap.get(path) ?? canonicalProjectFilePath(path);
+    return mapped && Object.prototype.hasOwnProperty.call(files, mapped) ? mapped : null;
+  };
+  const uniqueMapped = (paths: string[]): string[] => [
+    ...new Set(paths.map(mapExisting).filter((path): path is string => path !== null)),
+  ];
+  const order = uniqueMapped(snapshot.order);
+  for (const path of Object.keys(files)) {
+    if (!order.includes(path)) order.push(path);
+  }
+  const openTabs = uniqueMapped(snapshot.openTabs);
+  const activeFile = snapshot.activeFile ? mapExisting(snapshot.activeFile) : null;
+
+  return {
+    ...snapshot,
+    files,
+    order,
+    openTabs,
+    activeFile: activeFile ?? order[0] ?? null,
+  };
+}
+
 // P-M4: LRU cap mirrors chatCache — see aiStore.ts rationale. Project
 // snapshots are larger (full files map) so the ceiling matters more here.
 const PROJECT_CACHE_MAX = 10;
@@ -178,13 +257,13 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         // the snapshot into `projectCache` under the "editor" key so a
         // later `switchProjectContext("editor")` from a lesson page picks
         // it up instead of falling back to defaults.
-        const snapshot: ProjectSnapshot = {
+        const snapshot = normalizeProjectSnapshot({
           language: remote.language as Language,
           files: remote.files,
           order: remote.fileOrder,
           activeFile: remote.activeFile,
           openTabs: remote.openTabs,
-        };
+        });
         touchProject("editor", snapshot);
         // Only apply to the live store if we're not already inside a lesson
         // (projectContext !== "editor" and !== null means lesson); on the
@@ -283,11 +362,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
   createFile: (path, content = "") => {
     const s = get();
+    if (canonicalProjectFilePath(path) !== path) {
+      return { ok: false, error: "invalid path" };
+    }
     if (Object.prototype.hasOwnProperty.call(s.files, path)) {
       return { ok: false, error: "file exists" };
-    }
-    if (!/^[A-Za-z0-9_./-]+$/.test(path) || path.includes("..")) {
-      return { ok: false, error: "invalid path" };
     }
     set({
       files: { ...s.files, [path]: content },
@@ -327,11 +406,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     if (!Object.prototype.hasOwnProperty.call(s.files, from)) {
       return { ok: false, error: "source not found" };
     }
+    if (canonicalProjectFilePath(to) !== to) {
+      return { ok: false, error: "invalid path" };
+    }
     if (Object.prototype.hasOwnProperty.call(s.files, to)) {
       return { ok: false, error: "destination exists" };
-    }
-    if (!/^[A-Za-z0-9_./-]+$/.test(to) || to.includes("..")) {
-      return { ok: false, error: "invalid path" };
     }
     const files = { ...s.files, [to]: s.files[from] };
     delete files[from];
@@ -357,12 +436,16 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     invalidateDerivedEvidence();
   },
   replaceProject: (next) => {
+    const normalized = normalizeProjectSnapshot({
+      language: next.language ?? get().language,
+      ...next,
+    });
     set((s) => ({
-      language: next.language ?? s.language,
-      files: next.files,
-      order: next.order,
-      activeFile: next.activeFile,
-      openTabs: next.openTabs,
+      language: normalized.language ?? s.language,
+      files: normalized.files,
+      order: normalized.order,
+      activeFile: normalized.activeFile,
+      openTabs: normalized.openTabs,
       pendingReveal: null,
       revision: s.revision + 1,
     }));
@@ -400,24 +483,32 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }
 
     if (saved) {
+      const normalized = normalizeProjectSnapshot(saved);
       set((current) => ({
         projectContext: contextKey,
-        language: saved.language,
-        files: saved.files,
-        order: saved.order,
-        activeFile: saved.activeFile,
-        openTabs: saved.openTabs,
+        language: normalized.language,
+        files: normalized.files,
+        order: normalized.order,
+        activeFile: normalized.activeFile,
+        openTabs: normalized.openTabs,
         pendingReveal: null,
         revision: current.revision + 1,
       }));
     } else if (defaults) {
-      set((current) => ({
-        projectContext: contextKey,
+      const normalized = normalizeProjectSnapshot({
         language: defaults.language ?? "python",
         files: defaults.files,
         order: defaults.order,
         activeFile: defaults.activeFile,
         openTabs: defaults.openTabs,
+      });
+      set((current) => ({
+        projectContext: contextKey,
+        language: normalized.language,
+        files: normalized.files,
+        order: normalized.order,
+        activeFile: normalized.activeFile,
+        openTabs: normalized.openTabs,
         pendingReveal: null,
         revision: current.revision + 1,
       }));

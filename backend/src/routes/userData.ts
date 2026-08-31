@@ -53,6 +53,7 @@ import {
   getCourseStructure,
   getPracticeEvidenceSnapshot,
 } from "../services/share/lessonCatalog.js";
+import { canonicalProjectFilePath } from "../schema/projectFiles.js";
 
 // Phase 18b: /api/user/* endpoints. authMiddleware upstream guarantees
 // req.userId; every handler scopes reads/writes by that id. RLS on the tables
@@ -664,7 +665,8 @@ const editorPathSchema = z
   .min(1)
   .max(EDITOR_PATH_MAX)
   .regex(EDITOR_PATH_RE, "invalid path")
-  .refine((p) => !p.includes(".."), { message: "path traversal" });
+  .refine((p) => !p.includes(".."), { message: "path traversal" })
+  .refine((p) => canonicalProjectFilePath(p) === p, { message: "noncanonical path" });
 
 const editorProjectSchema = z
   .object({

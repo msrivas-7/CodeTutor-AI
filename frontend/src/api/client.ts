@@ -250,6 +250,7 @@ async function get<T>(path: string, extraHeaders?: Record<string, string>): Prom
 import type {
   AIMessage,
   AIModel,
+  ContextualTutorOfferRequest,
   EditorSelection,
   Language,
   Persona,
@@ -291,6 +292,10 @@ export interface AIStatusResponse {
   // every surface hides the button — one signal per user is enough and more
   // clutter is noise. Backend derives from EXISTS on paid_access_interest.
   hasShownPaidInterest: boolean;
+  /** Independent Release 1C runtime model-call gate. */
+  contextualTutorEnabled: boolean;
+  /** Whether the effective platform model passed the contextual-offer eval gate. */
+  contextualTutorModelEligible: boolean;
 }
 
 // Phase 18b: per-user data API surface. Every shape here mirrors the
@@ -479,6 +484,7 @@ export interface AskStreamRequest {
   model?: string;
   question: string;
   tutorAction?: TutorAction;
+  contextualOffer?: ContextualTutorOfferRequest;
   files: ProjectFile[];
   activeFile?: string;
   language?: Language;
@@ -612,7 +618,8 @@ export type SystemConfigKey =
   // and per-IP daily container-spawn cap on /api/anon/run.
   | "anon_daily_usd_cap"
   | "anon_daily_runs_per_ip"
-  | "ai_eval_sampling_enabled";
+  | "ai_eval_sampling_enabled"
+  | "contextual_tutor_enabled";
 
 export interface SystemConfigEntry {
   value: boolean | number;
@@ -1091,13 +1098,22 @@ export const api = {
     }
   },
   health: () => get<{ ok: boolean; uptime: number }>("/api/health"),
-  snapshotProject: async (sessionId: string, files: ProjectFile[]) => {
+  snapshotProject: async (
+    sessionId: string,
+    files: ProjectFile[],
+    contextualEvidence?: {
+      courseId: string;
+      lessonId: string;
+      contextEpoch: string;
+      projectRevision: number;
+    },
+  ) => {
     const ctrl = registerSessionRequest(sessionId);
     try {
       const res = await authenticatedFetch("/api/project/snapshot", {
         method: "POST",
         headers: { ...JSON_HEADERS, ...CSRF_HEADER },
-        body: JSON.stringify({ sessionId, files }),
+        body: JSON.stringify({ sessionId, files, contextualEvidence }),
         signal: ctrl.signal,
       });
       if (!res.ok) {
@@ -1151,6 +1167,12 @@ export const api = {
     language: Language,
     files: ProjectFile[],
     stdin?: string,
+    contextualEvidence?: {
+      courseId: string;
+      lessonId: string;
+      contextEpoch: string;
+      projectRevision: number;
+    },
   ) => {
     const controller = new AbortController();
     anonRunAbortRegistry.add(controller);
@@ -1158,7 +1180,7 @@ export const api = {
       const res = await fetch(`${API_BASE}/api/anon/run`, {
         method: "POST",
         headers: { ...JSON_HEADERS, ...CSRF_HEADER },
-        body: JSON.stringify({ language, files, stdin }),
+        body: JSON.stringify({ language, files, stdin, contextualEvidence }),
         signal: controller.signal,
       });
       if (!res.ok) {
@@ -1471,6 +1493,11 @@ export const api = {
   // (source=byok), or the ExhaustionCard (source=none / free_exhausted).
   getAIStatus: () =>
     get<AIStatusResponse>("/api/user/ai-status"),
+  getAnonAIStatus: () =>
+    get<{
+      contextualTutorEnabled: boolean;
+      contextualTutorModelEligible: boolean;
+    }>("/api/anon/ai-status"),
   // Exhaustion card telemetry — all three button outcomes feed this counter.
   // Both endpoints return 204 so we can't go through `post<T>` (which parses
   // JSON). Inline fetch with the shared auth + CSRF headers.

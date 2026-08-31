@@ -1,87 +1,62 @@
-# Release 1C contextual tutor entry-gate audit
+# Release 1C contextual tutor decision record
 
-Status: **NOT ELIGIBLE TO START** — required learner and human-calibration
-evidence is missing
+Status: **LOCALLY VERIFIED UNDER FOUNDER EXCEPTION; PR AND DEPLOYMENT PENDING**
 
-Date: 2026-07-31
+Decision date: 2026-08-30
 
-Branch: `dev/contextual-learning-roadmap`
-
-Roadmap authority: Release 1C and Sections 9.2, 9.3, and 10.3 of
-`docs/CONTEXTUAL_LEARNING_AND_DELIVERY_VELOCITY_PLAN.md`
+Branch: `dev/contextual-tutor-1c`
 
 ## Decision
 
-Do not implement, enable, or describe Release 1C as complete. The repository
-proves that its AI boundary is substantially safer and better evaluated than
-the starting point, but the locked 1C entry gate is conjunctive: every named
-gate must pass. Two required forms of evidence do not exist yet, and the named
-human ownership/approval record is also absent.
+The founder explicitly directed the team to implement Release 1C without
+waiting for real-learner experiment evidence. That dated exception waives the
+powered Release 1B learner experiment and five-session rollout prerequisites
+for this engineering slice. It does not weaken the security, cost, AI-quality,
+accessibility, deterministic-test, live-browser, CI, review, rollback, or
+production-verification requirements.
 
-This decision does not block independent Phase B work. B5 may continue as its
-own UX lane, the existing B7 mechanism may be audited against its locked
-contract, and B8 may proceed only through its privacy/governance prerequisites.
+The implementation may merge and deploy only when its complete automated model
+gate, deterministic suites, adversarial browser journey, PR checks, and review
+threads are green. The independent two-human calibration described in Section
+9.2 has not been performed; therefore this release makes no claim that model
+judging is a calibrated substitute for human evaluation and no learner-outcome,
+retention, or market-impact claim.
 
-## Requirement-by-requirement evidence
+## Gate status
 
-| Entry requirement | Verdict | Authoritative evidence |
+| Requirement | Status | Evidence or remaining proof |
 | --- | --- | --- |
-| Release 1B preregistered experiment passes the primary recovery rule and every applicable Section 10.3 guardrail | **Not met** | Release 1B has engineering and internal-dogfood proof only. There is no approved episode schema, powered sample-size record, experiment cohort, analysis artifact, or result proving an absolute recovery uplift of at least 8 percentage points with a 95% confidence-interval lower bound above zero. Dismissal, escalation, completion, and stale-intervention guardrails are likewise unevaluated on learners. Correctness tests and persona reviews cannot satisfy this gate. |
-| Locked B2 first-turn contract | **Met for engineering release** | `docs/RELEASE_B2_SOCRATIC_DEFAULT_PACKET.md` records the server-owned question-first progression, complete-answer firewall, full 60-case gate, local suites, browser coverage, CI, preview, persona, harness, and review evidence. |
-| Eval v2 automated gate | **Met for engineering release** | The complete 60-case dataset, zero-hidden-error gate, deterministic validators, per-intent floors, provenance fingerprints, and reviewed baseline are implemented and green. B3 also records an independent complete replay against the evaluated candidate routing policy while production remains safely on Nano until controlled activation. |
-| Eval v2 human calibration | **Not met** | Section 9.2 requires two human reviewers to independently label at least 50 stratified cases, reach Cohen's kappa of at least 0.75 against the automated judge, adjudicate disagreements, and promote those disagreements into regression cases. No tracked calibration artifact or referenced private evidence location exists. Persona simulation and model judging are not human labels. |
-| Server authority | **Met for the current tutor boundary** | Release 0D reconstructs lesson/mastery context on the server, separates trusted from untrusted fields, classifies effective intent on the server, and blocks browser-authored pedagogic authority. |
-| Idempotency and bounded admission | **Met for the current tutor boundary** | Release 0D uses transactional reservation/finalization and conservative unknown-outcome accounting; B2 uses actor/task-bound signed progression and advances only after a current successful operation. Concurrent admission and failure-path tests are present. |
-| Cost gate | **Mechanism met; 1C approval absent** | B3 records measured per-model cost, cost per passing response, mixed-policy daily cost, and 100/500/1,000/10,000-DAU projections below the provisional mixed-model guardrail. Release 1C has no approved contextual prompt/cost report because it is not eligible to begin. |
-| Security gate | **Mechanism met; named 1C approval absent** | Release 0D and B2 cover trusted-context projection, prompt-authority attacks, cross-user isolation, output filtering, evaluated-model eligibility, quota reservation, kill switches, and hostile-token paths. The execution map still requires a named human DRI, approver, and evidence location before the 1C lane starts; no such record was found. |
+| Founder exception for learner evidence | **Recorded** | 2026-08-30 direction: implement 1C and do not wait for real-user evidence. |
+| Locked B2 teaching contract | **Retained** | Contextual turns still pass the complete-answer firewall and provide one bounded question/hint. |
+| Server authority and stale evidence | **Verified locally** | The server reconstructs and validates the authored move, lesson, revision, evidence code/path/line, and scaffold level. Python is parsed before execution, and only the server-owned compile diagnostic qualifies; stale offers and forged runtime stderr are rejected by the full backend suite. |
+| Explicit consent and bounded admission | **Verified locally** | No AI request occurs before `Help me spot it`; one accepted evidence episode can schedule at most one request. The replay identity uses only server-verified actor, canonical lesson, and normalized server error; client epoch/revision cannot reset it. A real-browser double-click produced one turn and one quota decrement, while real Postgres rejected simultaneous disjoint receipt subsets and allowed fresh help only after the database-owned 15-minute window expired. |
+| Deterministic recovery | **Verified locally** | Loading, unavailable, kill-switch, stale-generation, and changed-code paths remain useful. The actual browser discarded a stale answer and restored the quota without placing stale content in the transcript. |
+| Contextual AI quality | **Passed** | Six contextual golden/adversarial cases cover normal help, source injection, stderr injection, answer pressure, stale history, and line accuracy. Artifact `2026-08-31T04-51-10-727Z-v2.json` passed 72/72 with every intent at 100%, zero deterministic failures, and contract `c0866e3b97a0a7e8…`. |
+| Cost | **Within provisional guardrail** | Focused live evidence measured about $0.0077 per accepted call and roughly 280 net-new input tokens; the client and server cap the episode at one call. |
+| Kill switch | **Implemented** | `contextual_tutor_enabled` is independently operator-controlled and defaults safely when unavailable. |
+| Actual browser UX | **Passed locally** | Desktop and 390×500 light/dark/reduced-motion evidence proves explicit consent, one-call double-click protection, current receipt/citation, useful bounded help, retained focus, dismissal persistence, stale recovery, and simultaneous cue/target visibility. The release-boundary replay also proves forged runtime stderr cannot show or fund contextual help while genuine parser diagnostics still can. Finding audit `8a292b5d-dcb6-4678-9e24-11c330d0d987`; phase audit `41617175-7bc9-4905-982c-df5cf735438e`. |
+| Human judge calibration | **Not performed; explicitly not claimed** | Two independent human reviewers have not labeled the required stratified set. This is recorded as a non-claim rather than fabricated evidence. |
 
-## Persona audit verdict
+## Non-negotiable release contract
 
-The repository's 18 role profiles converge on the same release decision:
-
-- Maya, Fresh Eyes, Staff UX, and Pedagogy require evidence that the
-  deterministic cue helps a learner recover without becoming an interruption
-  or answer-seeking shortcut.
-- Staff Security, Staff SRE, Finance, and AI/LLM Quality require explicit
-  consent, one-call idempotency, stale-answer rejection, bounded cost, and
-  approved human evaluation before a learner-visible model offer.
-- Staff PM, Product Owner, Business Leader, Competitive Intelligence, Growth,
-  and the Contrarian reject synthetic quality as proof of retention,
-  differentiation, or demand.
-- Staff QA and Staff SWE treat the existing automated gates as necessary
-  mechanism proof, not a substitute for the locked product experiment.
-
-Therefore the persona audit does not authorize an exception. It reinforces the
-roadmap gate.
-
-## Evidence required to unlock 1C
-
-1. Name the human DRI, approver, data owner, and durable evidence locations.
-2. Obtain Product Owner, Staff Security, and data-owner approval for the
-   minimal versioned episode-outcome schema, including retention, deletion,
-   access, volume/cost bounds, and sample payloads.
-3. Preregister the 1B experiment: randomization unit, exclusions, control,
-   exposure version, analysis window, owner, stop decision, measured baseline,
-   and 80%-powered sample size for the primary metric and every guardrail.
-4. Run the experiment and pass the primary recovery rule plus every applicable
-   guardrail without a confirmed stale/wrong intervention.
-5. Complete the two-human, at-least-50-case eval calibration, achieve kappa of
-   at least 0.75, adjudicate disagreements, and add regression cases.
-6. Record explicit security and cost approval for the proposed 1C boundary.
-
-Only after all six items have authoritative evidence may implementation start.
-At that point the release must still prove click-as-consent, zero calls before
-the click, at most one billed call after acceptance, current-evidence and
-scaffold propagation, stale-stream discard, deterministic offline/quota/BYOK/
-kill-switch recovery, the locked B2 first turn, no complete answer, and an
-approved prompt/cost report.
+1. A repeated, lesson-authored error cue is deterministic and costs nothing.
+2. Only the learner's explicit click sends current code/run evidence to Tutor.
+3. Double-clicks, repeated renders, stale state, and overlapping signed evidence
+   chains cannot create a second admitted call.
+4. The server, not the browser or source text, owns the move, evidence, and
+   scaffold authority.
+5. The reply acknowledges the exact latest run, cites its canonical file/line,
+   asks the authored question, gives one bounded clue, and never supplies the
+   complete answer.
+6. Editing or navigating during generation discards stale answer content and
+   shows a deterministic retry status outside the transcript.
+7. The independent kill switch restores the deterministic guide without an AI
+   offer.
 
 ## Claims deliberately not made
 
-- Green CI or a live-model eval does not prove independent learner recovery.
-- The five-session qualitative protocol cannot unlock 1C.
-- Persona audits are expert design reviews, not real users or human eval
-  calibration.
-- Existing 0D/B2/B3 mechanisms do not constitute the missing 1C product,
-  security, cost, or data approvals.
-- Cinematic duration remains paused.
+- This exception is not evidence of learner recovery or retention lift.
+- Persona review and model judges are not real users or two-human calibration.
+- Passing focused cases cannot replace the complete unfiltered model gate.
+- Deployment cannot be called complete until the exact deployed SHA and live
+  production journey are verified.

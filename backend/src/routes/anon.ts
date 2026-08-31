@@ -31,6 +31,10 @@
 import { Router, type Request, type Response } from "express";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import {
+  hasUniqueProjectFilePaths,
+  UNIQUE_PROJECT_FILE_PATHS_MESSAGE,
+} from "../schema/projectFiles.js";
 import { config } from "../config.js";
 import {
   isAiEvalSamplingEnabled,
@@ -84,8 +88,15 @@ import {
   type FinalizeAIRequestInput,
 } from "../db/aiReservations.js";
 import { closeTutorTurnAtAllowanceBoundary } from "../services/ai/tutorPolicy.js";
-import { resolveCanonicalAnonTutorContext } from "../services/ai/canonicalTutorContext.js";
-import { isContextualTutorModel } from "../services/ai/modelRegistry.js";
+import {
+  resolveCanonicalAnonTutorContext,
+  resolveCanonicalContextualTutorOffer,
+} from "../services/ai/canonicalTutorContext.js";
+import {
+  isContextualTutorModel,
+  isEvaluatedContextualOfferModel,
+} from "../services/ai/modelRegistry.js";
+import { isContextualTutorEnabled } from "../services/ai/contextualTutor.js";
 import {
   canonicalTutorRequestModel,
   routeTutorModel,
@@ -108,6 +119,11 @@ import {
   resolveTutorStage,
   tutorTaskScope,
 } from "../services/ai/tutorProgress.js";
+import {
+  digestContextualEvidenceEpisode,
+  digestContextualEvidenceToken,
+  mintContextualEvidenceToken,
+} from "../services/ai/contextualEvidence.js";
 
 // Anon AI is locked to lesson 1 of python-fundamentals. The marketing
 // surface (/try/lesson/...) only links to this one lesson; this server-
@@ -175,8 +191,17 @@ const historySchema = z.array(
 // anon lesson uses something else.
 const runBody = z.object({
   language: languageSchema,
-  files: z.array(projectFileSchema).max(10),
+  files: z.array(projectFileSchema).max(10).refine(
+    hasUniqueProjectFilePaths,
+    UNIQUE_PROJECT_FILE_PATHS_MESSAGE,
+  ),
   stdin: z.string().max(10_000).optional(),
+  contextualEvidence: z.object({
+    courseId: z.literal(ANON_ALLOWED_LESSON.courseId),
+    lessonId: z.literal(ANON_ALLOWED_LESSON.lessonId),
+    contextEpoch: z.string().min(1).max(256),
+    projectRevision: z.number().int().min(0),
+  }).optional(),
 });
 
 // Ask-stream body. Subset of authed askBody — anon doesn't have BYOK,
@@ -187,11 +212,16 @@ const askStreamBody = z.object({
   question: z.string().min(1).max(4_000),
   tutorAction: z.enum([
     "explain-lesson-task",
+    "stronger-hint",
     "explain-more",
     "concrete-example",
     "why-it-matters",
+    "contextual-help",
   ]).optional(),
-  files: z.array(projectFileSchema).max(10),
+  files: z.array(projectFileSchema).max(10).refine(
+    hasUniqueProjectFilePaths,
+    UNIQUE_PROJECT_FILE_PATHS_MESSAGE,
+  ),
   activeFile: z.string().optional(),
   // Top-level language intentionally omitted on the anon body — the
   // language is pinned by lessonContext.language below, and the anon
@@ -214,12 +244,41 @@ const askStreamBody = z.object({
     lessonId: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/),
     exerciseId: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/).nullish(),
   }),
+  contextualOffer: z.object({
+    contextVersion: z.literal(0),
+    contextEpoch: z.string().min(1).max(256),
+    projectRevision: z.number().int().min(0),
+    evidenceToken: z.string().min(1).max(4_096),
+    evidenceTokens: z.array(z.string().min(1).max(4_096)).min(1).max(10),
+    moveId: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/),
+    evidence: z.object({
+      code: z.literal("python-unclosed-parenthesis"),
+      path: safePathSchema,
+      line: z.number().int().min(1).max(100_000),
+    }),
+    scaffoldLevel: z.literal(1),
+  }).optional(),
   // B8 is explicit opt-in and anonymous-platform-only. The browser owns the
   // opaque deletion token; only its domain-separated hash can be persisted.
   evalSamplingConsent: z.object({
     version: z.literal(AI_EVAL_CONSENT_VERSION),
     subjectToken: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
   }).optional(),
+}).superRefine((body, ctx) => {
+  if (body.contextualOffer && body.tutorAction !== "contextual-help") {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["contextualOffer"],
+      message: "contextualOffer requires contextual-help action",
+    });
+  }
+  if (body.tutorAction === "contextual-help" && !body.contextualOffer) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["tutorAction"],
+      message: "contextual-help requires contextualOffer",
+    });
+  }
 });
 
 const cancelAskBody = z.object({ requestId: z.string().uuid() }).strict();
@@ -371,6 +430,24 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
     })();
   });
 
+  // Public, actor-free gate state for the anonymous lesson. The trial UI
+  // cannot call the authenticated /api/user/ai-status endpoint, but it must
+  // still fail closed before advertising contextual help. The shared helper
+  // isolates lookup failures and returns false rather than breaking this
+  // lightweight status surface.
+  router.get("/ai-status", async (_req, res) => {
+    const [contextualTutorEnabled, platformTutorModel] = await Promise.all([
+      isContextualTutorEnabled(),
+      getEffectivePlatformTutorModel(),
+    ]);
+    res.json({
+      contextualTutorEnabled,
+      contextualTutorModelEligible: isEvaluatedContextualOfferModel(
+        platformTutorModel.model,
+      ),
+    });
+  });
+
   // -------- POST /api/anon/run -----------------------------------------
   // One-shot Python execution. Creates an ephemeral session per request;
   // tears it down in a finally block so a thrown executor doesn't leak
@@ -391,7 +468,7 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
     if (!parsed.success) {
       return res.status(400).json({ error: parsed.error.message });
     }
-    const { language, files, stdin } = parsed.data;
+    const { language, files, stdin, contextualEvidence } = parsed.data;
 
     // Phase A — A5 (operational floor): per-IP daily spawn cap. The
     // per-minute sessionCreateLimit above bounds bursts; this bounds
@@ -472,8 +549,19 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
         { language, ok: result.exitCode === 0 ? "true" : "false" },
         (Date.now() - started) / 1000,
       );
+      const response = contextualEvidence
+        ? {
+            ...result,
+            contextualEvidenceToken: mintContextualEvidenceToken(
+              `anonymous:${hashClientIp(req.ip!)}`,
+              contextualEvidence,
+              files,
+              result,
+            ),
+          }
+        : result;
       responseFinished = true;
-      res.json(result);
+      res.json(response);
     } catch (err) {
       next(err);
     } finally {
@@ -532,6 +620,15 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
         .status(400)
         .json({ error: parsed.error.issues.map((i) => i.message).join("; ") });
     }
+    if (!req.ip) {
+      console.error(JSON.stringify({
+        level: "error",
+        evt: "anon_ask_stream_no_ip",
+        msg: "req.ip empty — trust-proxy chain misconfigured",
+      }));
+      return res.status(503).json({ error: "CLIENT_IDENTITY_UNKNOWN" });
+    }
+    const ipHash = hashClientIp(req.ip);
     // Lesson-context allowlist: only hello-world is anon-accessible.
     // Phase 27-v2.2 audit fix C3: only the (courseId, lessonId) tuple
     // from the client is consulted. Everything else flows from the
@@ -597,6 +694,44 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
     if (!ctx) {
       return res.status(404).json({ error: "LESSON_CONTEXT_NOT_FOUND" });
     }
+    let canonicalContextualOffer = null;
+    let contextualEvidenceEpisodeDigest: string | undefined;
+    if (parsed.data.contextualOffer) {
+      try {
+        if (!(await isContextualTutorEnabled())) {
+          return res.status(503).json({ error: "CONTEXTUAL_TUTOR_DISABLED" });
+        }
+        if (!isEvaluatedContextualOfferModel(requestModel)) {
+          return res.status(403).json({ error: "MODEL_NOT_EVALUATED_FOR_CONTEXTUAL_OFFER" });
+        }
+        canonicalContextualOffer = await resolveCanonicalContextualTutorOffer(
+          `anonymous:${ipHash}`,
+          clientCtx,
+          parsed.data.contextualOffer,
+          parsed.data.files,
+          parsed.data.lastRun,
+        );
+      } catch (err) {
+        console.error("[anon] canonical contextual offer failed:", err);
+        return res.status(503).json({ error: "LESSON_CONTEXT_UNAVAILABLE" });
+      }
+      if (!canonicalContextualOffer) {
+        return res.status(409).json({ error: "CONTEXTUAL_EVIDENCE_STALE" });
+      }
+      contextualEvidenceEpisodeDigest = digestContextualEvidenceEpisode(
+        parsed.data.contextualOffer.evidenceToken,
+        `anonymous:${ipHash}`,
+        {
+          courseId: clientCtx.courseId,
+          lessonId: clientCtx.lessonId,
+          contextEpoch: parsed.data.contextualOffer.contextEpoch,
+          projectRevision: parsed.data.contextualOffer.projectRevision,
+        },
+      ) ?? undefined;
+      if (!contextualEvidenceEpisodeDigest) {
+        return res.status(409).json({ error: "CONTEXTUAL_EVIDENCE_STALE" });
+      }
+    }
 
     // Phase 27-v2.2 audit fix (staff-security P2 + bug-hunter P3):
     // refuse the request if Express couldn't populate req.ip. Pre-fix,
@@ -606,17 +741,6 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
     // affected by trust-proxy misconfig). Fail-loud here so the operator
     // sees the misconfig and fixes it instead of silently fail-closing
     // legitimate users.
-    if (!req.ip) {
-      console.error(
-        JSON.stringify({
-          level: "error",
-          evt: "anon_ask_stream_no_ip",
-          msg: "req.ip empty — trust-proxy chain misconfigured",
-        }),
-      );
-      return res.status(503).json({ error: "CLIENT_IDENTITY_UNKNOWN" });
-    }
-    const ipHash = hashClientIp(req.ip);
     const cred = await resolveAnonAICredential(ipHash);
     if (cred.source === "none") {
       respondAnonCredentialDenied(res, cred.reason, "ask_stream");
@@ -647,6 +771,7 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
       runsSinceLastTurn: parsed.data.runsSinceLastTurn,
       editsSinceLastTurn: parsed.data.editsSinceLastTurn,
       lessonContext: ctx,
+      contextualOffer: canonicalContextualOffer,
       maxOutputTokens: config.freeTier.anonMaxOutputTokens,
       tutorStage: "clarify" as const,
     };
@@ -667,6 +792,7 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
         files: parsed.data.files,
         history: parsed.data.history,
         tutorStage: providerParams.tutorStage,
+        tutorAction: parsed.data.tutorAction,
         platformModel,
       });
       providerParams.model = route.model;
@@ -710,11 +836,16 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
           ...parsed.data,
           model: requestModel,
           lessonContext: ctx,
+          contextualOffer: canonicalContextualOffer,
         }),
         fundingSource: "platform",
         model: providerParams.model,
         route: "ask_stream",
         countsTowardQuota: true,
+        contextualEvidenceEpisodeDigest,
+        contextualEvidenceDigests: parsed.data.contextualOffer
+          ? parsed.data.contextualOffer.evidenceTokens.map(digestContextualEvidenceToken)
+          : undefined,
         reservedInputTokens: estimate.reservedInputTokens,
         reservedOutputTokens: estimate.reservedOutputTokens,
         reservedCostUsd: reservedPrice.costUsd,
@@ -739,6 +870,9 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
       }
       if (reservation.kind === "conflict") {
         return res.status(409).json({ error: "AI_REQUEST_ID_CONFLICT" });
+      }
+      if (reservation.kind === "evidence_replay") {
+        return res.status(409).json({ error: "CONTEXTUAL_EVIDENCE_REPLAYED" });
       }
       respondAnonCredentialDenied(res, reservation.reason, "ask_stream");
       return;

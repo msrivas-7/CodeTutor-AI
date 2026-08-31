@@ -45,7 +45,14 @@ export function commandFor(language: Language): LanguageCommand {
     case "python":
       return {
         entrypoint: "main.py",
-        compile: null,
+        // Parse source without executing learner code. Besides surfacing
+        // syntax errors before runtime, this gives downstream contextual
+        // guidance a server-owned diagnostic stage that user-written stderr
+        // cannot impersonate.
+        compile: {
+          label: "compile",
+          shell: "PYTHONPYCACHEPREFIX=/tmp/codetutor-pycache python3 -m py_compile main.py",
+        },
         run: { label: "run", shell: "python3 main.py" },
       };
     case "javascript":

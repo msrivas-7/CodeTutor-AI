@@ -17,7 +17,13 @@ import {
   notePlatformQuestionConsumed,
   useAIStatus,
 } from "../state/useAIStatus";
-import type { EditorSelection, ProjectFile, AIMessage, TutorAction } from "../types";
+import type {
+  ContextualTutorOfferRequest,
+  EditorSelection,
+  ProjectFile,
+  AIMessage,
+  TutorAction,
+} from "../types";
 import { computeDiffSinceLast } from "./diffSinceLast";
 import { parsePartialTutor } from "./partialJson";
 import { isPlatformTutorPaused } from "./tutorErrors";
@@ -55,6 +61,26 @@ export function tutorRequestModel({
     : null;
 }
 
+export function contextualOfferInvalidationForError(
+  message: string,
+  mode: "authed" | "anon",
+): "stale" | "disabled" | "model" | "quota" | "availability" | null {
+  if (/CONTEXTUAL_EVIDENCE_STALE/i.test(message)) return "stale";
+  if (/CONTEXTUAL_TUTOR_DISABLED/i.test(message)) return "disabled";
+  if (/MODEL_NOT_EVALUATED_FOR_CONTEXTUAL_OFFER/i.test(message)) return "model";
+  if (/PLATFORM_AI_PAUSED/i.test(message)) return "quota";
+  if (/AI_ADMISSION_UNAVAILABLE/i.test(message)) return "availability";
+  if (mode === "anon" && /ANON_LESSON_DISABLED/i.test(message)) {
+    return "availability";
+  }
+  if (/LESSON_CONTEXT_(?:UNAVAILABLE|NOT_FOUND)/i.test(message)) {
+    return "availability";
+  }
+  if (mode === "anon" && /ANON_EXHAUSTED/i.test(message)) return "quota";
+  if (mode === "authed" && /FREE_TIER_EXHAUSTED/i.test(message)) return "quota";
+  return null;
+}
+
 /** Load a current compatible choice before an existing BYOK user can ask. */
 export function useByokTutorModelReady(enabled: boolean): boolean {
   const selectedModel = useAIStore((state) => state.selectedModel);
@@ -85,6 +111,7 @@ export function useByokTutorModelReady(enabled: boolean): boolean {
 export interface BuildBodyInput {
   question: string;
   tutorAction?: TutorAction;
+  contextualOffer?: ContextualTutorOfferRequest;
   files: ProjectFile[];
   diffSinceLastTurn: string | null;
   historyForSend: AIMessage[];
@@ -103,7 +130,14 @@ export interface UseTutorAskOpts {
   // cancel / abort / thrown. Used for side-effects bound to the ask outcome
   // — e.g. the guided panel's hint counter only commits on success, so the
   // student doesn't burn a hint on a 500 they never saw.
-  onAskComplete?: (outcome: { ok: boolean }) => void;
+  onAskComplete?: (outcome: {
+    ok: boolean;
+    interruption?: "panel-remounted";
+  }) => void;
+  /** Invalidates a contextual offer whose signed evidence can no longer be used. */
+  onContextualOfferInvalidated?: (
+    reason: "stale" | "disabled" | "model" | "quota" | "availability",
+  ) => void;
   onAllowanceUpdate?: (remainingToday: number | null) => void;
   /**
    * Phase 27-v2.1 — endpoint override for anon mode. Defaults to the
@@ -146,7 +180,11 @@ export interface UseTutorAskOpts {
 export interface UseTutorAskResult {
   submitAsk: (
     question: string,
-    options?: { appendUser?: boolean; tutorAction?: TutorAction },
+    options?: {
+      appendUser?: boolean;
+      tutorAction?: TutorAction;
+      contextualOffer?: ContextualTutorOfferRequest;
+    },
   ) => Promise<void>;
   cancelAsk: () => void;
 }
@@ -208,6 +246,9 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
   const { status: aiStatus } = useAIStatus({ skip: isAnon });
   const abortRef = useRef<AbortController | null>(null);
   const activeRequestIdRef = useRef<string | null>(null);
+  const activeCompletionRef = useRef<((
+    interruption?: "panel-remounted",
+  ) => void) | null>(null);
 
   const refundDiscardedRequest = useCallback((requestId: string): void => {
     const endpoint = isAnon
@@ -232,6 +273,31 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
   useEffect(() => {
     refundDiscardedRequestRef.current = refundDiscardedRequest;
   }, [refundDiscardedRequest]);
+
+  // A keyed Tutor remount is a real request-lifecycle boundary, not merely a
+  // visual replacement. Abort and refund before the old panel disappears,
+  // then report the terminal outcome synchronously so parent-owned contextual
+  // state cannot remain latched in a later lesson. Clearing abortRef first
+  // also prevents the old async finally block from releasing a newer panel's
+  // global asking state after it mounts.
+  useEffect(() => () => {
+    const controller = abortRef.current;
+    if (!controller) return;
+
+    abortRef.current = null;
+    const requestId = activeRequestIdRef.current;
+    activeRequestIdRef.current = null;
+    if (requestId) refundDiscardedRequestRef.current(requestId);
+    controller.abort();
+    // The responsive lesson workspace replaces the Tutor subtree at its
+    // compact breakpoint. Surface that lifecycle interruption explicitly so
+    // the lesson can preserve its deterministic guide instead of treating the
+    // canceled contextual turn as an ordinary provider failure.
+    activeCompletionRef.current?.("panel-remounted");
+    activeCompletionRef.current = null;
+    clearStream();
+    setAsking(false);
+  }, [clearStream, setAsking]);
 
   // An edit or context switch makes every in-flight tutor chunk stale. Abort
   // promptly to avoid spending tokens on a response that is no longer allowed
@@ -266,7 +332,11 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
 
   const submitAsk = async (
     question: string,
-    options: { appendUser?: boolean; tutorAction?: TutorAction } = {},
+    options: {
+      appendUser?: boolean;
+      tutorAction?: TutorAction;
+      contextualOffer?: ContextualTutorOfferRequest;
+    } = {},
   ): Promise<void> => {
     const trimmed = question.trim();
     if (!trimmed || !configured || asking) return;
@@ -288,16 +358,25 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
     const controller = new AbortController();
     abortRef.current = controller;
     let completionNotified = false;
+    let askOk = false;
     const operationIsCurrent = (): boolean =>
       abortRef.current === controller &&
       useAIStore.getState().chatContext === conversationForTurn &&
       useAIStore.getState().conversationRevision === conversationRevisionForTurn &&
       useRunStore.getState().inputRevision === inputRevisionForTurn &&
       isProjectOperationCurrent(operation);
-    const notifyCompletion = (ok: boolean): void => {
+    const notifyCompletion = (
+      ok: boolean,
+      interruption?: "panel-remounted",
+    ): void => {
       if (completionNotified) return;
       completionNotified = true;
-      opts.onAskComplete?.({ ok });
+      opts.onAskComplete?.({ ok, interruption });
+    };
+    // Read askOk at cleanup time so a route transition that races just after
+    // onDone does not relabel an already-completed answer as a failed turn.
+    activeCompletionRef.current = (interruption) => {
+      notifyCompletion(askOk, askOk ? undefined : interruption);
     };
     let raw = "";
     let committed = false;
@@ -355,6 +434,7 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
       const requestedBody = opts.buildBody({
           question: trimmed,
           tutorAction: options.tutorAction,
+          contextualOffer: options.contextualOffer,
           files,
           diffSinceLastTurn,
           historyForSend,
@@ -373,7 +453,6 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
           : undefined,
       };
 
-      let askOk = false;
       await api.askAIStream(
         body,
         {
@@ -428,6 +507,39 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
               clearStream();
               committed = true;
               return;
+            }
+            const contextualInvalidation = options.contextualOffer
+              ? contextualOfferInvalidationForError(
+                  message,
+                  isAnon ? "anon" : "authed",
+                )
+              : null;
+            if (contextualInvalidation === "stale") {
+              opts.onContextualOfferInvalidated?.("stale");
+              setAskError("CONTEXTUAL_EVIDENCE_STALE");
+              clearStream();
+              committed = true;
+              return;
+            }
+            if (contextualInvalidation === "disabled") {
+              opts.onContextualOfferInvalidated?.("disabled");
+            }
+            if (contextualInvalidation === "model") {
+              opts.onContextualOfferInvalidated?.("model");
+            }
+            if (contextualInvalidation === "quota") {
+              // A question or spend cap can change after this panel
+              // advertises contextual help. Admission did not spend this
+              // proof, so retain the authored guide for both signed-in and
+              // anonymous learners.
+              opts.onContextualOfferInvalidated?.("quota");
+              if (!isAnon) invalidateAIStatus();
+            }
+            if (contextualInvalidation === "availability") {
+              // The lesson authority refused this evidence before admission.
+              // Preserve the free authored guide and stop advertising the
+              // contextual spending action for this mounted lesson.
+              opts.onContextualOfferInvalidated?.("availability");
             }
             // Phase 27-v2.1 audit pass 1 fix #5: detect the L_anon
             // cap-exceeded error code and route to the wall instead
@@ -512,6 +624,7 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
       if (abortRef.current === controller) {
         activeRequestIdRef.current = null;
         notifyCompletion(false);
+        activeCompletionRef.current = null;
         // Same conversation but edited source: clear the now-orphaned stream.
         // A context switch already loaded its own clean stream state.
         if (useAIStore.getState().chatContext === conversationForTurn) {

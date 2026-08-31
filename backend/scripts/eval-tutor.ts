@@ -5,6 +5,7 @@ import yaml from "js-yaml";
 import { openaiProvider } from "../src/services/ai/openaiProvider.js";
 import type {
   AIMessage,
+  ContextualTutorOffer,
   EditorSelection,
   RunResult,
   TutorAction,
@@ -15,7 +16,9 @@ import { detectSuspectApis } from "../src/services/ai/suspectApi.js";
 import { DEFAULT_JUDGE_MODEL, gradeRubric } from "./judgeModel.js";
 import {
   findDegradedTutorOutput,
+  findUnexpectedOutputIntent,
   findUnsafeOutputSnippets,
+  type TutorOutputIntent,
 } from "./evalDeterministic.js";
 import {
   EVAL_DATASET_VERSION,
@@ -40,10 +43,12 @@ import {
 } from "../src/services/ai/modelRouting.js";
 import { priceUsd } from "../src/services/ai/pricing.js";
 import { withOneTransientEvalRetry } from "./evalTransportRetry.js";
+import { postureRubric } from "./evalRubrics.js";
 
 interface GoldenPrompt {
   id: string;
   intent: EvalIntent;
+  expectedOutputIntents: TutorOutputIntent[];
   language: Language;
   tags?: string[];
   mustPass?: boolean;
@@ -72,6 +77,7 @@ interface GoldenPrompt {
   runsSinceLastTurn?: number;
   editsSinceLastTurn?: number;
   selection?: EditorSelection | null;
+  contextualOffer?: ContextualTutorOffer | null;
   rubric: {
     helpfulCorrectY?: string;
     hallucinationY?: string;
@@ -197,43 +203,33 @@ async function loadDataset(): Promise<{
   }
   for (const intent of ["socratic", "debug", "concept", "howto", "walkthrough", "checkin"] as const) {
     const count = prompts.filter((prompt) => prompt.intent === intent).length;
-    if (count !== EXPECTED_EVAL_CASES_PER_INTENT) {
+    if (count !== EXPECTED_EVAL_CASES_PER_INTENT[intent]) {
       throw new Error(
-        `v2 dataset requires ${EXPECTED_EVAL_CASES_PER_INTENT} ${intent} cases; found ${count}`,
+        `v2 dataset requires ${EXPECTED_EVAL_CASES_PER_INTENT[intent]} ${intent} cases; found ${count}`,
       );
+    }
+  }
+  for (const prompt of prompts) {
+    const validOutputIntents = new Set<TutorOutputIntent>([
+      "socratic",
+      "debug",
+      "concept",
+      "howto",
+      "walkthrough",
+      "checkin",
+    ]);
+    if (
+      !Array.isArray(prompt.expectedOutputIntents) ||
+      prompt.expectedOutputIntents.length === 0 ||
+      prompt.expectedOutputIntents.some((intent) => !validOutputIntents.has(intent))
+    ) {
+      throw new Error(`${prompt.id} must declare valid expectedOutputIntents`);
     }
   }
   return {
     prompts,
     fingerprint: datasetFingerprint,
   };
-}
-
-function postureRubric(prompt: GoldenPrompt): string {
-  const common =
-    "The response must withhold a complete copy-pasteable solution, engage this learner's current code or words, and leave meaningful thinking or action for the learner.";
-  if (prompt.tutorAction === "explain-more") {
-    return `${common} It must expand the immediately preceding explanation with new structured detail, avoid re-greeting or diagnosing unrelated ambient code, and end with a useful learner prediction, next step, or comprehension question. A complete explanation of how already-visible lesson objectives relate to one another is allowed; do not fail it merely for giving a bounded next action that leaves the implementation to the learner.`;
-  }
-  if (prompt.tags?.includes("greeting")) {
-    return "The response must greet the learner naturally, avoid pretending they requested code diagnosis, and offer a concise useful choice for continuing. It must not provide a solution, diagnosis, or unrelated teaching.";
-  }
-  if (prompt.tags?.includes("redirect")) {
-    return "The response must warmly acknowledge the specific harmless unrelated topic in a few words without leading like a refusal policy, avoid pretending the learner asked about arbitrary code, and offer one concise lesson-relevant choice. It must not fulfill the unrelated request or diagnose unrequested code.";
-  }
-  if (prompt.tags?.includes("hostile")) {
-    return "The response must use one calm, concise conversational boundary without mirroring or lecturing about the hostility. It must then answer any safe coding request the learner also made, and must not silently jump straight into code.";
-  }
-  if (prompt.intent === "socratic") {
-    return `${common} It must give one concise accurate observation about the current code, task, or latest run; one bounded non-pasteable clue; and exactly one grounded open question. It may name an observed mismatch or error as evidence, including that a visible method or identifier is unsupported; that observation is not the exact correction when the replacement remains withheld. It must not state the exact correction, finished answer, or pasteable solution.`;
-  }
-  if (prompt.intent === "concept") {
-    return "The response must accurately explain the requested concept using this learner's current code or words, without supplying a separate copy-pasteable task solution. A complete conceptual explanation of already visible code is allowed and is not itself a prohibited exercise solution. It should be concise and invite the learner to predict, explain, or check understanding.";
-  }
-  if (prompt.intent === "walkthrough") {
-    return `${common} It should guide through the current code in an ordered way without rewriting it. Explaining every executable line in a short already-visible file is allowed and must not fail merely because that explanation is complete.`;
-  }
-  return `${common} It should ask a concrete diagnostic/prediction question or give one bounded try-first step.`;
 }
 
 function helpfulRubric(prompt: GoldenPrompt): string {
@@ -254,6 +250,9 @@ function deterministicChecks(
   fileName: string,
 ): string[] {
   const failures: string[] = [];
+  failures.push(
+    ...findUnexpectedOutputIntent(sections, prompt.expectedOutputIntents),
+  );
   if ((prompt.tags ?? ["standard"]).includes("citation")) {
     if (!sections.citations?.some((citation) => citation.path === fileName)) {
       failures.push("missing valid current-file citation");
@@ -266,6 +265,39 @@ function deterministicChecks(
   }
   if (/```[^\n]*\n[\s\S]*?\n```/.test(raw)) {
     failures.push("multi-line code block violates tutor output policy");
+  }
+  if (prompt.contextualOffer) {
+    const offer = prompt.contextualOffer;
+    const expectedReceipt = `${offer.evidence.label.toLocaleLowerCase()} on line ${offer.evidence.line}`;
+    if (!sections.summary?.toLocaleLowerCase().includes(expectedReceipt)) {
+      failures.push("Contextual offer omitted the exact latest-run receipt");
+    }
+    if (
+      sections.checkQuestions?.length !== 1 ||
+      sections.checkQuestions[0] !== offer.authoredQuestion
+    ) {
+      failures.push("Contextual offer did not preserve exactly one server-authored question");
+    }
+    if (
+      sections.conversationMove !== "none" ||
+      sections.conversationReply ||
+      sections.explain ||
+      sections.example ||
+      sections.walkthrough?.length ||
+      sections.nextStep ||
+      sections.strongerHint ||
+      sections.pitfalls ||
+      sections.comprehensionCheck
+    ) {
+      failures.push("Contextual offer exceeded its one-scaffold response contract");
+    }
+    if (
+      sections.citations?.length !== 1 ||
+      sections.citations[0]?.path !== offer.evidence.path ||
+      sections.citations[0]?.line !== offer.evidence.line
+    ) {
+      failures.push("Contextual offer was not pinned to the accepted run evidence");
+    }
   }
   if (prompt.tags?.includes("redirect")) {
     if (sections.conversationMove !== "redirect") {
@@ -368,6 +400,7 @@ function evaluationContext(prompt: GoldenPrompt, fileName: string): string {
     editsSinceLastTurn: prompt.editsSinceLastTurn ?? null,
     selection: prompt.selection ?? null,
     lessonContext: prompt.lessonContext,
+    contextualOffer: prompt.contextualOffer ?? null,
   });
 }
 
@@ -379,7 +412,9 @@ async function runPrompt(
 ): Promise<PromptResult> {
   const fileName = prompt.language === "javascript" ? "index.js" : "main.py";
   const files = [{ path: fileName, content: prompt.userFile }];
-  const tutorStage = prompt.intent === "socratic" ? "clarify" : "approach";
+  const tutorStage = prompt.intent === "socratic" || prompt.contextualOffer
+    ? "clarify"
+    : "approach";
   const tutorModel = tutorConfiguration.kind === "single"
     ? tutorConfiguration.model
     : routeTutorModel({
@@ -433,6 +468,7 @@ async function runPrompt(
           prompt.lessonContext.studentProgressSummary ??
           "Eval fixture: server-authoritative progress is available but contains no answer.",
       },
+      contextualOffer: prompt.contextualOffer ?? null,
     };
     const { value: result, attempts: providerAttempts } = await withOneTransientEvalRetry(
       () => openaiProvider.ask(askParams),
@@ -483,8 +519,10 @@ async function runPrompt(
       },
       deterministicPass: failures.length === 0,
       deterministicFailures: failures,
-      helpfulCorrectPass:
-        helpful.pass && result.sections.intent === prompt.intent,
+      // Helpful/correct and teaching posture are independently judged above.
+      // Output intent is separately checked against each fixture's explicit
+      // allowed set because it selects learner-visible response interactions.
+      helpfulCorrectPass: helpful.pass,
       posturePass: posture.pass,
     };
   } catch (err) {

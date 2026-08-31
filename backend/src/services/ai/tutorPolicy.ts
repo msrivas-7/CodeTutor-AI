@@ -14,6 +14,7 @@ type TutorPolicyParams = Pick<
   | "tutorAction"
   | "language"
   | "activeFile"
+  | "contextualOffer"
 > &
   Partial<Pick<
     AIAskParams,
@@ -40,6 +41,39 @@ function prioritizeRelevantFile(params: TutorPolicyParams): TutorPolicyParams {
       ...params.files.slice(0, preferredIndex),
       ...params.files.slice(preferredIndex + 1),
     ],
+  };
+}
+
+function contextualOfferTurn(
+  sections: TutorSections,
+  offer: NonNullable<AIAskParams["contextualOffer"]>,
+): TutorSections {
+  return {
+    intent: "debug",
+    conversationMove: "none",
+    conversationReply: null,
+    summary: `Using your latest run: ${offer.evidence.label.toLocaleLowerCase()} on line ${offer.evidence.line}.`,
+    diagnose:
+      sections.diagnose ??
+      sections.hint ??
+      "Python stopped before running the program because it could not finish reading the cited line.",
+    explain: null,
+    example: null,
+    walkthrough: null,
+    checkQuestions: [offer.authoredQuestion],
+    hint: sections.hint ??
+      "Read the cited line from left to right and pair each opening symbol with its closing partner.",
+    nextStep: null,
+    strongerHint: null,
+    pitfalls: null,
+    citations: [{
+      path: offer.evidence.path,
+      line: offer.evidence.line,
+      column: null,
+      reason: "Latest run evidence accepted for this contextual offer",
+    }],
+    comprehensionCheck: null,
+    stuckness: null,
   };
 }
 
@@ -1016,6 +1050,22 @@ function groundedStrongerHint(params: TutorPolicyParams): ReturnType<typeof grou
     };
   }
 
+  const stringIntegerMismatch =
+    /\bTypeError\b/i.test(stderr) &&
+    /(?:concatenat\w*|unsupported operand)[^\n]*(?:str|string)[^\n]*(?:int|integer)|(?:concatenat\w*|unsupported operand)[^\n]*(?:int|integer)[^\n]*(?:str|string)/i.test(stderr);
+  if (stringIntegerMismatch) {
+    return {
+      summary: current.summary ??
+        "The latest run reaches the cited `+`, where a text value and an integer value meet.",
+      hint:
+        "The left operand produces `str` text while the other produces an `int`; changing the characters inside the label does not change either runtime type.",
+      nextStep:
+        "Decide whether the intended combined result is text or arithmetic, then choose which one operand should be represented in the other operand’s type before rerunning.",
+      question: "Should the final combined result behave like text or like a number?",
+      citations: current.citations ?? null,
+    };
+  }
+
   if (stderr) {
     return {
       summary: current.summary ?? "The latest error narrows the investigation to the cited line.",
@@ -1504,6 +1554,46 @@ function visibleCollectionHowto(
         citation,
       };
     }
+  }
+  return null;
+}
+
+function visibleJavaScriptFunctionHowto(
+  params: Pick<AIAskParams, "files" | "question" | "lessonContext">,
+): {
+  summary: string;
+  explain: string;
+  hint: string;
+  nextStep: string;
+  citation: NonNullable<TutorSections["citations"]>[number];
+} | null {
+  if (
+    params.lessonContext?.language !== "javascript" ||
+    !/\bfunction\b/i.test(params.question) ||
+    !/\b(?:take|takes|accept|accepts|parameter|parameters|argument|arguments)\b/i.test(
+      params.question,
+    )
+  ) {
+    return null;
+  }
+
+  for (const file of params.files) {
+    const lines = file.content.split("\n");
+    const goalIndex = lines.findIndex((line) => /\/\/.*\bfunction\b/i.test(line));
+    if (goalIndex < 0) continue;
+    const goal = lines[goalIndex]?.trim().replace(/^\/\/\s*/, "") ?? "the requested function";
+    return {
+      summary: `The current file states the goal—${goal}—but does not define that function yet.`,
+      explain: "Build the behavior in stages: define the function boundary and its inputs first, then add the decision and return behavior, and only after that call it from the existing output area.",
+      hint: "Choose two parameter names that make the later comparison readable, and keep returning a value separate from displaying it.",
+      nextStep: `Directly beneath the goal comment on line ${goalIndex + 1}, add only a function header with two parameter names and an empty body; confirm the file still parses before adding the comparison.`,
+      citation: {
+        path: file.path,
+        line: goalIndex + 1,
+        column: null,
+        reason: "Visible comment describing the requested function",
+      },
+    };
   }
   return null;
 }
@@ -2909,6 +2999,22 @@ export function applyTutorOutputPolicy({
   priorTutorTurns: number;
 }): TutorSections {
   params = prioritizeRelevantFile(params);
+  // Contextual help is an application-authored, explicitly accepted teaching
+  // move. Run the model response through the complete existing output firewall
+  // first, then enforce the one-scaffold receipt/question contract as a unit.
+  // Recursing with the offer removed keeps every established safety repair in
+  // force without allowing model-selected conversation moves or extra sections
+  // to weaken this bounded turn.
+  if (params.contextualOffer) {
+    const offer = params.contextualOffer;
+    const safeSections = applyTutorOutputPolicy({
+      sections,
+      params: { ...params, contextualOffer: null },
+      intent,
+      priorTutorTurns,
+    });
+    return contextualOfferTurn(safeSections, offer);
+  }
   // A newly cleared Editor conversation has no prior turn that could make a
   // different file the subject. If every citation points outside the visibly
   // active file without the learner naming or selecting that file, discard the
@@ -2935,6 +3041,12 @@ export function applyTutorOutputPolicy({
   const visibleCollectionRequest = intent === "howto"
     ? visibleCollectionHowto(params)
     : null;
+  // This recovery is grounded in the learner's explicit sorting question and
+  // the visible non-standard list method. Do not couple it to the model's
+  // intent label: the same request can legitimately be classified as either
+  // `concept` or `howto`, and that classifier variance must not decide whether
+  // we correct a fabricated API.
+  const visibleListSortCorrection = visiblePythonListSortCorrection(params);
   if (!requiresHardBoundary && intent === "concept") {
     const taskFollowUp = lessonTaskExplanationFollowUp(params);
     if (taskFollowUp) return taskFollowUp;
@@ -2957,6 +3069,17 @@ export function applyTutorOutputPolicy({
         `I don’t see ${requestedLanguage} code in the current workspace, so attaching that answer to a visible ${currentLanguage} line would be misleading.\n\n- Ask about the visible ${currentLanguage} lesson here.\n- Or switch to a ${requestedLanguage} workspace before asking about that code.`,
       comprehensionCheck: `Which ${currentLanguage} concept or visible line would you like to work through?`,
       citations: null,
+    };
+  }
+  if (!requiresHardBoundary && visibleListSortCorrection) {
+    return {
+      intent: "concept",
+      summary: visibleListSortCorrection.summary,
+      explain: visibleListSortCorrection.explain,
+      example: visibleListSortCorrection.example,
+      comprehensionCheck:
+        "Which option changes the visible list itself, and which option returns a separate sorted value?",
+      citations: [visibleListSortCorrection.citation],
     };
   }
   // Conversation moves are orthogonal to the server-selected teaching
@@ -2983,6 +3106,7 @@ export function applyTutorOutputPolicy({
   if (
     !requiresHardBoundary &&
     !visibleCollectionRequest &&
+    !visibleListSortCorrection &&
     sections.conversationMove === "redirect"
   ) {
     return {
@@ -3105,8 +3229,12 @@ export function applyTutorOutputPolicy({
         : modelQuestion],
     };
   }
-  if (intent === "howto" && EXPLICIT_HINT_REQUEST.test(params.question)) {
-    const value = STRONGER_HINT_REQUEST.test(params.question) && priorTutorTurns > 0
+  if (
+    params.tutorAction === "stronger-hint" ||
+    (intent === "howto" && EXPLICIT_HINT_REQUEST.test(params.question))
+  ) {
+    const value = (params.tutorAction === "stronger-hint" ||
+        STRONGER_HINT_REQUEST.test(params.question)) && priorTutorTurns > 0
       ? groundedStrongerHint(params)
       : groundedGentleHint(params);
     return {
@@ -3228,6 +3356,7 @@ export function applyTutorOutputPolicy({
   if (intent === "howto") {
     const inputHowto = visiblePythonInputHowto(params);
     const rangeHowto = visiblePythonRangeHowto(params);
+    const functionHowto = visibleJavaScriptFunctionHowto(params);
     const collectionHowto = visibleCollectionRequest;
     return {
       ...common,
@@ -3237,27 +3366,38 @@ export function applyTutorOutputPolicy({
       // explanation itself is safe.
       conversationMove: collectionHowto ? "none" : common.conversationMove,
       conversationReply: collectionHowto ? null : common.conversationReply,
-      summary: rangeHowto?.summary ?? collectionHowto?.summary ?? common.summary,
+      summary:
+        rangeHowto?.summary ??
+        functionHowto?.summary ??
+        collectionHowto?.summary ??
+        common.summary,
       citations: inputHowto
         ? [inputHowto.citation]
         : rangeHowto
           ? [rangeHowto.citation]
+        : functionHowto
+          ? [functionHowto.citation]
         : collectionHowto
           ? [collectionHowto.citation]
           : common.citations,
       explain:
         inputHowto?.explain ??
         rangeHowto?.explain ??
+        functionHowto?.explain ??
         collectionHowto?.explain ??
         safeProse(sections.explain, params),
       diagnose: collectionHowto ? null : common.diagnose,
       example: collectionHowto ? null : common.example,
       comprehensionCheck: collectionHowto ? null : common.comprehensionCheck,
       checkQuestions: collectionHowto ? null : common.checkQuestions,
-      hint: collectionHowto?.hint ?? safeAction(sections.hint, params),
+      hint:
+        functionHowto?.hint ??
+        collectionHowto?.hint ??
+        safeAction(sections.hint, params),
       nextStep:
         inputHowto?.nextStep ??
         rangeHowto?.nextStep ??
+        functionHowto?.nextStep ??
         collectionHowto?.nextStep ??
         (protectedRequest
           ? "Implement only the first behavior the task asks for, then run it and describe the value or output you observe before adding the next part."
@@ -3426,6 +3566,8 @@ export function applyTutorOutputPolicy({
       comprehensionCheck:
         protectedAnswerRequest
           ? null
+          : irrelevantLabelEdit
+            ? "Which two runtime types meet at the `+` operation on the cited line?"
           : common.comprehensionCheck ??
         "What result do you expect before you run the current code?",
       diagnose:
@@ -3441,6 +3583,8 @@ export function applyTutorOutputPolicy({
         visibleReview?.nextStep ??
         (protectedAnswerRequest
           ? "Predict the result from the cited line, then run it and compare what you observe."
+          : irrelevantLabelEdit
+            ? "Write down the runtime type of each operand at the cited `+`, then choose which operand should be represented in the other operand’s type before rerunning."
           : safeAction(sections.nextStep, params)) ??
         (typeMismatch
           ? "Focus on making both sides of the cited operation compatible, then run it again."
@@ -3477,7 +3621,7 @@ export function applyTutorOutputPolicy({
   const conditional = visibleConditionalChain(params);
   const constBinding = visibleJsConstBinding(params);
   const equalityConcept = visibleJavaScriptEqualityConcept(params);
-  const listSortCorrection = visiblePythonListSortCorrection(params);
+  const listSortCorrection = visibleListSortCorrection;
   const anchor = visibleConceptAnchor(params);
   const asksForConcreteExample = params.tutorAction === "concrete-example";
   const starterOutputComment = visibleStarterOutputComment(params);

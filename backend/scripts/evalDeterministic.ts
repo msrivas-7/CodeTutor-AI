@@ -1,5 +1,23 @@
 import type { TutorSections } from "../src/services/ai/provider.js";
 
+export type TutorOutputIntent = NonNullable<TutorSections["intent"]>;
+
+/**
+ * The corpus category describes the learner request; the rendered response
+ * intent drives TutorResponseViews. Keep that UI contract deterministic while
+ * allowing fixtures to explicitly approve intentional reclassifications.
+ */
+export function findUnexpectedOutputIntent(
+  sections: TutorSections,
+  expectedOutputIntents: TutorOutputIntent[],
+): string[] {
+  const actual = sections.intent;
+  if (actual && expectedOutputIntents.includes(actual)) return [];
+  return [
+    `output intent ${actual ?? "missing"} is not one of ${expectedOutputIntents.join(", ")}`,
+  ];
+}
+
 const TEXT_FIELDS = [
   "summary",
   "diagnose",

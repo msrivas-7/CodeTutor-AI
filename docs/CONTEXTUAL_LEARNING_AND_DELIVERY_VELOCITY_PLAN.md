@@ -1,6 +1,6 @@
 # Contextual Learning and Delivery Velocity Plan
 
-> **Status:** Every currently eligible engineering lane is implemented and green through B8 on the active roadmap branch. Release 1C is correctly held because its powered 1B learner experiment, two-human eval calibration, and named approvals are missing; B6 has not shipped and cannot start without affirmative evidence that its seven-day-average DAU trigger fired; and the 1D shadow clock begins only after merge. See `docs/CONTEXTUAL_LEARNING_ROADMAP_FINAL_AUDIT.md` for the closeout matrix and explicit non-claims.
+> **Status:** Every previously eligible engineering lane is implemented and green through B8. Release 1C entered engineering validation on 2026-08-30 under a dated founder exception that waives waiting for real-learner evidence but preserves its security, cost, quality, accessibility, CI, review, rollback, and production-browser gates. Human judge calibration and learner outcomes remain explicit non-claims. B6 still requires its DAU trigger.
 >
 > **Prepared:** 2026-07-30
 >
@@ -699,11 +699,13 @@ Exit:
 
 ### Release 1C — Contextual tutor offer
 
-**Gate audit (2026-07-31):** not eligible to start. The current tutor boundary
-has the required engineering mechanisms, but no powered 1B learner-experiment
-result or two-human eval-calibration artifact exists, and the lane has no named
-human DRI/approver record. See `docs/RELEASE_1C_ENTRY_GATE.md` for the complete
-evidence matrix. No learner-visible contextual tutor rollout is approved.
+**Founder exception and implementation status (2026-08-30):** engineering work
+is in final validation on `dev/contextual-tutor-1c`. The founder explicitly
+waived waiting for real-learner experiment evidence. The exception does not
+weaken the security, cost, AI-quality, deterministic, accessibility,
+live-browser, CI, review, rollback, or production-verification gates. The
+two-human judge calibration is not complete and is not claimed. See
+`docs/RELEASE_1C_ENTRY_GATE.md` for the decision record and current matrix.
 
 **Entry gate:** Release 1B's preregistered experiment passes the primary recovery rule and every applicable guardrail in Section 10.3; B2, eval v2, authority, idempotency, cost, and security gates also pass. Five qualitative sessions alone cannot unlock 1C.
 

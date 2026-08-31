@@ -1,0 +1,220 @@
+import { describe, expect, it } from "vitest";
+import {
+  digestContextualEvidenceEpisode,
+  digestContextualEvidenceToken,
+  mintContextualEvidenceToken,
+  verifyContextualEvidenceAttemptChain,
+  verifyContextualEvidenceToken,
+} from "./contextualEvidence.js";
+
+const keyring = {
+  currentVersion: 1,
+  keys: new Map([[1, Buffer.alloc(32, 9).toString("base64")]]),
+};
+const actor = "user:learner-1";
+const identity = {
+  courseId: "python-fundamentals",
+  lessonId: "hello-world",
+  contextEpoch: "lesson:python-fundamentals/hello-world",
+  projectRevision: 7,
+};
+const files = [{ path: "main.py", content: 'print("Hello"\n' }];
+const result = {
+  stdout: "",
+  stderr: 'File "/workspace/main.py", line 1\nSyntaxError: \'(\' was never closed',
+  exitCode: 1,
+  errorType: "runtime" as const,
+  durationMs: 10,
+  stage: "run" as const,
+};
+
+describe("contextual evidence tokens", () => {
+  it("derives a stable non-reversible database claim key", () => {
+    const token = mintContextualEvidenceToken(actor, identity, files, result, {
+      keyring,
+      nowMs: 1_000,
+    });
+    expect(digestContextualEvidenceToken(token)).toMatch(/^[0-9a-f]{64}$/);
+    expect(digestContextualEvidenceToken(token)).toBe(
+      digestContextualEvidenceToken(token),
+    );
+    expect(digestContextualEvidenceToken(token)).not.toContain(token);
+    const [payload, signature] = token.split(".");
+    expect(digestContextualEvidenceToken(`${payload}=.${signature}`)).toBe(
+      digestContextualEvidenceToken(token),
+    );
+  });
+
+  it("binds the actor, lesson epoch, revision, exact files, and exact run", () => {
+    const token = mintContextualEvidenceToken(actor, identity, files, result, {
+      keyring,
+      nowMs: 1_000,
+    });
+    expect(verifyContextualEvidenceToken(token, actor, identity, files, result, {
+      keyring,
+      nowMs: 2_000,
+    })).toBe(true);
+    expect(verifyContextualEvidenceToken(token, "user:other", identity, files, result, {
+      keyring,
+      nowMs: 2_000,
+    })).toBe(false);
+    expect(verifyContextualEvidenceToken(token, actor, { ...identity, projectRevision: 8 }, files, result, {
+      keyring,
+      nowMs: 2_000,
+    })).toBe(false);
+    expect(verifyContextualEvidenceToken(token, actor, identity, [{ ...files[0], content: "print(1)" }], result, {
+      keyring,
+      nowMs: 2_000,
+    })).toBe(false);
+    expect(verifyContextualEvidenceToken(token, actor, identity, files, { ...result, stderr: "different" }, {
+      keyring,
+      nowMs: 2_000,
+    })).toBe(false);
+  });
+
+  it("proves repeated matching errors across distinct signed revisions", () => {
+    const firstToken = mintContextualEvidenceToken(
+      actor,
+      { ...identity, projectRevision: 6 },
+      [{ path: "main.py", content: 'print("Hi"\n' }],
+      {
+        ...result,
+        stderr: 'File "/workspace/main.py", line 1\n    print("Hi"\nSyntaxError: \'(\' was never closed',
+      },
+      { keyring, nowMs: 1_000 },
+    );
+    const currentToken = mintContextualEvidenceToken(actor, identity, files, result, {
+      keyring,
+      nowMs: 1_100,
+    });
+    expect(verifyContextualEvidenceAttemptChain(
+      [firstToken, currentToken],
+      currentToken,
+      actor,
+      identity,
+      2,
+      { keyring, nowMs: 2_000 },
+    )).toBe(true);
+    expect(verifyContextualEvidenceAttemptChain(
+      [currentToken],
+      currentToken,
+      actor,
+      identity,
+      2,
+      { keyring, nowMs: 2_000 },
+    )).toBe(false);
+    expect(verifyContextualEvidenceAttemptChain(
+      [currentToken, currentToken],
+      currentToken,
+      actor,
+      identity,
+      2,
+      { keyring, nowMs: 2_000 },
+    )).toBe(false);
+    const forgedRevisionOnly = mintContextualEvidenceToken(
+      actor,
+      { ...identity, projectRevision: 6 },
+      files,
+      result,
+      { keyring, nowMs: 1_000 },
+    );
+    expect(verifyContextualEvidenceAttemptChain(
+      [forgedRevisionOnly, currentToken],
+      currentToken,
+      actor,
+      identity,
+      2,
+      { keyring, nowMs: 2_000 },
+    )).toBe(false);
+    expect(digestContextualEvidenceEpisode(
+      firstToken,
+      actor,
+      { ...identity, projectRevision: 6 },
+      { keyring, nowMs: 2_000 },
+    )).toBe(digestContextualEvidenceEpisode(
+      currentToken,
+      actor,
+      identity,
+      { keyring, nowMs: 2_000 },
+    ));
+    expect(digestContextualEvidenceEpisode(
+      currentToken,
+      "user:someone-else",
+      identity,
+      { keyring, nowMs: 2_000 },
+    )).toBeNull();
+    const differentClientEpoch = {
+      ...identity,
+      contextEpoch: "client-selected-epoch-b",
+    };
+    const differentEpochToken = mintContextualEvidenceToken(
+      actor,
+      differentClientEpoch,
+      files,
+      result,
+      { keyring, nowMs: 1_200 },
+    );
+    expect(digestContextualEvidenceEpisode(
+      differentEpochToken,
+      actor,
+      differentClientEpoch,
+      { keyring, nowMs: 2_000 },
+    )).toBe(digestContextualEvidenceEpisode(
+      currentToken,
+      actor,
+      identity,
+      { keyring, nowMs: 2_000 },
+    ));
+  });
+
+  it("never signs or verifies an ambiguous duplicate-path snapshot", () => {
+    const token = mintContextualEvidenceToken(actor, identity, files, result, {
+      keyring,
+      nowMs: 1_000,
+    });
+    const duplicates = [
+      { path: "main.py", content: 'print("first")\n' },
+      { path: "main.py", content: 'print("second")\n' },
+    ];
+
+    expect(() => mintContextualEvidenceToken(
+      actor,
+      identity,
+      duplicates,
+      result,
+      { keyring, nowMs: 1_000 },
+    )).toThrow("contextual evidence files require unique paths");
+    expect(verifyContextualEvidenceToken(
+      token,
+      actor,
+      identity,
+      duplicates,
+      result,
+      { keyring, nowMs: 2_000 },
+    )).toBe(false);
+  });
+
+  it("rejects expired and tampered tokens", () => {
+    const token = mintContextualEvidenceToken(actor, identity, files, result, {
+      keyring,
+      nowMs: 1_000,
+    });
+    expect(verifyContextualEvidenceToken(token, actor, identity, files, result, {
+      keyring,
+      nowMs: 1_000 + 15 * 60 * 1_000,
+    })).toBe(false);
+    expect(verifyContextualEvidenceToken(`${token}x`, actor, identity, files, result, {
+      keyring,
+      nowMs: 2_000,
+    })).toBe(false);
+    const [payload, signature] = token.split(".");
+    expect(verifyContextualEvidenceToken(`${payload}=.${signature}`, actor, identity, files, result, {
+      keyring,
+      nowMs: 2_000,
+    })).toBe(false);
+    expect(verifyContextualEvidenceToken(`${payload}.${signature}=`, actor, identity, files, result, {
+      keyring,
+      nowMs: 2_000,
+    })).toBe(false);
+  });
+});

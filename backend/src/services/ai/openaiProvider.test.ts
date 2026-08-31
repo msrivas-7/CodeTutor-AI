@@ -59,6 +59,8 @@ describe("listModels", () => {
     expect(models.map((model) => model.id)).toEqual(["gpt-5.6-luna", "gpt-5.1"]);
     expect(models[0].label).toBe("gpt-5.6-luna (recommended)");
     expect(models.every((model) => model.contextualTutorEligible)).toBe(true);
+    expect(models[0].contextualOfferEligible).toBe(true);
+    expect(models[1].contextualOfferEligible).toBe(false);
   });
 });
 

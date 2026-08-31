@@ -6,6 +6,9 @@ interface ContextualGuideBridgeProps {
   evidence: AssistanceEvidence | null;
   onViewError: () => void;
   onDismiss: () => void;
+  onAskTutor?: () => void;
+  tutorOfferState?: "loading" | "ready" | "unavailable";
+  tutorSurfaceVisible?: boolean;
   compact?: boolean;
 }
 export function ContextualGuideBridge({
@@ -13,9 +16,23 @@ export function ContextualGuideBridge({
   evidence,
   onViewError,
   onDismiss,
+  onAskTutor,
+  tutorOfferState = "unavailable",
+  tutorSurfaceVisible = false,
   compact = false,
 }: ContextualGuideBridgeProps) {
   if (decision.kind !== "result_bridge" || !evidence) return null;
+
+  const showTutorAction =
+    Boolean(onAskTutor) &&
+    !(tutorOfferState === "unavailable" && tutorSurfaceVisible);
+
+  const tutorOfferDescription =
+    tutorOfferState === "loading"
+      ? "Checking whether contextual Tutor help is available. Nothing is sent yet."
+      : tutorOfferState === "ready"
+        ? "Help me spot it sends your current code and run evidence to the AI Tutor as one question."
+        : "Open Tutor moves focus to the Tutor without sending a question.";
 
   return (
     <section
@@ -55,14 +72,37 @@ export function ContextualGuideBridge({
         </button>
       </div>
       {decision.move && (
-        <p
-          data-testid="contextual-guide-question"
-          role="status"
-          aria-live="polite"
-          className="ml-9 pr-12 text-sm leading-relaxed text-ink"
-        >
-          {decision.move.question}
-        </p>
+        <div className="ml-9 flex flex-wrap items-center justify-between gap-2 pr-12">
+          <p
+            data-testid="contextual-guide-question"
+            role="status"
+            aria-live="polite"
+            className="min-w-0 flex-1 text-sm leading-relaxed text-ink"
+          >
+            {decision.move.question}
+          </p>
+          {showTutorAction && (
+            <button
+              type="button"
+              data-testid="contextual-guide-ask"
+              onClick={onAskTutor!}
+              disabled={tutorOfferState === "loading"}
+              className="inline-flex min-h-11 shrink-0 items-center rounded-lg bg-accent px-3 text-xs font-semibold text-panel transition hover:bg-accent/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-panel disabled:cursor-wait disabled:opacity-60"
+              aria-describedby="contextual-guide-consent"
+            >
+              {tutorOfferState === "loading"
+                ? "Checking Tutor…"
+                : tutorOfferState === "ready"
+                  ? "Help me spot it"
+                  : "Open Tutor"}
+            </button>
+          )}
+          {showTutorAction && (
+            <span id="contextual-guide-consent" className="sr-only">
+              {tutorOfferDescription}
+            </span>
+          )}
+        </div>
       )}
     </section>
   );

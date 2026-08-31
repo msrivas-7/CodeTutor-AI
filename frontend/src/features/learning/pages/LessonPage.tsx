@@ -17,7 +17,10 @@ import {
 import { LessonInstructionsPanel } from "../components/LessonInstructionsPanel";
 import { PracticeInstructionsView } from "../components/PracticeInstructionsView";
 import { LessonActionsMenu } from "../components/LessonActionsMenu";
-import { GuidedTutorPanel } from "../components/GuidedTutorPanel";
+import {
+  GuidedTutorPanel,
+  type ContextualTutorAvailability,
+} from "../components/GuidedTutorPanel";
 // P-H2: dynamic-import keeps Monaco out of the lesson page's initial JS until
 // the editor mounts (the instructions/intro column loads first). The editor
 // chunk is shared with EditorPage via Vite's default chunking.
@@ -57,6 +60,7 @@ import {
   clampSide,
   useNarrowViewport,
   usePhoneFormFactor,
+  useShortViewport,
 } from "../../../util/layoutPrefs";
 import {
   LESSON_LAYOUT_BOUNDS,
@@ -625,6 +629,10 @@ export default function LessonPage({
   const moreActionsButtonRef = useRef<HTMLButtonElement>(null);
   const resetCodeButtonRef = useRef<HTMLButtonElement>(null);
   const tutorOpenNonce = useAIStore((s) => s.tutorOpenNonce);
+  const setPendingTutorAsk = useAIStore((s) => s.setPendingAsk);
+  const setTutorAskError = useAIStore((s) => s.setAskError);
+  const requestTutorOpen = useAIStore((s) => s.requestTutorOpen);
+  const bumpTutorComposerFocus = useAIStore((s) => s.bumpFocusComposer);
   const handledTutorOpenNonceRef = useRef(0);
   const resetInteractionRef = useRef(false);
   useEffect(() => {
@@ -634,13 +642,18 @@ export default function LessonPage({
     // Collapse and immediately opens the panel again.
     if (tutorOpenNonce <= handledTutorOpenNonceRef.current) return;
     handledTutorOpenNonceRef.current = tutorOpenNonce;
+    const focusState = useAIStore.getState();
+    const shouldFocusPanel =
+      layout.tutorCollapsed &&
+      focusState.focusComposerNonce <= focusState.focusComposerSettledNonce;
     layout.setTutorCollapsed(false);
+    if (!shouldFocusPanel) return;
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => {
         layout.tutorRef.current?.focus({ preventScroll: true });
       });
     });
-  }, [tutorOpenNonce, layout.setTutorCollapsed]);
+  }, [tutorOpenNonce, layout.setTutorCollapsed, layout.tutorCollapsed]);
   useEffect(() => {
     // A stale device-level layout preference must not hide the surface that
     // currently owns the welcome. This also keeps the explicit Skip welcome
@@ -868,6 +881,7 @@ export default function LessonPage({
   // all state machinery remains shared with the desktop branch.
   const phoneFormFactor = usePhoneFormFactor();
   const compactWorkspace = useNarrowViewport(900);
+  const shortCompactViewport = useShortViewport(560);
   const isPhoneNative = phoneFormFactor || compactWorkspace;
   const handledPhoneTutorOpenNonceRef = useRef(tutorOpenNonce);
   const previousPhoneNativeRef = useRef(isPhoneNative);
@@ -1010,6 +1024,10 @@ export default function LessonPage({
     handledPhoneTutorOpenNonceRef.current = tutorOpenNonce;
     if (!isPhoneNative) return;
 
+    const focusState = useAIStore.getState();
+    const shouldFocusPanel =
+      focusState.focusComposerNonce <= focusState.focusComposerSettledNonce;
+
     requestAnimationFrame(() => {
       const tutor = layout.tutorRef.current;
       if (!tutor) return;
@@ -1020,7 +1038,10 @@ export default function LessonPage({
         behavior: reduceMotion ? "auto" : "smooth",
         block: "start",
       });
-      tutor.focus({ preventScroll: true });
+      // An Open Tutor recovery can carry a more specific composer-focus
+      // ticket. Preserve that ownership while still scrolling the compact
+      // Tutor into view; only generic open requests focus the panel itself.
+      if (shouldFocusPanel) tutor.focus({ preventScroll: true });
     });
   }, [isPhoneNative, layout.tutorRef, tutorOpenNonce]);
 
@@ -1104,14 +1125,46 @@ export default function LessonPage({
   const spotlightEditor = isChoreographed && firstRunStep === "awaitEdit";
 
 
-  // Phase 1B ships behind an explicit internal-preview URL flag. This keeps
-  // the proof deployable and browser-testable without exposing an unvalidated
-  // intervention to normal learners. The later rollout phase owns changing
-  // the default, not lesson content or this deterministic policy.
+  // Release 1C promotes the reviewed 1B deterministic guide to the normal
+  // lesson journey. Practice remains excluded because its authored task and
+  // evidence lifecycle are different and are explicitly outside this slice.
   const contextualGuideEnabled =
-    searchParams.get("contextGuide") === "1" &&
     !practiceMode &&
     !!loader.lesson?.assistanceMoves;
+  const guidedTutorLessonKey = `${courseId}/${lessonId}`;
+  const [tutorRemountInterruption, setTutorRemountInterruption] = useState<{
+    lessonKey: string;
+    sequence: number;
+  } | null>(null);
+  const handleTutorAskInterrupted = useCallback(() => {
+    setTutorRemountInterruption((current) => ({
+      lessonKey: guidedTutorLessonKey,
+      sequence: (current?.sequence ?? 0) + 1,
+    }));
+  }, [guidedTutorLessonKey]);
+  useEffect(() => {
+    if (!tutorRemountInterruption) return;
+    if (tutorRemountInterruption.lessonKey === guidedTutorLessonKey) {
+      setTutorAskError("TUTOR_PANEL_REMOUNTED");
+    }
+    // This is an edge, not remembered lesson state. Consuming it prevents a
+    // later return to this route from replaying an old responsive interruption.
+    setTutorRemountInterruption(null);
+  }, [guidedTutorLessonKey, setTutorAskError, tutorRemountInterruption]);
+  const [contextualAskPending, setContextualAskPending] = useState(false);
+  const contextualAskOutcomeRef = useRef<{
+    lessonKey: string;
+    ok: boolean;
+    invalidation?: "stale" | "disabled" | "model" | "quota" | "availability";
+    interruption?: "panel-remounted";
+  } | null>(null);
+  useEffect(() => {
+    // The keyed Tutor reports an aborted in-flight ask while the route is
+    // changing. Retire only the old lesson's pending transaction; never let
+    // that late outcome accept, expire, or block guidance in the destination.
+    contextualAskOutcomeRef.current = null;
+    setContextualAskPending(false);
+  }, [guidedTutorLessonKey]);
   const historicalLessonComplete =
     mode === "authed" && courseId && lessonId
       ? lessonProgressMap[`${courseId}/${lessonId}`]?.status === "completed"
@@ -1129,16 +1182,182 @@ export default function LessonPage({
     blockingAttention:
       memoryWarmup.blocking ||
       validator.showComplete ||
-      (isChoreographed && firstRunStep !== "done"),
-    learnerRequestedTutor: tutorAsking,
+      (isChoreographed && firstRunStep !== "done") ||
+      contextualAskPending,
+    learnerRequestedTutor: tutorAsking && !contextualAskPending,
   });
   const contextualGuideVisible =
     contextualGuide.decision.kind === "result_bridge";
+  useEffect(() => {
+    if (
+      !contextualGuideVisible ||
+      !isPhoneNative ||
+      !shortCompactViewport
+    ) {
+      return;
+    }
+    // When the software keyboard leaves only a short viewport, the fixed
+    // guide can otherwise cover the Monaco line it is describing. Move the
+    // existing phone reading flow to the editor band without focusing Monaco;
+    // the cue, its highlighted target, and the thumb actions then remain
+    // simultaneously visible and the learner's keyboard focus is preserved.
+    const frame = window.requestAnimationFrame(() => {
+      layout.editorRef.current?.scrollIntoView({ block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [contextualGuideVisible, isPhoneNative, layout.editorRef, shortCompactViewport]);
+  const [contextualTutorAvailability, setContextualTutorAvailability] =
+    useState<ContextualTutorAvailability>("loading");
+  const [contextualRuntimeUnavailable, setContextualRuntimeUnavailable] =
+    useState(false);
+  useEffect(() => {
+    setContextualRuntimeUnavailable(false);
+  }, [courseId, lessonId]);
+  const acceptedContextualEvidenceRef = useRef<string | null>(null);
+  const contextualEvidenceKey = contextualGuide.context.latestRunEvidence?.key ?? null;
+  useEffect(() => {
+    if (acceptedContextualEvidenceRef.current !== contextualEvidenceKey) {
+      acceptedContextualEvidenceRef.current = null;
+    }
+  }, [contextualEvidenceKey]);
+  const handleContextualTutorAvailability = useCallback(
+    (state: ContextualTutorAvailability) => {
+      setContextualTutorAvailability((current) => current === state ? current : state);
+    },
+    [],
+  );
+  const contextualEvidenceToken = runner.lastResult?.contextualEvidenceToken;
+  const contextualOfferState: ContextualTutorAvailability =
+    contextualEvidenceToken
+      ? contextualTutorAvailability
+      : "unavailable";
+  const askContextualTutor = useCallback(() => {
+    const decision = contextualGuide.decision;
+    const evidence = contextualGuide.context.latestRunEvidence;
+    const evidenceToken = contextualEvidenceToken;
+    if (decision.kind !== "result_bridge" || !decision.move || !evidence) return;
+    if (contextualOfferState !== "ready" || !evidenceToken) {
+      bumpTutorComposerFocus();
+      // Compact workspaces always mount the Tutor; focusing its composer also
+      // reveals it and avoids a competing parent-level panel focus. Desktop
+      // still needs the explicit open edge to cross a collapsed inert rail.
+      if (!isPhoneNative) requestTutorOpen();
+      return;
+    }
+    requestTutorOpen();
+    if (acceptedContextualEvidenceRef.current === evidence.key) return;
+    acceptedContextualEvidenceRef.current = evidence.key;
+    contextualAskOutcomeRef.current = null;
+    setContextualAskPending(true);
+    setPendingTutorAsk({
+      question: "Help me spot the issue without giving me the answer.",
+      action: "contextual-help",
+      contextualOffer: {
+        contextVersion: contextualGuide.context.contextVersion,
+        contextEpoch: contextualGuide.context.contextEpoch,
+        projectRevision: contextualGuide.context.projectRevision,
+        evidenceToken,
+        evidenceTokens: contextualGuide.episode.evidenceTokens,
+        moveId: decision.move.id,
+        evidence: {
+          code: evidence.code,
+          path: evidence.path,
+          line: evidence.line,
+        },
+        scaffoldLevel: decision.move.maxScaffoldLevel,
+      },
+    });
+  }, [
+    bumpTutorComposerFocus,
+    contextualGuide,
+    contextualEvidenceToken,
+    contextualOfferState,
+    isPhoneNative,
+    requestTutorOpen,
+    setPendingTutorAsk,
+  ]);
   const viewContextualError = () => {
     const evidence = contextualGuide.context.latestRunEvidence;
     if (!evidence) return;
     useProjectStore.getState().revealAt(evidence.path, evidence.line);
   };
+  const handleContextualTutorAskComplete = useCallback((
+    ok: boolean,
+    invalidation?: "stale" | "disabled" | "model" | "quota" | "availability",
+    interruption?: "panel-remounted",
+  ) => {
+    if (
+      !ok &&
+      (invalidation === "disabled" ||
+        invalidation === "model" ||
+        invalidation === "quota" ||
+        invalidation === "availability")
+    ) {
+      // Commit the lesson-owned refusal latch as soon as the request reports
+      // its terminal outcome. Waiting for the stream-idle effect leaves a
+      // remount window where WebKit can replace the panel during a responsive
+      // transition and briefly restore the spending action.
+      setContextualRuntimeUnavailable(true);
+    }
+    // useTutorAsk reports completion before its final render releases
+    // `asking`. Defer episode ownership changes until the stream is idle.
+    contextualAskOutcomeRef.current = {
+      lessonKey: guidedTutorLessonKey,
+      ok,
+      invalidation,
+      interruption,
+    };
+  }, [guidedTutorLessonKey]);
+  const handleContextualTutorOfferInvalidated = useCallback(() => {
+    // The Tutor subtree changes identity across the desktop/compact boundary.
+    // Promote admission refusals immediately so a remount cannot re-advertise
+    // the same spending action while request completion is still unwinding.
+    setContextualRuntimeUnavailable(true);
+  }, []);
+  useEffect(() => {
+    const outcome = contextualAskOutcomeRef.current;
+    if (!outcome || tutorAsking) return;
+    contextualAskOutcomeRef.current = null;
+    if (outcome.lessonKey !== guidedTutorLessonKey) {
+      setContextualAskPending(false);
+      return;
+    }
+    if (outcome.ok) {
+      contextualGuide.accept();
+    } else if (outcome.interruption === "panel-remounted") {
+      // A same-lesson responsive remount canceled and refunded the request.
+      // The signed evidence may already have been admitted, so do not replay
+      // it. Keep the free guide visible and expose ordinary, retryable Tutor
+      // help while the replacement panel explains what happened.
+      acceptedContextualEvidenceRef.current = null;
+      setContextualRuntimeUnavailable(true);
+    } else {
+      if (outcome.invalidation === "stale") {
+        // Hide the expired offer now, but let the next Run re-arm the same
+        // authored error with a fresh server-signed evidence token.
+        acceptedContextualEvidenceRef.current = null;
+        contextualGuide.expireEvidence();
+      } else if (
+        outcome.invalidation === "disabled" ||
+        outcome.invalidation === "model" ||
+        outcome.invalidation === "quota" ||
+        outcome.invalidation === "availability"
+      ) {
+        // Admission was refused before spending. Keep the free authored guide
+        // in place, but clear the attempted consent and let the mounted Tutor
+        // expose only the non-spending Open Tutor recovery action.
+        acceptedContextualEvidenceRef.current = null;
+        setContextualRuntimeUnavailable(true);
+      } else {
+        // The signed proof is single-use at admission. Even when transport or
+        // provider recovery fails, retire this consent surface so the learner
+        // cannot keep resubmitting the same evidence. The visible Retry action
+        // continues as ordinary Tutor help against the current lesson context.
+        contextualGuide.accept();
+      }
+    }
+    setContextualAskPending(false);
+  }, [contextualGuide, guidedTutorLessonKey, tutorAsking]);
 
   // Phase 27-v2.1 — the praise turn parses the learner's typed name
   // out of the editor buffer (option d in the v2 plan). Authed users
@@ -1261,6 +1480,9 @@ export default function LessonPage({
   if (!courseId || !lessonId) return null;
 
   const lesson = loader.lesson;
+  // React Router reuses LessonPage across lesson parameters. Give the Tutor a
+  // lesson-scoped lifecycle so refusal, consent, and recovery state cannot
+  // leak into the next lesson or reappear when the learner returns.
   // `/try/` is an intentionally anonymous product surface even when a signed-in
   // learner opens it in another tab. Never let their authenticated progress
   // bleed into the anonymous status, coach, telemetry, practice, completion, or
@@ -1908,6 +2130,7 @@ export default function LessonPage({
               className="h-[52vh] min-h-[280px] focus:outline-none"
             >
               <GuidedTutorPanel
+                key={guidedTutorLessonKey}
                 lessonMeta={lesson}
                 totalLessons={loader.totalLessons}
                 priorConcepts={loader.priorConcepts}
@@ -1935,6 +2158,12 @@ export default function LessonPage({
                 onAnonTrialPaused={onAnonTrialPaused}
                 onAnonSaveRequested={onAnonSave}
                 initialAnonTutorState={initialAnonTutorStateRef.current}
+                externalAskReady
+                contextualRuntimeUnavailable={contextualRuntimeUnavailable}
+                onContextualTutorAvailabilityChange={handleContextualTutorAvailability}
+                onContextualTutorAskComplete={handleContextualTutorAskComplete}
+                onContextualTutorOfferInvalidated={handleContextualTutorOfferInvalidated}
+                onTutorAskInterrupted={handleTutorAskInterrupted}
               />
             </section>
           </div>
@@ -1949,6 +2178,9 @@ export default function LessonPage({
               evidence={contextualGuide.context.latestRunEvidence}
               onViewError={viewContextualError}
               onDismiss={contextualGuide.dismiss}
+              onAskTutor={askContextualTutor}
+              tutorOfferState={contextualOfferState}
+              tutorSurfaceVisible={!shortCompactViewport}
             />
             {!practiceMode
               && validator.validation
@@ -2273,6 +2505,9 @@ export default function LessonPage({
                 evidence={contextualGuide.context.latestRunEvidence}
                 onViewError={viewContextualError}
                 onDismiss={contextualGuide.dismiss}
+                onAskTutor={askContextualTutor}
+                tutorOfferState={contextualOfferState}
+                tutorSurfaceVisible={!layout.tutorCollapsed}
               />
               {/* Row 1 — Primary actions */}
               <div className="flex flex-wrap items-center gap-2 px-3 py-2">
@@ -2655,6 +2890,7 @@ export default function LessonPage({
             {...((layout.tutorCollapsed ? { inert: "" } : {}) as Record<string, unknown>)}
           >
             <GuidedTutorPanel
+              key={guidedTutorLessonKey}
               lessonMeta={lesson}
               totalLessons={loader.totalLessons}
               priorConcepts={loader.priorConcepts}
@@ -2686,6 +2922,12 @@ export default function LessonPage({
               onAnonTrialPaused={onAnonTrialPaused}
               onAnonSaveRequested={onAnonSave}
               initialAnonTutorState={initialAnonTutorStateRef.current}
+              externalAskReady={!layout.tutorCollapsed}
+              contextualRuntimeUnavailable={contextualRuntimeUnavailable}
+              onContextualTutorAvailabilityChange={handleContextualTutorAvailability}
+              onContextualTutorAskComplete={handleContextualTutorAskComplete}
+              onContextualTutorOfferInvalidated={handleContextualTutorOfferInvalidated}
+              onTutorAskInterrupted={handleTutorAskInterrupted}
             />
           </motion.aside>
         </motion.main>

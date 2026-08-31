@@ -113,6 +113,7 @@ const KEY_BOUNDS: Record<
   free_tier_daily_usd_per_user: { type: "number", min: 0, max: 10, step: "0.01" },
   free_tier_lifetime_usd_per_user: { type: "number", min: 0, max: 100, step: "0.01" },
   free_tier_daily_usd_cap: { type: "number", min: 0, max: 50, step: "0.01" },
+  contextual_tutor_enabled: { type: "boolean" },
   share_public_disabled: { type: "boolean" },
   share_create_disabled: { type: "boolean" },
   share_render_disabled: { type: "boolean" },
@@ -191,6 +192,8 @@ function envDefaultFor(key: ProjectConfigKey): boolean | number {
       return config.freeTier.lifetimeUsdPerUser;
     case "free_tier_daily_usd_cap":
       return config.freeTier.dailyUsdCap;
+    case "contextual_tutor_enabled":
+      return config.contextualTutorEnabled;
     case "share_public_disabled":
       return config.share.publicDisabled;
     case "share_create_disabled":

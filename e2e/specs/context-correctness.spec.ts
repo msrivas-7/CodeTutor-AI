@@ -86,13 +86,22 @@ test.describe(
     await expect(S.outputPanel(page)).not.toContainText("STALE_LESSON_A_OUTPUT");
   });
 
-  test("a tutor answer started in lesson A cannot enter lesson B", async ({ page }) => {
+  test("lesson navigation cancels and refunds a pending Tutor ask before lesson B", async ({ page }) => {
     await loadProfile(page, "capstones-pending");
     await seedApiKey(page, { key: "sk-test-e2e-padding-12345", model: "gpt-4o-mini" });
 
     const release = deferred();
     const started = deferred();
     const settled = deferred();
+    let cancelCalls = 0;
+    await page.route("**/api/ai/ask/cancel", async (route) => {
+      cancelCalls += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ canceled: true, refunded: true }),
+      });
+    });
     await page.route("**/api/ai/ask/stream", async (route) => {
       started.resolve();
       await release.promise;
@@ -130,6 +139,9 @@ test.describe(
     await S.nextLessonLessonPageButton(page).click();
     await expect(page).toHaveURL(new RegExp(`/lesson/variables$`));
     await waitForMonacoReady(page);
+    await expect.poll(() => cancelCalls).toBe(1);
+    await expect(S.tutorInput(page)).toBeEnabled({ timeout: 10_000 });
+    await expect(page.getByText("Tutor view changed", { exact: true })).toHaveCount(0);
 
     release.resolve();
     await settled.promise;

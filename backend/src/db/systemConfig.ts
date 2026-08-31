@@ -84,6 +84,9 @@ export const KNOWN_KEYS = [
   // Phase B8: emergency drain for new eval samples. Existing rows still
   // honor deletion and the 30-day expiry sweep while this is off.
   "ai_eval_sampling_enabled",
+  // Release 1C model-call gate. Independent from the ordinary Tutor and the
+  // anonymous lesson switch so an operator can drain contextual offers only.
+  "contextual_tutor_enabled",
   // Server-owned platform Tutor routing. The browser never supplies this
   // value; admins may select only compatible GPT-5+ models with registered
   // prices, and unevaluated choices are surfaced explicitly in the UI.

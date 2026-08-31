@@ -8,6 +8,7 @@ const CHIPS: { label: string; prompt: string; action?: TutorAction }[] = [
   {
     label: "still stuck",
     prompt: "I'm still stuck on this — can you give me a stronger hint?",
+    action: "stronger-hint",
   },
   {
     label: "explain more",
@@ -118,7 +119,12 @@ export function AskErrorView({
     showDetails = true,
   } = classifyAskError(message);
   const canRetry = onRetry && retryable;
-  const informational = kind === "canceled" || kind === "contextChanged" || kind === "platformPaused";
+  const informational =
+    kind === "canceled" ||
+    kind === "contextChanged" ||
+    kind === "lessonContextUnavailable" ||
+    kind === "platformPaused" ||
+    kind === "freeTierExhausted";
   return (
     <div
       role={informational ? "status" : "alert"}
@@ -166,7 +172,33 @@ export function classifyAskError(raw: string): {
   showDetails?: boolean;
 } {
   const parsed = parseTutorError(raw);
-  if (parsed.code?.toUpperCase() === "PLATFORM_AI_PAUSED") {
+  const errorCode = parsed.code?.toUpperCase();
+  if (errorCode === "AI_ADMISSION_UNAVAILABLE") {
+    return {
+      kind: "admissionUnavailable",
+      title: "Tutor admission temporarily unavailable",
+      hint: "Your current error guide is still here. Keep working and ask the Tutor again after the service recovers.",
+      retryable: false,
+      showDetails: false,
+    };
+  }
+  if (
+    errorCode === "LESSON_CONTEXT_NOT_FOUND" ||
+    errorCode === "LESSON_CONTEXT_UNAVAILABLE"
+  ) {
+    return {
+      kind: "lessonContextUnavailable",
+      title: errorCode === "LESSON_CONTEXT_NOT_FOUND"
+        ? "Lesson changed"
+        : "Lesson context unavailable",
+      hint: errorCode === "LESSON_CONTEXT_NOT_FOUND"
+        ? "Your current error guide is still here. Reload the lesson before asking the Tutor about it again."
+        : "Your current error guide is still here. Keep working and ask the Tutor again after lesson context recovers.",
+      retryable: false,
+      showDetails: false,
+    };
+  }
+  if (errorCode === "PLATFORM_AI_PAUSED") {
     if (parsed.reason?.toLowerCase() === "daily_usd_per_user_hit") {
       return {
         kind: "platformPaused",
@@ -201,8 +233,52 @@ export function classifyAskError(raw: string): {
       hint: "The response stopped, and this turn is released from your daily allowance. You can retry the same question when you’re ready.",
     };
   }
+  if (m.includes("tutor_panel_remounted")) {
+    return {
+      kind: "contextChanged",
+      title: "Tutor view changed",
+      hint: "The Tutor moved while I was thinking, so that turn was released from your daily allowance. Your error guide is still here; retry when you’re ready.",
+    };
+  }
+  if (m.includes("contextual_evidence_stale")) {
+    return {
+      kind: "contextualEvidenceStale",
+      title: "Run evidence expired",
+      hint:
+        "Make a change and run your code. If the same issue remains, adjust it and run once more for a fresh help offer.",
+      retryable: false,
+      showDetails: false,
+    };
+  }
+  if (m.includes("free_tier_exhausted")) {
+    return {
+      kind: "freeTierExhausted",
+      title: "Free tutor questions used for today",
+      hint: "Your code and current error guide are still here. Keep working now, or return after the daily reset.",
+      retryable: false,
+      showDetails: false,
+    };
+  }
   if (m.includes("tutor_context_changed")) {
-    return { kind: "contextChanged", title: "Code changed", hint: "I stopped the old response so it couldn't give advice about an earlier version. Ask again when the current run is ready." };
+    return { kind: "contextChanged", title: "Code changed", hint: "Your code changed while I was thinking—ask again when ready." };
+  }
+  if (m.includes("contextual_tutor_disabled")) {
+    return {
+      kind: "contextualPaused",
+      title: "Contextual help is paused",
+      hint: "Your latest error is still in Output. Inspect it there or continue with the regular Tutor when it is available.",
+      retryable: false,
+      showDetails: false,
+    };
+  }
+  if (m.includes("model_not_evaluated_for_contextual_offer")) {
+    return {
+      kind: "contextualModel",
+      title: "This model is not ready for contextual help",
+      hint: "Choose the recommended Tutor model in Settings, or keep using the current error guide.",
+      retryable: false,
+      showDetails: false,
+    };
   }
   if (m.includes("failed to fetch") || m.includes("network") || m.includes("offline")) {
     return { kind: "network", title: "Connection lost", hint: "Your code is safe. Check your connection, then try the question again." };

@@ -89,6 +89,49 @@ integrationDescribe("AI request reservations (real Postgres)", () => {
     });
   });
 
+  it("atomically rejects disjoint receipt subsets from the same contextual episode", async () => {
+    const first = "c".repeat(64);
+    const second = "d".repeat(64);
+    const latest = "e".repeat(64);
+    const terminal = "f".repeat(64);
+    const episode = "a".repeat(64);
+    const results = await Promise.all([
+      reserveAIRequest(reservation(randomUUID(), {
+        contextualEvidenceEpisodeDigest: episode,
+        contextualEvidenceDigests: [first, latest],
+      })),
+      reserveAIRequest(reservation(randomUUID(), {
+        contextualEvidenceEpisodeDigest: episode,
+        contextualEvidenceDigests: [second, terminal],
+      })),
+    ]);
+    expect(results.filter((result) => result.ok)).toHaveLength(1);
+    expect(results).toContainEqual({ ok: false, kind: "evidence_replay" });
+  });
+
+  it("refuses a contextual receipt chain without its signed episode identity", async () => {
+    await expect(reserveAIRequest(reservation(randomUUID(), {
+      contextualEvidenceDigests: ["c".repeat(64), "d".repeat(64)],
+    }))).rejects.toThrow("must be claimed together");
+  });
+
+  it("allows a genuinely later episode after the server-owned claim window expires", async () => {
+    const episode = "1".repeat(64);
+    expect(await reserveAIRequest(reservation(randomUUID(), {
+      contextualEvidenceEpisodeDigest: episode,
+      contextualEvidenceDigests: ["2".repeat(64), "3".repeat(64)],
+    }))).toMatchObject({ ok: true });
+    await db()`
+      UPDATE public.ai_contextual_episode_claims
+         SET expires_at = now() - interval '1 second'
+       WHERE episode_digest = ${episode}
+    `;
+    expect(await reserveAIRequest(reservation(randomUUID(), {
+      contextualEvidenceEpisodeDigest: episode,
+      contextualEvidenceDigests: ["4".repeat(64), "5".repeat(64)],
+    }))).toMatchObject({ ok: true });
+  });
+
   it("keeps anonymous dollar caps isolated between IP identities", async () => {
     const caps = {
       globalDailyUsd: 100,

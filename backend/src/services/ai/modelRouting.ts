@@ -1,6 +1,7 @@
 import type {
   AIMessage,
   ProjectFile,
+  TutorAction,
   TutorIntent,
   TutorStage,
 } from "./provider.js";
@@ -62,6 +63,7 @@ export function routeTutorModel({
   files,
   history,
   tutorStage,
+  tutorAction,
   platformModel = PLATFORM_DEFAULT_TUTOR_MODEL,
 }: {
   requestedModel: string | null | undefined;
@@ -70,9 +72,16 @@ export function routeTutorModel({
   files: ProjectFile[];
   history?: AIMessage[];
   tutorStage: TutorStage;
+  tutorAction?: TutorAction;
   platformModel?: string;
 }): TutorModelRoute {
-  const intent = classifyTutorIntent({ question, files, history, tutorStage });
+  const intent = classifyTutorIntent({
+    question,
+    files,
+    history,
+    tutorStage,
+    tutorAction,
+  });
   const canonicalModel = canonicalTutorRequestModel({
     requestedModel,
     fundingSource,
