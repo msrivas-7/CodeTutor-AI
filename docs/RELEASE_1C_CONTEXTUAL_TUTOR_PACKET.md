@@ -20,8 +20,9 @@ hint, and a canonical file/line reference without revealing the answer.
   runtime stderr cannot select or fund the teaching contract.
 - Acceptance is episode-idempotent in the client and request-idempotent at the
   server admission boundary. The reservation transaction atomically claims
-  every signed receipt in the qualifying episode, so concurrent requests with
-  different terminal receipts cannot both spend an overlapping evidence chain.
+  the server-signed error episode itself, with every submitted receipt retained
+  as defense in depth, so overlapping or disjoint receipt subsets from one
+  episode cannot fund multiple Tutor calls.
 - A source/context change invalidates an in-flight generation. Stale content is
   discarded and only the deterministic changed-code status is shown.
 - `contextual_tutor_enabled` independently disables the AI offer while leaving

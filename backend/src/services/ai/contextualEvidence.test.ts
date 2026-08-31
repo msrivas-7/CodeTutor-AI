@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  digestContextualEvidenceEpisode,
   digestContextualEvidenceToken,
   mintContextualEvidenceToken,
   verifyContextualEvidenceAttemptChain,
@@ -125,6 +126,23 @@ describe("contextual evidence tokens", () => {
       2,
       { keyring, nowMs: 2_000 },
     )).toBe(false);
+    expect(digestContextualEvidenceEpisode(
+      firstToken,
+      actor,
+      { ...identity, projectRevision: 6 },
+      { keyring, nowMs: 2_000 },
+    )).toBe(digestContextualEvidenceEpisode(
+      currentToken,
+      actor,
+      identity,
+      { keyring, nowMs: 2_000 },
+    ));
+    expect(digestContextualEvidenceEpisode(
+      currentToken,
+      "user:someone-else",
+      identity,
+      { keyring, nowMs: 2_000 },
+    )).toBeNull();
   });
 
   it("never signs or verifies an ambiguous duplicate-path snapshot", () => {

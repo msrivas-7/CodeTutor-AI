@@ -6,6 +6,7 @@ import type { ProjectFile, RunResult } from "./provider.js";
 const TOKEN_VERSION = 1;
 const TOKEN_TTL_MS = 15 * 60 * 1_000;
 const SIGNING_DOMAIN = "codetutor:contextual-evidence:v1";
+const EPISODE_CLAIM_DOMAIN = "codetutor:contextual-episode-claim:v1";
 
 export interface ContextualRunIdentity {
   courseId: string;
@@ -52,6 +53,37 @@ export function digestContextualEvidenceToken(token: string): string {
     .update(Buffer.from([0]))
     .update(Buffer.from(signature, "base64url"))
     .digest("hex");
+}
+
+/**
+ * Stable database claim for the server-signed error episode. Unlike a token
+ * digest, this identity is shared by every receipt minted for the same actor,
+ * lesson context, and normalized error episode, so a client cannot evade
+ * single-use admission by submitting disjoint receipt subsets.
+ */
+export function digestContextualEvidenceEpisode(
+  token: string,
+  actorId: string,
+  identity: ContextualRunIdentity,
+  options: EvidenceOptions = {},
+): string | null {
+  const payload = readVerifiedEvidencePayload(token, options);
+  if (
+    !payload ||
+    payload.actor !== digest(actorId) ||
+    payload.courseId !== identity.courseId ||
+    payload.lessonId !== identity.lessonId ||
+    payload.contextEpoch !== identity.contextEpoch ||
+    payload.projectRevision !== identity.projectRevision
+  ) return null;
+  return createHash("sha256").update(JSON.stringify({
+    domain: EPISODE_CLAIM_DOMAIN,
+    actor: payload.actor,
+    courseId: payload.courseId,
+    lessonId: payload.lessonId,
+    contextEpoch: payload.contextEpoch,
+    episode: payload.episode,
+  }), "utf8").digest("hex");
 }
 
 export function digestProjectFiles(files: readonly ProjectFile[]): string {

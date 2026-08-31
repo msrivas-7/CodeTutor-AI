@@ -120,6 +120,7 @@ import {
   tutorTaskScope,
 } from "../services/ai/tutorProgress.js";
 import {
+  digestContextualEvidenceEpisode,
   digestContextualEvidenceToken,
   mintContextualEvidenceToken,
 } from "../services/ai/contextualEvidence.js";
@@ -694,6 +695,7 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
       return res.status(404).json({ error: "LESSON_CONTEXT_NOT_FOUND" });
     }
     let canonicalContextualOffer = null;
+    let contextualEvidenceEpisodeDigest: string | undefined;
     if (parsed.data.contextualOffer) {
       try {
         if (!(await isContextualTutorEnabled())) {
@@ -714,6 +716,19 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
         return res.status(503).json({ error: "LESSON_CONTEXT_UNAVAILABLE" });
       }
       if (!canonicalContextualOffer) {
+        return res.status(409).json({ error: "CONTEXTUAL_EVIDENCE_STALE" });
+      }
+      contextualEvidenceEpisodeDigest = digestContextualEvidenceEpisode(
+        parsed.data.contextualOffer.evidenceToken,
+        `anonymous:${ipHash}`,
+        {
+          courseId: clientCtx.courseId,
+          lessonId: clientCtx.lessonId,
+          contextEpoch: parsed.data.contextualOffer.contextEpoch,
+          projectRevision: parsed.data.contextualOffer.projectRevision,
+        },
+      ) ?? undefined;
+      if (!contextualEvidenceEpisodeDigest) {
         return res.status(409).json({ error: "CONTEXTUAL_EVIDENCE_STALE" });
       }
     }
@@ -827,6 +842,7 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
         model: providerParams.model,
         route: "ask_stream",
         countsTowardQuota: true,
+        contextualEvidenceEpisodeDigest,
         contextualEvidenceDigests: parsed.data.contextualOffer
           ? parsed.data.contextualOffer.evidenceTokens.map(digestContextualEvidenceToken)
           : undefined,

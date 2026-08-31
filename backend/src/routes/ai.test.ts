@@ -17,6 +17,14 @@ import type { Server } from "node:http";
 // before the dynamically imported router captures config.
 process.env.BYOK_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64");
 
+vi.mock("../services/ai/contextualEvidence.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../services/ai/contextualEvidence.js")>();
+  return {
+    ...actual,
+    digestContextualEvidenceEpisode: vi.fn(() => "a".repeat(64)),
+  };
+});
+
 vi.mock("../db/preferences.js", () => ({
   getOpenAIKey: vi.fn(),
 }));
@@ -599,6 +607,7 @@ describe("POST /api/ai/ask/stream — contextual Tutor 1C", () => {
     expect(vi.mocked(openaiProvider.askStream)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(reserveAIRequest)).toHaveBeenCalledWith(
       expect.objectContaining({
+        contextualEvidenceEpisodeDigest: "a".repeat(64),
         contextualEvidenceDigests: [
           expect.stringMatching(/^[0-9a-f]{64}$/),
           expect.stringMatching(/^[0-9a-f]{64}$/),

@@ -72,7 +72,10 @@ import {
   routeTutorModel,
 } from "../services/ai/modelRouting.js";
 import { getEffectivePlatformTutorModel } from "../services/ai/platformTutorModel.js";
-import { digestContextualEvidenceToken } from "../services/ai/contextualEvidence.js";
+import {
+  digestContextualEvidenceEpisode,
+  digestContextualEvidenceToken,
+} from "../services/ai/contextualEvidence.js";
 import {
   mintTutorProgressToken,
   resolveTutorStage,
@@ -307,6 +310,7 @@ async function reserveUserAction(args: {
   countsTowardQuota: boolean;
   reservedInputTokens: number;
   reservedOutputTokens: number;
+  contextualEvidenceEpisodeDigest?: string;
   contextualEvidenceDigests?: readonly string[];
 }): Promise<ReserveAIRequestResult> {
   const priced = safePrice(
@@ -338,6 +342,7 @@ async function reserveUserAction(args: {
     reservedCostUsd: priced.costUsd,
     priceVersion: priced.priceVersion,
     expiresInMs: reservationTtlMs(),
+    contextualEvidenceEpisodeDigest: args.contextualEvidenceEpisodeDigest,
     contextualEvidenceDigests: args.contextualEvidenceDigests,
     caps,
   });
@@ -571,6 +576,7 @@ aiRouter.post("/ask", async (req, res, next) => {
 
   let canonicalLessonContext = null;
   let canonicalContextualOffer = null;
+  let contextualEvidenceEpisodeDigest: string | undefined;
   try {
     if (parsed.data.lessonContext) {
       if (!isContextualTutorModel(requestModel)) {
@@ -599,6 +605,19 @@ aiRouter.post("/ask", async (req, res, next) => {
         parsed.data.lastRun,
       );
       if (!canonicalContextualOffer) {
+        return res.status(409).json({ error: "CONTEXTUAL_EVIDENCE_STALE" });
+      }
+      contextualEvidenceEpisodeDigest = digestContextualEvidenceEpisode(
+        parsed.data.contextualOffer.evidenceToken,
+        `user:${userId}`,
+        {
+          courseId: parsed.data.lessonContext!.courseId,
+          lessonId: parsed.data.lessonContext!.lessonId,
+          contextEpoch: parsed.data.contextualOffer.contextEpoch,
+          projectRevision: parsed.data.contextualOffer.projectRevision,
+        },
+      ) ?? undefined;
+      if (!contextualEvidenceEpisodeDigest) {
         return res.status(409).json({ error: "CONTEXTUAL_EVIDENCE_STALE" });
       }
     }
@@ -673,6 +692,7 @@ aiRouter.post("/ask", async (req, res, next) => {
       model: providerParams.model,
       route: "ask",
       countsTowardQuota: cred.source === "platform",
+      contextualEvidenceEpisodeDigest,
       contextualEvidenceDigests: parsed.data.contextualOffer
         ? parsed.data.contextualOffer.evidenceTokens.map(digestContextualEvidenceToken)
         : undefined,
@@ -806,6 +826,7 @@ aiRouter.post("/ask/stream", async (req, res) => {
 
   let canonicalLessonContext = null;
   let canonicalContextualOffer = null;
+  let contextualEvidenceEpisodeDigest: string | undefined;
   try {
     if (parsed.data.lessonContext) {
       if (!isContextualTutorModel(requestModel)) {
@@ -834,6 +855,19 @@ aiRouter.post("/ask/stream", async (req, res) => {
         parsed.data.lastRun,
       );
       if (!canonicalContextualOffer) {
+        return res.status(409).json({ error: "CONTEXTUAL_EVIDENCE_STALE" });
+      }
+      contextualEvidenceEpisodeDigest = digestContextualEvidenceEpisode(
+        parsed.data.contextualOffer.evidenceToken,
+        `user:${userId}`,
+        {
+          courseId: parsed.data.lessonContext!.courseId,
+          lessonId: parsed.data.lessonContext!.lessonId,
+          contextEpoch: parsed.data.contextualOffer.contextEpoch,
+          projectRevision: parsed.data.contextualOffer.projectRevision,
+        },
+      ) ?? undefined;
+      if (!contextualEvidenceEpisodeDigest) {
         return res.status(409).json({ error: "CONTEXTUAL_EVIDENCE_STALE" });
       }
     }
@@ -909,6 +943,7 @@ aiRouter.post("/ask/stream", async (req, res) => {
       model: providerParams.model,
       route: "ask_stream",
       countsTowardQuota: cred.source === "platform",
+      contextualEvidenceEpisodeDigest,
       contextualEvidenceDigests: parsed.data.contextualOffer
         ? parsed.data.contextualOffer.evidenceTokens.map(digestContextualEvidenceToken)
         : undefined,

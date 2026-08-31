@@ -89,20 +89,30 @@ integrationDescribe("AI request reservations (real Postgres)", () => {
     });
   });
 
-  it("atomically rejects overlapping contextual evidence chains across request IDs", async () => {
+  it("atomically rejects disjoint receipt subsets from the same contextual episode", async () => {
     const first = "c".repeat(64);
-    const overlap = "d".repeat(64);
+    const second = "d".repeat(64);
     const latest = "e".repeat(64);
+    const terminal = "f".repeat(64);
+    const episode = "a".repeat(64);
     const results = await Promise.all([
       reserveAIRequest(reservation(randomUUID(), {
-        contextualEvidenceDigests: [first, overlap],
+        contextualEvidenceEpisodeDigest: episode,
+        contextualEvidenceDigests: [first, latest],
       })),
       reserveAIRequest(reservation(randomUUID(), {
-        contextualEvidenceDigests: [overlap, latest],
+        contextualEvidenceEpisodeDigest: episode,
+        contextualEvidenceDigests: [second, terminal],
       })),
     ]);
     expect(results.filter((result) => result.ok)).toHaveLength(1);
     expect(results).toContainEqual({ ok: false, kind: "evidence_replay" });
+  });
+
+  it("refuses a contextual receipt chain without its signed episode identity", async () => {
+    await expect(reserveAIRequest(reservation(randomUUID(), {
+      contextualEvidenceDigests: ["c".repeat(64), "d".repeat(64)],
+    }))).rejects.toThrow("must be claimed together");
   });
 
   it("keeps anonymous dollar caps isolated between IP identities", async () => {

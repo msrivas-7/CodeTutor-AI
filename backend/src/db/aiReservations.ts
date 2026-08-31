@@ -38,6 +38,7 @@ interface ReserveBase {
   reservedCostUsd: number;
   priceVersion: number;
   expiresInMs: number;
+  contextualEvidenceEpisodeDigest?: string;
   contextualEvidenceDigests?: readonly string[];
 }
 
@@ -322,6 +323,7 @@ export async function reserveAIRequest(
   const terminalContextualEvidenceDigest =
     submittedContextualEvidenceDigests.at(-1) ?? null;
   const contextualEvidenceDigests = [...submittedContextualEvidenceDigests].sort();
+  const contextualEvidenceEpisodeDigest = input.contextualEvidenceEpisodeDigest ?? null;
   if (
     contextualEvidenceDigests.length > 10 ||
     new Set(contextualEvidenceDigests).size !== contextualEvidenceDigests.length ||
@@ -331,11 +333,44 @@ export async function reserveAIRequest(
       "contextual evidence digests must contain at most 10 unique lowercase SHA-256 values",
     );
   }
+  if (
+    contextualEvidenceEpisodeDigest !== null &&
+    !/^[0-9a-f]{64}$/.test(contextualEvidenceEpisodeDigest)
+  ) {
+    throw new Error("contextual evidence episode digest must be a lowercase SHA-256 value");
+  }
+  if (
+    (contextualEvidenceDigests.length > 0) !==
+    (contextualEvidenceEpisodeDigest !== null)
+  ) {
+    throw new Error(
+      "contextual evidence receipts and their signed episode digest must be claimed together",
+    );
+  }
   const sql = db();
   return (await sql.begin(async (tx) => {
     if (input.fundingSource === "platform") {
       await tx`SELECT pg_advisory_xact_lock(hashtext(${ADMISSION_LOCK_KEY})::bigint)`;
       await reconcileExpiredReservations(tx);
+    }
+    // Claim the server-signed episode identity as the primary replay boundary.
+    // Receipt claims remain defense-in-depth and preserve compatibility with
+    // reservations created before episode-level claims were introduced.
+    if (contextualEvidenceEpisodeDigest) {
+      await tx`
+        SELECT pg_advisory_xact_lock(
+          hashtext(${`codetutor:contextual-episode:${contextualEvidenceEpisodeDigest}`})::bigint
+        )
+      `;
+      const episodeClaims = await tx<Array<{ request_id: string }>>`
+        SELECT request_id
+          FROM public.ai_contextual_episode_claims
+         WHERE episode_digest = ${contextualEvidenceEpisodeDigest}
+         FOR UPDATE
+      `;
+      if (episodeClaims.some((claim) => claim.request_id !== input.requestId)) {
+        return { ok: false, kind: "evidence_replay" } as const;
+      }
     }
     // Claim the complete qualifying chain, not only its terminal receipt.
     // Sorted token-specific locks avoid deadlocks while covering platform and
@@ -552,6 +587,13 @@ export async function reserveAIRequest(
         INSERT INTO public.ai_contextual_evidence_claims (
           evidence_digest, request_id
         ) VALUES (${digest}, ${input.requestId})
+      `;
+    }
+    if (contextualEvidenceEpisodeDigest) {
+      await tx`
+        INSERT INTO public.ai_contextual_episode_claims (
+          episode_digest, request_id
+        ) VALUES (${contextualEvidenceEpisodeDigest}, ${input.requestId})
       `;
     }
     return { ok: true, remainingToday } as const;
