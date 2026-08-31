@@ -8,8 +8,10 @@ name: E2E shard benchmark
 # account's observed 20-job standard-runner ceiling; the normal E2E workflow
 # reserves three jobs for the advisory and cross-browser lanes, so 17 is the
 # unconstrained shard ceiling. The 20-shard
-# candidate runs with max-parallel 17 to measure whether finer partitions can
-# overcome their queued tail. Remove the label after measurement.
+# candidate runs with max-parallel 17. Selection models the retry-free
+# Playwright critical path, including that queued test tail; Docker/setup wall
+# time is retained as operational context rather than treated as test work.
+# Remove the label after measurement.
 on:
   pull_request:
     types: [labeled]
@@ -75,7 +77,10 @@ jobs:
     secrets: inherit
 
   benchmark-twenty:
-    if: always() && github.event.label.name == 'ci-shard-benchmark'
+    if: >-
+      always() &&
+      (github.event.label.name == 'ci-shard-benchmark' ||
+      github.event.label.name == 'ci-shard-benchmark-20')
     needs: benchmark-seventeen
     uses: ./.github/workflows/e2e-shard-topology.yml
     with:
@@ -86,7 +91,10 @@ jobs:
 
   compare:
     name: Compare 10/12/14/16/17/20 shards
-    if: always() && github.event.label.name == 'ci-shard-benchmark'
+    if: >-
+      always() &&
+      (github.event.label.name == 'ci-shard-benchmark' ||
+      github.event.label.name == 'ci-shard-benchmark-20')
     needs:
       - benchmark-ten
       - benchmark-twelve

@@ -9,10 +9,16 @@ const candidates = [10, 12, 14, 16, 17, 20];
 const benchmarkWorkflow = readFileSync(new URL("../workflows/e2e-shard-benchmark.yml", import.meta.url), "utf8");
 const topologyWorkflow = readFileSync(new URL("../workflows/e2e-shard-topology.yml", import.meta.url), "utf8");
 
-function job(name, durationSeconds, conclusion = "success", offsetSeconds = 0) {
+function job(
+  name,
+  durationSeconds,
+  conclusion = "success",
+  offsetSeconds = 0,
+  testDurationSeconds = Math.max(1, durationSeconds - 130),
+) {
   const started = new Date(Date.parse("2026-07-30T10:00:00Z") + offsetSeconds * 1000);
   const testStarted = new Date(started.getTime() + 100_000);
-  const testCompleted = new Date(testStarted.getTime() + Math.max(1, durationSeconds - 130) * 1000);
+  const testCompleted = new Date(testStarted.getTime() + testDurationSeconds * 1000);
   const completed = new Date(started.getTime() + durationSeconds * 1000);
   return {
     name,
@@ -61,10 +67,10 @@ test("selects a larger topology only for a material gain", () => {
     standardRunnerConcurrency: 20,
     reservedNonShardJobs: 3,
     unconstrainedShardCeiling: 17,
-    selectionMetric: "reliable topology-relative completion",
+    selectionMetric: "reliable modeled Playwright critical path",
     minimumRelativeGain: 0.05,
     minimumAbsoluteGainSeconds: 20,
-    status: "topologies run sequentially on the same commit; 20 shards is capped at 17 parallel jobs to model the normal workflow reserve; a larger topology wins only when it is reliable and materially faster",
+    status: "topologies run sequentially on the same commit; setup and queue-inclusive wall time are reported as operational context; selection models only the retry-free Playwright critical path, including the 20-shard queued test tail under the 17-job reserve",
   });
 });
 
@@ -88,16 +94,36 @@ test("workflow benchmarks the complete measured range under the account ceiling"
   assert.match(topologyWorkflow, /max-parallel: \$\{\{ inputs\.max_parallel }}/);
   assert.match(topologyWorkflow, /shard: \$\{\{ fromJSON\(inputs\.shards\) }}/);
   assert.match(topologyWorkflow, /--shard=\$\{\{ matrix\.shard }}\/\$\{\{ inputs\.total }}/);
+  assert.match(benchmarkWorkflow, /github\.event\.label\.name == 'ci-shard-benchmark-20'/);
 });
 
-test("does not penalize a topology for waiting on the preceding experiment", () => {
+test("does not treat preceding-experiment wait time as test work", () => {
   const result = compareShardTopologies({
     benchmarkRun,
     benchmarkJobs: { jobs: allTopologies([410, 390, 370, 350, 330, 300], { offsetStep: 1_000 }) },
     totalTests: 420,
   });
   assert.equal(result.topologies[1].topologyReadySeconds, 390);
-  assert.equal(result.provisionalSelection, 20);
+  assert.equal(result.provisionalSelection, 17);
+  assert.equal(result.topologies[4].modeledTestCriticalPathSeconds, 200);
+  assert.equal(result.topologies[5].modeledTestCriticalPathSeconds, 340);
+});
+
+test("reports but does not select on a one-run setup outlier", () => {
+  const jobs = allTopologies([400, 350, 330, 310, 300, 290]);
+  const sixteenStart = 10 + 12 + 14;
+  jobs[sixteenStart] = job(
+    "Playwright benchmark 16 shards (1/16)",
+    900,
+    "success",
+    0,
+    180,
+  );
+  const result = compareShardTopologies({ benchmarkRun, benchmarkJobs: { jobs }, totalTests: 420 });
+  const sixteen = result.topologies[3];
+  assert.equal(sixteen.topologyReadySeconds, 900);
+  assert.equal(sixteen.modeledTestCriticalPathSeconds, 180);
+  assert.equal(result.provisionalSelection, 16);
 });
 
 test("prefers fewer shards when every gain is below the noise floor", () => {

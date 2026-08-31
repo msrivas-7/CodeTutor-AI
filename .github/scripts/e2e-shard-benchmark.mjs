@@ -22,6 +22,19 @@ function stepSeconds(job, stepName) {
   return step ? secondsBetween(step.started_at, step.completed_at) : null;
 }
 
+function modeledTestCriticalPath(testSeconds, parallelism) {
+  if (testSeconds.length === 0 || parallelism < 1) return null;
+  const lanes = Array.from({ length: Math.min(parallelism, testSeconds.length) }, () => 0);
+  for (const duration of [...testSeconds].sort((left, right) => right - left)) {
+    let lightest = 0;
+    for (let index = 1; index < lanes.length; index += 1) {
+      if (lanes[index] < lanes[lightest]) lightest = index;
+    }
+    lanes[lightest] += duration;
+  }
+  return Math.max(...lanes);
+}
+
 function summarizeTopology({ total, run, jobs, totalTests }) {
   const namePrefix = `Playwright benchmark ${total} shards`;
   // Reusable-workflow jobs are reported as
@@ -49,6 +62,10 @@ function summarizeTopology({ total, run, jobs, totalTests }) {
     : null;
   const slowestTestSeconds = testValues.length === total ? Math.max(...testValues) : null;
   const fastestTestSeconds = testValues.length === total ? Math.min(...testValues) : null;
+  const testParallelism = Math.min(total, STANDARD_RUNNER_CONCURRENCY - RESERVED_NON_SHARD_JOBS);
+  const modeledTestCriticalPathSeconds = testValues.length === total
+    ? modeledTestCriticalPath(testValues, testParallelism)
+    : null;
 
   return {
     shards: total,
@@ -64,6 +81,8 @@ function summarizeTopology({ total, run, jobs, totalTests }) {
     aggregateExecutionSeconds,
     slowestTestSeconds,
     fastestTestSeconds,
+    testParallelism,
+    modeledTestCriticalPathSeconds,
     testImbalanceSeconds: slowestTestSeconds !== null && fastestTestSeconds !== null
       ? slowestTestSeconds - fastestTestSeconds
       : null,
@@ -82,14 +101,15 @@ function summarizeTopology({ total, run, jobs, totalTests }) {
 }
 
 function isMeaningfullyFaster(candidate, incumbent) {
-  const absoluteGain = incumbent.topologyReadySeconds - candidate.topologyReadySeconds;
-  const relativeGain = absoluteGain / incumbent.topologyReadySeconds;
+  const absoluteGain = incumbent.modeledTestCriticalPathSeconds
+    - candidate.modeledTestCriticalPathSeconds;
+  const relativeGain = absoluteGain / incumbent.modeledTestCriticalPathSeconds;
   return absoluteGain >= MINIMUM_ABSOLUTE_GAIN_SECONDS && relativeGain >= MINIMUM_RELATIVE_GAIN;
 }
 
 function selectTopology(topologies) {
   const reliable = topologies
-    .filter((item) => item.reliable && item.topologyReadySeconds !== null)
+    .filter((item) => item.reliable && item.modeledTestCriticalPathSeconds !== null)
     .sort((left, right) => left.shards - right.shards);
   let selected = reliable[0] ?? null;
   for (const candidate of reliable.slice(1)) {
@@ -117,10 +137,10 @@ export function compareShardTopologies({ benchmarkRun, benchmarkJobs, totalTests
       standardRunnerConcurrency: STANDARD_RUNNER_CONCURRENCY,
       reservedNonShardJobs: RESERVED_NON_SHARD_JOBS,
       unconstrainedShardCeiling: STANDARD_RUNNER_CONCURRENCY - RESERVED_NON_SHARD_JOBS,
-      selectionMetric: "reliable topology-relative completion",
+      selectionMetric: "reliable modeled Playwright critical path",
       minimumRelativeGain: MINIMUM_RELATIVE_GAIN,
       minimumAbsoluteGainSeconds: MINIMUM_ABSOLUTE_GAIN_SECONDS,
-      status: "topologies run sequentially on the same commit; 20 shards is capped at 17 parallel jobs to model the normal workflow reserve; a larger topology wins only when it is reliable and materially faster",
+      status: "topologies run sequentially on the same commit; setup and queue-inclusive wall time are reported as operational context; selection models only the retry-free Playwright critical path, including the 20-shard queued test tail under the 17-job reserve",
     },
     topologies,
     provisionalSelection: selected?.shards ?? null,
@@ -149,7 +169,7 @@ function main() {
   console.log(
     `Shard benchmark provisional selection: ${result.provisionalSelection ?? "none"}; ` +
       result.topologies.map((item) =>
-        `${item.shards}=${item.reliable ? `${item.topologyReadySeconds}s (${item.averageTestsPerShard} tests/shard)` : "unreliable"}`,
+        `${item.shards}=${item.reliable ? `${item.modeledTestCriticalPathSeconds}s modeled tests / ${item.topologyReadySeconds}s wall (${item.averageTestsPerShard} tests/shard)` : "unreliable"}`,
       ).join(", "),
   );
 }
