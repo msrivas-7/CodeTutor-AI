@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   contextualOfferInvalidationForError,
+  contextualOfferStateForEvidence,
   historyForTutor,
   tutorRequestModel,
 } from "./useTutorAsk";
@@ -55,11 +56,29 @@ describe("contextualOfferInvalidationForError", () => {
     expect(contextualOfferInvalidationForError(
       'Request failed (409): {"error":"CONTEXTUAL_EVIDENCE_REPLAYED"}',
       "anon",
-    )).toBe("availability");
+    )).toBe("replayed");
     expect(contextualOfferInvalidationForError(
       'Request failed (409): {"error":"CONTEXTUAL_EVIDENCE_REPLAYED"}',
       "authed",
-    )).toBe("availability");
+    )).toBe("replayed");
+  });
+});
+
+describe("contextualOfferStateForEvidence", () => {
+  it("retires only the attempted evidence key", () => {
+    expect(contextualOfferStateForEvidence({
+      evidenceToken: "signed-current",
+      currentEvidenceKey: "python-unclosed-parenthesis:main.py:1",
+      attemptedEvidenceKey: "python-unclosed-parenthesis:main.py:1",
+      tutorAvailability: "ready",
+    })).toBe("unavailable");
+
+    expect(contextualOfferStateForEvidence({
+      evidenceToken: "signed-new",
+      currentEvidenceKey: "python-unclosed-parenthesis:main.py:2",
+      attemptedEvidenceKey: "python-unclosed-parenthesis:main.py:1",
+      tutorAvailability: "ready",
+    })).toBe("ready");
   });
 });
 

@@ -55,6 +55,7 @@ import { useRunStore } from "../../../state/runStore";
 import { isRetrievalPending, pickFirstFailure } from "../utils/validator";
 import { computeMastery, formatTimeSpent } from "../utils/mastery";
 import { useShortcutLabels } from "../../../util/platform";
+import { contextualOfferStateForEvidence } from "../../../util/useTutorAsk";
 import {
   clamp,
   clampSide,
@@ -1155,7 +1156,7 @@ export default function LessonPage({
   const contextualAskOutcomeRef = useRef<{
     lessonKey: string;
     ok: boolean;
-    invalidation?: "stale" | "disabled" | "model" | "quota" | "availability";
+    invalidation?: "stale" | "disabled" | "model" | "quota" | "availability" | "replayed";
     interruption?: "panel-remounted";
   } | null>(null);
   useEffect(() => {
@@ -1228,9 +1229,12 @@ export default function LessonPage({
   );
   const contextualEvidenceToken = runner.lastResult?.contextualEvidenceToken;
   const contextualOfferState: ContextualTutorAvailability =
-    contextualEvidenceToken
-      ? contextualTutorAvailability
-      : "unavailable";
+    contextualOfferStateForEvidence({
+      evidenceToken: contextualEvidenceToken,
+      currentEvidenceKey: contextualEvidenceKey,
+      attemptedEvidenceKey: acceptedContextualEvidenceRef.current,
+      tutorAvailability: contextualTutorAvailability,
+    });
   const askContextualTutor = useCallback(() => {
     const decision = contextualGuide.decision;
     const evidence = contextualGuide.context.latestRunEvidence;
@@ -1283,7 +1287,7 @@ export default function LessonPage({
   };
   const handleContextualTutorAskComplete = useCallback((
     ok: boolean,
-    invalidation?: "stale" | "disabled" | "model" | "quota" | "availability",
+    invalidation?: "stale" | "disabled" | "model" | "quota" | "availability" | "replayed",
     interruption?: "panel-remounted",
   ) => {
     if (
@@ -1337,6 +1341,10 @@ export default function LessonPage({
         // authored error with a fresh server-signed evidence token.
         acceptedContextualEvidenceRef.current = null;
         contextualGuide.expireEvidence();
+      } else if (outcome.invalidation === "replayed") {
+        // Keep this consumed evidence key retired without poisoning Tutor
+        // availability for the rest of the lesson. A later distinct evidence
+        // key re-arms naturally, while the current authored guide remains.
       } else if (
         outcome.invalidation === "disabled" ||
         outcome.invalidation === "model" ||

@@ -64,16 +64,16 @@ export function tutorRequestModel({
 export function contextualOfferInvalidationForError(
   message: string,
   mode: "authed" | "anon",
-): "stale" | "disabled" | "model" | "quota" | "availability" | null {
+): "stale" | "disabled" | "model" | "quota" | "availability" | "replayed" | null {
   if (/CONTEXTUAL_EVIDENCE_STALE/i.test(message)) return "stale";
   if (/CONTEXTUAL_TUTOR_DISABLED/i.test(message)) return "disabled";
   if (/MODEL_NOT_EVALUATED_FOR_CONTEXTUAL_OFFER/i.test(message)) return "model";
   if (/PLATFORM_AI_PAUSED/i.test(message)) return "quota";
   if (/AI_ADMISSION_UNAVAILABLE/i.test(message)) return "availability";
-  // The contextual turn was already admitted in this or another tab. Treat
-  // replay as a terminal offer invalidation: preserve the free authored guide,
-  // remove the spending action, and leave ordinary Tutor questions available.
-  if (/CONTEXTUAL_EVIDENCE_REPLAYED/i.test(message)) return "availability";
+  // The contextual turn was already admitted in this or another tab. Retire
+  // only this evidence episode; a different later error must not inherit a
+  // lesson-wide availability latch.
+  if (/CONTEXTUAL_EVIDENCE_REPLAYED/i.test(message)) return "replayed";
   if (mode === "anon" && /ANON_LESSON_DISABLED/i.test(message)) {
     return "availability";
   }
@@ -83,6 +83,22 @@ export function contextualOfferInvalidationForError(
   if (mode === "anon" && /ANON_EXHAUSTED/i.test(message)) return "quota";
   if (mode === "authed" && /FREE_TIER_EXHAUSTED/i.test(message)) return "quota";
   return null;
+}
+
+export function contextualOfferStateForEvidence({
+  evidenceToken,
+  currentEvidenceKey,
+  attemptedEvidenceKey,
+  tutorAvailability,
+}: {
+  evidenceToken: string | null | undefined;
+  currentEvidenceKey: string | null;
+  attemptedEvidenceKey: string | null;
+  tutorAvailability: "loading" | "ready" | "unavailable";
+}): "loading" | "ready" | "unavailable" {
+  return evidenceToken && attemptedEvidenceKey !== currentEvidenceKey
+    ? tutorAvailability
+    : "unavailable";
 }
 
 /** Load a current compatible choice before an existing BYOK user can ask. */
@@ -140,7 +156,7 @@ export interface UseTutorAskOpts {
   }) => void;
   /** Invalidates a contextual offer whose signed evidence can no longer be used. */
   onContextualOfferInvalidated?: (
-    reason: "stale" | "disabled" | "model" | "quota" | "availability",
+    reason: "stale" | "disabled" | "model" | "quota" | "availability" | "replayed",
   ) => void;
   onAllowanceUpdate?: (remainingToday: number | null) => void;
   /**
@@ -544,6 +560,12 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
               // Preserve the free authored guide and stop advertising the
               // contextual spending action for this mounted lesson.
               opts.onContextualOfferInvalidated?.("availability");
+            }
+            if (contextualInvalidation === "replayed") {
+              // Another request already consumed this server-owned episode.
+              // The owner retires this evidence-specific action while keeping
+              // runtime availability intact for genuinely new evidence.
+              opts.onContextualOfferInvalidated?.("replayed");
             }
             // Phase 27-v2.1 audit pass 1 fix #5: detect the L_anon
             // cap-exceeded error code and route to the wall instead

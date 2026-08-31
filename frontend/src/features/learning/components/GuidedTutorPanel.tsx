@@ -98,7 +98,7 @@ interface GuidedTutorPanelProps {
   /** Reports whether an accepted contextual turn completed successfully. */
   onContextualTutorAskComplete?: (
     ok: boolean,
-    invalidation?: "stale" | "disabled" | "model" | "quota" | "availability",
+    invalidation?: "stale" | "disabled" | "model" | "quota" | "availability" | "replayed",
     interruption?: "panel-remounted",
   ) => void;
   /** Reports an in-flight ask canceled by a responsive panel replacement. */
@@ -238,7 +238,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
   const [activeContextualOffer, setActiveContextualOffer] = useState<ContextualTutorOfferRequest | null>(null);
   const activeContextualOfferRef = useRef<ContextualTutorOfferRequest | null>(null);
   const contextualInvalidationRef = useRef<
-    "stale" | "disabled" | "model" | "quota" | "availability" | null
+    "stale" | "disabled" | "model" | "quota" | "availability" | "replayed" | null
   >(null);
   const updateActiveContextualOffer = (offer: ContextualTutorOfferRequest | null) => {
     activeContextualOfferRef.current = offer;
