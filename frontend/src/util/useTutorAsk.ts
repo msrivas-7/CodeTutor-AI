@@ -70,6 +70,10 @@ export function contextualOfferInvalidationForError(
   if (/MODEL_NOT_EVALUATED_FOR_CONTEXTUAL_OFFER/i.test(message)) return "model";
   if (/PLATFORM_AI_PAUSED/i.test(message)) return "quota";
   if (/AI_ADMISSION_UNAVAILABLE/i.test(message)) return "availability";
+  // The contextual turn was already admitted in this or another tab. Treat
+  // replay as a terminal offer invalidation: preserve the free authored guide,
+  // remove the spending action, and leave ordinary Tutor questions available.
+  if (/CONTEXTUAL_EVIDENCE_REPLAYED/i.test(message)) return "availability";
   if (mode === "anon" && /ANON_LESSON_DISABLED/i.test(message)) {
     return "availability";
   }

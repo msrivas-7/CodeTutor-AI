@@ -75,6 +75,25 @@ describe("tutor recovery copy", () => {
     });
   });
 
+  it("keeps contextual replay refusals private and non-retryable", () => {
+    const raw = JSON.stringify({ error: "CONTEXTUAL_EVIDENCE_REPLAYED" });
+    expect(classifyAskError(raw)).toEqual({
+      kind: "contextualEvidenceReplayed",
+      title: "Contextual help already used",
+      hint: "Your current error guide is still here. Keep working, or ask the Tutor a new question.",
+      retryable: false,
+      showDetails: false,
+    });
+
+    const markup = renderToStaticMarkup(createElement(AskErrorView, {
+      message: raw,
+      onRetry: vi.fn(),
+    }));
+    expect(markup).not.toContain("CONTEXTUAL_EVIDENCE_REPLAYED");
+    expect(markup).not.toContain("Try again");
+    expect(markup).toMatch(/current error guide is still here/i);
+  });
+
   it("turns a signed-in allowance race into clear non-retryable recovery", () => {
     expect(classifyAskError('{"error":"FREE_TIER_EXHAUSTED"}')).toEqual({
       kind: "freeTierExhausted",

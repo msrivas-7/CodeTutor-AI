@@ -52,6 +52,14 @@ describe("contextualOfferInvalidationForError", () => {
       'Request failed (503): {"error":"ANON_LESSON_DISABLED"}',
       "anon",
     )).toBe("availability");
+    expect(contextualOfferInvalidationForError(
+      'Request failed (409): {"error":"CONTEXTUAL_EVIDENCE_REPLAYED"}',
+      "anon",
+    )).toBe("availability");
+    expect(contextualOfferInvalidationForError(
+      'Request failed (409): {"error":"CONTEXTUAL_EVIDENCE_REPLAYED"}',
+      "authed",
+    )).toBe("availability");
   });
 });
 

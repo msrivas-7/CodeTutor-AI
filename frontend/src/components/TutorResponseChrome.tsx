@@ -173,6 +173,15 @@ export function classifyAskError(raw: string): {
 } {
   const parsed = parseTutorError(raw);
   const errorCode = parsed.code?.toUpperCase();
+  if (errorCode === "CONTEXTUAL_EVIDENCE_REPLAYED") {
+    return {
+      kind: "contextualEvidenceReplayed",
+      title: "Contextual help already used",
+      hint: "Your current error guide is still here. Keep working, or ask the Tutor a new question.",
+      retryable: false,
+      showDetails: false,
+    };
+  }
   if (errorCode === "AI_ADMISSION_UNAVAILABLE") {
     return {
       kind: "admissionUnavailable",
