@@ -110,8 +110,9 @@ test("duration planning receives the authenticated fixture environment required 
 });
 
 test("parallel browser stacks stay below the shared database client ceiling", () => {
-  assert.match(workflow, /DATABASE_POOL_MAX: "6"/);
-  assert.match(workflow, /26 isolated backends[\s\S]+156[\s\S]+200-client ceiling/);
+  assert.match(workflow, /DATABASE_POOL_MAX: "1"/);
+  assert.match(workflow, /26 isolated backends[\s\S]+aggregate[\s\S]+26/);
+  assert.match(workflow, /preserves postgres\.js transaction ownership/);
   assert.match(compose, /DATABASE_POOL_MAX: "\$\{DATABASE_POOL_MAX:-}"/);
 });
 

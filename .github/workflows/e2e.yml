@@ -76,10 +76,10 @@ env:
   CI_RUNNER_IMAGE: ghcr.io/${{ github.repository_owner }}/codetutor-ci-runner
   CI_FRONTEND_IMAGE: ghcr.io/${{ github.repository_owner }}/codetutor-ci-frontend
   # At the 20/4 candidate topology, 26 isolated backends share the development
-  # Supabase transaction pooler. Six connections per stack caps aggregate
-  # demand at 156, leaving headroom below its 200-client ceiling. Production
-  # keeps the backend's calibrated default of 25.
-  DATABASE_POOL_MAX: "6"
+  # Supabase transaction pooler. One connection per E2E stack keeps aggregate
+  # demand at 26 and also preserves postgres.js transaction ownership under
+  # concurrent test workers. Production keeps its calibrated default of 25.
+  DATABASE_POOL_MAX: "1"
 
 jobs:
   duration-plan:
