@@ -44,6 +44,59 @@ export interface LocalDockerBackendOptions {
   dockerExecConcurrency?: number;
 }
 
+type DockerExecStream = NodeJS.ReadableStream & {
+  readonly readableEnded?: boolean;
+  readonly destroyed?: boolean;
+  readonly errored?: unknown;
+};
+
+/**
+ * Wait for a short-lived Docker exec stream without missing a completion that
+ * races ahead of listener registration. Dockerode can resolve exec.start()
+ * after a very fast command has already ended or closed its stream.
+ */
+export function waitForDockerExecCompletion(stream: DockerExecStream): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const cleanup = () => {
+      stream.removeListener("end", complete);
+      stream.removeListener("close", complete);
+      stream.removeListener("error", fail);
+    };
+    const complete = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve();
+    };
+    const fail = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error instanceof Error ? error : new Error(String(error)));
+    };
+
+    stream.once("end", complete);
+    stream.once("close", complete);
+    stream.once("error", fail);
+
+    // The terminal event may have fired before the listeners above were
+    // attached. Inspect state only after registration so neither ordering can
+    // leave cancellation waiting forever.
+    if (stream.errored) {
+      fail(stream.errored);
+      return;
+    }
+    if (stream.readableEnded || stream.destroyed) {
+      complete();
+      return;
+    }
+
+    // Consume any diagnostic bytes so a non-empty exec stream can reach end.
+    stream.resume();
+  });
+}
+
 export class LocalDockerBackend implements ExecutionBackend {
   readonly kind = "local-docker";
   private docker: Docker;
@@ -368,11 +421,7 @@ export class LocalDockerBackend implements ExecutionBackend {
       Tty: false,
     });
     const stream = await cancelExec.start({ hijack: true });
-    await new Promise<void>((resolve, reject) => {
-      stream.once("end", resolve);
-      stream.once("close", resolve);
-      stream.once("error", reject);
-    });
+    await waitForDockerExecCompletion(stream);
   }
 
   async writeFiles(

@@ -2,12 +2,14 @@ import { describe, it, expect } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { PassThrough } from "node:stream";
 import {
   LocalDockerBackend,
   ensureNoSymlinkInPath,
   joinHostPath,
   resolveRunnerWorkspacePermissions,
   truncateLongLines,
+  waitForDockerExecCompletion,
   MAX_LINE_BYTES,
 } from "./localDocker.js";
 import type { SessionHandle } from "./types.js";
@@ -181,6 +183,34 @@ describe("LocalDockerBackend handle cast", () => {
     await expect(backend.isAlive(foreign)).rejects.toThrow(
       /different backend/,
     );
+  });
+});
+
+describe("waitForDockerExecCompletion", () => {
+  it("resolves when a fast Docker command ended before completion was observed", async () => {
+    const stream = new PassThrough();
+    const ended = new Promise<void>((resolve) => stream.once("end", resolve));
+    stream.resume();
+    stream.end();
+    await ended;
+
+    await expect(waitForDockerExecCompletion(stream)).resolves.toBeUndefined();
+  });
+
+  it("observes a Docker command that completes after registration", async () => {
+    const stream = new PassThrough();
+    const completion = waitForDockerExecCompletion(stream);
+    stream.end();
+
+    await expect(completion).resolves.toBeUndefined();
+  });
+
+  it("rejects a Docker stream error instead of reporting cancellation success", async () => {
+    const stream = new PassThrough();
+    const completion = waitForDockerExecCompletion(stream);
+    stream.destroy(new Error("docker stream failed"));
+
+    await expect(completion).rejects.toThrow("docker stream failed");
   });
 });
 
