@@ -31,8 +31,22 @@ function experiment(id, values) {
   return Array.from({ length: 16 }, (_, index) => job(id, index + 1, values));
 }
 
+function preparation(name, duration = 25, conclusion = "success") {
+  const started = new Date("2026-08-31T09:55:00Z");
+  return {
+    name,
+    conclusion,
+    started_at: started.toISOString(),
+    completed_at: new Date(started.getTime() + duration * 1000).toISOString(),
+    steps: [],
+  };
+}
+
 function reliableJobs() {
   return [
+    preparation("Build backend E2E image once"),
+    preparation("Build runner E2E image once", 20),
+    preparation("Build frontend E2E image once", 22),
     ...experiment("local-w2", { duration: 360, boot: 120, tests: 190 }),
     ...experiment("prebuilt-w2", { duration: 300, boot: 55, tests: 190, offset: 500 }),
     ...experiment("prebuilt-w3", { duration: 270, boot: 55, tests: 160, offset: 900 }),
@@ -47,6 +61,11 @@ test("selects image reuse and only materially faster worker counts", () => {
     totalTests: 439,
   });
   assert.deepEqual(result.provisionalSelection, { prebuiltImages: true, workersPerShard: 3 });
+  assert.equal(result.preparation.readySeconds, 25);
+  assert.deepEqual(result.cacheComparison, {
+    localEndToEndSeconds: 360,
+    prebuiltEndToEndSeconds: 325,
+  });
   assert.equal(result.experiments[0].bootSeconds.median, 120);
   assert.equal(result.experiments[1].bootSeconds.p90, 55);
 });
@@ -57,6 +76,27 @@ test("does not adopt image reuse without a material end-to-end gain", () => {
     item.completed_at = new Date(Date.parse(item.started_at) + 350_000).toISOString();
   }
   const result = compareRuntimeExperiments({ benchmarkRun: run, benchmarkJobs: jobs, totalTests: 439 });
+  assert.deepEqual(result.provisionalSelection, { prebuiltImages: false, workersPerShard: null });
+});
+
+test("charges the complete image preparation critical path to reuse", () => {
+  const jobs = reliableJobs();
+  for (const item of jobs.filter((candidate) => candidate.name.includes("E2E image once"))) {
+    item.completed_at = new Date(Date.parse(item.started_at) + 80_000).toISOString();
+  }
+  const result = compareRuntimeExperiments({ benchmarkRun: run, benchmarkJobs: jobs, totalTests: 439 });
+  assert.deepEqual(result.cacheComparison, {
+    localEndToEndSeconds: 360,
+    prebuiltEndToEndSeconds: 380,
+  });
+  assert.deepEqual(result.provisionalSelection, { prebuiltImages: false, workersPerShard: null });
+});
+
+test("fails closed when any required image preparation job fails", () => {
+  const jobs = reliableJobs();
+  jobs.find((item) => item.name.includes("runner E2E image")).conclusion = "failure";
+  const result = compareRuntimeExperiments({ benchmarkRun: run, benchmarkJobs: jobs, totalTests: 439 });
+  assert.equal(result.preparation.reliable, false);
   assert.deepEqual(result.provisionalSelection, { prebuiltImages: false, workersPerShard: null });
 });
 
@@ -73,6 +113,8 @@ test("workflow holds shards constant and changes one worker variable per stage",
   assert.match(workflow, /experiment: prebuilt-w2\n\s+workers: 2/);
   assert.match(workflow, /experiment: prebuilt-w3\n\s+workers: 3/);
   assert.match(workflow, /experiment: prebuilt-w4\n\s+workers: 4/);
+  assert.equal((workflow.match(/name: Build (?:backend|runner|frontend) E2E image once/g) ?? []).length, 3);
+  assert.match(workflow, /needs: \[prepare-backend, prepare-runner, prepare-frontend\]/);
   assert.doesNotMatch(workflow, /max_parallel: (?:2[1-9]|[3-9][0-9])/);
   assert.match(topology, /--workers=\$\{\{ inputs\.workers }}/);
   assert.match(topology, /docker compose up -d --no-build backend frontend/);

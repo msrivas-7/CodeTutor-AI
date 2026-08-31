@@ -25,14 +25,12 @@ env:
   CI_FRONTEND_IMAGE: ghcr.io/${{ github.repository_owner }}/codetutor-ci-frontend
 
 jobs:
-  prepare-images:
-    name: Build immutable E2E images once
+  prepare-backend:
+    name: Build backend E2E image once
     if: github.event.label.name == 'ci-runtime-benchmark' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     outputs:
-      backend_ref: ${{ steps.refs.outputs.backend_ref }}
-      runner_ref: ${{ steps.refs.outputs.runner_ref }}
-      frontend_ref: ${{ steps.refs.outputs.frontend_ref }}
+      ref: ${{ steps.ref.outputs.value }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
@@ -52,6 +50,25 @@ jobs:
           tags: ${{ env.CI_BACKEND_IMAGE }}:run-${{ github.run_id }}
           cache-from: type=gha,scope=e2e-backend
           cache-to: type=gha,scope=e2e-backend,mode=max
+      - name: Export immutable backend reference
+        id: ref
+        run: echo "value=$CI_BACKEND_IMAGE@${{ steps.backend.outputs.digest }}" >> "$GITHUB_OUTPUT"
+
+  prepare-runner:
+    name: Build runner E2E image once
+    if: github.event.label.name == 'ci-runtime-benchmark' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    outputs:
+      ref: ${{ steps.ref.outputs.value }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
       - name: Build and publish runner benchmark image
         id: runner
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
@@ -61,6 +78,25 @@ jobs:
           tags: ${{ env.CI_RUNNER_IMAGE }}:run-${{ github.run_id }}
           cache-from: type=gha,scope=e2e-runner
           cache-to: type=gha,scope=e2e-runner,mode=max
+      - name: Export immutable runner reference
+        id: ref
+        run: echo "value=$CI_RUNNER_IMAGE@${{ steps.runner.outputs.digest }}" >> "$GITHUB_OUTPUT"
+
+  prepare-frontend:
+    name: Build frontend E2E image once
+    if: github.event.label.name == 'ci-runtime-benchmark' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    outputs:
+      ref: ${{ steps.ref.outputs.value }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
       - name: Build and publish frontend benchmark image
         id: frontend
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
@@ -72,19 +108,13 @@ jobs:
           tags: ${{ env.CI_FRONTEND_IMAGE }}:run-${{ github.run_id }}
           cache-from: type=gha,scope=e2e-frontend
           cache-to: type=gha,scope=e2e-frontend,mode=max
-      - name: Export immutable image references
-        id: refs
-        run: |
-          set -euo pipefail
-          {
-            echo "backend_ref=$CI_BACKEND_IMAGE@${{ steps.backend.outputs.digest }}"
-            echo "runner_ref=$CI_RUNNER_IMAGE@${{ steps.runner.outputs.digest }}"
-            echo "frontend_ref=$CI_FRONTEND_IMAGE@${{ steps.frontend.outputs.digest }}"
-          } >> "$GITHUB_OUTPUT"
+      - name: Export immutable frontend reference
+        id: ref
+        run: echo "value=$CI_FRONTEND_IMAGE@${{ steps.frontend.outputs.digest }}" >> "$GITHUB_OUTPUT"
 
   baseline-local-w2:
     if: github.event.label.name == 'ci-runtime-benchmark'
-    needs: prepare-images
+    needs: [prepare-backend, prepare-runner, prepare-frontend]
     uses: ./.github/workflows/e2e-shard-topology.yml
     with:
       total: 16
@@ -95,8 +125,8 @@ jobs:
     secrets: inherit
 
   prebuilt-w2:
-    if: always() && github.event.label.name == 'ci-runtime-benchmark' && needs.prepare-images.result == 'success' && needs.baseline-local-w2.result == 'success'
-    needs: [prepare-images, baseline-local-w2]
+    if: always() && github.event.label.name == 'ci-runtime-benchmark' && needs.prepare-backend.result == 'success' && needs.prepare-runner.result == 'success' && needs.prepare-frontend.result == 'success' && needs.baseline-local-w2.result == 'success'
+    needs: [prepare-backend, prepare-runner, prepare-frontend, baseline-local-w2]
     uses: ./.github/workflows/e2e-shard-topology.yml
     with:
       total: 16
@@ -104,14 +134,14 @@ jobs:
       max_parallel: 16
       experiment: prebuilt-w2
       workers: 2
-      backend_image_ref: ${{ needs.prepare-images.outputs.backend_ref }}
-      runner_image_ref: ${{ needs.prepare-images.outputs.runner_ref }}
-      frontend_image_ref: ${{ needs.prepare-images.outputs.frontend_ref }}
+      backend_image_ref: ${{ needs.prepare-backend.outputs.ref }}
+      runner_image_ref: ${{ needs.prepare-runner.outputs.ref }}
+      frontend_image_ref: ${{ needs.prepare-frontend.outputs.ref }}
     secrets: inherit
 
   prebuilt-w3:
-    if: always() && github.event.label.name == 'ci-runtime-benchmark' && needs.prepare-images.result == 'success' && needs.prebuilt-w2.result == 'success'
-    needs: [prepare-images, prebuilt-w2]
+    if: always() && github.event.label.name == 'ci-runtime-benchmark' && needs.prepare-backend.result == 'success' && needs.prepare-runner.result == 'success' && needs.prepare-frontend.result == 'success' && needs.prebuilt-w2.result == 'success'
+    needs: [prepare-backend, prepare-runner, prepare-frontend, prebuilt-w2]
     uses: ./.github/workflows/e2e-shard-topology.yml
     with:
       total: 16
@@ -119,14 +149,14 @@ jobs:
       max_parallel: 16
       experiment: prebuilt-w3
       workers: 3
-      backend_image_ref: ${{ needs.prepare-images.outputs.backend_ref }}
-      runner_image_ref: ${{ needs.prepare-images.outputs.runner_ref }}
-      frontend_image_ref: ${{ needs.prepare-images.outputs.frontend_ref }}
+      backend_image_ref: ${{ needs.prepare-backend.outputs.ref }}
+      runner_image_ref: ${{ needs.prepare-runner.outputs.ref }}
+      frontend_image_ref: ${{ needs.prepare-frontend.outputs.ref }}
     secrets: inherit
 
   prebuilt-w4:
-    if: always() && github.event.label.name == 'ci-runtime-benchmark' && needs.prepare-images.result == 'success' && needs.prebuilt-w3.result == 'success'
-    needs: [prepare-images, prebuilt-w3]
+    if: always() && github.event.label.name == 'ci-runtime-benchmark' && needs.prepare-backend.result == 'success' && needs.prepare-runner.result == 'success' && needs.prepare-frontend.result == 'success' && needs.prebuilt-w3.result == 'success'
+    needs: [prepare-backend, prepare-runner, prepare-frontend, prebuilt-w3]
     uses: ./.github/workflows/e2e-shard-topology.yml
     with:
       total: 16
@@ -134,15 +164,15 @@ jobs:
       max_parallel: 16
       experiment: prebuilt-w4
       workers: 4
-      backend_image_ref: ${{ needs.prepare-images.outputs.backend_ref }}
-      runner_image_ref: ${{ needs.prepare-images.outputs.runner_ref }}
-      frontend_image_ref: ${{ needs.prepare-images.outputs.frontend_ref }}
+      backend_image_ref: ${{ needs.prepare-backend.outputs.ref }}
+      runner_image_ref: ${{ needs.prepare-runner.outputs.ref }}
+      frontend_image_ref: ${{ needs.prepare-frontend.outputs.ref }}
     secrets: inherit
 
   compare:
     name: Compare Docker reuse and worker counts
     if: always() && github.event.label.name == 'ci-runtime-benchmark'
-    needs: [prepare-images, baseline-local-w2, prebuilt-w2, prebuilt-w3, prebuilt-w4]
+    needs: [prepare-backend, prepare-runner, prepare-frontend, baseline-local-w2, prebuilt-w2, prebuilt-w3, prebuilt-w4]
     runs-on: ubuntu-latest
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}

@@ -9,6 +9,11 @@ const MINIMUM_RELATIVE_GAIN = 0.05;
 const MINIMUM_ABSOLUTE_GAIN_SECONDS = 20;
 const BOOT_STEP_NAME = "Boot docker-compose stack";
 const TEST_STEP_NAME = "Run identical full suite without retries";
+const PREPARATION_JOBS = [
+  "Build backend E2E image once",
+  "Build runner E2E image once",
+  "Build frontend E2E image once",
+];
 const EXPERIMENTS = [
   { id: "local-w2", imageMode: "local-build", workers: 2 },
   { id: "prebuilt-w2", imageMode: "prebuilt", workers: 2 },
@@ -91,6 +96,34 @@ function summarizeExperiment(experiment, run, jobs, totalTests) {
   };
 }
 
+function summarizePreparation(jobs) {
+  const selected = jobs.filter((job) =>
+    PREPARATION_JOBS.some((name) => job.name.includes(name)));
+  const starts = selected.map((job) => Date.parse(job.started_at)).filter(Number.isFinite);
+  const startedAt = starts.length === PREPARATION_JOBS.length
+    ? new Date(Math.min(...starts)).toISOString()
+    : null;
+  const readyValues = selected
+    .map((job) => secondsBetween(startedAt, job.completed_at))
+    .filter((value) => value !== null);
+  return {
+    expectedJobs: PREPARATION_JOBS.length,
+    observedJobs: selected.length,
+    reliable: selected.length === PREPARATION_JOBS.length
+      && selected.every((job) => job.conclusion === "success"),
+    startedAt,
+    readySeconds: readyValues.length === PREPARATION_JOBS.length
+      ? Math.max(...readyValues)
+      : null,
+    jobs: selected.map((job) => ({
+      name: job.name,
+      conclusion: job.conclusion ?? "unknown",
+      executionSeconds: secondsBetween(job.started_at, job.completed_at),
+      preparationRelativeSeconds: secondsBetween(startedAt, job.completed_at),
+    })),
+  };
+}
+
 function isMeaningfullyFaster(candidateSeconds, incumbentSeconds) {
   if (candidateSeconds === null || incumbentSeconds === null) return false;
   const absoluteGain = incumbentSeconds - candidateSeconds;
@@ -118,12 +151,19 @@ export function compareRuntimeExperiments({ benchmarkRun, benchmarkJobs, totalTe
   const jobs = benchmarkJobs.jobs ?? benchmarkJobs;
   const experiments = EXPERIMENTS.map((experiment) =>
     summarizeExperiment(experiment, benchmarkRun, jobs, totalTests));
+  const preparation = summarizePreparation(jobs);
   const local = experiments.find((item) => item.id === "local-w2");
   const prebuilt = experiments.find((item) => item.id === "prebuilt-w2");
+  const localEndToEndSeconds = local?.topologyReadySeconds ?? null;
+  const prebuiltEndToEndSeconds = preparation.readySeconds !== null
+    && prebuilt?.topologyReadySeconds !== null
+    ? preparation.readySeconds + prebuilt.topologyReadySeconds
+    : null;
   const prebuiltImages = Boolean(
-    local?.reliable
+    preparation.reliable
+      && local?.reliable
       && prebuilt?.reliable
-      && isMeaningfullyFaster(prebuilt.topologyReadySeconds, local.topologyReadySeconds),
+      && isMeaningfullyFaster(prebuiltEndToEndSeconds, localEndToEndSeconds),
   );
   const selectedWorkers = prebuiltImages ? selectWorkers(experiments) : null;
 
@@ -137,11 +177,16 @@ export function compareRuntimeExperiments({ benchmarkRun, benchmarkJobs, totalTe
       maximumChromiumShards: 20,
       minimumRelativeGain: MINIMUM_RELATIVE_GAIN,
       minimumAbsoluteGainSeconds: MINIMUM_ABSOLUTE_GAIN_SECONDS,
-      cacheSelectionMetric: "reliable topology completion at identical 16x2 test parallelism",
+      cacheSelectionMetric: "reliable parallel image preparation plus topology completion versus local topology completion at identical 16x2 test parallelism",
       workerSelectionMetric: "reliable retry-free Playwright test critical path after image reuse",
-      status: "same commit; sequential experiments; image reuse and worker count measured independently",
+      status: "same commit; sequential experiments; parallel image preparation is charged to the reuse candidate; image reuse and worker count are measured independently",
     },
+    preparation,
     experiments,
+    cacheComparison: {
+      localEndToEndSeconds,
+      prebuiltEndToEndSeconds,
+    },
     provisionalSelection: {
       prebuiltImages,
       workersPerShard: selectedWorkers?.workers ?? null,
