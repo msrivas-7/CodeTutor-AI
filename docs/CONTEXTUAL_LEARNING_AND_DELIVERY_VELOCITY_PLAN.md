@@ -434,6 +434,18 @@ not promote production. The live rollback/forward-promotion drill is a separate
 post-merge operational obligation required before declaring the production
 gate fully exercised.
 
+**Live-drill completion (2026-08-31):** rollback run
+[`33409584774`](https://github.com/msrivas-7/CodeTutor-AI/actions/runs/33409584774)
+promoted retained candidate `297a09b4d4873d10e1b1e688f151f8a3a325fcb3`
+and passed independent frontend-identity and backend deep-health checks in 2m39s.
+Forward release
+[`33409904066`](https://github.com/msrivas-7/CodeTutor-AI/actions/runs/33409904066)
+restored exact current candidate `4edcd73fa3a8669ac09495fbb7d5234d8ccfc742`;
+production synthetic
+[`33411478984`](https://github.com/msrivas-7/CodeTutor-AI/actions/runs/33411478984)
+and in-app Browser phase audit `fcaf8da5-d989-46be-8f94-3f634c469050`
+then passed. No database migration existed between the two candidates.
+
 Deliver:
 
 - build immutable frontend and backend artifacts once;
@@ -706,9 +718,10 @@ verification. The founder explicitly waived waiting for real-learner
 experiment evidence. The exception did not weaken the security, cost,
 AI-quality, deterministic, accessibility, live-browser, CI, review, rollback,
 or production-verification requirements. Automated rollback contracts passed,
-but Release 0P's separate live production rollback/forward-promotion drill has
-not been performed and remains an open operational gate. The two-human judge
-calibration is also incomplete and is not claimed. See
+and Release 0P's separate live production rollback/forward-promotion drill
+subsequently passed on 2026-08-31 with exact identity, health, synthetic, and
+Browser evidence. The two-human judge calibration remains incomplete and is
+not claimed. See
 `docs/RELEASE_1C_ENTRY_GATE.md` for the decision record and evidence matrix.
 
 **Applied entry gate:** the dated founder exception superseded Release 1B's
@@ -717,15 +730,14 @@ engineering release. B2, deterministic AI-safety validators, the complete
 automated eval-v2 run, authority, idempotency, cost, security, accessibility,
 CI, review, automated rollback controls, and production journey verification
 remained mandatory and passed. The separate live 0P rollback/forward-promotion
-drill remains open, so the production rollback gate is not claimed as fully
-exercised. The automated model run was provisional risk evidence, not
+drill also passed on 2026-08-31, restoring the exact current candidate before
+synthetic and live-browser acceptance. The automated model run was provisional risk evidence, not
 authoritative eval-v2 approval: Section 9.2's separate two-human judge
 calibration was not performed and remains required before automated judging can
 support an authoritative quality claim. The engineering release was supported
 by deterministic safeguards, provisional automated evidence, an independent
 kill switch, exact-SHA deployment, and production-browser verification; it does
-not establish calibrated human agreement, learner recovery, retention, or a
-completed live rollback rehearsal.
+not establish calibrated human agreement, learner recovery, or retention.
 
 **Complexity:** two to four weeks.
 
@@ -1189,7 +1201,10 @@ risk decision. Release 0D is now implemented on this branch, so server
 authority, atomic admission, answer-leak protection, output safety, and model
 eligibility are non-bypassable. The production disable/rollback drill target
 remains under 10 minutes and must be recorded as operational evidence rather
-than inferred from automated tests.
+than inferred from automated tests. The 2026-08-31 live drill completed
+rollback in 2m39s, forward-promoted the exact current candidate, and passed
+synthetic plus Browser acceptance; its evidence is recorded in the Release 0P
+section and `docs/RELEASE_1C_ENTRY_GATE.md`.
 
 ## 10. Success and stop gates
 
@@ -1261,7 +1276,7 @@ list of unfinished engineering work.
 
 ### P0
 
-1. **0P — implementation complete:** approved candidate manifest and exact artifact promotion; the post-merge live rollback/forward drill remains operational evidence.
+1. **0P — complete:** approved candidate manifest and exact artifact promotion; the 2026-08-31 live rollback/forward drill passed with recorded identity, health, synthetic, and Browser evidence.
 2. **0B — complete:** suffix-scoped E2E teardown, non-test-user deletion guard, and overlapping-run proof.
 3. **1A — complete:** late Run/Check/tutor operation identity and stale-result rejection.
 4. **0D — complete:** atomic platform-AI reservation/admission and complete eval gate v2.
@@ -1279,7 +1294,7 @@ list of unfinished engineering work.
 ### P2
 
 12. **B1/B2 — complete for engineering:** locked memory and Socratic groundwork; real-user outcomes remain pending.
-13. **1C — engineering release delivered with an open operational gate:** the founder exception waived the learner-evidence prerequisites for this release; automated quality, security, cost, accessibility, CI, review, rollback-contract, deployment, and production-journey gates passed. The live 0P rollback/forward-promotion drill, human calibration, and learner outcomes remain explicit non-claims.
+13. **1C — engineering release complete:** the founder exception waived the learner-evidence prerequisites for this release; automated quality, security, cost, accessibility, CI, review, rollback-contract, deployment, production-journey, and live 0P rollback/forward-promotion gates passed. Human calibration and learner outcomes remain explicit non-claims.
 14. **B3/B7/B8 — engineering complete:** real-user dropoff and other product outcomes remain pending.
 15. **Reporting — engineering controls complete:** real-traffic cost/performance/outcome reporting begins only when traffic exists.
 16. **Visual polish — completed for the eligible surfaces in this workstream:** future polish remains ordinary product-roadmap work.

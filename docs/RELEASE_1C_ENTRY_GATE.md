@@ -1,7 +1,7 @@
 # Release 1C contextual tutor decision record
 
-Status: **MERGED AND DEPLOYED; PRODUCTION JOURNEY VERIFIED; LIVE 0P
-ROLLBACK/FORWARD DRILL OPEN**
+Status: **MERGED, DEPLOYED, PRODUCTION-VERIFIED, AND LIVE-ROLLBACK-VERIFIED
+UNDER FOUNDER EXCEPTION**
 
 Decision date: 2026-08-30
 
@@ -17,9 +17,10 @@ for this engineering slice. Security, cost, deterministic AI safety, the
 complete automated model run, accessibility, live-browser, CI, review,
 automated rollback controls, and production-verification evidence remained
 mandatory. Release 0P's separate live production rollback/forward-promotion
-drill has not been performed and remains an explicit open operational gate. The
-unperformed Section 9.2 human calibration was likewise not silently treated as
-passed: the automated judge remains provisional rather than authoritative.
+drill subsequently passed on 2026-08-31 and restored the exact current
+candidate before synthetic and Browser acceptance. The unperformed Section 9.2
+human calibration was not silently treated as passed: the automated judge
+remains provisional rather than authoritative.
 
 The implementation merged and deployed only after its complete automated model
 gate, deterministic suites, adversarial browser journey, PR checks, and review
@@ -43,7 +44,7 @@ retention, or market-impact claim.
 | Actual browser UX | **Passed locally and in production** | Local desktop and 390×500 light/dark/reduced-motion evidence proves explicit consent, one-call double-click protection, current receipt/citation, useful bounded help, retained focus, dismissal persistence, stale recovery, and simultaneous cue/target visibility. Finding audit `8a292b5d-dcb6-4678-9e24-11c330d0d987`; phase audit `41617175-7bc9-4905-982c-df5cf735438e`. The deployed anonymous journey then passed the changed-error offer, grounded response, replay refusal, private recovery, and distinct-error re-arm at desktop and 390×844. |
 | PR, review, and CI | **Passed** | PRs #41 and #42 merged with every check green and zero unresolved actionable review threads. |
 | Deployment and production | **Passed** | Exact releases [`33363783481`](https://github.com/msrivas-7/CodeTutor-AI/actions/runs/33363783481) and [`33370195367`](https://github.com/msrivas-7/CodeTutor-AI/actions/runs/33370195367) succeeded. Exact-SHA production synthetics [`33365791874`](https://github.com/msrivas-7/CodeTutor-AI/actions/runs/33365791874) and [`33370947310`](https://github.com/msrivas-7/CodeTutor-AI/actions/runs/33370947310) passed. |
-| Rollback controls and rehearsal | **Automated contracts passed; live drill open** | Release and rollback workflow contracts passed in CI. The separate Release 0P live production rollback/forward-promotion rehearsal required by the roadmap has no recorded run evidence and is not claimed as complete. |
+| Rollback controls and rehearsal | **Passed** | Release and rollback workflow contracts passed in CI. Live rollback [`33409584774`](https://github.com/msrivas-7/CodeTutor-AI/actions/runs/33409584774) promoted retained `297a09b4d4873d10e1b1e688f151f8a3a325fcb3` and completed in 2m39s; independent frontend identity and backend deep health passed. Forward release [`33409904066`](https://github.com/msrivas-7/CodeTutor-AI/actions/runs/33409904066) restored exact current `4edcd73fa3a8669ac09495fbb7d5234d8ccfc742`; synthetic [`33411478984`](https://github.com/msrivas-7/CodeTutor-AI/actions/runs/33411478984) and in-app Browser phase audit `fcaf8da5-d989-46be-8f94-3f634c469050` then passed at desktop and 390×844 with zero console errors. |
 | Observed exposure | **Enabled on verification date** | A fresh anonymous production trial on 2026-08-31 displayed `Help me spot it` after two changed genuine parser failures and returned one structured, line-grounded hint after explicit consent. This dated observation is not a promise that the operator kill switch or rollout scope will never change. |
 | Human judge calibration | **Not performed; explicitly not claimed** | Two independent human reviewers have not labeled the required stratified set. This is recorded as a non-claim rather than fabricated evidence. |
 
