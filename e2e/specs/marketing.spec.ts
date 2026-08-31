@@ -246,7 +246,12 @@ authedTest.describe("marketing page (Phase 22C) — authed nav swap", () => {
     "clicking Dashboard navigates to /start",
     async ({ page }) => {
       await page.goto("/");
-      await page.getByRole("link", { name: /^dashboard/i }).click();
+      // The URL assertion below owns navigation readiness. Avoid making the
+      // click also wait for every scheduled navigation because the public-app
+      // auth handoff can replace the active React subtree during that wait.
+      await page.getByRole("link", { name: /^dashboard/i }).click({
+        noWaitAfter: true,
+      });
       await authedExpect(page).toHaveURL(/\/start$/, { timeout: 5_000 });
     },
   );

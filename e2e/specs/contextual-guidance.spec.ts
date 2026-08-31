@@ -699,8 +699,11 @@ test.describe("contextual guidance and Tutor offer", () => {
     await expect(page.getByRole("status", { name: /tutor is thinking/i })).toBeVisible();
 
     await page.setViewportSize({ width: 390, height: 844 });
-    firstRelease.resolve();
+    // Prove the remount cancellation before releasing the blocked response.
+    // Releasing first lets the mock response and React cleanup race, which can
+    // make the test miss the exact cancellation behavior it exists to guard.
     await expect.poll(() => cancelCalls).toBe(1);
+    firstRelease.resolve();
     await expect(page.getByText("Tutor view changed", { exact: true })).toBeVisible();
     await expect(page.getByText(/turn was released from your daily allowance/i)).toBeVisible();
     await expect(page.getByTestId("contextual-guide-question")).toBeVisible();
