@@ -288,6 +288,7 @@ function contextualAskBody(overrides: Record<string, unknown> = {}) {
       contextEpoch: "lesson:python-fundamentals/hello-world",
       projectRevision: 2,
       evidenceToken: "e30.AQ",
+      evidenceTokens: ["e30.AQ"],
       moveId: "notice-unclosed-parenthesis",
       evidence: {
         code: "python-unclosed-parenthesis",

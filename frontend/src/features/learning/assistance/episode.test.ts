@@ -20,6 +20,7 @@ describe("assistanceEpisodeReducer", () => {
       evidence: evidence(),
       projectRevision: 10,
       minAttempts: 2,
+      evidenceToken: "signed-revision-10",
     });
     state = assistanceEpisodeReducer(state, {
       type: "result_observed",
@@ -35,8 +36,13 @@ describe("assistanceEpisodeReducer", () => {
       evidence: evidence(),
       projectRevision: 11,
       minAttempts: 2,
+      evidenceToken: "signed-revision-11",
     });
     expect(state.attempts).toBe(2);
+    expect(state.evidenceTokens).toEqual([
+      "signed-revision-10",
+      "signed-revision-11",
+    ]);
     expect(state.currentEvidence?.key).toBe(evidence().key);
   });
 
@@ -108,7 +114,7 @@ describe("assistanceEpisodeReducer", () => {
     expect(state.suppressedEvidenceKey).toBe(evidence().key);
   });
 
-  it("retires expired evidence until a fresh run re-arms the same error", () => {
+  it("retires the complete expired chain before collecting fresh attempts", () => {
     let state = createAssistanceEpisodeState("course/lesson");
     state = assistanceEpisodeReducer(state, {
       type: "result_observed",
@@ -126,16 +132,21 @@ describe("assistanceEpisodeReducer", () => {
 
     state = assistanceEpisodeReducer(state, { type: "evidence_expired" });
     expect(state.currentEvidence).toBeNull();
+    expect(state.attempts).toBe(0);
+    expect(state.evidenceTokens).toEqual([]);
+    expect(state.lastAttemptRevision).toBeNull();
     expect(state.suppressedEvidenceKey).toBeNull();
 
     state = assistanceEpisodeReducer(state, {
       type: "result_observed",
       evidence: evidence(),
-      projectRevision: 2,
+      projectRevision: 3,
       minAttempts: 2,
+      evidenceToken: "signed-revision-3",
     });
     expect(state.currentEvidence?.key).toBe(evidence().key);
-    expect(state.attempts).toBe(2);
+    expect(state.attempts).toBe(1);
+    expect(state.evidenceTokens).toEqual(["signed-revision-3"]);
   });
 
 });

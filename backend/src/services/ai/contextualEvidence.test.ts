@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   digestContextualEvidenceToken,
   mintContextualEvidenceToken,
+  verifyContextualEvidenceAttemptChain,
   verifyContextualEvidenceToken,
 } from "./contextualEvidence.js";
 
@@ -68,6 +69,62 @@ describe("contextual evidence tokens", () => {
       keyring,
       nowMs: 2_000,
     })).toBe(false);
+  });
+
+  it("proves repeated matching errors across distinct signed revisions", () => {
+    const firstToken = mintContextualEvidenceToken(
+      actor,
+      { ...identity, projectRevision: 6 },
+      [{ path: "main.py", content: 'print("Hi"\n' }],
+      {
+        ...result,
+        stderr: 'File "/workspace/main.py", line 1\n    print("Hi"\nSyntaxError: \'(\' was never closed',
+      },
+      { keyring, nowMs: 1_000 },
+    );
+    const currentToken = mintContextualEvidenceToken(actor, identity, files, result, {
+      keyring,
+      nowMs: 1_100,
+    });
+    expect(verifyContextualEvidenceAttemptChain(
+      [firstToken, currentToken],
+      currentToken,
+      actor,
+      identity,
+      2,
+      { keyring, nowMs: 2_000 },
+    )).toBe(true);
+    expect(verifyContextualEvidenceAttemptChain(
+      [currentToken],
+      currentToken,
+      actor,
+      identity,
+      2,
+      { keyring, nowMs: 2_000 },
+    )).toBe(false);
+    expect(verifyContextualEvidenceAttemptChain(
+      [currentToken, currentToken],
+      currentToken,
+      actor,
+      identity,
+      2,
+      { keyring, nowMs: 2_000 },
+    )).toBe(false);
+    const forgedRevisionOnly = mintContextualEvidenceToken(
+      actor,
+      { ...identity, projectRevision: 6 },
+      files,
+      result,
+      { keyring, nowMs: 1_000 },
+    );
+    expect(verifyContextualEvidenceAttemptChain(
+      [forgedRevisionOnly, currentToken],
+      currentToken,
+      actor,
+      identity,
+      2,
+      { keyring, nowMs: 2_000 },
+    )).toBe(false);
   });
 
   it("never signs or verifies an ambiguous duplicate-path snapshot", () => {

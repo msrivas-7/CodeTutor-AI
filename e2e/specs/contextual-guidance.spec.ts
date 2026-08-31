@@ -8,7 +8,7 @@ import { criticalTest } from "../fixtures/testMetadata";
 
 const PATH = "/try/lesson/python-fundamentals/hello-world";
 
-function pythonUnclosedParenthesis(line: number) {
+function pythonUnclosedParenthesis(line: number, receipt = `line-${line}`) {
   return {
     stdout: "",
     stderr: `  File "/workspace/main.py", line ${line}\n    print("Hello"\n         ^\nSyntaxError: '(' was never closed\n`,
@@ -16,7 +16,7 @@ function pythonUnclosedParenthesis(line: number) {
     errorType: "runtime",
     durationMs: 4,
     stage: "run",
-    contextualEvidenceToken: `signed-contextual-evidence-line-${line}`,
+    contextualEvidenceToken: `signed-contextual-evidence-${receipt}`,
   };
 }
 
@@ -38,7 +38,7 @@ async function installRunMock(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify(pythonUnclosedParenthesis(line)),
+      body: JSON.stringify(pythonUnclosedParenthesis(line, `run-${runCount}-line-${line}`)),
     });
   });
 }
@@ -285,7 +285,11 @@ test.describe("contextual guidance and Tutor offer", () => {
       question: "Help me spot the issue without giving me the answer.",
       contextualOffer: {
         contextVersion: 0,
-        evidenceToken: "signed-contextual-evidence-line-1",
+        evidenceToken: "signed-contextual-evidence-run-2-line-1",
+        evidenceTokens: [
+          "signed-contextual-evidence-run-1-line-1",
+          "signed-contextual-evidence-run-2-line-1",
+        ],
         moveId: "notice-unclosed-parenthesis",
         scaffoldLevel: 1,
         evidence: {
@@ -553,7 +557,7 @@ test.describe("contextual guidance and Tutor offer", () => {
     expect(calls).toBe(1);
   });
 
-  test("expired signed evidence is retired until a fresh Run re-arms the offer", criticalTest({
+  test("expired signed evidence is retired before a fresh attempt chain re-arms the offer", criticalTest({
     risk: "p0",
     owner: "learning",
     browsers: ["chromium", "webkit"],
@@ -561,6 +565,21 @@ test.describe("contextual guidance and Tutor offer", () => {
     quarantine: { state: "none" },
   }), async ({ page }) => {
     let calls = 0;
+    // This recovery case needs the same evidence key across both fresh
+    // attempts. The suite default intentionally moves the fourth run to line
+    // 2 for a separate dismissal test, which would reset this episode here.
+    await page.unroute("**/api/anon/run");
+    let recoveryRunCount = 0;
+    await page.route("**/api/anon/run", async (route) => {
+      recoveryRunCount += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(
+          pythonUnclosedParenthesis(1, `recovery-${recoveryRunCount}`),
+        ),
+      });
+    });
     await page.route("**/api/anon/ai/ask/stream", async (route) => {
       calls += 1;
       await route.fulfill({
@@ -579,17 +598,21 @@ test.describe("contextual guidance and Tutor offer", () => {
     await page.getByTestId("contextual-guide-ask").click();
 
     await expect(page.getByText("Run evidence expired")).toBeVisible();
-    await expect(page.getByText(/run your code again to refresh the error/i)).toBeVisible();
+    await expect(page.getByText(/adjust it and run once more/i)).toBeVisible();
     await expect(page.getByRole("button", { name: /try again/i })).toHaveCount(0);
     await expect(page.getByTestId("contextual-guide-bridge")).toHaveCount(0);
     expect(calls).toBe(1);
 
+    await setMonacoValue(page, 'print("Hello again"\n');
+    await runCode(page);
+    await expect(page.getByTestId("contextual-guide-ask")).toHaveCount(0);
+    await setMonacoValue(page, 'print("Hello once more"\n');
     await runCode(page);
     await expect(page.getByTestId("contextual-guide-ask")).toHaveText("Help me spot it");
     expect(calls).toBe(1);
 
-    // A fresh token for the same code/path/line must be actionable. The stale
-    // token's accepted key cannot leave this replacement button inert.
+    // A fresh signed chain for the same code/path/line must be actionable. The
+    // stale chain's accepted key cannot leave this replacement button inert.
     await page.getByTestId("contextual-guide-ask").click();
     await expect(page.getByText("Run evidence expired")).toBeVisible();
     expect(calls).toBe(2);

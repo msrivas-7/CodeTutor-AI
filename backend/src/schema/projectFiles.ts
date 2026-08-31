@@ -29,11 +29,15 @@ export function hasUniqueProjectFilePaths(
   const seen = new Set<string>();
   for (const file of files) {
     const canonicalPath = canonicalProjectFilePath(file.path);
-    if (canonicalPath === null || seen.has(canonicalPath)) return false;
+    if (
+      canonicalPath === null ||
+      file.path !== canonicalPath ||
+      seen.has(canonicalPath)
+    ) return false;
     seen.add(canonicalPath);
   }
   return true;
 }
 
 export const UNIQUE_PROJECT_FILE_PATHS_MESSAGE =
-  "project file paths must be unique";
+  "project file paths must be canonical and unique";

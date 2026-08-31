@@ -441,6 +441,7 @@ describe("POST /api/anon/ai/ask/stream — platform model routing", () => {
         contextEpoch: "lesson:python-fundamentals/hello-world",
         projectRevision: 2,
         evidenceToken: signedEvidenceTokenFixture,
+        evidenceTokens: [signedEvidenceTokenFixture],
         moveId: "notice-unclosed-parenthesis",
         evidence: {
           code: "python-unclosed-parenthesis",
@@ -491,6 +492,7 @@ describe("POST /api/anon/ai/ask/stream — platform model routing", () => {
         contextEpoch: "lesson:python-fundamentals/hello-world",
         projectRevision: 2,
         evidenceToken: signedEvidenceTokenFixture,
+        evidenceTokens: [signedEvidenceTokenFixture],
         moveId: "notice-unclosed-parenthesis",
         evidence: {
           code: "python-unclosed-parenthesis",
@@ -515,6 +517,7 @@ describe("POST /api/anon/ai/ask/stream — platform model routing", () => {
         contextEpoch: "lesson:python-fundamentals/hello-world",
         projectRevision: 2,
         evidenceToken: signedEvidenceTokenFixture,
+        evidenceTokens: [signedEvidenceTokenFixture],
         moveId: "notice-unclosed-parenthesis",
         evidence: {
           code: "python-unclosed-parenthesis",

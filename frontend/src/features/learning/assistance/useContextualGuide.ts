@@ -68,6 +68,7 @@ export function useContextualGuide({
       evidence,
       projectRevision,
       minAttempts: V0_MIN_ATTEMPTS,
+      evidenceToken: result.contextualEvidenceToken,
     });
   }, [enabled, projectPaths, projectRevision, result]);
 

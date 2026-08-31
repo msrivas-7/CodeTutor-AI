@@ -60,7 +60,8 @@ describe("tutor recovery copy", () => {
     expect(classifyAskError("CONTEXTUAL_EVIDENCE_STALE")).toEqual({
       kind: "contextualEvidenceStale",
       title: "Run evidence expired",
-      hint: "Run your code again to refresh the error, then use the new help offer.",
+      hint:
+        "Make a change and run your code. If the same issue remains, adjust it and run once more for a fresh help offer.",
       retryable: false,
       showDetails: false,
     });

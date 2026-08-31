@@ -1227,6 +1227,7 @@ export default function LessonPage({
         contextEpoch: contextualGuide.context.contextEpoch,
         projectRevision: contextualGuide.context.projectRevision,
         evidenceToken,
+        evidenceTokens: contextualGuide.episode.evidenceTokens,
         moveId: decision.move.id,
         evidence: {
           code: evidence.code,

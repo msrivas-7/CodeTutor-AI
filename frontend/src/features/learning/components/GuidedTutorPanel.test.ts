@@ -51,6 +51,7 @@ describe("currentContextualOfferForRetry", () => {
     contextEpoch: "lesson:python-fundamentals/hello-world",
     projectRevision: 7,
     evidenceToken: "signed-evidence-token",
+    evidenceTokens: ["signed-first-token", "signed-evidence-token"],
     moveId: "python-unclosed-parenthesis",
     evidence: { code: "python-unclosed-parenthesis", path: "main.py", line: 2 },
     scaffoldLevel: 1,

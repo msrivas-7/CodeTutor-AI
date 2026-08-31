@@ -248,6 +248,7 @@ const askStreamBody = z.object({
     contextEpoch: z.string().min(1).max(256),
     projectRevision: z.number().int().min(0),
     evidenceToken: z.string().min(1).max(4_096),
+    evidenceTokens: z.array(z.string().min(1).max(4_096)).min(1).max(10),
     moveId: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/),
     evidence: z.object({
       code: z.literal("python-unclosed-parenthesis"),

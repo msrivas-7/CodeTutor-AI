@@ -86,6 +86,7 @@ export interface ContextualTutorOfferRequest {
   contextEpoch: string;
   projectRevision: number;
   evidenceToken: string;
+  evidenceTokens: string[];
   moveId: string;
   evidence: {
     code: "python-unclosed-parenthesis";

@@ -46,4 +46,11 @@ describe("hasUniqueProjectFilePaths", () => {
       { path: "src\\main.py" },
     ])).toBe(false);
   });
+
+  it("rejects a singleton path alias instead of signing a different identity than execution", () => {
+    expect(hasUniqueProjectFilePaths([{ path: "./main.py" }])).toBe(false);
+    expect(hasUniqueProjectFilePaths([{ path: "/main.py" }])).toBe(false);
+    expect(hasUniqueProjectFilePaths([{ path: "src//main.py" }])).toBe(false);
+    expect(hasUniqueProjectFilePaths([{ path: "src\\main.py" }])).toBe(false);
+  });
 });

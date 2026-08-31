@@ -20,6 +20,7 @@ interface EvidencePayload extends ContextualRunIdentity {
   actor: string;
   files: string;
   result: string;
+  episode: string;
   exp: number;
 }
 
@@ -72,6 +73,24 @@ function digestRunResult(result: RunResult): string {
   }));
 }
 
+function digestRunEpisode(result: RunResult): string {
+  const locations = [...result.stderr.matchAll(/File\s+["']([^"']+)["'],\s+line\s+(\d+)/g)];
+  const location = locations.at(-1);
+  const terminalError = result.stderr
+    .trim()
+    .split(/\r?\n/)
+    .reverse()
+    .find((line) => /(?:Error|Exception):/.test(line));
+  if (!location || !terminalError) return digestRunResult(result);
+  return digest(JSON.stringify({
+    stage: result.stage,
+    errorType: result.errorType,
+    path: location[1].replaceAll("\\", "/"),
+    line: Number.parseInt(location[2], 10),
+    error: terminalError.trim(),
+  }));
+}
+
 function activeKeyring(): ContextualEvidenceKeyring {
   return {
     currentVersion: config.byokCurrentVersion,
@@ -105,6 +124,7 @@ function isPayload(value: unknown): value is EvidencePayload {
     Number.isInteger(p.projectRevision) &&
     typeof p.files === "string" &&
     typeof p.result === "string" &&
+    typeof p.episode === "string" &&
     typeof p.exp === "number" &&
     Number.isFinite(p.exp);
 }
@@ -127,10 +147,90 @@ export function mintContextualEvidenceToken(
     ...identity,
     files: digestProjectFiles(files),
     result: digestRunResult(result),
+    episode: digestRunEpisode(result),
     exp: (options.nowMs ?? Date.now()) + TOKEN_TTL_MS,
   };
   const encoded = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
   return `${encoded}.${sign(encoded, payload.k, keyring).toString("base64url")}`;
+}
+
+function readVerifiedEvidencePayload(
+  token: string,
+  options: EvidenceOptions,
+): EvidencePayload | null {
+  if (!token || token.length > 4_096) return null;
+  const [encoded, signature, ...extra] = token.split(".");
+  if (!encoded || !signature || extra.length) return null;
+  let parsed: unknown;
+  let provided: Buffer;
+  try {
+    parsed = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
+    provided = Buffer.from(signature, "base64url");
+  } catch {
+    return null;
+  }
+  if (
+    Buffer.from(encoded, "base64url").toString("base64url") !== encoded ||
+    provided.toString("base64url") !== signature ||
+    !isPayload(parsed)
+  ) return null;
+  const keyring = options.keyring ?? activeKeyring();
+  let expected: Buffer;
+  try {
+    expected = sign(encoded, parsed.k, keyring);
+  } catch {
+    return null;
+  }
+  if (
+    provided.length !== expected.length ||
+    !timingSafeEqual(provided, expected) ||
+    parsed.exp <= (options.nowMs ?? Date.now())
+  ) return null;
+  return parsed;
+}
+
+/**
+ * Prove the authored repeated-error threshold with a stateless chain of
+ * server-signed run receipts. Revisions must increase, every receipt must
+ * belong to the same actor/lesson/error episode, and the latest receipt must
+ * be the one submitted as the current offer.
+ */
+export function verifyContextualEvidenceAttemptChain(
+  tokens: readonly string[],
+  currentToken: string,
+  actorId: string,
+  identity: ContextualRunIdentity,
+  minAttempts: number,
+  options: EvidenceOptions = {},
+): boolean {
+  if (
+    !Number.isSafeInteger(minAttempts) ||
+    minAttempts < 1 ||
+    tokens.length < minAttempts ||
+    tokens.length > 10 ||
+    tokens.at(-1) !== currentToken
+  ) return false;
+  const payloads = tokens.map((token) => readVerifiedEvidencePayload(token, options));
+  if (payloads.some((payload) => payload === null)) return false;
+  const verified = payloads as EvidencePayload[];
+  const expectedActor = digest(actorId);
+  const episode = verified[0]?.episode;
+  const seenFiles = new Set<string>();
+  let previousRevision = -1;
+  for (const payload of verified) {
+    if (
+      payload.actor !== expectedActor ||
+      payload.courseId !== identity.courseId ||
+      payload.lessonId !== identity.lessonId ||
+      payload.contextEpoch !== identity.contextEpoch ||
+      payload.episode !== episode ||
+      seenFiles.has(payload.files) ||
+      payload.projectRevision <= previousRevision
+    ) return false;
+    seenFiles.add(payload.files);
+    previousRevision = payload.projectRevision;
+  }
+  return previousRevision === identity.projectRevision;
 }
 
 export function verifyContextualEvidenceToken(
@@ -147,33 +247,8 @@ export function verifyContextualEvidenceToken(
     !result ||
     !hasUniqueProjectFilePaths(files)
   ) return false;
-  const [encoded, signature, ...extra] = token.split(".");
-  if (!encoded || !signature || extra.length) return false;
-  let parsed: unknown;
-  let provided: Buffer;
-  try {
-    parsed = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
-    provided = Buffer.from(signature, "base64url");
-  } catch {
-    return false;
-  }
-  // Accept only the single unpadded base64url spelling minted above. Besides
-  // shrinking the parser surface, this prevents a replay from being presented
-  // under several equivalent textual encodings.
-  if (
-    Buffer.from(encoded, "base64url").toString("base64url") !== encoded ||
-    provided.toString("base64url") !== signature
-  ) return false;
-  if (!isPayload(parsed)) return false;
-  const keyring = options.keyring ?? activeKeyring();
-  let expected: Buffer;
-  try {
-    expected = sign(encoded, parsed.k, keyring);
-  } catch {
-    return false;
-  }
-  if (provided.length !== expected.length || !timingSafeEqual(provided, expected)) return false;
-  return parsed.exp > (options.nowMs ?? Date.now()) &&
+  const parsed = readVerifiedEvidencePayload(token, options);
+  return parsed !== null &&
     parsed.actor === digest(actorId) &&
     parsed.courseId === identity.courseId &&
     parsed.lessonId === identity.lessonId &&

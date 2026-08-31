@@ -13,6 +13,7 @@ import type {
 } from "./provider.js";
 import {
   verifyContextualEvidenceToken,
+  verifyContextualEvidenceAttemptChain,
   type EvidenceOptions,
 } from "./contextualEvidence.js";
 
@@ -29,6 +30,7 @@ export interface ClientContextualTutorOffer {
   contextEpoch: string;
   projectRevision: number;
   evidenceToken: string;
+  evidenceTokens: string[];
   moveId: string;
   evidence: {
     code: "python-unclosed-parenthesis";
@@ -128,6 +130,19 @@ export async function resolveCanonicalContextualTutorOffer(
     move.trigger.errorCode !== offer.evidence.code ||
     offer.scaffoldLevel > move.maxScaffoldLevel ||
     !runMatchesContextualEvidence(offer, files, lastRun) ||
+    !verifyContextualEvidenceAttemptChain(
+      offer.evidenceTokens,
+      offer.evidenceToken,
+      actorId,
+      {
+        courseId: identity.courseId,
+        lessonId: identity.lessonId,
+        contextEpoch: offer.contextEpoch,
+        projectRevision: offer.projectRevision,
+      },
+      move.trigger.minAttempts,
+      evidenceOptions,
+    ) ||
     !verifyContextualEvidenceToken(
       offer.evidenceToken,
       actorId,

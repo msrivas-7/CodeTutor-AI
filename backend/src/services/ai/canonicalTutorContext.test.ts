@@ -12,6 +12,7 @@ const lastRun = {
 };
 
 const files = [{ path: "main.py", content: 'print("Hello"\n' }];
+const firstFiles = [{ path: "main.py", content: 'print("Hi"\n' }];
 const identity = { courseId: "python-fundamentals", lessonId: "hello-world" };
 const actorId = "user:test-user";
 const keyring = {
@@ -33,6 +34,22 @@ const offer = {
     lastRun,
     { keyring },
   ),
+  evidenceTokens: [
+    mintContextualEvidenceToken(
+      actorId,
+      {
+        ...identity,
+        contextEpoch: "lesson:python-fundamentals/hello-world",
+        projectRevision: 1,
+      },
+      firstFiles,
+      {
+        ...lastRun,
+        stderr: '  File "/workspace/main.py", line 1\n    print("Hi"\n         ^\nSyntaxError: \'(\' was never closed\n',
+      },
+      { keyring },
+    ),
+  ],
   moveId: "notice-unclosed-parenthesis",
   evidence: {
     code: "python-unclosed-parenthesis" as const,
@@ -41,6 +58,7 @@ const offer = {
   },
   scaffoldLevel: 1 as const,
 };
+offer.evidenceTokens.push(offer.evidenceToken);
 
 describe("resolveCanonicalContextualTutorOffer", () => {
   it("resolves the authored move while preserving bounded current evidence", async () => {
@@ -87,6 +105,25 @@ describe("resolveCanonicalContextualTutorOffer", () => {
     )).resolves.toBeNull();
   });
 
+  it("requires the server-signed repeated-error threshold", async () => {
+    await expect(resolveCanonicalContextualTutorOffer(
+      actorId,
+      identity,
+      { ...offer, evidenceTokens: [offer.evidenceToken] },
+      files,
+      lastRun,
+      { keyring },
+    )).resolves.toBeNull();
+    await expect(resolveCanonicalContextualTutorOffer(
+      actorId,
+      identity,
+      { ...offer, evidenceTokens: [offer.evidenceToken, offer.evidenceToken] },
+      files,
+      lastRun,
+      { keyring },
+    )).resolves.toBeNull();
+  });
+
   it("binds overlapping basenames to the most specific executed project path", async () => {
     const ambiguousFiles = [
       { path: "main.py", content: 'print("root"\n' },
@@ -95,6 +132,14 @@ describe("resolveCanonicalContextualTutorOffer", () => {
     const nestedRun = {
       ...lastRun,
       stderr: '  File "/workspace/examples/main.py", line 1\n    print("example"\n         ^\nSyntaxError: \'(\' was never closed\n',
+    };
+    const firstNestedFiles = [
+      ambiguousFiles[0],
+      { path: "examples/main.py", content: 'print("first"\n' },
+    ];
+    const firstNestedRun = {
+      ...nestedRun,
+      stderr: '  File "/workspace/examples/main.py", line 1\n    print("first"\n         ^\nSyntaxError: \'(\' was never closed\n',
     };
     const evidenceToken = mintContextualEvidenceToken(
       actorId,
@@ -105,6 +150,17 @@ describe("resolveCanonicalContextualTutorOffer", () => {
       },
       ambiguousFiles,
       nestedRun,
+      { keyring },
+    );
+    const firstNestedEvidenceToken = mintContextualEvidenceToken(
+      actorId,
+      {
+        ...identity,
+        contextEpoch: offer.contextEpoch,
+        projectRevision: offer.projectRevision - 1,
+      },
+      firstNestedFiles,
+      firstNestedRun,
       { keyring },
     );
 
@@ -123,6 +179,7 @@ describe("resolveCanonicalContextualTutorOffer", () => {
       {
         ...offer,
         evidenceToken,
+        evidenceTokens: [firstNestedEvidenceToken, evidenceToken],
         evidence: { ...offer.evidence, path: "examples/main.py" },
       },
       ambiguousFiles,
