@@ -435,6 +435,28 @@ describe("editor project routes", () => {
     });
     expect(put.status).toBe(400);
   });
+
+  it("PUT rejects noncanonical path aliases", async () => {
+    if (!dbReachable) return;
+    const userId = await mkUser();
+
+    for (const path of ["src//helper.py", "src/./helper.py"]) {
+      const put = await req(userId, "/api/user/editor-project", {
+        method: "PUT",
+        body: JSON.stringify({
+          language: "python",
+          files: { [path]: "print('alias')" },
+          activeFile: path,
+          openTabs: [path],
+          fileOrder: [path],
+          stdin: "",
+          expectedRevision: 0,
+          writerId: randomUUID(),
+        }),
+      });
+      expect(put.status).toBe(400);
+    }
+  });
 });
 
 describe("DELETE /api/user/account (Phase 20-P0 #9)", () => {
