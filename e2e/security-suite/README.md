@@ -13,8 +13,9 @@ runtime monitoring (Falco/Tetragon) for a complete story.
 ## Run locally
 
 ```bash
-# from repo root — boot the stack
-docker compose up -d backend frontend
+# from repo root — the API-only suite needs the backend and its runner/proxy
+# dependencies; Compose starts those dependencies automatically.
+docker compose up -d backend
 
 # tcpdump is optional locally. If absent, egress tests fall back to
 # the backend-level assertion only (no packet-level observer).

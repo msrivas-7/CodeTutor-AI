@@ -122,10 +122,9 @@ test.describe("tab-sleep → wake rebind", () => {
       const reassigned = page.getByRole("alertdialog", {
         name: /workspace reassigned/i,
       });
-      if (await reassigned.isVisible()) {
-        await reassigned.getByRole("button", { name: /got it/i }).click();
-        await expect(reassigned).toBeHidden();
-      }
+      await expect(reassigned).toBeVisible({ timeout: 10_000 });
+      await reassigned.getByRole("button", { name: /got it/i }).click();
+      await expect(reassigned).toBeHidden();
 
       // After rebind, the Run button must still be enabled against the
       // new sessionId — if not, the learner is stuck until manual reload.

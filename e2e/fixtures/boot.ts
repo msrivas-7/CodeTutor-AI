@@ -1,7 +1,7 @@
-// Global setup. Asserts the frontend + backend are reachable before any spec
-// runs. We don't boot the stack ourselves — that's the developer's one-time
-// `docker compose up -d` setup. Surfacing a clear error here is far more
-// useful than each spec timing out on a connection refused.
+// Global setup. Browser suites require frontend + backend reachability;
+// API-only suites can explicitly skip the frontend probe. We don't boot the
+// stack ourselves — that's the developer's one-time `docker compose up -d`
+// setup. Surfacing a clear error here is more useful than per-spec timeouts.
 
 import { request } from "@playwright/test";
 
@@ -34,13 +34,16 @@ async function ping(url: string, label: string) {
 }
 
 export default async function globalSetup() {
-  await Promise.all([
-    ping(FRONTEND, "frontend"),
+  const readinessChecks = [
     // /api/health is the unauthenticated liveness probe. Post-20-P3 the
     // previous target (/api/ai/validate-key) is auth-gated, so a 401 leaks
     // into the ping path and obscures actual connectivity failures.
     ping(`${BACKEND}/api/health`, "backend"),
-  ]);
+  ];
+  if (process.env.E2E_SKIP_FRONTEND_HEALTH !== "1") {
+    readinessChecks.push(ping(FRONTEND, "frontend"));
+  }
+  await Promise.all(readinessChecks);
 
   if (!process.env.SUPABASE_URL) {
     throw new Error(

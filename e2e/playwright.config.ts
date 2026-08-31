@@ -22,6 +22,9 @@ const API_URL = process.env.E2E_API_URL ?? "http://localhost:4000";
 const IS_CI = !!process.env.CI;
 const CROSS_BROWSER = process.env.E2E_CROSS_BROWSER === "1";
 const RECORD_VIDEO = IS_CI || process.env.E2E_VIDEO === "1";
+const durationReporter = process.env.E2E_TIMING_OUTPUT
+  ? [[path.resolve(__dirname, "reporters/durationReporter.ts"), { outputFile: process.env.E2E_TIMING_OUTPUT }]]
+  : [];
 // GitHub-hosted Ubuntu and Playwright's official Linux container ship
 // different native fallback-font sets. Both are valid release renderers, but
 // their glyph metrics differ enough on phone layouts that one shared "linux"
@@ -76,8 +79,8 @@ export default defineConfig({
   timeout: 60_000,
   expect: { timeout: 10_000 },
   reporter: IS_CI
-    ? [["html", { open: "never" }], ["github"], ["list"]]
-    : [["html", { open: "never" }], ["list"]],
+    ? [["html", { open: "never" }], ["github"], ["list"], ...durationReporter]
+    : [["html", { open: "never" }], ["list"], ...durationReporter],
   // Keep strict visual baselines per reviewed rendering environment. The
   // production app deliberately falls back to native fonts while its optional
   // brand-font stylesheet loads, so macOS, Playwright-container Linux, and

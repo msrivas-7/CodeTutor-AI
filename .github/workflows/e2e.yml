@@ -50,8 +50,83 @@ env:
   CI_BACKEND_IMAGE: ghcr.io/${{ github.repository_owner }}/codetutor-ci-backend
   CI_RUNNER_IMAGE: ghcr.io/${{ github.repository_owner }}/codetutor-ci-runner
   CI_FRONTEND_IMAGE: ghcr.io/${{ github.repository_owner }}/codetutor-ci-frontend
+  SOCKET_PROXY_IMAGE: tecnativa/docker-socket-proxy:0.3.0
+  SOCKET_PROXY_HEALTH_INTERVAL: "1s"
 
 jobs:
+  duration-plan:
+    name: Plan duration-balanced E2E shards
+    runs-on: ubuntu-latest
+    outputs:
+      contract-outcome: ${{ steps.contract.outcome }}
+    # Test discovery imports the same authenticated fixtures as execution.
+    # Keep its environment in parity with the browser jobs even though this
+    # planner never starts a browser or calls the services.
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      BYOK_ENCRYPTION_KEY: ${{ secrets.BYOK_ENCRYPTION_KEY }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+      - name: Restore trusted duration history
+        id: duration-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .e2e-duration
+          key: e2e-duration-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            e2e-duration-${{ runner.os }}-
+      - name: Install e2e deps
+        working-directory: e2e
+        run: npm ci
+      - name: Build coverage-complete duration plan
+        run: |
+          set -euo pipefail
+          mkdir -p .e2e-duration e2e/duration-plan/full e2e/duration-plan/critical
+          if [ ! -s .e2e-duration/history.json ]; then
+            cp .github/e2e-duration-seed.json .e2e-duration/history.json
+          fi
+          cp .e2e-duration/history.json e2e/duration-plan/history.json
+          cd e2e
+          npx playwright test --list --project=chromium --reporter=json > duration-plan/inventory.json
+          cd ..
+          node .github/scripts/e2e-duration-plan.mjs \
+            --inventory e2e/duration-plan/inventory.json \
+            --history .e2e-duration/history.json \
+            --output e2e/duration-plan/full \
+            --shards 16
+          node .github/scripts/e2e-duration-plan.mjs \
+            --inventory e2e/duration-plan/inventory.json \
+            --history .e2e-duration/history.json \
+            --output e2e/duration-plan/critical \
+            --shards 2 \
+            --tag lane:critical
+      - name: Validate critical metadata and frozen regression coverage
+        id: contract
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          cd e2e
+          npx playwright test --list --grep @lane:critical --reporter=json > duration-plan/critical-inventory.json
+          cd ..
+          node scripts/e2e-shadow-contract.mjs --inventory e2e/duration-plan/critical-inventory.json
+      - name: Upload duration plan
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: e2e-duration-plan
+          path: e2e/duration-plan
+          retention-days: 7
+          if-no-files-found: error
+
   prepare-backend:
     name: Prepare backend E2E image
     runs-on: ubuntu-latest
@@ -200,16 +275,17 @@ jobs:
           fi
 
   critical-shadow:
-    name: Playwright critical lane (advisory)
-    needs: [prepare-backend, prepare-runner, prepare-frontend]
+    name: Playwright critical lane (advisory ${{ matrix.shard }}/2)
+    needs: [duration-plan, prepare-backend, prepare-runner, prepare-frontend]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # Release 1D begins in shadow mode. The exhaustive Chromium shards below
     # remain the blocking source of truth until the measured exit gate passes.
     continue-on-error: true
-    outputs:
-      critical-outcome: ${{ steps.critical.outcome }}
-      contract-outcome: ${{ steps.contract.outcome }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
@@ -219,7 +295,7 @@ jobs:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       BYOK_ENCRYPTION_KEY: ${{ secrets.BYOK_ENCRYPTION_KEY }}
       METRICS_TOKEN: e2e-test-metrics-token
-      E2E_USER_SUFFIX: critical-run${{ github.run_id }}-attempt${{ github.run_attempt }}
+      E2E_USER_SUFFIX: critical-${{ matrix.shard }}-run${{ github.run_id }}-attempt${{ github.run_attempt }}
       MAX_SESSIONS_PER_USER: "60"
       MAX_SESSIONS_GLOBAL: "200"
       DOCKER_EXEC_CONCURRENCY: "16"
@@ -250,9 +326,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -n "$BACKEND_IMAGE" ] && [ -n "$RUNNER_IMAGE" ] && [ -n "$FRONTEND_IMAGE" ]; then
-            docker pull "$BACKEND_IMAGE"
-            docker pull "$RUNNER_IMAGE"
-            docker pull "$FRONTEND_IMAGE"
+            .github/scripts/pull-container-images.sh "$BACKEND_IMAGE" "$RUNNER_IMAGE" "$FRONTEND_IMAGE" "$SOCKET_PROXY_IMAGE"
             docker compose up -d --no-build backend frontend
           else
             docker compose up -d backend frontend
@@ -262,15 +336,11 @@ jobs:
         working-directory: e2e
         run: npm ci
 
-      - name: Validate critical metadata and frozen regression coverage
-        id: contract
-        run: |
-          set -euo pipefail
-          mkdir -p e2e/shadow-results
-          cd e2e
-          npx playwright test --list --grep @lane:critical --reporter=json > shadow-results/critical-inventory.json
-          cd ..
-          node scripts/e2e-shadow-contract.mjs --inventory e2e/shadow-results/critical-inventory.json
+      - name: Download duration-balanced critical plan
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: e2e-duration-plan
+          path: e2e/duration-plan-artifact
 
       - name: Cache Playwright browser
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -280,34 +350,37 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-playwright-
 
-      - name: Install Playwright browser
+      - name: Prepare Playwright browser runtime
         working-directory: e2e
-        run: npx playwright install --with-deps chromium
+        run: |
+          set -euo pipefail
+          npx playwright install chromium
+          node scripts/ensure-browser-runtime.mjs chromium
 
       - name: Run critical lane without retries
         id: critical
         continue-on-error: true
         working-directory: e2e
-        run: npx playwright test --grep @lane:critical --project=chromium --retries=0
+        run: npx playwright test --test-list=duration-plan-artifact/critical/shard-${{ matrix.shard }}.txt --retries=0
 
       - name: Record advisory outcome
         if: always()
         env:
-          CONTRACT_OUTCOME: ${{ steps.contract.outcome }}
+          CONTRACT_OUTCOME: ${{ needs.duration-plan.outputs.contract-outcome }}
           CRITICAL_OUTCOME: ${{ steps.critical.outcome }}
         run: |
           mkdir -p e2e/shadow-results
           node -e 'const fs=require("fs"); fs.writeFileSync("e2e/shadow-results/outcome.json", JSON.stringify({schemaVersion:1, contract:process.env.CONTRACT_OUTCOME, critical:process.env.CRITICAL_OUTCOME, blocking:false, retries:0}, null, 2)+"\n")'
 
       - name: Dump docker-compose logs on failure
-        if: steps.critical.outcome == 'failure' || steps.contract.outcome == 'failure'
+        if: steps.critical.outcome == 'failure'
         run: docker compose logs --no-color --tail=300
 
       - name: Upload critical shadow evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: playwright-critical-shadow
+          name: playwright-critical-shadow-${{ matrix.shard }}
           path: |
             e2e/shadow-results
             e2e/playwright-report
@@ -321,7 +394,7 @@ jobs:
 
   e2e:
     name: Playwright (chromium)
-    needs: [prepare-backend, prepare-runner, prepare-frontend]
+    needs: [duration-plan, prepare-backend, prepare-runner, prepare-frontend]
     runs-on: ubuntu-latest
     # Sharding splits the exhaustive suite across isolated runners. The
     # capacity record owns the measured decision and the shard-1 guard below
@@ -387,6 +460,7 @@ jobs:
       BACKEND_IMAGE: ${{ needs.prepare-backend.outputs.ref }}
       RUNNER_IMAGE: ${{ needs.prepare-runner.outputs.ref }}
       FRONTEND_IMAGE: ${{ needs.prepare-frontend.outputs.ref }}
+      E2E_TIMING_OUTPUT: duration-results/shard-${{ matrix.shard }}.json
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -411,9 +485,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -n "$BACKEND_IMAGE" ] && [ -n "$RUNNER_IMAGE" ] && [ -n "$FRONTEND_IMAGE" ]; then
-            docker pull "$BACKEND_IMAGE"
-            docker pull "$RUNNER_IMAGE"
-            docker pull "$FRONTEND_IMAGE"
+            .github/scripts/pull-container-images.sh "$BACKEND_IMAGE" "$RUNNER_IMAGE" "$FRONTEND_IMAGE" "$SOCKET_PROXY_IMAGE"
             docker compose up -d --no-build backend frontend
           else
             docker compose up -d backend frontend
@@ -423,12 +495,18 @@ jobs:
         working-directory: e2e
         run: npm ci
 
+      - name: Download duration-balanced shard plan
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: e2e-duration-plan
+          path: e2e/duration-plan-artifact
+
       - name: Enforce measured shard capacity
         if: matrix.shard == 1
         working-directory: e2e
         run: |
           set -euo pipefail
-          total_tests=$(npx playwright test --list --project=chromium | sed -nE 's/^Total: ([0-9]+) tests.*/\1/p' | tail -1)
+          total_tests=$(node -e 'const fs=require("fs"); const value=JSON.parse(fs.readFileSync("duration-plan-artifact/full/manifest.json","utf8")); process.stdout.write(String(value.testCount))')
           test -n "$total_tests"
           node ../.github/scripts/e2e-shard-capacity.mjs \
             --record ../.github/e2e-shard-capacity.json \
@@ -443,18 +521,28 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-playwright-
 
-      - name: Install Playwright browsers
+      - name: Prepare Playwright browser runtime
         working-directory: e2e
-        run: npx playwright install --with-deps chromium
+        run: |
+          set -euo pipefail
+          npx playwright install chromium
+          node scripts/ensure-browser-runtime.mjs chromium
 
       - name: Run Playwright tests
         working-directory: e2e
-        # --shard partitions specs across the matrix — each runner
-        # picks up ~1/16 of the suite and runs it in parallel with the
-        # other shards. Each shard has its own docker-compose stack +
-        # 2 Playwright workers, so the effective parallelism is 32
-        # without any single runner being starved.
-        run: npx playwright test --shard=${{ matrix.shard }}/${{ strategy.job-total }}
+        # Playwright's built-in sharding balances test count, not runtime. The
+        # plan assigns every test exactly once using trusted measured duration,
+        # while each isolated shard keeps the proven two-worker limit.
+        run: npx playwright test --test-list=duration-plan-artifact/full/shard-${{ matrix.shard }}.txt
+
+      - name: Upload test-duration evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: e2e-timing-shard-${{ matrix.shard }}
+          path: e2e/duration-results/shard-${{ matrix.shard }}.json
+          retention-days: 7
+          if-no-files-found: warn
 
       - name: Dump docker-compose logs on failure
         if: failure()
@@ -534,9 +622,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -n "$BACKEND_IMAGE" ] && [ -n "$RUNNER_IMAGE" ] && [ -n "$FRONTEND_IMAGE" ]; then
-            docker pull "$BACKEND_IMAGE"
-            docker pull "$RUNNER_IMAGE"
-            docker pull "$FRONTEND_IMAGE"
+            .github/scripts/pull-container-images.sh "$BACKEND_IMAGE" "$RUNNER_IMAGE" "$FRONTEND_IMAGE" "$SOCKET_PROXY_IMAGE"
             docker compose up -d --no-build backend frontend
           else
             docker compose up -d backend frontend
@@ -554,9 +640,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-playwright-${{ matrix.browser }}-
 
-      - name: Install Playwright browser
+      - name: Prepare Playwright browser runtime
         working-directory: e2e
-        run: npx playwright install --with-deps ${{ matrix.browser }}
+        run: |
+          set -euo pipefail
+          npx playwright install ${{ matrix.browser }}
+          node scripts/ensure-browser-runtime.mjs ${{ matrix.browser }}
 
       - name: Run cross-browser critical journey
         working-directory: e2e
@@ -588,13 +677,62 @@ jobs:
         if: always()
         run: docker compose down -v
 
-  shadow-evidence:
-    name: E2E shadow evidence
-    if: always()
-    needs: [critical-shadow, e2e, cross-browser-core]
+  duration-history:
+    name: Learn E2E test durations
+    if: needs.e2e.result == 'success'
+    needs: [e2e]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Download duration evidence and planning baseline
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: e2e-timing-shard-*
+          path: e2e/duration-results
+          merge-multiple: true
+      - name: Download duration plan baseline
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: e2e-duration-plan
+          path: e2e/duration-plan-artifact
+      - name: Update duration history from a clean exhaustive run
+        run: |
+          set -euo pipefail
+          mkdir -p .e2e-duration
+          node .github/scripts/e2e-duration-history.mjs \
+            --base e2e/duration-plan-artifact/history.json \
+            --input e2e/duration-results \
+            --output .e2e-duration/history.json
+      - name: Save trusted duration history
+        if: >-
+          github.event_name != 'pull_request' ||
+          github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .e2e-duration
+          key: e2e-duration-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+  shadow-evidence:
+    name: E2E shadow evidence
+    if: always()
+    needs: [duration-plan, critical-shadow, e2e, cross-browser-core]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Download critical outcomes
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: playwright-critical-shadow-*
+          path: critical-shadow
+
+      - name: Aggregate critical outcome
+        id: critical-summary
+        run: |
+          set -euo pipefail
+          outcome=$(node -e 'const fs=require("fs"),path=require("path"); if(!fs.existsSync("critical-shadow")){process.stdout.write("failure");process.exit(0)} const files=fs.readdirSync("critical-shadow",{recursive:true}).filter(file=>file.endsWith("outcome.json")); const failed=files.length!==2||files.some(file=>JSON.parse(fs.readFileSync(path.join("critical-shadow",file),"utf8")).critical!=="success"); process.stdout.write(failed?"failure":"success")')
+          echo "critical-outcome=$outcome" >> "$GITHUB_OUTPUT"
 
       - name: Collect run and job timing
         env:
@@ -618,8 +756,8 @@ jobs:
         env:
           FULL_OUTCOME: ${{ needs.e2e.result }}
           CROSS_BROWSER_OUTCOME: ${{ needs.cross-browser-core.result }}
-          CRITICAL_OUTCOME: ${{ needs.critical-shadow.outputs.critical-outcome }}
-          CONTRACT_OUTCOME: ${{ needs.critical-shadow.outputs.contract-outcome }}
+          CRITICAL_OUTCOME: ${{ steps.critical-summary.outputs.critical-outcome }}
+          CONTRACT_OUTCOME: ${{ needs.duration-plan.outputs.contract-outcome }}
         run: |
           node .github/scripts/e2e-shadow-evidence.mjs \
             --run e2e/shadow-results/run.json \
@@ -657,7 +795,6 @@ jobs:
       - critical-shadow
       - e2e
       - cross-browser-core
-      - shadow-evidence
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}

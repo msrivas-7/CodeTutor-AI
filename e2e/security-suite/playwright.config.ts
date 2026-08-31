@@ -12,6 +12,10 @@ dotenv.config({ path: path.resolve(__dirname, "..", "..", ".env") });
 // The security suite is a standalone Playwright entrypoint, so it cannot rely
 // on the main config to establish a test-user namespace for local runs.
 process.env.E2E_USER_SUFFIX ??= `security-local-${process.pid}-${Date.now().toString(36)}`;
+// Security scenarios use Playwright's APIRequestContext and never render the
+// app. Keep the shared readiness hook, but scope it to the backend so this
+// suite does not build and boot an unused frontend merely to satisfy a probe.
+process.env.E2E_SKIP_FRONTEND_HEALTH ??= "1";
 
 const IS_CI = !!process.env.CI;
 

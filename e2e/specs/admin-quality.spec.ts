@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Route } from "@playwright/test";
 import {
   loginAsAdminTestUser,
   removeAdminEmailPreviewFixture,
@@ -441,23 +441,38 @@ test.describe("Q7 calm and trustworthy admin operations", () => {
   });
 
   test("a hung admin read becomes an explicit retry state and recovers", async ({ page }) => {
-    await page.route("**/api/admin/anon-summary", async (route) => {
-      // Playwright keeps the intercepted fetch pending until this handler
-      // releases it, even after the page's AbortController fires at 10 s.
-      // Release just after that boundary so the browser can surface the
-      // already-triggered timeout. client.test.ts enforces the exact 10 s
-      // timer; this journey owns the rendered recovery and retry contract.
-      await new Promise((resolve) => setTimeout(resolve, 11_000));
-      await route.continue().catch(() => undefined);
+    let releaseHungRead!: () => void;
+    const hungRead = new Promise<void>((resolve) => {
+      releaseHungRead = resolve;
     });
+    const pendingRoutes = new Set<Promise<void>>();
+    const anonSummaryPattern = "**/api/admin/anon-summary";
+    const holdAnonSummary = async (route: Route) => {
+      // Keep every intercepted read pending until the product's own timeout
+      // renders. client.test.ts owns the exact 10 s timer; this browser journey
+      // owns the visible recovery and retry contract without racing two clocks.
+      const continuation = hungRead.then(() => route.continue().catch(() => undefined));
+      pendingRoutes.add(continuation);
+      try {
+        await continuation;
+      } finally {
+        pendingRoutes.delete(continuation);
+      }
+    };
+    await page.route(anonSummaryPattern, holdAnonSummary);
     await page.goto("/admin/anon");
     const alert = page.getByRole("alert");
-    await expect(alert).toContainText("Trial-path data did not load", { timeout: 14_000 });
-    await expect(alert).toContainText("admin request took too long");
     const retry = page.getByRole("button", { name: "Try again" });
-    await expect(retry).toBeVisible();
+    try {
+      await expect(alert).toContainText("Trial-path data did not load", { timeout: 20_000 });
+      await expect(alert).toContainText("admin request took too long");
+      await expect(retry).toBeVisible();
+    } finally {
+      releaseHungRead();
+      await page.unroute(anonSummaryPattern, holdAnonSummary);
+      await Promise.allSettled([...pendingRoutes]);
+    }
 
-    await page.unroute("**/api/admin/anon-summary");
     await retry.click();
     await expect(page.getByRole("heading", { name: "Funnel (today, UTC)" })).toBeVisible({
       timeout: 12_000,

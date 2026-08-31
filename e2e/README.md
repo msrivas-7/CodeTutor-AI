@@ -162,3 +162,21 @@ the live Chromium inventory and fails closed when it reaches 467 tests or falls
 to 411, one measured shard-workload from the 439-test baseline. Re-run the
 benchmark and update the record at that point instead of guessing a new shard
 count or selecting tests away.
+
+The blocking 16-shard lane uses a duration-aware plan rather than Playwright's
+test-count-only partition. `.github/e2e-duration-seed.json` is the cold-start
+baseline from a clean 439-test run. Before each workflow, the planner enumerates
+the current Chromium inventory and assigns the longest predicted test to the
+least-loaded shard until every test appears exactly once. Unseen tests receive
+an eight-second conservative estimate, so additions cannot disappear from the
+suite. A successful exhaustive run publishes per-test timings; a separate
+post-processing job updates a branch-scoped moving-average cache for the next
+run. Forks can read the trusted default-branch history but cannot publish it.
+The tracked seed remains the deterministic fallback if no cache is available.
+
+The 63-test advisory critical lane consumes the same inventory and duration
+history but runs as two isolated shards. This preserves its frozen contract,
+zero-retry posture, and complete coverage while removing one duplicated serial
+bottleneck. Browser jobs still use two Playwright workers: the measured
+three-worker candidate was faster but failed under resource contention, so
+duration balancing adds no extra pressure inside an individual runner.
