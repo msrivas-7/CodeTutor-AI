@@ -89,11 +89,17 @@ integrationDescribe("AI request reservations (real Postgres)", () => {
     });
   });
 
-  it("admits a signed contextual evidence proof only once across request IDs", async () => {
-    const contextualEvidenceDigest = "c".repeat(64);
+  it("atomically rejects overlapping contextual evidence chains across request IDs", async () => {
+    const first = "c".repeat(64);
+    const overlap = "d".repeat(64);
+    const latest = "e".repeat(64);
     const results = await Promise.all([
-      reserveAIRequest(reservation(randomUUID(), { contextualEvidenceDigest })),
-      reserveAIRequest(reservation(randomUUID(), { contextualEvidenceDigest })),
+      reserveAIRequest(reservation(randomUUID(), {
+        contextualEvidenceDigests: [first, overlap],
+      })),
+      reserveAIRequest(reservation(randomUUID(), {
+        contextualEvidenceDigests: [overlap, latest],
+      })),
     ]);
     expect(results.filter((result) => result.ok)).toHaveLength(1);
     expect(results).toContainEqual({ ok: false, kind: "evidence_replay" });

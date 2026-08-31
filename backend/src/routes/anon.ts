@@ -827,8 +827,8 @@ export function createAnonRouter(backend: ExecutionBackend): Router {
         model: providerParams.model,
         route: "ask_stream",
         countsTowardQuota: true,
-        contextualEvidenceDigest: parsed.data.contextualOffer
-          ? digestContextualEvidenceToken(parsed.data.contextualOffer.evidenceToken)
+        contextualEvidenceDigests: parsed.data.contextualOffer
+          ? parsed.data.contextualOffer.evidenceTokens.map(digestContextualEvidenceToken)
           : undefined,
         reservedInputTokens: estimate.reservedInputTokens,
         reservedOutputTokens: estimate.reservedOutputTokens,

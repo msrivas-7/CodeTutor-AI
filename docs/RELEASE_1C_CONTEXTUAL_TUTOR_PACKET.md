@@ -19,7 +19,9 @@ hint, and a canonical file/line reference without revealing the answer.
   only that server-owned compile diagnostic can qualify the authored offer;
   runtime stderr cannot select or fund the teaching contract.
 - Acceptance is episode-idempotent in the client and request-idempotent at the
-  existing server admission boundary.
+  server admission boundary. The reservation transaction atomically claims
+  every signed receipt in the qualifying episode, so concurrent requests with
+  different terminal receipts cannot both spend an overlapping evidence chain.
 - A source/context change invalidates an in-flight generation. Stale content is
   discarded and only the deterministic changed-code status is shown.
 - `contextual_tutor_enabled` independently disables the AI offer while leaving

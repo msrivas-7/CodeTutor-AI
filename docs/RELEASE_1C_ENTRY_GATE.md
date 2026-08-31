@@ -29,7 +29,7 @@ retention, or market-impact claim.
 | Founder exception for learner evidence | **Recorded** | 2026-08-30 direction: implement 1C and do not wait for real-user evidence. |
 | Locked B2 teaching contract | **Retained** | Contextual turns still pass the complete-answer firewall and provide one bounded question/hint. |
 | Server authority and stale evidence | **Verified locally** | The server reconstructs and validates the authored move, lesson, revision, evidence code/path/line, and scaffold level. Python is parsed before execution, and only the server-owned compile diagnostic qualifies; stale offers and forged runtime stderr are rejected by the full backend suite. |
-| Explicit consent and bounded admission | **Verified locally** | No AI request occurs before `Help me spot it`; one accepted evidence episode can schedule at most one request. A real-browser double-click produced one turn and one quota decrement. |
+| Explicit consent and bounded admission | **Verified locally** | No AI request occurs before `Help me spot it`; one accepted evidence episode can schedule at most one request. A real-browser double-click produced one turn and one quota decrement, while a real-Postgres concurrency test atomically rejected two requests whose signed evidence chains overlapped despite different terminal receipts. |
 | Deterministic recovery | **Verified locally** | Loading, unavailable, kill-switch, stale-generation, and changed-code paths remain useful. The actual browser discarded a stale answer and restored the quota without placing stale content in the transcript. |
 | Contextual AI quality | **Passed** | Six contextual golden/adversarial cases cover normal help, source injection, stderr injection, answer pressure, stale history, and line accuracy. Artifact `2026-08-31T04-51-10-727Z-v2.json` passed 72/72 with every intent at 100%, zero deterministic failures, and contract `c0866e3b97a0a7e8…`. |
 | Cost | **Within provisional guardrail** | Focused live evidence measured about $0.0077 per accepted call and roughly 280 net-new input tokens; the client and server cap the episode at one call. |
@@ -41,7 +41,8 @@ retention, or market-impact claim.
 
 1. A repeated, lesson-authored error cue is deterministic and costs nothing.
 2. Only the learner's explicit click sends current code/run evidence to Tutor.
-3. Double-clicks, repeated renders, and stale state cannot create a second call.
+3. Double-clicks, repeated renders, stale state, and overlapping signed evidence
+   chains cannot create a second admitted call.
 4. The server, not the browser or source text, owns the move, evidence, and
    scaffold authority.
 5. The reply acknowledges the exact latest run, cites its canonical file/line,

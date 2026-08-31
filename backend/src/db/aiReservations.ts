@@ -38,7 +38,7 @@ interface ReserveBase {
   reservedCostUsd: number;
   priceVersion: number;
   expiresInMs: number;
-  contextualEvidenceDigest?: string;
+  contextualEvidenceDigests?: readonly string[];
 }
 
 export type ReserveAIRequestInput =
@@ -316,11 +316,20 @@ export async function reserveAIRequest(
   if (!Number.isInteger(input.expiresInMs) || input.expiresInMs <= 0 || input.expiresInMs > 60_000) {
     throw new Error(`reservation TTL must be an integer in 1..60000 ms (got ${input.expiresInMs})`);
   }
+  const submittedContextualEvidenceDigests = [
+    ...(input.contextualEvidenceDigests ?? []),
+  ];
+  const terminalContextualEvidenceDigest =
+    submittedContextualEvidenceDigests.at(-1) ?? null;
+  const contextualEvidenceDigests = [...submittedContextualEvidenceDigests].sort();
   if (
-    input.contextualEvidenceDigest !== undefined &&
-    !/^[0-9a-f]{64}$/.test(input.contextualEvidenceDigest)
+    contextualEvidenceDigests.length > 10 ||
+    new Set(contextualEvidenceDigests).size !== contextualEvidenceDigests.length ||
+    contextualEvidenceDigests.some((value) => !/^[0-9a-f]{64}$/.test(value))
   ) {
-    throw new Error("contextual evidence digest must be 64 lowercase hex characters");
+    throw new Error(
+      "contextual evidence digests must contain at most 10 unique lowercase SHA-256 values",
+    );
   }
   const sql = db();
   return (await sql.begin(async (tx) => {
@@ -328,21 +337,25 @@ export async function reserveAIRequest(
       await tx`SELECT pg_advisory_xact_lock(hashtext(${ADMISSION_LOCK_KEY})::bigint)`;
       await reconcileExpiredReservations(tx);
     }
-    // The token-specific lock covers platform and BYOK admission across every
-    // backend replica. The unique index remains the final database invariant.
-    if (input.contextualEvidenceDigest) {
-      await tx`
-        SELECT pg_advisory_xact_lock(
-          hashtext(${`codetutor:contextual-evidence:${input.contextualEvidenceDigest}`})::bigint
-        )
-      `;
+    // Claim the complete qualifying chain, not only its terminal receipt.
+    // Sorted token-specific locks avoid deadlocks while covering platform and
+    // BYOK admission across every backend replica. The claims table primary
+    // key remains the final database invariant.
+    if (contextualEvidenceDigests.length) {
+      for (const digest of contextualEvidenceDigests) {
+        await tx`
+          SELECT pg_advisory_xact_lock(
+            hashtext(${`codetutor:contextual-evidence:${digest}`})::bigint
+          )
+        `;
+      }
       const claims = await tx<Array<{ request_id: string }>>`
         SELECT request_id
-          FROM public.ai_request_reservations
-         WHERE contextual_evidence_digest = ${input.contextualEvidenceDigest}
+          FROM public.ai_contextual_evidence_claims
+         WHERE evidence_digest = ANY(${contextualEvidenceDigests}::text[])
          FOR UPDATE
       `;
-      if (claims[0] && claims[0].request_id !== input.requestId) {
+      if (claims.some((claim) => claim.request_id !== input.requestId)) {
         return { ok: false, kind: "evidence_replay" } as const;
       }
     }
@@ -527,13 +540,20 @@ export async function reserveAIRequest(
         ${input.actorKind === "user" ? input.userId : null},
         ${input.actorKind === "anonymous" ? input.ipHash : null},
         ${input.fundingSource}, ${input.model}, ${input.route},
-        ${input.requestFingerprint}, ${input.contextualEvidenceDigest ?? null},
+        ${input.requestFingerprint}, ${terminalContextualEvidenceDigest},
         ${input.countsTowardQuota},
         ${input.reservedInputTokens}, ${input.reservedOutputTokens},
         ${input.reservedCostUsd}, ${input.priceVersion},
         now() + (${input.expiresInMs} * interval '1 millisecond')
       )
     `;
+    for (const digest of contextualEvidenceDigests) {
+      await tx`
+        INSERT INTO public.ai_contextual_evidence_claims (
+          evidence_digest, request_id
+        ) VALUES (${digest}, ${input.requestId})
+      `;
+    }
     return { ok: true, remainingToday } as const;
   })) as ReserveAIRequestResult;
 }

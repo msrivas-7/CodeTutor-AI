@@ -307,7 +307,7 @@ async function reserveUserAction(args: {
   countsTowardQuota: boolean;
   reservedInputTokens: number;
   reservedOutputTokens: number;
-  contextualEvidenceDigest?: string;
+  contextualEvidenceDigests?: readonly string[];
 }): Promise<ReserveAIRequestResult> {
   const priced = safePrice(
     args.model,
@@ -338,7 +338,7 @@ async function reserveUserAction(args: {
     reservedCostUsd: priced.costUsd,
     priceVersion: priced.priceVersion,
     expiresInMs: reservationTtlMs(),
-    contextualEvidenceDigest: args.contextualEvidenceDigest,
+    contextualEvidenceDigests: args.contextualEvidenceDigests,
     caps,
   });
 }
@@ -673,8 +673,8 @@ aiRouter.post("/ask", async (req, res, next) => {
       model: providerParams.model,
       route: "ask",
       countsTowardQuota: cred.source === "platform",
-      contextualEvidenceDigest: parsed.data.contextualOffer
-        ? digestContextualEvidenceToken(parsed.data.contextualOffer.evidenceToken)
+      contextualEvidenceDigests: parsed.data.contextualOffer
+        ? parsed.data.contextualOffer.evidenceTokens.map(digestContextualEvidenceToken)
         : undefined,
       ...estimate,
     });
@@ -909,8 +909,8 @@ aiRouter.post("/ask/stream", async (req, res) => {
       model: providerParams.model,
       route: "ask_stream",
       countsTowardQuota: cred.source === "platform",
-      contextualEvidenceDigest: parsed.data.contextualOffer
-        ? digestContextualEvidenceToken(parsed.data.contextualOffer.evidenceToken)
+      contextualEvidenceDigests: parsed.data.contextualOffer
+        ? parsed.data.contextualOffer.evidenceTokens.map(digestContextualEvidenceToken)
         : undefined,
       reservedInputTokens: estimate.reservedInputTokens,
       reservedOutputTokens: estimate.reservedOutputTokens,

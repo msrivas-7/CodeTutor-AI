@@ -135,6 +135,7 @@ let baseUrl: string;
 
 const unusedBackend = {} as ExecutionBackend;
 const signedEvidenceTokenFixture = "e30.AQ";
+const priorSignedEvidenceTokenFixture = "e30.AA";
 
 function validBody(overrides: Record<string, unknown> = {}) {
   return {
@@ -441,7 +442,10 @@ describe("POST /api/anon/ai/ask/stream — platform model routing", () => {
         contextEpoch: "lesson:python-fundamentals/hello-world",
         projectRevision: 2,
         evidenceToken: signedEvidenceTokenFixture,
-        evidenceTokens: [signedEvidenceTokenFixture],
+        evidenceTokens: [
+          priorSignedEvidenceTokenFixture,
+          signedEvidenceTokenFixture,
+        ],
         moveId: "notice-unclosed-parenthesis",
         evidence: {
           code: "python-unclosed-parenthesis",
@@ -456,9 +460,15 @@ describe("POST /api/anon/ai/ask/stream — platform model routing", () => {
     expect(vi.mocked(openaiProvider.askStream)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(reserveAIRequest)).toHaveBeenCalledWith(
       expect.objectContaining({
-        contextualEvidenceDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
+        contextualEvidenceDigests: [
+          expect.stringMatching(/^[0-9a-f]{64}$/),
+          expect.stringMatching(/^[0-9a-f]{64}$/),
+        ],
       }),
     );
+    const contextualEvidenceDigests = vi.mocked(reserveAIRequest).mock.calls[0][0]
+      .contextualEvidenceDigests;
+    expect(new Set(contextualEvidenceDigests).size).toBe(2);
     expect(vi.mocked(openaiProvider.askStream).mock.calls[0][0]).toEqual(
       expect.objectContaining({
         tutorAction: "contextual-help",

@@ -288,7 +288,7 @@ function contextualAskBody(overrides: Record<string, unknown> = {}) {
       contextEpoch: "lesson:python-fundamentals/hello-world",
       projectRevision: 2,
       evidenceToken: "e30.AQ",
-      evidenceTokens: ["e30.AQ"],
+      evidenceTokens: ["e30.AA", "e30.AQ"],
       moveId: "notice-unclosed-parenthesis",
       evidence: {
         code: "python-unclosed-parenthesis",
@@ -599,9 +599,15 @@ describe("POST /api/ai/ask/stream — contextual Tutor 1C", () => {
     expect(vi.mocked(openaiProvider.askStream)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(reserveAIRequest)).toHaveBeenCalledWith(
       expect.objectContaining({
-        contextualEvidenceDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
+        contextualEvidenceDigests: [
+          expect.stringMatching(/^[0-9a-f]{64}$/),
+          expect.stringMatching(/^[0-9a-f]{64}$/),
+        ],
       }),
     );
+    const contextualEvidenceDigests = vi.mocked(reserveAIRequest).mock.calls[0][0]
+      .contextualEvidenceDigests;
+    expect(new Set(contextualEvidenceDigests).size).toBe(2);
     expect(vi.mocked(openaiProvider.askStream)).toHaveBeenCalledWith(
       expect.objectContaining({
         tutorAction: "contextual-help",
