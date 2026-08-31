@@ -120,15 +120,12 @@ browser boundary retained for each. The earlier shard benchmark measured four,
 six, and eight shards on commit `c6aa5f0`; at the then-smaller suite size, six
 was fastest at 316 seconds versus 340 for eight and 495 for four. The suite has
 since grown to 420 Chromium tests, so
-`.github/workflows/e2e-shard-benchmark.yml` later compared 10, 12, 14, 16, 17,
-and 20 shards sequentially on stable commits and without retries. Runs
-[`33377525950`](https://github.com/msrivas-7/CodeTutor-AI/actions/runs/33377525950)
-and [`33381912250`](https://github.com/msrivas-7/CodeTutor-AI/actions/runs/33381912250)
-selected sixteen shards: its retry-free test critical path was 178 seconds,
-while the 20-shard candidate's raw slowest partition was only eight seconds
-faster and its recorded second-wave allocation raised the queue-aware path to
-303 seconds. It therefore did not clear the 20-second and 5% adoption threshold.
-Every selected shard passed and all 437 tests remained blocking. The benchmark
+`.github/workflows/e2e-shard-benchmark.yml` later compared 16 and 20 shards
+sequentially on the same stable GitHub Pro commit and without retries. Run
+[`33385421742`](https://github.com/msrivas-7/CodeTutor-AI/actions/runs/33385421742)
+selected sixteen shards: its retry-free test critical path was 160 seconds and
+its topology completed in 379 seconds, versus 198 and 416 seconds for 20
+shards. Every shard passed and all 439 tests remained blocking. The benchmark
 reports end-to-end completion, slowest test time, shard imbalance, aggregate
 runner time, setup overhead, and tests per shard. A larger topology is
 recommended only when every shard passes and it improves completion by at least
@@ -149,7 +146,7 @@ that syntax limit is not useful capacity unless the account can actually start
 the jobs concurrently.
 
 `.github/e2e-shard-capacity.json` records the measured decision. Shard 1 counts
-the live Chromium inventory and fails closed when it reaches 465 tests or falls
-to 409, one measured shard-workload from the 437-test baseline. Re-run the
+the live Chromium inventory and fails closed when it reaches 467 tests or falls
+to 411, one measured shard-workload from the 439-test baseline. Re-run the
 benchmark and update the record at that point instead of guessing a new shard
 count or selecting tests away.
