@@ -157,7 +157,10 @@ test.describe("Phase 27-v2.1 — ANON_EXHAUSTED → wall pivot", () => {
     await expect(quotaMessage).toBeVisible();
     await expect(quotaMessage).toBeInViewport();
     await expect(page.getByTestId("contextual-guide-bridge")).toBeVisible();
-    await expect(page.getByTestId("contextual-guide-ask")).toHaveText("Open Tutor");
+    // At a normal phone height the Tutor is already visible, so an extra
+    // Open Tutor action would be redundant. The short-keyboard viewport
+    // recovery is covered by contextual-guidance.spec.ts.
+    await expect(page.getByTestId("contextual-guide-ask")).toHaveCount(0);
     const tutor = page.getByRole("region", { name: "AI tutor" });
     await expect(tutor).toBeInViewport();
     await expect(tutor).toBeFocused();
