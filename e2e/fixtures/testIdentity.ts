@@ -7,7 +7,9 @@ const SAFE_SEGMENT = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 const MIN_ABANDONED_AGE_MS = 24 * 60 * 60 * 1000;
 const MAX_ABANDONED_DELETES = 100;
 const CI_RUN_SUFFIX =
-  /^(?:shard-(?:[1-9]|10)|benchmark-(?:6|8|10)-(?:[1-9]|10)|cross-browser-(?:firefox|webkit)|security)-run\d+-attempt\d+$/;
+  /^(?:shard-(?:[1-9]|1\d|20)|cross-browser-(?:firefox|webkit)|security)-run\d+-attempt\d+$/;
+const BENCHMARK_RUN_SUFFIX =
+  /^benchmark-(6|8|10|12|14|16|17|20)-([1-9]|1\d|20)-run\d+-attempt\d+$/;
 const JANITOR_LEADER_SUFFIX = /^shard-1-run\d+-attempt\d+$/;
 
 export type TestUserIdentity = Pick<User, "id" | "email">;
@@ -76,18 +78,18 @@ export function isCurrentRunTestEmail(
   suffix = requireCurrentRunSuffix(),
 ): boolean {
   const safeSuffix = requireCurrentRunSuffix(suffix);
-  return extractTestRunSuffix(email) === safeSuffix;
+  return extractTestRunSuffixCandidates(email).includes(safeSuffix);
 }
 
-export function extractTestRunSuffix(
+function extractTestRunSuffixCandidates(
   email: string | null | undefined,
-): string | null {
-  if (typeof email !== "string") return null;
+): string[] {
+  if (typeof email !== "string") return [];
   const separator = email.lastIndexOf("@");
-  if (separator < 1 || email.indexOf("@") !== separator) return null;
+  if (separator < 1 || email.indexOf("@") !== separator) return [];
   const localPart = email.slice(0, separator);
   const domain = email.slice(separator + 1);
-  if (domain !== TEST_DOMAIN || !localPart.startsWith("e2e-")) return null;
+  if (domain !== TEST_DOMAIN || !localPart.startsWith("e2e-")) return [];
 
   const marker = /-(\d+)-/g;
   const matches: string[] = [];
@@ -106,11 +108,29 @@ export function extractTestRunSuffix(
       matches.push(suffix);
     }
   }
+  return matches;
+}
+
+export function extractTestRunSuffix(
+  email: string | null | undefined,
+): string | null {
+  const matches = extractTestRunSuffixCandidates(email);
+  return matches.length === 1 ? matches[0] : null;
+}
+
+function extractRecognizedCiRunSuffix(
+  email: string | null | undefined,
+): string | null {
+  const matches = extractTestRunSuffixCandidates(email)
+    .filter((suffix) => isRecognizedCiRunSuffix(suffix));
   return matches.length === 1 ? matches[0] : null;
 }
 
 export function isRecognizedCiRunSuffix(suffix: string): boolean {
-  return SAFE_SEGMENT.test(suffix) && CI_RUN_SUFFIX.test(suffix);
+  if (!SAFE_SEGMENT.test(suffix)) return false;
+  if (CI_RUN_SUFFIX.test(suffix)) return true;
+  const benchmark = BENCHMARK_RUN_SUFFIX.exec(suffix);
+  return benchmark !== null && Number(benchmark[2]) <= Number(benchmark[1]);
 }
 
 export function shouldReapAbandonedCiUsers(
@@ -210,7 +230,7 @@ export async function reapAbandonedCiTestUsers(
 
   const users = await listAllUsers(admin);
   const eligible = users.filter((user) => {
-    const suffix = extractTestRunSuffix(user.email);
+    const suffix = extractRecognizedCiRunSuffix(user.email);
     const createdAt = Date.parse(user.created_at);
     return (
       suffix !== null &&
@@ -222,7 +242,7 @@ export async function reapAbandonedCiTestUsers(
   const victims = eligible.slice(0, maxDeletes);
 
   for (const user of victims) {
-    const suffix = extractTestRunSuffix(user.email);
+    const suffix = extractRecognizedCiRunSuffix(user.email);
     if (!suffix || !isRecognizedCiRunSuffix(suffix)) {
       throw new Error(
         "Abandoned-user cleanup refused: identity changed during selection",

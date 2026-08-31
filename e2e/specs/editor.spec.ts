@@ -583,8 +583,13 @@ test.describe("editor", () => {
       await expect(page.getByText(/running for \d+s/i)).toBeVisible({ timeout: 5_000 });
       await stopButton.click();
 
+      // Feedback must be immediate even when a loaded runner takes a few
+      // seconds to acknowledge the container cancellation.
+      await expect(page.getByText("Stopping this run…")).toBeVisible({
+        timeout: 2_000,
+      });
       await expect(page.getByText("Run stopped. Your code is unchanged.")).toBeVisible({
-        timeout: 5_000,
+        timeout: 15_000,
       });
       await expect(S.runButton(page)).toBeEnabled();
 

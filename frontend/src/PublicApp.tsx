@@ -6,7 +6,18 @@ import WhyNotChatGPTPage from "./pages/WhyNotChatGPTPage";
 
 const MarketingPage = lazy(() => import("./pages/MarketingPage"));
 const TrustPage = lazy(() => import("./pages/TrustPage"));
-const FullApp = lazy(() => import("./App"));
+const FullApp = lazy(async () => {
+  const [appModule, { initAuth }] = await Promise.all([
+    import("./App"),
+    import("./auth/authStore"),
+  ]);
+
+  // Public routes deliberately defer auth hydration so acquisition content can
+  // paint quickly. Once a visitor explicitly enters the product, that delay is
+  // no longer useful: begin authoritative hydration before rendering FullApp.
+  initAuth();
+  return appModule;
+});
 
 function Loading() {
   return (

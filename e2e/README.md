@@ -106,7 +106,7 @@ npm run test:real
 
 See `.github/workflows/e2e.yml`. The current PR model is:
 
-- ten blocking Chromium shards for all 420 tests, selected by a same-commit,
+- sixteen blocking Chromium shards for all 439 tests, selected by a same-commit,
   zero-retry capacity benchmark with no regression-coverage reduction;
 - blocking Firefox and WebKit focused journeys;
 - one advisory, zero-retry Chromium critical lane (currently 41 tests in 15 files);
@@ -120,17 +120,33 @@ browser boundary retained for each. The earlier shard benchmark measured four,
 six, and eight shards on commit `c6aa5f0`; at the then-smaller suite size, six
 was fastest at 316 seconds versus 340 for eight and 495 for four. The suite has
 since grown to 420 Chromium tests, so
-`.github/workflows/e2e-shard-benchmark.yml` now compares 6, 8, and 10 shards on
-the same commit, sequentially and without retries. Run
-[`33295206692`](https://github.com/msrivas-7/CodeTutor-AI/actions/runs/33295206692)
-selected ten shards at 325 seconds, versus 367 for eight and 504 for six; every
-job passed and all 420 tests remained blocking. It reports end-to-end
-completion, slowest test time, shard imbalance, aggregate runner time, setup
-overhead, and tests per shard. A larger topology is recommended only when every
-shard passes and it improves completion by at least 20 seconds and 5%; this
-avoids buying more runner/setup overhead for a noisy or negligible gain.
+`.github/workflows/e2e-shard-benchmark.yml` later compared 16 and 20 shards
+sequentially on the same stable GitHub Pro commit and without retries. Run
+[`33385421742`](https://github.com/msrivas-7/CodeTutor-AI/actions/runs/33385421742)
+selected sixteen shards: its retry-free test critical path was 160 seconds and
+its topology completed in 379 seconds, versus 198 and 416 seconds for 20
+shards. Every shard passed and all 439 tests remained blocking. The benchmark
+reports end-to-end completion, slowest test time, shard imbalance, aggregate
+runner time, setup overhead, and tests per shard. A larger topology is
+recommended only when every shard passes and it improves completion by at least
+20 seconds and 5%; this avoids buying more runner/setup overhead for a noisy or
+negligible gain.
+
+After the account moved to GitHub Pro, the controlled capacity pass narrowed to
+a fresh same-commit comparison of the 16-shard incumbent and 20 shards. The
+40-job account-wide ceiling must also accommodate the ordinary CI, preview,
+security, Firefox, WebKit, and advisory jobs that run on a PR; 20 Chromium
+shards is therefore the practical no-starvation ceiling for the current
+workflow set. Higher matrix counts are syntactically valid but would queue or
+delay adjacent quality checks instead of making the complete PR faster.
+
+Re-evaluate the candidate ceiling whenever the GitHub plan, runner class, or
+observed account concurrency changes. The matrix supports up to 256 jobs, but
+that syntax limit is not useful capacity unless the account can actually start
+the jobs concurrently.
+
 `.github/e2e-shard-capacity.json` records the measured decision. Shard 1 counts
-the live Chromium inventory and fails closed when it reaches 462 tests or falls
-to 378, one measured shard-workload from the 420-test baseline. Re-run the
+the live Chromium inventory and fails closed when it reaches 467 tests or falls
+to 411, one measured shard-workload from the 439-test baseline. Re-run the
 benchmark and update the record at that point instead of guessing a new shard
 count or selecting tests away.

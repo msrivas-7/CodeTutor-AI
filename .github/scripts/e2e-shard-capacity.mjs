@@ -98,7 +98,7 @@ async function main() {
   if (!result.eligible) {
     const boundary = result.direction === "upper" ? result.atOrAboveTests : result.atOrBelowTests;
     throw new Error(
-      `Playwright rebenchmark required: ${result.totalTests} tests reached the ${result.direction} boundary (${boundary}) for the measured ${result.selectedShards}-shard topology. Run the label-triggered 6/8/10 benchmark on a stable commit and update the capacity record; do not remove tests from the blocking suite.`,
+      `Playwright rebenchmark required: ${result.totalTests} tests reached the ${result.direction} boundary (${boundary}) for the measured ${result.selectedShards}-shard topology. Run the label-triggered capacity benchmark on a stable commit and update the capacity record; do not remove tests from the blocking suite.`,
     );
   }
 

@@ -1,25 +1,31 @@
 {
   "schemaVersion": 1,
-  "selectedShards": 10,
+  "selectedShards": 16,
   "workersPerShard": 2,
   "retriesDuringBenchmark": 0,
   "benchmark": {
-    "runId": 33295206692,
-    "url": "https://github.com/msrivas-7/CodeTutor-AI/actions/runs/33295206692",
-    "headSha": "f4dceeefa292e378eab4a18d5b14c60ddf1d5f97",
-    "totalTests": 420,
-    "topologies": [
-      { "shards": 6, "topologyReadySeconds": 504, "reliable": true },
-      { "shards": 8, "topologyReadySeconds": 367, "reliable": true },
-      { "shards": 10, "topologyReadySeconds": 325, "reliable": true }
+    "runs": [
+      {
+        "runId": 33385421742,
+        "url": "https://github.com/msrivas-7/CodeTutor-AI/actions/runs/33385421742",
+        "headSha": "ced40c1b465cfeddba37c6299e4668a38d235139",
+        "topologies": [16, 20]
+      }
     ],
-    "selectedTopologyReadySeconds": 325,
-    "selectedAverageTestsPerShard": 42,
-    "measuredAt": "2026-08-30T06:00:38Z"
+    "method": "After the account moved to GitHub Pro, 16 and 20 shards ran sequentially on the same stable commit with two workers per shard and no retries. All jobs started without an account queue and every shard passed; 16 had both the faster retry-free test critical path and the faster topology completion.",
+    "totalTests": 439,
+    "topologies": [
+      { "shards": 16, "modeledTestCriticalPathSeconds": 160, "topologyReadySeconds": 379, "reliable": true },
+      { "shards": 20, "modeledTestCriticalPathSeconds": 198, "topologyReadySeconds": 416, "reliable": true }
+    ],
+    "selectedModeledTestCriticalPathSeconds": 160,
+    "selectedTopologyReadySeconds": 379,
+    "selectedAverageTestsPerShard": 27.4,
+    "measuredAt": "2026-08-31T11:20:21Z"
   },
   "rebenchmark": {
-    "atOrBelowTests": 378,
-    "atOrAboveTests": 462,
+    "atOrBelowTests": 411,
+    "atOrAboveTests": 467,
     "rule": "Rebenchmark when the suite changes by one selected shard's measured average workload."
   },
   "selectionPolicy": {
