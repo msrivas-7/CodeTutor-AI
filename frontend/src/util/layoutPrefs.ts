@@ -27,6 +27,27 @@ export function useNarrowViewport(maxPx: number = 1024): boolean {
   return narrow;
 }
 
+/** Reactively tracks short viewports where an always-mounted lower panel can
+ * still sit below the visible fold (for example, a phone with its keyboard). */
+export function useShortViewport(maxPx: number = 560): boolean {
+  const [short, setShort] = useState(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return false;
+    }
+    return window.matchMedia(`(max-height: ${maxPx}px)`).matches;
+  });
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return;
+    }
+    const mq = window.matchMedia(`(max-height: ${maxPx}px)`);
+    const onChange = (event: MediaQueryListEvent) => setShort(event.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, [maxPx]);
+  return short;
+}
+
 // Phase 27-v2.2 audit fix D1 (staff-qa): "phone-class form factor"
 // detection that survives orientation. The width-only `useNarrowViewport`
 // check returns false on iPhone 13 landscape (844×390) — Maya rotates

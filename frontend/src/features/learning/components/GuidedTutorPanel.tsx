@@ -98,10 +98,16 @@ interface GuidedTutorPanelProps {
   /** Reports whether an accepted contextual turn completed successfully. */
   onContextualTutorAskComplete?: (
     ok: boolean,
-    invalidation?: "stale" | "disabled" | "model" | "quota",
+    invalidation?: "stale" | "disabled" | "model" | "quota" | "availability",
+  ) => void;
+  /** Promotes an admission refusal to lesson scope before this panel can remount. */
+  onContextualTutorOfferInvalidated?: (
+    invalidation: "disabled" | "model" | "quota" | "availability",
   ) => void;
   /** External one-shot asks wait until the owning Tutor surface is visible. */
   externalAskReady?: boolean;
+  /** Parent-owned refusal latch survives desktop/compact Tutor remounts. */
+  contextualRuntimeUnavailable?: boolean;
 }
 
 export function canSubmitGuidedTutorTurn({
@@ -150,7 +156,7 @@ export function resolveTutorSource(
   return hasKey ? "byok" : (statusSource ?? "none");
 }
 
-export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, priorConcepts, activePracticeExercise, onCollapse, onOpenSettings, resetNonce, inputLocked, clearHidden, mode = "authed", onAnonExhausted, onAnonTrialPaused, onAnonSaveRequested, onSkipWelcome, initialAnonTutorState, onContextualTutorAvailabilityChange, onContextualTutorAskComplete, externalAskReady = true }: GuidedTutorPanelProps) {
+export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, priorConcepts, activePracticeExercise, onCollapse, onOpenSettings, resetNonce, inputLocked, clearHidden, mode = "authed", onAnonExhausted, onAnonTrialPaused, onAnonSaveRequested, onSkipWelcome, initialAnonTutorState, onContextualTutorAvailabilityChange, onContextualTutorAskComplete, onContextualTutorOfferInvalidated, externalAskReady = true, contextualRuntimeUnavailable: parentContextualRuntimeUnavailable = false }: GuidedTutorPanelProps) {
   const incrementHint = useProgressStore((s) => s.incrementHint);
   // Derive the hint cap from the DB-backed hint_count (not local component
   // state) so the limit survives navigation + reload. Local state rewinds on
@@ -229,7 +235,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
   const [activeContextualOffer, setActiveContextualOffer] = useState<ContextualTutorOfferRequest | null>(null);
   const activeContextualOfferRef = useRef<ContextualTutorOfferRequest | null>(null);
   const contextualInvalidationRef = useRef<
-    "stale" | "disabled" | "model" | "quota" | null
+    "stale" | "disabled" | "model" | "quota" | "availability" | null
   >(null);
   const updateActiveContextualOffer = (offer: ContextualTutorOfferRequest | null) => {
     activeContextualOfferRef.current = offer;
@@ -312,6 +318,7 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
       : configured &&
           contextualModelReady &&
           !contextualRuntimeUnavailable &&
+          !parentContextualRuntimeUnavailable &&
           !exhausted &&
           !anonQuotaExhausted &&
           (mode === "anon"
@@ -408,11 +415,17 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
     },
     onContextualOfferInvalidated: (reason) => {
       contextualInvalidationRef.current = reason;
-      if (reason === "disabled" || reason === "model" || reason === "quota") {
+      if (
+        reason === "disabled" ||
+        reason === "model" ||
+        reason === "quota" ||
+        reason === "availability"
+      ) {
         // Runtime admission is authoritative for this mounted lesson. Stop
         // advertising an action that will only be refused. The deterministic
         // guide remains available and falls back to opening the regular Tutor.
         setContextualRuntimeUnavailable(true);
+        onContextualTutorOfferInvalidated?.(reason);
         if (mode === "anon") {
           setAnonContextualTutorStatus((current) => ({
             enabled: reason === "disabled" ? false : (current?.enabled ?? false),

@@ -462,6 +462,52 @@ test.describe("contextual guidance and Tutor offer", () => {
     await expect(page.getByRole("button", { name: /retry the last question/i })).toHaveCount(0);
     expect(calls).toBe(1);
 
+    // Responsive policy changes remount the Tutor. A server refusal belongs
+    // to the lesson episode, not one panel instance, so compact mode must not
+    // resurrect the spending action.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.getByTestId("contextual-guide-ask")).toHaveCount(0);
+    expect(calls).toBe(1);
+    await page.setViewportSize({ width: 1440, height: 900 });
+
+    await page.getByRole("button", { name: "Collapse tutor" }).click();
+    await expect(page.getByTestId("contextual-guide-ask")).toHaveText("Open Tutor");
+    await page.getByTestId("contextual-guide-ask").click();
+    await expect(page.getByLabel(/ask the tutor/i)).toBeFocused();
+    expect(calls).toBe(1);
+  });
+
+  test("a lesson-context refusal preserves the free guide without replaying consent", criticalTest({
+    risk: "p0",
+    owner: "learning",
+    browsers: ["chromium", "webkit"],
+    devices: ["desktop"],
+    quarantine: { state: "none" },
+  }), async ({ page }) => {
+    let calls = 0;
+    await page.route("**/api/anon/ai/ask/stream", async (route) => {
+      calls += 1;
+      await route.fulfill({
+        status: 404,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "LESSON_CONTEXT_NOT_FOUND" }),
+      });
+    });
+
+    await page.goto(PATH);
+    await waitForMonacoReady(page);
+    await setMonacoValue(page, 'print("Hello"\n');
+    await runCode(page);
+    await setMonacoValue(page, 'print("Hello, learner"\n');
+    await runCode(page);
+    await page.getByTestId("contextual-guide-ask").click();
+
+    await expect(page.getByText(/LESSON_CONTEXT_NOT_FOUND/)).toHaveCount(0);
+    await expect(page.getByTestId("contextual-guide-bridge")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Jump to line 1" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /retry the last question/i })).toHaveCount(0);
+    expect(calls).toBe(1);
+
     await page.getByRole("button", { name: "Collapse tutor" }).click();
     await expect(page.getByTestId("contextual-guide-ask")).toHaveText("Open Tutor");
     await page.getByTestId("contextual-guide-ask").click();

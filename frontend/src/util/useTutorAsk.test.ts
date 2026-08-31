@@ -30,6 +30,17 @@ describe("contextualOfferInvalidationForError", () => {
     expect(contextualOfferInvalidationForError("ANON_EXHAUSTED", "authed")).toBeNull();
     expect(contextualOfferInvalidationForError("FREE_TIER_EXHAUSTED", "anon")).toBeNull();
   });
+
+  it("preserves authored guidance when lesson authority refuses admission", () => {
+    expect(contextualOfferInvalidationForError(
+      'Request failed (404): {"error":"LESSON_CONTEXT_NOT_FOUND"}',
+      "authed",
+    )).toBe("availability");
+    expect(contextualOfferInvalidationForError(
+      'Request failed (503): {"error":"LESSON_CONTEXT_UNAVAILABLE"}',
+      "anon",
+    )).toBe("availability");
+  });
 });
 
 describe("tutorRequestModel", () => {

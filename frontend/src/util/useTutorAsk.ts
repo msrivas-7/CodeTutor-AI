@@ -64,11 +64,14 @@ export function tutorRequestModel({
 export function contextualOfferInvalidationForError(
   message: string,
   mode: "authed" | "anon",
-): "stale" | "disabled" | "model" | "quota" | null {
+): "stale" | "disabled" | "model" | "quota" | "availability" | null {
   if (/CONTEXTUAL_EVIDENCE_STALE/i.test(message)) return "stale";
   if (/CONTEXTUAL_TUTOR_DISABLED/i.test(message)) return "disabled";
   if (/MODEL_NOT_EVALUATED_FOR_CONTEXTUAL_OFFER/i.test(message)) return "model";
   if (/PLATFORM_AI_PAUSED/i.test(message)) return "quota";
+  if (/LESSON_CONTEXT_(?:UNAVAILABLE|NOT_FOUND)/i.test(message)) {
+    return "availability";
+  }
   if (mode === "anon" && /ANON_EXHAUSTED/i.test(message)) return "quota";
   if (mode === "authed" && /FREE_TIER_EXHAUSTED/i.test(message)) return "quota";
   return null;
@@ -126,7 +129,7 @@ export interface UseTutorAskOpts {
   onAskComplete?: (outcome: { ok: boolean }) => void;
   /** Invalidates a contextual offer whose signed evidence can no longer be used. */
   onContextualOfferInvalidated?: (
-    reason: "stale" | "disabled" | "model" | "quota",
+    reason: "stale" | "disabled" | "model" | "quota" | "availability",
   ) => void;
   onAllowanceUpdate?: (remainingToday: number | null) => void;
   /**
@@ -488,6 +491,12 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
               // anonymous learners.
               opts.onContextualOfferInvalidated?.("quota");
               if (!isAnon) invalidateAIStatus();
+            }
+            if (contextualInvalidation === "availability") {
+              // The lesson authority refused this evidence before admission.
+              // Preserve the free authored guide and stop advertising the
+              // contextual spending action for this mounted lesson.
+              opts.onContextualOfferInvalidated?.("availability");
             }
             // Phase 27-v2.1 audit pass 1 fix #5: detect the L_anon
             // cap-exceeded error code and route to the wall instead

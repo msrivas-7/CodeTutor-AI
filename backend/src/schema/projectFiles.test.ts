@@ -1,5 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { hasUniqueProjectFilePaths } from "./projectFiles.js";
+import {
+  canonicalProjectFilePath,
+  hasUniqueProjectFilePaths,
+} from "./projectFiles.js";
+
+describe("canonicalProjectFilePath", () => {
+  it("matches filesystem-equivalent project paths", () => {
+    expect(canonicalProjectFilePath("./src//main.py")).toBe("src/main.py");
+    expect(canonicalProjectFilePath("\\src\\main.py")).toBe("src/main.py");
+  });
+
+  it("rejects paths the execution backend cannot write", () => {
+    expect(canonicalProjectFilePath("../main.py")).toBeNull();
+    expect(canonicalProjectFilePath("src/-flag.py")).toBeNull();
+    expect(canonicalProjectFilePath("///")).toBeNull();
+  });
+});
 
 describe("hasUniqueProjectFilePaths", () => {
   it("accepts one authoritative value per path", () => {
@@ -13,6 +29,21 @@ describe("hasUniqueProjectFilePaths", () => {
     expect(hasUniqueProjectFilePaths([
       { path: "main.py" },
       { path: "main.py" },
+    ])).toBe(false);
+  });
+
+  it("rejects filesystem-equivalent duplicate paths", () => {
+    expect(hasUniqueProjectFilePaths([
+      { path: "main.py" },
+      { path: "./main.py" },
+    ])).toBe(false);
+    expect(hasUniqueProjectFilePaths([
+      { path: "src/main.py" },
+      { path: "src//main.py" },
+    ])).toBe(false);
+    expect(hasUniqueProjectFilePaths([
+      { path: "src/main.py" },
+      { path: "src\\main.py" },
     ])).toBe(false);
   });
 });

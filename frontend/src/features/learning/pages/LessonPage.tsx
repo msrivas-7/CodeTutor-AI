@@ -60,6 +60,7 @@ import {
   clampSide,
   useNarrowViewport,
   usePhoneFormFactor,
+  useShortViewport,
 } from "../../../util/layoutPrefs";
 import {
   LESSON_LAYOUT_BOUNDS,
@@ -879,6 +880,7 @@ export default function LessonPage({
   // all state machinery remains shared with the desktop branch.
   const phoneFormFactor = usePhoneFormFactor();
   const compactWorkspace = useNarrowViewport(900);
+  const shortCompactViewport = useShortViewport(560);
   const isPhoneNative = phoneFormFactor || compactWorkspace;
   const handledPhoneTutorOpenNonceRef = useRef(tutorOpenNonce);
   const previousPhoneNativeRef = useRef(isPhoneNative);
@@ -1131,7 +1133,7 @@ export default function LessonPage({
   const [contextualAskPending, setContextualAskPending] = useState(false);
   const contextualAskOutcomeRef = useRef<{
     ok: boolean;
-    invalidation?: "stale" | "disabled" | "model" | "quota";
+    invalidation?: "stale" | "disabled" | "model" | "quota" | "availability";
   } | null>(null);
   const historicalLessonComplete =
     mode === "authed" && courseId && lessonId
@@ -1160,7 +1162,7 @@ export default function LessonPage({
     if (
       !contextualGuideVisible ||
       !isPhoneNative ||
-      !window.matchMedia("(max-height: 560px)").matches
+      !shortCompactViewport
     ) {
       return;
     }
@@ -1173,9 +1175,14 @@ export default function LessonPage({
       layout.editorRef.current?.scrollIntoView({ block: "start" });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [contextualGuideVisible, isPhoneNative, layout.editorRef]);
+  }, [contextualGuideVisible, isPhoneNative, layout.editorRef, shortCompactViewport]);
   const [contextualTutorAvailability, setContextualTutorAvailability] =
     useState<ContextualTutorAvailability>("loading");
+  const [contextualRuntimeUnavailable, setContextualRuntimeUnavailable] =
+    useState(false);
+  useEffect(() => {
+    setContextualRuntimeUnavailable(false);
+  }, [courseId, lessonId]);
   const acceptedContextualEvidenceRef = useRef<string | null>(null);
   const contextualEvidenceKey = contextualGuide.context.latestRunEvidence?.key ?? null;
   useEffect(() => {
@@ -1245,11 +1252,30 @@ export default function LessonPage({
   };
   const handleContextualTutorAskComplete = useCallback((
     ok: boolean,
-    invalidation?: "stale" | "disabled" | "model" | "quota",
+    invalidation?: "stale" | "disabled" | "model" | "quota" | "availability",
   ) => {
+    if (
+      !ok &&
+      (invalidation === "disabled" ||
+        invalidation === "model" ||
+        invalidation === "quota" ||
+        invalidation === "availability")
+    ) {
+      // Commit the lesson-owned refusal latch as soon as the request reports
+      // its terminal outcome. Waiting for the stream-idle effect leaves a
+      // remount window where WebKit can replace the panel during a responsive
+      // transition and briefly restore the spending action.
+      setContextualRuntimeUnavailable(true);
+    }
     // useTutorAsk reports completion before its final render releases
     // `asking`. Defer episode ownership changes until the stream is idle.
     contextualAskOutcomeRef.current = { ok, invalidation };
+  }, []);
+  const handleContextualTutorOfferInvalidated = useCallback(() => {
+    // The Tutor subtree changes identity across the desktop/compact boundary.
+    // Promote admission refusals immediately so a remount cannot re-advertise
+    // the same spending action while request completion is still unwinding.
+    setContextualRuntimeUnavailable(true);
   }, []);
   useEffect(() => {
     const outcome = contextualAskOutcomeRef.current;
@@ -1266,12 +1292,14 @@ export default function LessonPage({
       } else if (
         outcome.invalidation === "disabled" ||
         outcome.invalidation === "model" ||
-        outcome.invalidation === "quota"
+        outcome.invalidation === "quota" ||
+        outcome.invalidation === "availability"
       ) {
         // Admission was refused before spending. Keep the free authored guide
         // in place, but clear the attempted consent and let the mounted Tutor
         // expose only the non-spending Open Tutor recovery action.
         acceptedContextualEvidenceRef.current = null;
+        setContextualRuntimeUnavailable(true);
       } else {
         // The signed proof is single-use at admission. Even when transport or
         // provider recovery fails, retire this consent surface so the learner
@@ -2079,8 +2107,10 @@ export default function LessonPage({
                 onAnonSaveRequested={onAnonSave}
                 initialAnonTutorState={initialAnonTutorStateRef.current}
                 externalAskReady
+                contextualRuntimeUnavailable={contextualRuntimeUnavailable}
                 onContextualTutorAvailabilityChange={handleContextualTutorAvailability}
                 onContextualTutorAskComplete={handleContextualTutorAskComplete}
+                onContextualTutorOfferInvalidated={handleContextualTutorOfferInvalidated}
               />
             </section>
           </div>
@@ -2097,6 +2127,7 @@ export default function LessonPage({
               onDismiss={contextualGuide.dismiss}
               onAskTutor={askContextualTutor}
               tutorOfferState={contextualOfferState}
+              tutorSurfaceVisible={!shortCompactViewport}
             />
             {!practiceMode
               && validator.validation
@@ -2838,8 +2869,10 @@ export default function LessonPage({
               onAnonSaveRequested={onAnonSave}
               initialAnonTutorState={initialAnonTutorStateRef.current}
               externalAskReady={!layout.tutorCollapsed}
+              contextualRuntimeUnavailable={contextualRuntimeUnavailable}
               onContextualTutorAvailabilityChange={handleContextualTutorAvailability}
               onContextualTutorAskComplete={handleContextualTutorAskComplete}
+              onContextualTutorOfferInvalidated={handleContextualTutorOfferInvalidated}
             />
           </motion.aside>
         </motion.main>

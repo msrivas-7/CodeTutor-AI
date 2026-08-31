@@ -95,4 +95,25 @@ describe("tutor recovery copy", () => {
       showDetails: false,
     });
   });
+
+  it("keeps lesson-authority refusals private and non-retryable", () => {
+    for (const error of [
+      "LESSON_CONTEXT_NOT_FOUND",
+      "LESSON_CONTEXT_UNAVAILABLE",
+    ]) {
+      const raw = JSON.stringify({ error });
+      expect(classifyAskError(raw)).toMatchObject({
+        kind: "lessonContextUnavailable",
+        retryable: false,
+        showDetails: false,
+      });
+      const markup = renderToStaticMarkup(createElement(AskErrorView, {
+        message: raw,
+        onRetry: vi.fn(),
+      }));
+      expect(markup).not.toContain(error);
+      expect(markup).not.toContain("Try again");
+      expect(markup).toMatch(/current error guide is still here/i);
+    }
+  });
 });

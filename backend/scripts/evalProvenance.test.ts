@@ -8,4 +8,8 @@ describe("AI evaluation provenance", () => {
       "src/services/ai/prompts/renderContext.ts",
     );
   });
+
+  it("fingerprints the extracted judge rubric", () => {
+    expect(QUALITY_CONTRACT_FILES).toContain("scripts/evalRubrics.ts");
+  });
 });

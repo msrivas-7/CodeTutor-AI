@@ -122,6 +122,7 @@ export function AskErrorView({
   const informational =
     kind === "canceled" ||
     kind === "contextChanged" ||
+    kind === "lessonContextUnavailable" ||
     kind === "platformPaused" ||
     kind === "freeTierExhausted";
   return (
@@ -171,7 +172,24 @@ export function classifyAskError(raw: string): {
   showDetails?: boolean;
 } {
   const parsed = parseTutorError(raw);
-  if (parsed.code?.toUpperCase() === "PLATFORM_AI_PAUSED") {
+  const errorCode = parsed.code?.toUpperCase();
+  if (
+    errorCode === "LESSON_CONTEXT_NOT_FOUND" ||
+    errorCode === "LESSON_CONTEXT_UNAVAILABLE"
+  ) {
+    return {
+      kind: "lessonContextUnavailable",
+      title: errorCode === "LESSON_CONTEXT_NOT_FOUND"
+        ? "Lesson changed"
+        : "Lesson context unavailable",
+      hint: errorCode === "LESSON_CONTEXT_NOT_FOUND"
+        ? "Your current error guide is still here. Reload the lesson before asking the Tutor about it again."
+        : "Your current error guide is still here. Keep working and ask the Tutor again after lesson context recovers.",
+      retryable: false,
+      showDetails: false,
+    };
+  }
+  if (errorCode === "PLATFORM_AI_PAUSED") {
     if (parsed.reason?.toLowerCase() === "daily_usd_per_user_hit") {
       return {
         kind: "platformPaused",
