@@ -709,11 +709,18 @@ or production-verification gates. The two-human judge calibration is not
 complete and is not claimed. See `docs/RELEASE_1C_ENTRY_GATE.md` for the
 decision record and evidence matrix.
 
-**Applied entry gate:** the dated founder exception superseded only Release
-1B's preregistered learner experiment and five-session prerequisites. B2, eval
-v2, authority, idempotency, cost, security, accessibility, CI, review,
-rollback, and production-verification requirements remained mandatory and
-passed. This exception does not establish learner recovery or retention.
+**Applied entry gate:** the dated founder exception superseded Release 1B's
+preregistered learner experiment and five-session prerequisites for this
+engineering release. B2, deterministic AI-safety validators, the complete
+automated eval-v2 run, authority, idempotency, cost, security, accessibility,
+CI, review, rollback, and production verification remained mandatory and
+passed. The automated run was provisional risk evidence, not authoritative
+eval-v2 approval: Section 9.2's separate two-human judge calibration was not
+performed and remains required before automated judging can support an
+authoritative quality claim. The reversible engineering release was therefore
+supported by its deterministic safeguards, provisional automated evidence,
+independent kill switch, and production gates; it does not establish calibrated
+human agreement, learner recovery, or retention.
 
 **Complexity:** two to four weeks.
 
@@ -1255,7 +1262,7 @@ list of unfinished engineering work.
 4. **0D — complete:** atomic platform-AI reservation/admission and complete eval gate v2.
 5. **0C — complete:** first-run complete-answer rescue removed.
 6. **0A — engineering complete:** internal non-counting share preview path and truthful share outcomes; real-destination production unfurls remain external evidence.
-7. **0D before 1C — prerequisite complete:** server-authoritative authenticated lesson/mastery context; 1C remains held by its other conjunctive gates.
+7. **0D before 1C — prerequisite and delivery complete:** server-authoritative authenticated lesson/mastery context shipped before Release 1C; the later founder exception and verified 1C delivery are recorded in `RELEASE_1C_ENTRY_GATE.md`.
 
 ### P1
 
@@ -1267,7 +1274,7 @@ list of unfinished engineering work.
 ### P2
 
 12. **B1/B2 — complete for engineering:** locked memory and Socratic groundwork; real-user outcomes remain pending.
-13. **1C — correctly held:** contextual tutor offer cannot start until every entry gate passes.
+13. **1C — engineering release complete:** the founder exception waived the learner-evidence prerequisites for this release; automated quality, security, cost, accessibility, CI, review, rollback, and production gates passed. Human calibration and learner outcomes remain explicit non-claims.
 14. **B3/B7/B8 — engineering complete:** real-user dropoff and other product outcomes remain pending.
 15. **Reporting — engineering controls complete:** real-traffic cost/performance/outcome reporting begins only when traffic exists.
 16. **Visual polish — completed for the eligible surfaces in this workstream:** future polish remains ordinary product-roadmap work.

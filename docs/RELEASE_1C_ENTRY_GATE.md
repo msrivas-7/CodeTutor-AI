@@ -12,9 +12,11 @@ Delivery: [PR #41](https://github.com/msrivas-7/CodeTutor-AI/pull/41),
 The founder explicitly directed the team to implement Release 1C without
 waiting for real-learner experiment evidence. That dated exception waives the
 powered Release 1B learner experiment and five-session rollout prerequisites
-for this engineering slice. It does not weaken the security, cost, AI-quality,
-accessibility, deterministic-test, live-browser, CI, review, rollback, or
-production-verification requirements.
+for this engineering slice. Security, cost, deterministic AI safety, the
+complete automated model run, accessibility, live-browser, CI, review,
+rollback, and production-verification evidence remained mandatory. The
+unperformed Section 9.2 human calibration was not silently treated as passed:
+the automated judge remains provisional rather than authoritative.
 
 The implementation merged and deployed only after its complete automated model
 gate, deterministic suites, adversarial browser journey, PR checks, and review
@@ -32,7 +34,7 @@ retention, or market-impact claim.
 | Server authority and stale evidence | **Verified** | The server reconstructs and validates the authored move, lesson, revision, evidence code/path/line, and scaffold level. Python is parsed before execution, and only the server-owned compile diagnostic qualifies; stale offers and forged runtime stderr are rejected by the full backend suite. |
 | Explicit consent and bounded admission | **Verified** | No AI request occurs before `Help me spot it`; one accepted evidence episode can schedule at most one request. The replay identity uses only server-verified actor, canonical lesson, and normalized server error; client epoch/revision cannot reset it. A real-browser double-click produced one turn and one quota decrement, while real Postgres rejected simultaneous disjoint receipt subsets and allowed fresh help only after the database-owned 15-minute window expired. |
 | Deterministic recovery | **Verified** | Loading, unavailable, kill-switch, stale-generation, and changed-code paths remain useful. The actual browser discarded a stale answer and restored the quota without placing stale content in the transcript. PR #42 additionally verified safe consumed-episode recovery and distinct-error re-arming. |
-| Contextual AI quality | **Passed** | Six contextual golden/adversarial cases cover normal help, source injection, stderr injection, answer pressure, stale history, and line accuracy. Local artifact `backend/eval/runs/2026-08-31T04-51-10-727Z-v2.json` passed 72/72 with every intent at 100%, zero deterministic failures, and contract `c0866e3b97a0a7e8…`. |
+| Contextual AI quality | **Provisional automated evidence passed** | Six contextual golden/adversarial cases cover normal help, source injection, stderr injection, answer pressure, stale history, and line accuracy. Local artifact `backend/eval/runs/2026-08-31T04-51-10-727Z-v2.json` passed 72/72 with every intent at 100%, zero deterministic failures, and contract `c0866e3b97a0a7e8…`. Without Section 9.2 human calibration, this is release-risk evidence rather than authoritative eval-v2 approval. |
 | Cost | **Within provisional guardrail** | Focused live evidence measured about $0.0077 per accepted call and roughly 280 net-new input tokens; the client and server cap the episode at one call. |
 | Kill switch | **Implemented** | `contextual_tutor_enabled` is independently operator-controlled and defaults safely when unavailable. |
 | Actual browser UX | **Passed locally and in production** | Local desktop and 390×500 light/dark/reduced-motion evidence proves explicit consent, one-call double-click protection, current receipt/citation, useful bounded help, retained focus, dismissal persistence, stale recovery, and simultaneous cue/target visibility. Finding audit `8a292b5d-dcb6-4678-9e24-11c330d0d987`; phase audit `41617175-7bc9-4905-982c-df5cf735438e`. The deployed anonymous journey then passed the changed-error offer, grounded response, replay refusal, private recovery, and distinct-error re-arm at desktop and 390×844. |
