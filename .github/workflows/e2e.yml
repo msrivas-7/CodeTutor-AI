@@ -30,6 +30,11 @@ on:
         required: false
         default: ''
         type: string
+      frontend_image_ref:
+        description: Immutable development-frontend digest to test; empty builds once
+        required: false
+        default: ''
+        type: string
 
 concurrency:
   group: e2e-${{ github.ref }}
@@ -38,12 +43,165 @@ concurrency:
 permissions:
   actions: read
   contents: read
-  packages: read
+  packages: write
   pull-requests: read
 
+env:
+  CI_BACKEND_IMAGE: ghcr.io/${{ github.repository_owner }}/codetutor-ci-backend
+  CI_RUNNER_IMAGE: ghcr.io/${{ github.repository_owner }}/codetutor-ci-runner
+  CI_FRONTEND_IMAGE: ghcr.io/${{ github.repository_owner }}/codetutor-ci-frontend
+
 jobs:
+  prepare-backend:
+    name: Prepare backend E2E image
+    runs-on: ubuntu-latest
+    outputs:
+      ref: ${{ steps.ref.outputs.value }}
+      created: ${{ steps.ref.outputs.created }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Configure Docker Buildx
+        if: inputs.backend_image_ref == '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Log in to GHCR
+        if: inputs.backend_image_ref == '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Build and publish backend E2E image
+        id: backend
+        if: inputs.backend_image_ref == '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: ./backend/Dockerfile
+          push: true
+          tags: ${{ env.CI_BACKEND_IMAGE }}:run-${{ github.run_id }}
+          cache-from: type=gha,scope=e2e-backend
+          cache-to: type=gha,scope=e2e-backend,mode=max
+      - name: Export backend reference
+        id: ref
+        env:
+          SUPPLIED_REF: ${{ inputs.backend_image_ref || '' }}
+          BUILT_DIGEST: ${{ steps.backend.outputs.digest }}
+          TRUSTED_HEAD: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        run: |
+          set -euo pipefail
+          if [ -n "$SUPPLIED_REF" ]; then
+            echo "value=$SUPPLIED_REF" >> "$GITHUB_OUTPUT"
+            echo "created=false" >> "$GITHUB_OUTPUT"
+          elif [ "$TRUSTED_HEAD" = "true" ]; then
+            test -n "$BUILT_DIGEST"
+            echo "value=$CI_BACKEND_IMAGE@$BUILT_DIGEST" >> "$GITHUB_OUTPUT"
+            echo "created=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=" >> "$GITHUB_OUTPUT"
+            echo "created=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  prepare-runner:
+    name: Prepare runner E2E image
+    runs-on: ubuntu-latest
+    outputs:
+      ref: ${{ steps.ref.outputs.value }}
+      created: ${{ steps.ref.outputs.created }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Configure Docker Buildx
+        if: inputs.runner_image_ref == '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Log in to GHCR
+        if: inputs.runner_image_ref == '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Build and publish runner E2E image
+        id: runner
+        if: inputs.runner_image_ref == '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: ./runner-image
+          push: true
+          tags: ${{ env.CI_RUNNER_IMAGE }}:run-${{ github.run_id }}
+          cache-from: type=gha,scope=e2e-runner
+          cache-to: type=gha,scope=e2e-runner,mode=max
+      - name: Export runner reference
+        id: ref
+        env:
+          SUPPLIED_REF: ${{ inputs.runner_image_ref || '' }}
+          BUILT_DIGEST: ${{ steps.runner.outputs.digest }}
+          TRUSTED_HEAD: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        run: |
+          set -euo pipefail
+          if [ -n "$SUPPLIED_REF" ]; then
+            echo "value=$SUPPLIED_REF" >> "$GITHUB_OUTPUT"
+            echo "created=false" >> "$GITHUB_OUTPUT"
+          elif [ "$TRUSTED_HEAD" = "true" ]; then
+            test -n "$BUILT_DIGEST"
+            echo "value=$CI_RUNNER_IMAGE@$BUILT_DIGEST" >> "$GITHUB_OUTPUT"
+            echo "created=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=" >> "$GITHUB_OUTPUT"
+            echo "created=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  prepare-frontend:
+    name: Prepare frontend E2E image
+    runs-on: ubuntu-latest
+    outputs:
+      ref: ${{ steps.ref.outputs.value }}
+      created: ${{ steps.ref.outputs.created }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Configure Docker Buildx
+        if: inputs.frontend_image_ref == '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Log in to GHCR
+        if: inputs.frontend_image_ref == '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Build and publish frontend E2E image
+        id: frontend
+        if: inputs.frontend_image_ref == '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: ./frontend/Dockerfile
+          target: dev
+          push: true
+          tags: ${{ env.CI_FRONTEND_IMAGE }}:run-${{ github.run_id }}
+          cache-from: type=gha,scope=e2e-frontend
+          cache-to: type=gha,scope=e2e-frontend,mode=max
+      - name: Export frontend reference
+        id: ref
+        env:
+          SUPPLIED_REF: ${{ inputs.frontend_image_ref || '' }}
+          BUILT_DIGEST: ${{ steps.frontend.outputs.digest }}
+          TRUSTED_HEAD: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        run: |
+          set -euo pipefail
+          if [ -n "$SUPPLIED_REF" ]; then
+            echo "value=$SUPPLIED_REF" >> "$GITHUB_OUTPUT"
+            echo "created=false" >> "$GITHUB_OUTPUT"
+          elif [ "$TRUSTED_HEAD" = "true" ]; then
+            test -n "$BUILT_DIGEST"
+            echo "value=$CI_FRONTEND_IMAGE@$BUILT_DIGEST" >> "$GITHUB_OUTPUT"
+            echo "created=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=" >> "$GITHUB_OUTPUT"
+            echo "created=false" >> "$GITHUB_OUTPUT"
+          fi
+
   critical-shadow:
     name: Playwright critical lane (advisory)
+    needs: [prepare-backend, prepare-runner, prepare-frontend]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # Release 1D begins in shadow mode. The exhaustive Chromium shards below
@@ -65,13 +223,14 @@ jobs:
       MAX_SESSIONS_PER_USER: "60"
       MAX_SESSIONS_GLOBAL: "200"
       DOCKER_EXEC_CONCURRENCY: "16"
-      BACKEND_IMAGE: ${{ inputs.backend_image_ref || '' }}
-      RUNNER_IMAGE: ${{ inputs.runner_image_ref || '' }}
+      BACKEND_IMAGE: ${{ needs.prepare-backend.outputs.ref }}
+      RUNNER_IMAGE: ${{ needs.prepare-runner.outputs.ref }}
+      FRONTEND_IMAGE: ${{ needs.prepare-frontend.outputs.ref }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Log in to GHCR for immutable candidates
-        if: inputs.backend_image_ref != '' && inputs.runner_image_ref != ''
+        if: needs.prepare-backend.outputs.ref != '' && needs.prepare-runner.outputs.ref != '' && needs.prepare-frontend.outputs.ref != ''
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
@@ -89,10 +248,11 @@ jobs:
 
       - name: Boot docker-compose stack
         run: |
-          if [ -n "$BACKEND_IMAGE" ] && [ -n "$RUNNER_IMAGE" ]; then
+          set -euo pipefail
+          if [ -n "$BACKEND_IMAGE" ] && [ -n "$RUNNER_IMAGE" ] && [ -n "$FRONTEND_IMAGE" ]; then
             docker pull "$BACKEND_IMAGE"
             docker pull "$RUNNER_IMAGE"
-            docker compose build frontend
+            docker pull "$FRONTEND_IMAGE"
             docker compose up -d --no-build backend frontend
           else
             docker compose up -d backend frontend
@@ -161,6 +321,7 @@ jobs:
 
   e2e:
     name: Playwright (chromium)
+    needs: [prepare-backend, prepare-runner, prepare-frontend]
     runs-on: ubuntu-latest
     # Sharding splits the exhaustive suite across isolated runners. The
     # capacity record owns the measured decision and the shard-1 guard below
@@ -223,13 +384,14 @@ jobs:
       MAX_SESSIONS_PER_USER: "60"
       MAX_SESSIONS_GLOBAL: "200"
       DOCKER_EXEC_CONCURRENCY: "16"
-      BACKEND_IMAGE: ${{ inputs.backend_image_ref || '' }}
-      RUNNER_IMAGE: ${{ inputs.runner_image_ref || '' }}
+      BACKEND_IMAGE: ${{ needs.prepare-backend.outputs.ref }}
+      RUNNER_IMAGE: ${{ needs.prepare-runner.outputs.ref }}
+      FRONTEND_IMAGE: ${{ needs.prepare-frontend.outputs.ref }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Log in to GHCR for immutable candidates
-        if: inputs.backend_image_ref != '' && inputs.runner_image_ref != ''
+        if: needs.prepare-backend.outputs.ref != '' && needs.prepare-runner.outputs.ref != '' && needs.prepare-frontend.outputs.ref != ''
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
@@ -247,10 +409,11 @@ jobs:
 
       - name: Boot docker-compose stack
         run: |
-          if [ -n "$BACKEND_IMAGE" ] && [ -n "$RUNNER_IMAGE" ]; then
+          set -euo pipefail
+          if [ -n "$BACKEND_IMAGE" ] && [ -n "$RUNNER_IMAGE" ] && [ -n "$FRONTEND_IMAGE" ]; then
             docker pull "$BACKEND_IMAGE"
             docker pull "$RUNNER_IMAGE"
-            docker compose build frontend
+            docker pull "$FRONTEND_IMAGE"
             docker compose up -d --no-build backend frontend
           else
             docker compose up -d backend frontend
@@ -324,6 +487,7 @@ jobs:
 
   cross-browser-core:
     name: Playwright core (${{ matrix.browser }})
+    needs: [prepare-backend, prepare-runner, prepare-frontend]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -343,13 +507,14 @@ jobs:
       MAX_SESSIONS_PER_USER: "20"
       MAX_SESSIONS_GLOBAL: "80"
       DOCKER_EXEC_CONCURRENCY: "8"
-      BACKEND_IMAGE: ${{ inputs.backend_image_ref || '' }}
-      RUNNER_IMAGE: ${{ inputs.runner_image_ref || '' }}
+      BACKEND_IMAGE: ${{ needs.prepare-backend.outputs.ref }}
+      RUNNER_IMAGE: ${{ needs.prepare-runner.outputs.ref }}
+      FRONTEND_IMAGE: ${{ needs.prepare-frontend.outputs.ref }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Log in to GHCR for immutable candidates
-        if: inputs.backend_image_ref != '' && inputs.runner_image_ref != ''
+        if: needs.prepare-backend.outputs.ref != '' && needs.prepare-runner.outputs.ref != '' && needs.prepare-frontend.outputs.ref != ''
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
@@ -367,10 +532,11 @@ jobs:
 
       - name: Boot docker-compose stack
         run: |
-          if [ -n "$BACKEND_IMAGE" ] && [ -n "$RUNNER_IMAGE" ]; then
+          set -euo pipefail
+          if [ -n "$BACKEND_IMAGE" ] && [ -n "$RUNNER_IMAGE" ] && [ -n "$FRONTEND_IMAGE" ]; then
             docker pull "$BACKEND_IMAGE"
             docker pull "$RUNNER_IMAGE"
-            docker compose build frontend
+            docker pull "$FRONTEND_IMAGE"
             docker compose up -d --no-build backend frontend
           else
             docker compose up -d backend frontend
@@ -474,3 +640,42 @@ jobs:
           path: e2e/shadow-results
           retention-days: 90
           if-no-files-found: error
+
+  cleanup-images:
+    name: Clean temporary E2E images
+    if: >-
+      always() &&
+      needs.e2e.result == 'success' &&
+      needs.cross-browser-core.result == 'success' &&
+      (needs.prepare-backend.outputs.created == 'true' ||
+       needs.prepare-runner.outputs.created == 'true' ||
+       needs.prepare-frontend.outputs.created == 'true')
+    needs:
+      - prepare-backend
+      - prepare-runner
+      - prepare-frontend
+      - critical-shadow
+      - e2e
+      - cross-browser-core
+      - shadow-evidence
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RUN_TAG: run-${{ github.run_id }}
+      BACKEND_CREATED: ${{ needs.prepare-backend.outputs.created }}
+      RUNNER_CREATED: ${{ needs.prepare-runner.outputs.created }}
+      FRONTEND_CREATED: ${{ needs.prepare-frontend.outputs.created }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Delete exact run-scoped package versions
+        run: |
+          set -euo pipefail
+          if [ "$BACKEND_CREATED" = "true" ]; then
+            node .github/scripts/ghcr-retention.mjs --owner "$GITHUB_REPOSITORY_OWNER" --package codetutor-ci-backend --tag "$RUN_TAG" --require-match
+          fi
+          if [ "$RUNNER_CREATED" = "true" ]; then
+            node .github/scripts/ghcr-retention.mjs --owner "$GITHUB_REPOSITORY_OWNER" --package codetutor-ci-runner --tag "$RUN_TAG" --require-match
+          fi
+          if [ "$FRONTEND_CREATED" = "true" ]; then
+            node .github/scripts/ghcr-retention.mjs --owner "$GITHUB_REPOSITORY_OWNER" --package codetutor-ci-frontend --tag "$RUN_TAG" --require-match
+          fi

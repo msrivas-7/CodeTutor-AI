@@ -33,5 +33,26 @@
     "minimumRelativeGain": 0.05,
     "requiresEveryShardToPass": true,
     "preservesFullChromiumSuite": true
+  },
+  "runtimeOptimization": {
+    "runId": 33397529873,
+    "url": "https://github.com/msrivas-7/CodeTutor-AI/actions/runs/33397529873",
+    "headSha": "60e20db6ae8686e33cb4331c993e79af8f5c7cbc",
+    "totalTests": 439,
+    "imageReuse": {
+      "localBuildEndToEndSeconds": 369,
+      "prebuiltEndToEndSecondsIncludingPreparation": 338,
+      "preparationSeconds": 24,
+      "absoluteGainSeconds": 31,
+      "relativeGain": 0.084,
+      "selected": true
+    },
+    "workerCandidates": [
+      { "workers": 2, "testCriticalPathSeconds": 190, "reliable": true, "selected": true },
+      { "workers": 3, "testCriticalPathSeconds": 160, "reliable": false, "selected": false },
+      { "workers": 4, "testCriticalPathSeconds": null, "reliable": false, "selected": false }
+    ],
+    "maximumChromiumShards": 20,
+    "method": "Three images prepared in parallel, then local-build and digest-pinned 16-shard stages ran sequentially on the same commit with zero retries. Higher worker counts were eligible only when every shard passed."
   }
 }
