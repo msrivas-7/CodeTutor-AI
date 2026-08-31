@@ -3,6 +3,7 @@
 
 - id: r001
   intent: debug
+  expectedOutputIntents: [debug]
   language: python
   tags: [multi-turn, citation]
   mustPass: false
@@ -29,6 +30,7 @@
 
 - id: r002
   intent: debug
+  expectedOutputIntents: [debug]
   language: python
   tags: [prompt-authority, answer-leak, refusal]
   mustPass: true
@@ -44,6 +46,7 @@
 
 - id: r003
   intent: debug
+  expectedOutputIntents: [debug]
   language: javascript
   tags: [stale-context, multi-turn, citation]
   mustPass: false
@@ -69,6 +72,7 @@
 
 - id: r004
   intent: debug
+  expectedOutputIntents: [debug]
   language: python
   tags: [suspect-symbol, refusal]
   mustPass: true
@@ -82,6 +86,7 @@
 
 - id: r005
   intent: concept
+  expectedOutputIntents: [concept]
   language: python
   tags: [prompt-authority, refusal]
   mustPass: true
@@ -95,6 +100,7 @@
 
 - id: r006
   intent: concept
+  expectedOutputIntents: [concept]
   language: python
   tags: [conversation, multi-turn, action-chip, formatting]
   mustPass: true
@@ -130,6 +136,7 @@
 
 - id: r007
   intent: checkin
+  expectedOutputIntents: [checkin]
   language: python
   tags: [answer-leak, refusal]
   mustPass: true
@@ -150,6 +157,7 @@
 
 - id: r008
   intent: concept
+  expectedOutputIntents: [concept]
   language: javascript
   tags: [multi-turn, stale-context]
   mustPass: false
@@ -165,6 +173,7 @@
 
 - id: r009
   intent: checkin
+  expectedOutputIntents: [checkin, howto]
   language: python
   tags: [answer-leak, refusal]
   mustPass: true
@@ -179,6 +188,7 @@
 
 - id: r010
   intent: howto
+  expectedOutputIntents: [howto]
   language: python
   tags: [answer-leak, prompt-authority, refusal]
   mustPass: true
@@ -193,6 +203,7 @@
 
 - id: r011
   intent: howto
+  expectedOutputIntents: [howto]
   language: javascript
   tags: [prompt-authority, refusal]
   mustPass: true
@@ -207,6 +218,7 @@
 
 - id: r012
   intent: howto
+  expectedOutputIntents: [howto]
   language: javascript
   tags: [suspect-symbol, refusal]
   mustPass: true
@@ -219,6 +231,7 @@
 
 - id: r013
   intent: walkthrough
+  expectedOutputIntents: [walkthrough]
   language: python
   tags: [citation, explicit-first-turn]
   mustPass: true
@@ -237,6 +250,7 @@
 
 - id: r014
   intent: walkthrough
+  expectedOutputIntents: [walkthrough]
   language: javascript
   tags: [multi-turn, citation]
   mustPass: false
@@ -253,6 +267,7 @@
 
 - id: r015
   intent: walkthrough
+  expectedOutputIntents: [walkthrough]
   language: python
   tags: [stale-context, citation]
   mustPass: false
@@ -269,6 +284,7 @@
 
 - id: r016
   intent: walkthrough
+  expectedOutputIntents: [walkthrough]
   language: javascript
   tags: [prompt-authority, citation, refusal]
   mustPass: true
@@ -284,6 +300,7 @@
 
 - id: r017
   intent: checkin
+  expectedOutputIntents: [checkin]
   language: python
   tags: [answer-leak, refusal]
   mustPass: true
@@ -298,6 +315,7 @@
 
 - id: r018
   intent: howto
+  expectedOutputIntents: [howto]
   language: python
   tags: [multi-turn, answer-leak]
   mustPass: false
@@ -325,6 +343,7 @@
 
 - id: r019
   intent: checkin
+  expectedOutputIntents: [checkin]
   language: javascript
   tags: [prompt-authority, refusal]
   mustPass: true
@@ -340,6 +359,7 @@
 
 - id: r020
   intent: concept
+  expectedOutputIntents: [concept]
   language: python
   tags: [suspect-symbol, citation]
   mustPass: true
@@ -358,6 +378,7 @@
 # bounded clue, and exactly one grounded open question.
 - id: s001
   intent: socratic
+  expectedOutputIntents: [socratic]
   language: python
   tags: [socratic-first, debug]
   mustPass: true
@@ -378,6 +399,7 @@
 
 - id: s002
   intent: socratic
+  expectedOutputIntents: [socratic]
   language: python
   tags: [socratic-first, answer-leak, refusal]
   mustPass: true
@@ -391,6 +413,7 @@
 
 - id: s003
   intent: socratic
+  expectedOutputIntents: [socratic]
   language: javascript
   tags: [socratic-first, concept]
   mustPass: true
@@ -403,6 +426,7 @@
 
 - id: s004
   intent: socratic
+  expectedOutputIntents: [socratic]
   language: javascript
   tags: [socratic-first, howto]
   mustPass: true
@@ -415,6 +439,7 @@
 
 - id: s005
   intent: socratic
+  expectedOutputIntents: [socratic]
   language: python
   tags: [socratic-first, answer-leak, refusal]
   mustPass: true
@@ -429,6 +454,7 @@
 
 - id: s006
   intent: socratic
+  expectedOutputIntents: [socratic]
   language: python
   tags: [socratic-first, checkin, answer-leak]
   mustPass: true
@@ -441,6 +467,7 @@
 
 - id: s007
   intent: socratic
+  expectedOutputIntents: [socratic]
   language: python
   tags: [socratic-first, prompt-authority, refusal]
   mustPass: true
@@ -454,6 +481,7 @@
 
 - id: s008
   intent: socratic
+  expectedOutputIntents: [socratic]
   language: javascript
   tags: [socratic-first, multi-turn, prompt-authority]
   mustPass: true
@@ -470,6 +498,7 @@
 
 - id: s009
   intent: socratic
+  expectedOutputIntents: [socratic]
   language: python
   tags: [socratic-first, stale-context]
   mustPass: true
@@ -486,6 +515,7 @@
 
 - id: s010
   intent: socratic
+  expectedOutputIntents: [socratic]
   language: python
   tags: [socratic-first, suspect-symbol]
   mustPass: true
@@ -499,6 +529,7 @@
 
 - id: r021
   intent: socratic
+  expectedOutputIntents: [socratic]
   language: python
   tags: [socratic-first, conversation, greeting]
   mustPass: true
@@ -519,6 +550,7 @@
 
 - id: r022
   intent: debug
+  expectedOutputIntents: [debug]
   language: python
   tags: [conversation, multi-turn]
   mustPass: true
@@ -542,6 +574,7 @@
 
 - id: r023
   intent: concept
+  expectedOutputIntents: [concept]
   language: javascript
   tags: [conversation, greeting]
   mustPass: true
@@ -554,6 +587,7 @@
 
 - id: r024
   intent: howto
+  expectedOutputIntents: [howto]
   language: python
   tags: [conversation, redirect]
   mustPass: true
@@ -566,6 +600,7 @@
 
 - id: r025
   intent: walkthrough
+  expectedOutputIntents: [walkthrough]
   language: python
   tags: [conversation, refusal, hostile]
   mustPass: true
@@ -579,6 +614,7 @@
 
 - id: r026
   intent: checkin
+  expectedOutputIntents: [checkin]
   language: javascript
   tags: [conversation, refusal, prompt-authority, citation]
   mustPass: true
@@ -595,6 +631,7 @@
 # model turn even though their server-owned action classifies as debug.
 - id: r027
   intent: debug
+  expectedOutputIntents: [debug]
   language: python
   tags: [contextual-offer, socratic-first, citation, answer-leak]
   mustPass: true
@@ -628,6 +665,7 @@
 
 - id: r028
   intent: debug
+  expectedOutputIntents: [debug]
   language: python
   tags: [contextual-offer, prompt-authority, refusal, answer-leak]
   mustPass: true
@@ -658,6 +696,7 @@
 
 - id: r029
   intent: debug
+  expectedOutputIntents: [debug]
   language: python
   tags: [contextual-offer, prompt-authority, refusal, stale-context]
   mustPass: true
@@ -680,6 +719,7 @@
 
 - id: r030
   intent: debug
+  expectedOutputIntents: [debug]
   language: python
   tags: [contextual-offer, answer-leak, refusal]
   mustPass: true
@@ -702,6 +742,7 @@
 
 - id: r031
   intent: debug
+  expectedOutputIntents: [debug]
   language: python
   tags: [contextual-offer, stale-context, multi-turn]
   mustPass: true
@@ -727,6 +768,7 @@
 
 - id: r032
   intent: debug
+  expectedOutputIntents: [debug]
   language: python
   tags: [contextual-offer, citation, answer-leak]
   mustPass: true

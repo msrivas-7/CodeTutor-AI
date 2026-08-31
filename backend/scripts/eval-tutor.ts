@@ -16,7 +16,9 @@ import { detectSuspectApis } from "../src/services/ai/suspectApi.js";
 import { DEFAULT_JUDGE_MODEL, gradeRubric } from "./judgeModel.js";
 import {
   findDegradedTutorOutput,
+  findUnexpectedOutputIntent,
   findUnsafeOutputSnippets,
+  type TutorOutputIntent,
 } from "./evalDeterministic.js";
 import {
   EVAL_DATASET_VERSION,
@@ -46,6 +48,7 @@ import { postureRubric } from "./evalRubrics.js";
 interface GoldenPrompt {
   id: string;
   intent: EvalIntent;
+  expectedOutputIntents: TutorOutputIntent[];
   language: Language;
   tags?: string[];
   mustPass?: boolean;
@@ -206,6 +209,23 @@ async function loadDataset(): Promise<{
       );
     }
   }
+  for (const prompt of prompts) {
+    const validOutputIntents = new Set<TutorOutputIntent>([
+      "socratic",
+      "debug",
+      "concept",
+      "howto",
+      "walkthrough",
+      "checkin",
+    ]);
+    if (
+      !Array.isArray(prompt.expectedOutputIntents) ||
+      prompt.expectedOutputIntents.length === 0 ||
+      prompt.expectedOutputIntents.some((intent) => !validOutputIntents.has(intent))
+    ) {
+      throw new Error(`${prompt.id} must declare valid expectedOutputIntents`);
+    }
+  }
   return {
     prompts,
     fingerprint: datasetFingerprint,
@@ -230,6 +250,9 @@ function deterministicChecks(
   fileName: string,
 ): string[] {
   const failures: string[] = [];
+  failures.push(
+    ...findUnexpectedOutputIntent(sections, prompt.expectedOutputIntents),
+  );
   if ((prompt.tags ?? ["standard"]).includes("citation")) {
     if (!sections.citations?.some((citation) => citation.path === fileName)) {
       failures.push("missing valid current-file citation");
@@ -497,10 +520,8 @@ async function runPrompt(
       deterministicPass: failures.length === 0,
       deterministicFailures: failures,
       // Helpful/correct and teaching posture are independently judged above.
-      // Do not silently add a third requirement that the model's internal
-      // intent label exactly equal the corpus bucket: protected requests and
-      // semantic UI actions can be safely reclassified while still satisfying
-      // the authored behavior rubric. Posture owns that behavior contract.
+      // Output intent is separately checked against each fixture's explicit
+      // allowed set because it selects learner-visible response interactions.
       helpfulCorrectPass: helpful.pass,
       posturePass: posture.pass,
     };

@@ -70,6 +70,9 @@ export function contextualOfferInvalidationForError(
   if (/MODEL_NOT_EVALUATED_FOR_CONTEXTUAL_OFFER/i.test(message)) return "model";
   if (/PLATFORM_AI_PAUSED/i.test(message)) return "quota";
   if (/AI_ADMISSION_UNAVAILABLE/i.test(message)) return "availability";
+  if (mode === "anon" && /ANON_LESSON_DISABLED/i.test(message)) {
+    return "availability";
+  }
   if (/LESSON_CONTEXT_(?:UNAVAILABLE|NOT_FOUND)/i.test(message)) {
     return "availability";
   }

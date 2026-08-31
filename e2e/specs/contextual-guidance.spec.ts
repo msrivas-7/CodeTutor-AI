@@ -479,6 +479,47 @@ test.describe("contextual guidance and Tutor offer", () => {
     expect(calls).toBe(1);
   });
 
+  test("a trial pause keeps the authored guide after the signup wall is dismissed", criticalTest({
+    risk: "p0",
+    owner: "learning",
+    browsers: ["chromium", "webkit"],
+    devices: ["desktop"],
+    quarantine: { state: "none" },
+  }), async ({ page }) => {
+    let calls = 0;
+    await page.route("**/api/anon/ai/ask/stream", async (route) => {
+      calls += 1;
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "ANON_LESSON_DISABLED" }),
+      });
+    });
+
+    await page.goto(PATH);
+    await waitForMonacoReady(page);
+    await setMonacoValue(page, 'print("Hello"\n');
+    await runCode(page);
+    await setMonacoValue(page, 'print("Hello, learner"\n');
+    await runCode(page);
+    await page.getByTestId("contextual-guide-ask").click();
+
+    const wall = page.getByRole("dialog", { name: "We're catching our breath." });
+    await expect(wall).toBeVisible();
+    await wall.getByRole("button", { name: "Maybe later" }).click();
+    await expect(wall).toHaveCount(0);
+    await expect(page.getByTestId("contextual-guide-bridge")).toBeVisible();
+    await expect(
+      page.getByText(/Which opening parenthesis still needs a closing partner/i),
+    ).toBeVisible();
+    await expect(page.getByRole("button", { name: "Jump to line 1" })).toBeVisible();
+    await expect(page.getByTestId("contextual-guide-ask")).toHaveCount(0);
+    expect(calls).toBe(1);
+
+    await page.getByRole("button", { name: "Collapse tutor" }).click();
+    await expect(page.getByTestId("contextual-guide-ask")).toHaveText("Open Tutor");
+  });
+
   test("a platform spend refusal preserves the free guide without replaying consent", criticalTest({
     risk: "p0",
     owner: "learning",

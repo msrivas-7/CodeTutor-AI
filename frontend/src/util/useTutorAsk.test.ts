@@ -48,6 +48,10 @@ describe("contextualOfferInvalidationForError", () => {
       'Request failed (503): {"error":"LESSON_CONTEXT_UNAVAILABLE"}',
       "anon",
     )).toBe("availability");
+    expect(contextualOfferInvalidationForError(
+      'Request failed (503): {"error":"ANON_LESSON_DISABLED"}',
+      "anon",
+    )).toBe("availability");
   });
 });
 
