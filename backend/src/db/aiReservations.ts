@@ -362,6 +362,15 @@ export async function reserveAIRequest(
           hashtext(${`codetutor:contextual-episode:${contextualEvidenceEpisodeDigest}`})::bigint
         )
       `;
+      // The replay identity intentionally excludes the client-owned epoch.
+      // Expiry is therefore owned by database time and matches the signed
+      // evidence lifetime, allowing a genuinely later learning episode while
+      // collapsing every client-selected epoch inside the active window.
+      await tx`
+        DELETE FROM public.ai_contextual_episode_claims
+         WHERE episode_digest = ${contextualEvidenceEpisodeDigest}
+           AND expires_at <= now()
+      `;
       const episodeClaims = await tx<Array<{ request_id: string }>>`
         SELECT request_id
           FROM public.ai_contextual_episode_claims

@@ -58,8 +58,9 @@ export function digestContextualEvidenceToken(token: string): string {
 /**
  * Stable database claim for the server-signed error episode. Unlike a token
  * digest, this identity is shared by every receipt minted for the same actor,
- * lesson context, and normalized error episode, so a client cannot evade
- * single-use admission by submitting disjoint receipt subsets.
+ * canonical lesson, and normalized server error. Client-owned epoch/revision
+ * fields are validated but deliberately excluded from replay identity, so
+ * changing them cannot manufacture a fresh spending boundary.
  */
 export function digestContextualEvidenceEpisode(
   token: string,
@@ -81,7 +82,6 @@ export function digestContextualEvidenceEpisode(
     actor: payload.actor,
     courseId: payload.courseId,
     lessonId: payload.lessonId,
-    contextEpoch: payload.contextEpoch,
     episode: payload.episode,
   }), "utf8").digest("hex");
 }

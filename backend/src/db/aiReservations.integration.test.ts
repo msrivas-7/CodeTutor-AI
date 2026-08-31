@@ -115,6 +115,23 @@ integrationDescribe("AI request reservations (real Postgres)", () => {
     }))).rejects.toThrow("must be claimed together");
   });
 
+  it("allows a genuinely later episode after the server-owned claim window expires", async () => {
+    const episode = "1".repeat(64);
+    expect(await reserveAIRequest(reservation(randomUUID(), {
+      contextualEvidenceEpisodeDigest: episode,
+      contextualEvidenceDigests: ["2".repeat(64), "3".repeat(64)],
+    }))).toMatchObject({ ok: true });
+    await db()`
+      UPDATE public.ai_contextual_episode_claims
+         SET expires_at = now() - interval '1 second'
+       WHERE episode_digest = ${episode}
+    `;
+    expect(await reserveAIRequest(reservation(randomUUID(), {
+      contextualEvidenceEpisodeDigest: episode,
+      contextualEvidenceDigests: ["4".repeat(64), "5".repeat(64)],
+    }))).toMatchObject({ ok: true });
+  });
+
   it("keeps anonymous dollar caps isolated between IP identities", async () => {
     const caps = {
       globalDailyUsd: 100,

@@ -143,6 +143,28 @@ describe("contextual evidence tokens", () => {
       identity,
       { keyring, nowMs: 2_000 },
     )).toBeNull();
+    const differentClientEpoch = {
+      ...identity,
+      contextEpoch: "client-selected-epoch-b",
+    };
+    const differentEpochToken = mintContextualEvidenceToken(
+      actor,
+      differentClientEpoch,
+      files,
+      result,
+      { keyring, nowMs: 1_200 },
+    );
+    expect(digestContextualEvidenceEpisode(
+      differentEpochToken,
+      actor,
+      differentClientEpoch,
+      { keyring, nowMs: 2_000 },
+    )).toBe(digestContextualEvidenceEpisode(
+      currentToken,
+      actor,
+      identity,
+      { keyring, nowMs: 2_000 },
+    ));
   });
 
   it("never signs or verifies an ambiguous duplicate-path snapshot", () => {
