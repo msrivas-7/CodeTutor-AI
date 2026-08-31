@@ -387,29 +387,6 @@ jobs:
         if: always()
         run: docker compose down -v
 
-  critical-shadow-summary:
-    name: Summarize advisory critical lane
-    if: always()
-    needs: [duration-plan, critical-shadow]
-    runs-on: ubuntu-latest
-    outputs:
-      critical-outcome: ${{ steps.summary.outputs.critical-outcome }}
-      contract-outcome: ${{ needs.duration-plan.outputs.contract-outcome }}
-    steps:
-      - name: Download critical outcomes
-        id: download
-        continue-on-error: true
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          pattern: playwright-critical-shadow-*
-          path: critical-shadow
-      - name: Aggregate critical outcome
-        id: summary
-        run: |
-          set -euo pipefail
-          outcome=$(node -e 'const fs=require("fs"),path=require("path"); if(!fs.existsSync("critical-shadow")){process.stdout.write("failure");process.exit(0)} const files=fs.readdirSync("critical-shadow",{recursive:true}).filter(file=>file.endsWith("outcome.json")); const failed=files.length!==2||files.some(file=>JSON.parse(fs.readFileSync(path.join("critical-shadow",file),"utf8")).critical!=="success"); process.stdout.write(failed?"failure":"success")')
-          echo "critical-outcome=$outcome" >> "$GITHUB_OUTPUT"
-
   e2e:
     name: Playwright (chromium)
     needs: [duration-plan, prepare-backend, prepare-runner, prepare-frontend]
@@ -727,10 +704,24 @@ jobs:
   shadow-evidence:
     name: E2E shadow evidence
     if: always()
-    needs: [critical-shadow-summary, e2e, cross-browser-core]
+    needs: [duration-plan, critical-shadow, e2e, cross-browser-core]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Download critical outcomes
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: playwright-critical-shadow-*
+          path: critical-shadow
+
+      - name: Aggregate critical outcome
+        id: critical-summary
+        run: |
+          set -euo pipefail
+          outcome=$(node -e 'const fs=require("fs"),path=require("path"); if(!fs.existsSync("critical-shadow")){process.stdout.write("failure");process.exit(0)} const files=fs.readdirSync("critical-shadow",{recursive:true}).filter(file=>file.endsWith("outcome.json")); const failed=files.length!==2||files.some(file=>JSON.parse(fs.readFileSync(path.join("critical-shadow",file),"utf8")).critical!=="success"); process.stdout.write(failed?"failure":"success")')
+          echo "critical-outcome=$outcome" >> "$GITHUB_OUTPUT"
 
       - name: Collect run and job timing
         env:
@@ -754,8 +745,8 @@ jobs:
         env:
           FULL_OUTCOME: ${{ needs.e2e.result }}
           CROSS_BROWSER_OUTCOME: ${{ needs.cross-browser-core.result }}
-          CRITICAL_OUTCOME: ${{ needs.critical-shadow-summary.outputs.critical-outcome }}
-          CONTRACT_OUTCOME: ${{ needs.critical-shadow-summary.outputs.contract-outcome }}
+          CRITICAL_OUTCOME: ${{ steps.critical-summary.outputs.critical-outcome }}
+          CONTRACT_OUTCOME: ${{ needs.duration-plan.outputs.contract-outcome }}
         run: |
           node .github/scripts/e2e-shadow-evidence.mjs \
             --run e2e/shadow-results/run.json \
@@ -791,7 +782,6 @@ jobs:
       - prepare-runner
       - prepare-frontend
       - critical-shadow
-      - critical-shadow-summary
       - e2e
       - cross-browser-core
     runs-on: ubuntu-latest

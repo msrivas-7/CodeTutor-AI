@@ -14,9 +14,9 @@ function inventory() {
       suites: [{
         title: "lesson journey",
         specs: [
-          { id: "slow", title: "slow path", file: "lesson.spec.ts", line: 10, column: 3, tags: ["@lane:critical"], tests: [{ projectName: "chromium" }] },
+          { id: "slow", title: "slow path", file: "lesson.spec.ts", line: 10, column: 3, tags: ["lane:critical"], tests: [{ projectName: "chromium" }] },
           { id: "medium", title: "medium path", file: "lesson.spec.ts", line: 20, column: 3, tags: [], tests: [{ projectName: "chromium" }] },
-          { id: "fast", title: "fast path", file: "lesson.spec.ts", line: 30, column: 3, tags: ["@lane:critical"], tests: [{ projectName: "chromium" }] },
+          { id: "fast", title: "fast path", file: "lesson.spec.ts", line: 30, column: 3, tags: ["lane:critical"], tests: [{ projectName: "chromium" }] },
           { id: "webkit", title: "other browser", file: "lesson.spec.ts", line: 40, column: 3, tags: [], tests: [{ projectName: "webkit" }] },
         ],
       }],
@@ -40,7 +40,7 @@ test("balances measured durations and assigns every Chromium test once", () => {
 });
 
 test("uses a conservative default for unseen tests and can select a tagged lane", () => {
-  const tests = inventoryTests(inventory(), { tag: "@lane:critical" });
+  const tests = inventoryTests(inventory(), { tag: "lane:critical" });
   const plan = buildDurationPlan({ tests, history: { tests: { slow: 12_000 } }, shardCount: 2 });
   assert.deepEqual(plan.shards.map((shard) => shard.predictedWorkMs), [12_000, 8_000]);
 });

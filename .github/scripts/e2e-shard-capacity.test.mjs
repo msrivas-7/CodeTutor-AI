@@ -77,7 +77,8 @@ test("blocking workflow uses the selected matrix and derives its denominator", (
 test("advisory critical coverage is split across two isolated duration-balanced jobs", () => {
   assert.match(workflow, /--output e2e\/duration-plan\/critical[\s\S]+--shards 2[\s\S]+--tag lane:critical/);
   assert.match(workflow, /critical-shadow:[\s\S]+matrix:\n\s+shard: \[1, 2]/);
-  assert.match(workflow, /critical-shadow-summary:[\s\S]+files\.length!==2/);
+  assert.doesNotMatch(workflow, /critical-shadow-summary:/);
+  assert.match(workflow, /shadow-evidence:[\s\S]+needs: \[duration-plan, critical-shadow, e2e, cross-browser-core][\s\S]+files\.length!==2/);
 });
 
 test("duration planning receives the authenticated fixture environment required for discovery", () => {
