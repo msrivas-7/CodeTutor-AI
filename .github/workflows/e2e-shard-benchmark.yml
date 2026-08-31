@@ -10,7 +10,9 @@ name: E2E shard benchmark
 # security jobs, so 20 Chromium shards is the practical no-starvation ceiling.
 # Docker/setup wall time is retained as operational context rather than treated
 # as test work.
-# Remove the label after measurement.
+# `ci-duration-benchmark` exercises the duration-balanced 20/4 candidate through
+# the real reusable E2E workflow without changing the selected PR defaults.
+# Remove either label after measurement.
 on:
   pull_request:
     types: [labeled]
@@ -26,6 +28,17 @@ permissions:
   pull-requests: read
 
 jobs:
+  benchmark-duration-candidate:
+    if: github.event.label.name == 'ci-duration-benchmark'
+    uses: ./.github/workflows/e2e.yml
+    with:
+      exhaustive_shards: 20
+      exhaustive_matrix: '[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]'
+      critical_shards: 4
+      critical_matrix: '[1,2,3,4]'
+      benchmark_mode: true
+    secrets: inherit
+
   benchmark-sixteen:
     if: github.event.label.name == 'ci-shard-benchmark'
     uses: ./.github/workflows/e2e-shard-topology.yml
