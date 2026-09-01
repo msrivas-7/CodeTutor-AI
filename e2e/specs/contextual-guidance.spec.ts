@@ -423,6 +423,9 @@ test.describe("contextual guidance and Tutor offer", () => {
     await setMonacoValue(page, 'print("Hello, learner"\n');
     await runCode(page);
     await page.getByTestId("contextual-guide-ask").click();
+    await expect(page.getByText("Tutor couldn't answer", { exact: true })).toBeVisible();
+    await expect(page.getByText(/Your code is safe/i)).toBeVisible();
+    await expect(page.getByText(/provider unavailable|internal-/i)).toHaveCount(0);
     await expect(page.getByRole("button", { name: /retry the last question/i })).toBeVisible();
     await expect(page.getByTestId("contextual-guide-bridge")).toHaveCount(0);
     await page.getByRole("button", { name: /retry the last question/i }).click();
@@ -711,8 +714,87 @@ test.describe("contextual guidance and Tutor offer", () => {
 
     await page.getByRole("button", { name: /retry the last question/i }).click();
     await expect(page.getByText(/count the opening and closing parentheses/i)).toBeVisible();
+    await expect(page.getByTestId("contextual-guide-bridge")).toHaveCount(0);
     expect(askCalls).toBe(2);
     expect(cancelCalls).toBe(1);
+  });
+
+  test("an interrupted Tutor retry cannot erase the guide when admission then fails", criticalTest({
+    risk: "p0",
+    owner: "learning",
+    browsers: ["chromium", "webkit"],
+    devices: ["desktop"],
+    quarantine: { state: "none" },
+  }), async ({ page }) => {
+    const firstRelease = deferred();
+    const firstStarted = deferred();
+    let askCalls = 0;
+    let cancelCalls = 0;
+    await page.route("**/api/anon/ai/ask/cancel", async (route) => {
+      cancelCalls += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ canceled: true, refunded: true }),
+      });
+    });
+    await page.route("**/api/anon/ai/ask/stream", async (route) => {
+      askCalls += 1;
+      if (askCalls === 1) {
+        firstStarted.resolve();
+        await firstRelease.promise;
+        await route.abort().catch(() => {});
+        return;
+      }
+      if (askCalls === 2) {
+        await route.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "AI_ADMISSION_UNAVAILABLE" }),
+        });
+        return;
+      }
+      const sections = {
+        intent: "debug",
+        hint: "Count the opening and closing parentheses on the cited line.",
+        checkQuestions: ["Which opening parenthesis still needs its partner?"],
+      };
+      await route.fulfill({
+        status: 200,
+        contentType: "text/event-stream",
+        body: `data: ${JSON.stringify({ done: true, raw: JSON.stringify(sections), sections })}\n\n`,
+      });
+    });
+
+    await page.goto(PATH);
+    await waitForMonacoReady(page);
+    await setMonacoValue(page, 'print("Hello"\n');
+    await runCode(page);
+    await setMonacoValue(page, 'print("Hello, learner"\n');
+    await runCode(page);
+    await page.getByTestId("contextual-guide-ask").click();
+    await firstStarted.promise;
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect.poll(() => cancelCalls).toBe(1);
+    firstRelease.resolve();
+    await expect(page.getByText("Tutor view changed", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("contextual-guide-question")).toBeVisible();
+    await page.getByRole("button", { name: /retry the last question/i }).click();
+
+    await expect(page.getByText("Tutor admission temporarily unavailable")).toBeVisible();
+    await expect(page.getByText(/AI_ADMISSION_UNAVAILABLE/)).toHaveCount(0);
+    await expect(page.getByTestId("contextual-guide-question")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Jump to line 1" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /retry the last question/i })).toHaveCount(0);
+    expect(askCalls).toBe(2);
+
+    const composer = page.getByLabel(/ask the tutor/i);
+    await composer.fill("Can you help me reason through this error?");
+    await composer.press("Enter");
+    await expect(page.getByText(/count the opening and closing parentheses/i)).toBeVisible();
+    await expect(page.getByTestId("contextual-guide-bridge")).toHaveCount(0);
+    expect(askCalls).toBe(3);
   });
 
   test("a lesson-context refusal preserves the free guide without replaying consent", criticalTest({

@@ -1170,6 +1170,8 @@ export default function LessonPage({
     mode === "authed" && courseId && lessonId
       ? lessonProgressMap[`${courseId}/${lessonId}`]?.status === "completed"
       : false;
+  const [contextualRuntimeUnavailable, setContextualRuntimeUnavailable] =
+    useState(false);
   const contextualGuide = useContextualGuide({
     enabled: contextualGuideEnabled,
     courseId: courseId ?? "",
@@ -1185,7 +1187,13 @@ export default function LessonPage({
       validator.showComplete ||
       (isChoreographed && firstRunStep !== "done") ||
       contextualAskPending,
-    learnerRequestedTutor: tutorAsking && !contextualAskPending,
+    // A responsive-remount or authoritative refusal deliberately leaves the
+    // deterministic guide as the learner's non-spending recovery surface.
+    // Retrying that interrupted Tutor turn is not a new decision to hand off
+    // ownership to the Tutor, so do not permanently dismiss the guide while
+    // the lesson-owned runtime-unavailable latch is active.
+    learnerRequestedTutor:
+      tutorAsking && !contextualAskPending && !contextualRuntimeUnavailable,
   });
   const contextualGuideVisible =
     contextualGuide.decision.kind === "result_bridge";
@@ -1209,8 +1217,6 @@ export default function LessonPage({
   }, [contextualGuideVisible, isPhoneNative, layout.editorRef, shortCompactViewport]);
   const [contextualTutorAvailability, setContextualTutorAvailability] =
     useState<ContextualTutorAvailability>("loading");
-  const [contextualRuntimeUnavailable, setContextualRuntimeUnavailable] =
-    useState(false);
   useEffect(() => {
     setContextualRuntimeUnavailable(false);
   }, [courseId, lessonId]);
@@ -1318,6 +1324,10 @@ export default function LessonPage({
     // the same spending action while request completion is still unwinding.
     setContextualRuntimeUnavailable(true);
   }, []);
+  const handleTutorAskRecovered = useCallback(() => {
+    setContextualRuntimeUnavailable(false);
+    contextualGuide.accept();
+  }, [contextualGuide]);
   useEffect(() => {
     const outcome = contextualAskOutcomeRef.current;
     if (!outcome || tutorAsking) return;
@@ -2172,6 +2182,7 @@ export default function LessonPage({
                 onContextualTutorAskComplete={handleContextualTutorAskComplete}
                 onContextualTutorOfferInvalidated={handleContextualTutorOfferInvalidated}
                 onTutorAskInterrupted={handleTutorAskInterrupted}
+                onTutorAskRecovered={handleTutorAskRecovered}
               />
             </section>
           </div>
@@ -2936,6 +2947,7 @@ export default function LessonPage({
               onContextualTutorAskComplete={handleContextualTutorAskComplete}
               onContextualTutorOfferInvalidated={handleContextualTutorOfferInvalidated}
               onTutorAskInterrupted={handleTutorAskInterrupted}
+              onTutorAskRecovered={handleTutorAskRecovered}
             />
           </motion.aside>
         </motion.main>

@@ -153,6 +153,7 @@ export interface UseTutorAskOpts {
   onAskComplete?: (outcome: {
     ok: boolean;
     interruption?: "panel-remounted";
+    contextual: boolean;
   }) => void;
   /** Invalidates a contextual offer whose signed evidence can no longer be used. */
   onContextualOfferInvalidated?: (
@@ -391,7 +392,11 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
     ): void => {
       if (completionNotified) return;
       completionNotified = true;
-      opts.onAskComplete?.({ ok, interruption });
+      opts.onAskComplete?.({
+        ok,
+        interruption,
+        contextual: Boolean(options.contextualOffer),
+      });
     };
     // Read askOk at cleanup time so a route transition that races just after
     // onDone does not relabel an already-completed answer as a failed turn.
@@ -500,6 +505,11 @@ export function useTutorAsk(opts: UseTutorAskOpts): UseTutorAskResult {
             clearStream();
             committed = true;
             askOk = true;
+            // pushAssistant advances the conversation revision, so the
+            // operation-level tail below intentionally stops being current.
+            // Report the accepted terminal outcome here, while freshness has
+            // just been proven, instead of letting finally mislabel success.
+            notifyCompletion(true);
             // P-H6: optimistic local decrement avoids a /ai-status refetch per
             // turn. The 30s cache + next natural fetch reconciles if we drift.
             // Anon: skip — there's no /api/user/ai-status cache to decrement,
