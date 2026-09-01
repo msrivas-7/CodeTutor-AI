@@ -986,10 +986,14 @@ test.describe("free AI tier", () => {
     const input = page.getByRole("textbox", { name: /ask/i }).first();
     await input.fill("fail pls");
     await input.press("Enter");
-    // Error banner appears. Pill is still 30/30.
-    await expect(page.getByText(/server overloaded|please retry/i).first()).toBeVisible({
+    // The private recovery surface appears without exposing the provider's
+    // raw payload. The failed turn still leaves both Retry and 30/30 intact.
+    await expect(page.getByText("Tutor couldn't answer", { exact: true })).toBeVisible({
       timeout: 5_000,
     });
+    await expect(page.getByText(/Your code is safe/i)).toBeVisible();
+    await expect(page.getByText(/server overloaded|please retry/i)).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /retry the last question/i })).toBeVisible();
     await expect(page.getByText(/30\/30/)).toBeVisible();
   });
 
