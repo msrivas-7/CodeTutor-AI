@@ -1324,6 +1324,10 @@ export default function LessonPage({
     // the same spending action while request completion is still unwinding.
     setContextualRuntimeUnavailable(true);
   }, []);
+  const handleTutorAskRecovered = useCallback(() => {
+    setContextualRuntimeUnavailable(false);
+    contextualGuide.accept();
+  }, [contextualGuide]);
   useEffect(() => {
     const outcome = contextualAskOutcomeRef.current;
     if (!outcome || tutorAsking) return;
@@ -2178,6 +2182,7 @@ export default function LessonPage({
                 onContextualTutorAskComplete={handleContextualTutorAskComplete}
                 onContextualTutorOfferInvalidated={handleContextualTutorOfferInvalidated}
                 onTutorAskInterrupted={handleTutorAskInterrupted}
+                onTutorAskRecovered={handleTutorAskRecovered}
               />
             </section>
           </div>
@@ -2942,6 +2947,7 @@ export default function LessonPage({
               onContextualTutorAskComplete={handleContextualTutorAskComplete}
               onContextualTutorOfferInvalidated={handleContextualTutorOfferInvalidated}
               onTutorAskInterrupted={handleTutorAskInterrupted}
+              onTutorAskRecovered={handleTutorAskRecovered}
             />
           </motion.aside>
         </motion.main>

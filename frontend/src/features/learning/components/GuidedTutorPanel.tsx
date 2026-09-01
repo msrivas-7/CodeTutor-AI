@@ -103,6 +103,8 @@ interface GuidedTutorPanelProps {
   ) => void;
   /** Reports an in-flight ask canceled by a responsive panel replacement. */
   onTutorAskInterrupted?: () => void;
+  /** Retires retained contextual guidance after ordinary Tutor recovery succeeds. */
+  onTutorAskRecovered?: () => void;
   /** Promotes an admission refusal to lesson scope before this panel can remount. */
   onContextualTutorOfferInvalidated?: (
     invalidation: "disabled" | "model" | "quota" | "availability",
@@ -159,7 +161,7 @@ export function resolveTutorSource(
   return hasKey ? "byok" : (statusSource ?? "none");
 }
 
-export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, priorConcepts, activePracticeExercise, onCollapse, onOpenSettings, resetNonce, inputLocked, clearHidden, mode = "authed", onAnonExhausted, onAnonTrialPaused, onAnonSaveRequested, onSkipWelcome, initialAnonTutorState, onContextualTutorAvailabilityChange, onContextualTutorAskComplete, onContextualTutorOfferInvalidated, onTutorAskInterrupted, externalAskReady = true, contextualRuntimeUnavailable: parentContextualRuntimeUnavailable = false }: GuidedTutorPanelProps) {
+export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, priorConcepts, activePracticeExercise, onCollapse, onOpenSettings, resetNonce, inputLocked, clearHidden, mode = "authed", onAnonExhausted, onAnonTrialPaused, onAnonSaveRequested, onSkipWelcome, initialAnonTutorState, onContextualTutorAvailabilityChange, onContextualTutorAskComplete, onContextualTutorOfferInvalidated, onTutorAskInterrupted, onTutorAskRecovered, externalAskReady = true, contextualRuntimeUnavailable: parentContextualRuntimeUnavailable = false }: GuidedTutorPanelProps) {
   const incrementHint = useProgressStore((s) => s.incrementHint);
   // Derive the hint cap from the DB-backed hint_count (not local component
   // state) so the limit survives navigation + reload. Local state rewinds on
@@ -437,9 +439,17 @@ export function GuidedTutorPanel({ lessonMeta, totalLessons, progressSummary, pr
         }
       }
     },
-    onAskComplete: ({ ok, interruption }) => {
+    onAskComplete: ({ ok, interruption, contextual }) => {
       if (interruption === "panel-remounted") onTutorAskInterrupted?.();
-      if (activeContextualOfferRef.current) {
+      if (ok && !contextual) {
+        // Failed contextual admission or a responsive interruption keeps the
+        // deterministic guide until ordinary Tutor help actually succeeds.
+        // At that point the Tutor owns attention again, so retire the guide
+        // and clear both panel- and lesson-owned refusal latches.
+        setContextualRuntimeUnavailable(false);
+        onTutorAskRecovered?.();
+      }
+      if (contextual) {
         onContextualTutorAskComplete?.(
           ok,
           contextualInvalidationRef.current ?? undefined,
