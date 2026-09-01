@@ -304,5 +304,10 @@ export function classifyAskError(raw: string): {
   if (m.includes("incorrect api key") || m.includes("invalid_api_key") || m.includes(" 401")) {
     return { kind: "auth", title: "Key rejected", hint: "The API key is no longer valid. Open Settings and validate a fresh key." };
   }
-  return { kind: "generic", title: "Request failed" };
+  return {
+    kind: "generic",
+    title: "Tutor couldn't answer",
+    hint: "Your code is safe. Try the question again; if it keeps happening, you can continue working without the tutor.",
+    showDetails: false,
+  };
 }

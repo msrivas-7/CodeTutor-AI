@@ -18,6 +18,25 @@ describe("tutor recovery copy", () => {
     });
   });
 
+  it("keeps unexpected provider payloads private while preserving a useful retry", () => {
+    const raw = JSON.stringify({ error: "provider unavailable", requestId: "internal-123" });
+
+    expect(classifyAskError(raw)).toEqual({
+      kind: "generic",
+      title: "Tutor couldn't answer",
+      hint: "Your code is safe. Try the question again; if it keeps happening, you can continue working without the tutor.",
+      showDetails: false,
+    });
+
+    const markup = renderToStaticMarkup(createElement(AskErrorView, {
+      message: raw,
+      onRetry: vi.fn(),
+    }));
+    expect(markup).not.toContain("provider unavailable");
+    expect(markup).not.toContain("internal-123");
+    expect(markup).toMatch(/Try again/i);
+  });
+
   it("makes timeouts recoverable without blocking lesson progress", () => {
     const result = classifyAskError("upstream timed out");
     expect(result.title).toBe("Tutor took too long");
