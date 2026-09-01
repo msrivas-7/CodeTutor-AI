@@ -63,6 +63,26 @@ genuine parser failures still produce the authored guide. Finding audit:
 `8a292b5d-dcb6-4678-9e24-11c330d0d987`; phase audit:
 `41617175-7bc9-4905-982c-df5cf735438e`.
 
+## Production closeout
+
+PR #48 deployed as main commit `4628d84` through production release run
+`33492120447`. The first immutable-candidate attempt stopped before any
+product build because the hosted Docker daemon returned HTTP 500 while Buildx
+was starting; the exact failed job was rerun once and the complete release
+gate, promotion, and post-deploy synthetic then passed. Synthetic run
+`33493169241` exercised the public funnel and anonymous first program against
+the same commit.
+
+The focused production Browser replay closed UX-171 through UX-189, UX-191,
+UX-193, and UX-194. The final deployed-asset journey held contextual help
+through a desktop-to-390x844 remount, verified private admission failure,
+continued through a real ordinary Tutor response, and confirmed that ordinary
+success retires the recovered guide and focuses the composer. A separate
+provider-failure replay rendered only learner-safe copy, and a fresh anonymous
+trial-pause journey preserved the free authored guide while Open Tutor caused
+zero additional AI requests. The production phase evidence is recorded under
+harness session `85ccd4e7-c465-4d58-9cbe-1984fea7de7b`.
+
 ## Rollback
 
 Turn off `contextual_tutor_enabled`. The deterministic error bridge remains;
