@@ -102,6 +102,21 @@ test("workflow benchmarks the complete measured range under the account ceiling"
   assert.match(topologyWorkflow, /--shard=\$\{\{ matrix\.shard }}\/\$\{\{ inputs\.total }}/);
 });
 
+test("capacity candidates share one frozen history and use the normal duration planner", () => {
+  assert.match(benchmarkWorkflow, /for total in 16 20; do/);
+  assert.match(benchmarkWorkflow, /node \.github\/scripts\/e2e-duration-plan\.mjs/);
+  assert.match(benchmarkWorkflow, /--history e2e\/shard-capacity-plans\/history\.json/);
+  assert.match(benchmarkWorkflow, /needs: plan/);
+  assert.match(benchmarkWorkflow, /needs: \[plan, benchmark-sixteen\]/);
+  assert.match(benchmarkWorkflow, /needs\.plan\.result == 'success'/);
+  assert.equal((benchmarkWorkflow.match(/duration_plan_artifact: shard-capacity-plans/g) ?? []).length, 2);
+  assert.match(topologyWorkflow, /if: inputs\.duration_plan_artifact != ''/);
+  assert.match(topologyWorkflow, /test -s "\$plan"/);
+  assert.match(topologyWorkflow, /--test-list="\$plan" --workers=\$\{\{ inputs\.workers }} --retries=0/);
+  // Older worker/image experiments retain their explicit native-shard control.
+  assert.match(topologyWorkflow, /else\n\s+npx playwright test --project=chromium --shard=/);
+});
+
 test("does not treat preceding-experiment wait time as test work", () => {
   const result = compareShardTopologies({
     benchmarkRun,

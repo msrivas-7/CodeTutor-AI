@@ -39,6 +39,10 @@ editor remains a workspace, without marketing decoration.
   The suite also reached 476 tests, crossing the measured 467-test capacity
   boundary. Rebenchmark the full suite at 16/20 shards before updating the record;
   no test removal or threshold-only bypass. Final-head review/CI remain required.
+  The benchmark now freezes one inventory/history and uses normal CI's duration
+  planner for both candidates, replacing its outdated test-count partitioning.
+  Local planner checks cover all 476 tests exactly once at either count; measured
+  GitHub timings are still pending, not inferred from those predictions.
 - **Hosted preview:** actual browser catalog → Python Intermediate → Mini ORM
   capstone, narrow-screen lists/code and invalid discovery → catalog recovery
   pass. Invalid paths return HTTP 404. This is preview evidence, not production.
@@ -194,3 +198,8 @@ navigation/focus; direct walkthrough at top → correct delayed anchor; malforme
 share “connection failure” → unavailable; long reveal hides lines/moves footer →
 capped stable reveal; phone shapes rush away → longer native formation space.
 Auth/access rules are unchanged.
+
+Separate follow-up approved: automatically choose the shard count from trusted
+runtime history, measured setup cost and safe concurrency bounds. Preserve the
+full suite, stable fallback and a minimum meaningful gain; validate predictions
+against real runs before enabling. This is not part of PR #51.
