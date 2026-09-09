@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import * as THREE from "three";
 import {
   createScatter,
@@ -16,11 +16,18 @@ import {
   curveCarry,
   type PointerStroke,
 } from "./interaction";
+import { authContour, readingBounds, type AuthBounds } from "../public/authComposition";
 
+export interface ParticleScene {
+  root: HTMLElement;
+  composition: "story" | "ambient" | "auth";
+}
 interface Props {
   root: HTMLElement;
   light: boolean;
   count: number;
+  composition?: "story" | "ambient" | "auth";
+  scene?: ParticleScene | null;
   onStatus: (status: "loading" | "ready" | "unavailable") => void;
 }
 
@@ -30,12 +37,14 @@ const vertexShader = `
   attribute vec3 askShape;
   attribute vec3 checkShape;
   attribute vec3 scatter;
+  attribute vec3 authShape;
   attribute float seed;
   attribute vec2 identity;
   attribute float background;
   attribute vec2 displacement;
   uniform vec4 weights;
   uniform float spread;
+  uniform float authMix;
   uniform vec2 viewport;
   uniform float clock;
   uniform float scale;
@@ -52,6 +61,7 @@ const vertexShader = `
   varying float ambientGlyph;
   void main() {
     vec3 p = position * weights.x + readShape * weights.y + askShape * weights.z + checkShape * weights.w;
+    p = mix(p, authShape, authMix);
     float yaw = sin(clock * .16) * .035 + tilt.x;
     float pitch = tilt.y;
     p = vec3(p.x*cos(yaw)+p.z*sin(yaw), p.y, -p.x*sin(yaw)+p.z*cos(yaw));
@@ -111,8 +121,21 @@ const fragmentShader = `
   }
 `;
 
-export default function ParticleField({ root, light, count, onStatus }: Props) {
+export default function ParticleField({
+  root,
+  light,
+  count,
+  onStatus,
+  composition: initialComposition = "story",
+  scene: sceneDescriptor,
+}: Props) {
   const host = useRef<HTMLDivElement>(null);
+  const descriptor = useRef(sceneDescriptor);
+  const changeScene = useRef<((scene: ParticleScene | null | undefined) => void) | null>(null);
+  useLayoutEffect(() => {
+    descriptor.current = sceneDescriptor;
+    changeScene.current?.(sceneDescriptor);
+  }, [sceneDescriptor]);
   useEffect(() => {
     const element = host.current;
     if (!element) return;
@@ -129,6 +152,8 @@ export default function ParticleField({ root, light, count, onStatus }: Props) {
       return;
     }
     element.appendChild(renderer.domElement);
+    let composition = descriptor.current?.composition ?? initialComposition;
+    let sceneRoot = descriptor.current === undefined ? root : descriptor.current?.root ?? null;
     const scene = new THREE.Scene();
     const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 2000);
     camera.position.z = 1000;
@@ -164,6 +189,9 @@ export default function ParticleField({ root, light, count, onStatus }: Props) {
       scattered[i * 3 + 1] = particleSeed(i * 3 + 1) * 2.4 - 1.2;
     }
     geometry.setAttribute("scatter", new THREE.BufferAttribute(scattered, 3));
+    const authPoints = new Float32Array(total * 3);
+    const authTarget = new Float32Array(total * 3);
+    geometry.setAttribute("authShape", new THREE.BufferAttribute(authPoints, 3).setUsage(THREE.DynamicDrawUsage));
     geometry.setAttribute(
       "seed",
       new THREE.BufferAttribute(
@@ -225,7 +253,8 @@ export default function ParticleField({ root, light, count, onStatus }: Props) {
       glyphAtlas: { value: atlas },
       highlight: { value: light ? 0 : 1 },
       weights: { value: new THREE.Vector4(1, 0, 0, 0) },
-      spread: { value: 1 },
+      spread: { value: composition === "auth" || composition === "ambient" ? 0 : 1 },
+      authMix: { value: composition === "auth" || composition === "ambient" ? 1 : 0 },
       viewport: { value: new THREE.Vector2() },
       clock: { value: 0 },
       scale: { value: 180 },
@@ -269,6 +298,21 @@ export default function ParticleField({ root, light, count, onStatus }: Props) {
       element: HTMLElement;
     } | null = null;
     let anchors: HTMLElement[] = [];
+    let authCenter = { x: 0, pageY: 0 };
+    let authContent: HTMLElement | null = null;
+    let authBounds: AuthBounds | null = null;
+    const authScratch = new Float32Array(count * 3);
+    const measureAuth = () => {
+      if (!authContent || disposed) return;
+      const measured = authContent.getBoundingClientRect();
+      const rect = composition === "ambient" ? readingBounds(width, height, measured.width) : measured;
+      authBounds = rect;
+      const contour = authContour(count, width, rect, elapsed, authScratch);
+      for (let i = 0; i < contour.length; i++) authTarget[i] = contour[i]! / 200;
+      if (!ready) authPoints.set(authTarget);
+      authCenter = { x: rect.left + rect.width / 2 - width / 2,
+        pageY: rect.top + scrollY + rect.height / 2 };
+    };
     const resize = () => {
       width = innerWidth;
       height = innerHeight;
@@ -284,8 +328,9 @@ export default function ParticleField({ root, light, count, onStatus }: Props) {
       camera.bottom = -height / 2;
       camera.updateProjectionMatrix();
       anchors = Array.from(
-        root.querySelectorAll<HTMLElement>("[data-particle-shape]"),
+        sceneRoot?.querySelectorAll<HTMLElement>("[data-particle-shape]") ?? [],
       );
+      measureAuth();
     };
     const move = (event: PointerEvent) => {
       pointerPosition.set(
@@ -293,7 +338,9 @@ export default function ParticleField({ root, light, count, onStatus }: Props) {
         height / 2 - event.clientY,
       );
       const target = event.target instanceof Element ? event.target : null;
-      const control = target?.closest("a,button,input,select,pre");
+      const control = target?.closest(
+        "a,button,input,select,textarea,pre,[contenteditable],form",
+      );
       pointerTarget =
         event.pointerType === "mouse" &&
         (!control || control.hasAttribute("data-field-interaction"))
@@ -389,7 +436,7 @@ export default function ParticleField({ root, light, count, onStatus }: Props) {
       elapsed += dt;
       uniforms.clock.value = elapsed;
       uniforms.scrollOffset.value = scrollY;
-      const states = anchors.map((anchor) => {
+      const states = anchors.filter(anchor => anchor.isConnected).map((anchor) => {
         const rect = anchor.getBoundingClientRect();
         return {
           shape: (anchor.dataset.particleShape || "code") as Shape,
@@ -401,13 +448,24 @@ export default function ParticleField({ root, light, count, onStatus }: Props) {
         };
       });
       const [hero, demo, closing] = states;
-      const demoSurface = root
-        .querySelector(".study-demo-surface")
+      const demoSurface = sceneRoot
+        ?.querySelector(".study-demo-surface")
         ?.getBoundingClientRect();
-      const heroCopy = root
-        .querySelector(".study-hero-copy")
+      const heroCopy = sceneRoot
+        ?.querySelector(".study-hero-copy")
         ?.getBoundingClientRect();
-      if (hero && demo && closing && demoSurface && heroCopy) {
+      if (sceneRoot?.isConnected && (composition === "auth" || composition === "ambient")) {
+        // Same glyph identities and inertial interaction, arranged around the
+        // centered task. No full-height mask or permanently dispersed edge dust.
+        const blend = 1 - Math.exp(-dt * 3);
+        uniforms.spread.value += (0 - uniforms.spread.value) * blend;
+        uniforms.scale.value += (200 - uniforms.scale.value) * blend;
+        uniforms.weights.value.lerp(new THREE.Vector4(1, 0, 0, 0), blend);
+        uniforms.center.value.lerp(new THREE.Vector2(authCenter.x,
+          composition === "ambient" ? 0 : height / 2 - authCenter.pageY + scrollY), blend);
+        uniforms.opacity.value += (0.9 - uniforms.opacity.value) * blend;
+      } else if (hero && demo && closing && demoSurface && heroCopy) {
+        uniforms.opacity.value += (1 - uniforms.opacity.value) * (1 - Math.exp(-dt * 3));
         // Continuous keyframes, not nearest-anchor selection. Between chapters the
         // same particles remain visible in a quiet edge field around the content.
         // Every sculpture is central. The field retreats to the margins only
@@ -476,6 +534,17 @@ export default function ParticleField({ root, light, count, onStatus }: Props) {
         uniforms.scale.value +=
           (a.size + (b.size - a.size) * p - uniforms.scale.value) * blend;
       }
+      if (sceneRoot?.isConnected) {
+        uniforms.authMix.value += ((composition === "auth" || composition === "ambient" ? 1 : 0) - uniforms.authMix.value) * (1 - Math.exp(-dt * 3));
+      }
+      if (authBounds && (composition === "auth" || composition === "ambient")) {
+        authContour(count, width, authBounds, elapsed, authScratch);
+        for (let i = 0; i < count * 3; i++) authTarget[i] = authScratch[i]! / 200;
+      }
+      for (let i = 0; i < count * 3; i++) {
+        authPoints[i] += (authTarget[i]! - authPoints[i]!) * (1 - Math.exp(-dt * 3));
+      }
+      geometry.getAttribute("authShape").needsUpdate = true;
       uniforms.pointerActive.value +=
         (pointerTarget - uniforms.pointerActive.value) * Math.min(1, dt * 8);
       uniforms.pointer.value.lerp(pointerPosition, 1 - Math.exp(-dt * 6));
@@ -507,11 +576,15 @@ export default function ParticleField({ root, light, count, onStatus }: Props) {
           shapes.read[j + 1]! * weights.y +
           shapes.ask[j + 1]! * weights.z +
           shapes.check[j + 1]! * weights.w;
-        const z =
+        let z =
           shapes.code[j + 2]! * weights.x +
           shapes.read[j + 2]! * weights.y +
           shapes.ask[j + 2]! * weights.z +
           shapes.check[j + 2]! * weights.w;
+        const authBlend = uniforms.authMix.value;
+        x += (authPoints[j]! - x) * authBlend;
+        y += (authPoints[j + 1]! - y) * authBlend;
+        z += (authPoints[j + 2]! - z) * authBlend;
         const rotatedZ = -x * Math.sin(yaw) + z * Math.cos(yaw);
         x = x * Math.cos(yaw) + z * Math.sin(yaw);
         y = y * Math.cos(pitch) - rotatedZ * Math.sin(pitch);
@@ -582,7 +655,23 @@ export default function ParticleField({ root, light, count, onStatus }: Props) {
       resize();
       visibility();
     };
-    resize();
+    const authObserver = new ResizeObserver(measureAuth);
+    const selectScene = (next: ParticleScene | null | undefined) => {
+      authObserver.disconnect();
+      sceneRoot = next === undefined ? root : next?.root ?? null;
+      composition = next?.composition ?? initialComposition;
+      authContent = composition === "auth" || composition === "ambient"
+        ? sceneRoot?.querySelector<HTMLElement>(".public-content, main") ?? sceneRoot : null;
+      authBounds = null;
+      if (authContent && sceneRoot) {
+        authObserver.observe(authContent);
+        authObserver.observe(sceneRoot);
+      }
+      resize();
+    };
+    changeScene.current = selectScene;
+    selectScene(descriptor.current);
+    void document.fonts.ready.then(() => { if (!disposed) resize(); });
     frame = requestAnimationFrame(render);
     window.addEventListener("resize", resize);
     root.addEventListener("pointermove", move, { passive: true });
@@ -597,6 +686,8 @@ export default function ParticleField({ root, light, count, onStatus }: Props) {
     renderer.domElement.addEventListener("webglcontextrestored", restored);
     return () => {
       disposed = true;
+      changeScene.current = null;
+      authObserver?.disconnect();
       cancelAnimationFrame(frame);
       window.removeEventListener("resize", resize);
       root.removeEventListener("pointermove", move);
@@ -615,6 +706,6 @@ export default function ParticleField({ root, light, count, onStatus }: Props) {
       renderer.dispose();
       renderer.domElement.remove();
     };
-  }, [root, light, count, onStatus]);
+  }, [root, light, count, onStatus, initialComposition]);
   return <div ref={host} className="motion-study-canvas" aria-hidden="true" />;
 }

@@ -1,8 +1,8 @@
 import { useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
-import { CinematicLighting } from "../components/cinema/CinematicLighting";
-import { FilmGrain } from "../components/cinema/FilmGrain";
-import { Wordmark } from "../components/Wordmark";
+import {
+  PublicPage,
+} from "../features/marketing/public/PublicPage";
 import { FIRST_LESSON_CONTRACT } from "../productContract";
 
 export default function NotFoundPage() {
@@ -18,30 +18,10 @@ export default function NotFoundPage() {
   }, []);
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-bg text-ink">
-      <CinematicLighting
-        variant="three-point"
-        fadeInMs={300}
-        keyColor="accent"
-        intensity="soft"
-      />
-      <FilmGrain intensity="hero" fadeInMs={300} />
-
-      <header className="relative mx-auto flex max-w-5xl items-center px-5 pt-7 sm:px-10 sm:pt-10">
-        <Link
-          to="/"
-          aria-label="CodeTutor AI home"
-          className="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-4 focus-visible:ring-offset-bg"
-        >
-          <Wordmark size="md" />
-        </Link>
-      </header>
-
-      <main className="relative mx-auto flex min-h-[calc(100vh-5rem)] max-w-5xl items-center px-5 py-12 sm:px-10 sm:py-16">
-        <section className="w-full max-w-2xl">
-          <div className="font-mono text-xs font-semibold uppercase tracking-[0.2em] text-accent">
-            Route not found · 404
-          </div>
+    <PublicPage className="public-recovery" focusOnNavigation={false}>
+      <div className="public-reading-header">
+        <section className="public-recovery-copy">
+          <div className="public-eyebrow">Route not found · 404</div>
           <h1
             ref={headingRef}
             tabIndex={-1}
@@ -55,10 +35,7 @@ export default function NotFoundPage() {
           </p>
 
           <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-            <Link
-              to="/"
-              className="inline-flex min-h-11 items-center justify-center rounded-full bg-gradient-to-r from-violet to-accent px-5 py-2.5 text-sm font-bold text-bg shadow-glow transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
-            >
+            <Link to="/" className="public-action">
               Go to homepage
             </Link>
             <a
@@ -75,7 +52,7 @@ export default function NotFoundPage() {
             </Link>
           </div>
         </section>
-      </main>
-    </div>
+      </div>
+    </PublicPage>
   );
 }

@@ -16,7 +16,7 @@ let output = "";
 
 beforeAll(async () => {
   output = mkdtempSync(path.join(os.tmpdir(), "codetutor-discovery-"));
-  await generateDiscoverySite({ coursesDir: COURSES, outDir: output, renderImages: false });
+  await generateDiscoverySite({ coursesDir: COURSES, outDir: output, renderImages: false, motionScript: "/assets/discovery-motion-test.js" });
 });
 
 afterAll(() => {
@@ -24,6 +24,34 @@ afterAll(() => {
 });
 
 describe("B4 discovery build", () => {
+  it("emits a usable non-indexable static error document and preserves host 404 status", () => {
+    const html = readFileSync(path.join(output, "404.html"), "utf8");
+    expect(html).toContain("This page isn't here.");
+    expect(html).toContain('<meta name="robots" content="noindex,follow">');
+    expect(html).not.toContain('rel="canonical"');
+    expect(html).not.toContain('application/ld+json');
+    expect(html).toContain('href="/learn-to-code/">Browse public lessons');
+    expect(html).toMatch(/href="\/try\/lesson\/python-fundamentals\/hello-world"[^>]*aria-label="Try the first lesson"/);
+    expect(html).toContain('<main id="main" tabindex="-1">');
+    const config = JSON.parse(readFileSync("staticwebapp.config.json", "utf8"));
+    expect(config.responseOverrides["404"]).toEqual({ rewrite: "/404.html", statusCode: 404 });
+    expect(config.navigationFallback.exclude).toContain("/lessons/*");
+    expect(config.navigationFallback.exclude).toContain("/learn-to-code/*");
+  });
+  it("keeps the authored document independent from optional animation", () => {
+    const html = readFileSync(path.join(output, "learn-to-code/index.html"), "utf8");
+    expect(html).toContain('<body class="public-theme">');
+    expect(html).toContain('html,body{background:var(--brand-canvas);color-scheme:dark}');
+    expect(html).toContain('--brand-canvas: #050709');
+    expect(html.indexOf('id="design-system-tokens"')).toBeLessThan(html.indexOf('</head>'));
+    expect(html).toContain('<script type="module" src="/assets/discovery-motion-test.js"></script>');
+    expect(html).not.toContain('/src/main.tsx');
+    expect(html).not.toContain('id="root"');
+    expect(html).toContain('Built to teach,<br>not to autocomplete.');
+    const css = readFileSync(path.join(output, "discovery.css"), "utf8");
+    expect(html).toContain('--study-bg: var(--brand-canvas)');
+    expect(css).toContain('body.public-theme');
+  });
   it("derives the complete public catalog and excludes internal fixtures", () => {
     const catalog = loadDiscoveryCatalog(COURSES);
     expect(catalog.publicCourses.map((course) => course.id)).toEqual([
@@ -59,6 +87,7 @@ describe("B4 discovery build", () => {
             : "Start with lesson 1 — required first",
         );
         expect(html).toContain('<main id="main" tabindex="-1">');
+        expect(html.includes('Concepts in this lesson')).toBe(lesson.teachesConceptTags.length > 0);
         expect(html).toContain("event.preventDefault();history.replaceState(null,'','#main')");
         expect(html).toContain("main.focus({preventScroll:true})");
         expect(html).not.toContain(

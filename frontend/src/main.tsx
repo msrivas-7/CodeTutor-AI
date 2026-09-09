@@ -2,6 +2,9 @@ import React, { lazy, Suspense, useEffect } from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import PublicApp from "./PublicApp";
+import { PublicThemeSync } from "./features/marketing/public/PublicThemeSync";
+import { PublicMotionWorld } from "./features/marketing/public/PublicMotionWorld";
+import { RouteLoading } from "./features/marketing/public/RouteLoading";
 import "./index.css";
 // Side-effect import: applies `data-theme` on <html> from the stored preference
 // at module load. Routes that don't transitively import theme.ts (e.g. the
@@ -40,11 +43,7 @@ function Bootstrap() {
 
   return (
     <Suspense
-      fallback={
-        <div className="flex min-h-screen items-center justify-center bg-bg text-muted">
-          <span className="skeleton h-4 w-32 rounded" />
-        </div>
-      }
+      fallback={<RouteLoading fullHeight />}
     >
       {startsOnPublicSurface ? <PublicApp /> : <FullApp />}
     </Suspense>
@@ -54,7 +53,8 @@ function Bootstrap() {
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <BrowserRouter>
-      <Bootstrap />
+      <PublicThemeSync />
+      <PublicMotionWorld><Bootstrap /></PublicMotionWorld>
     </BrowserRouter>
   </React.StrictMode>
 );

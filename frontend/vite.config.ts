@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
 import { courseRegistryPlugin } from "./scripts/vitePluginCourseRegistry";
+import { designTokensPlugin } from "./scripts/vitePluginDesignTokens";
 import {
   discoveryBuildPlugin,
   discoverySitePlugin,
@@ -11,6 +12,7 @@ const e2eForwardedFor = process.env.E2E_FORWARDED_FOR?.trim();
 
 export default defineConfig({
   plugins: [
+    designTokensPlugin(),
     react(),
     courseRegistryPlugin(),
     discoverySitePlugin(),

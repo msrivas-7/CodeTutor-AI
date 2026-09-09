@@ -1,29 +1,11 @@
+@import "../public/theme.css";
+
 .motion-study {
-  --color-bg: 5 7 9;
-  --color-ink: 236 239 241;
-  --color-muted: 160 168 177;
-  --study-bg: #050709;
-  --study-ink: #eceff1;
-  --study-muted: #a0a8b1;
-  --study-line: #252a30;
-  --study-panel: #101316;
-  --study-accent: #a0d9ed;
   position: relative;
   isolation: isolate;
   background: var(--study-bg);
   color: var(--study-ink);
   overflow: clip;
-}
-.motion-study.study-light {
-  --color-bg: 248 250 252;
-  --color-ink: 15 23 42;
-  --color-muted: 71 85 105;
-  --study-bg: #f8fafc;
-  --study-ink: #0f172a;
-  --study-muted: #475569;
-  --study-line: #cbd5e1;
-  --study-panel: #fff;
-  --study-accent: #086b91;
 }
 .motion-study a,
 .motion-study button,
@@ -59,46 +41,25 @@
 }
 .study-solid {
   position: relative;
-  background: var(--study-bg);
   z-index: 2;
+}
+/* Layout remains open to the field. Only the actual reading clusters paint;
+   margins between them are not a continuous opaque rectangle. */
+.study-solid:not(.brand-display-copy) > :is(h1, h2, p, .study-text-link),
+.study-demo-explanation > *,
+.study-footer > :first-child,
+.study-footer nav > *,
+.study-nav > a,
+.study-art-caption > span {
+  background: var(--study-bg);
+  box-shadow: var(--brand-reading-shadow);
+  border-radius: 4px;
 }
 .motion-study-canvas {
   position: fixed;
   inset: 0;
   pointer-events: none;
   z-index: 0;
-}
-.study-nav {
-  position: relative;
-  z-index: 5;
-  min-height: 88px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 20px;
-  padding: 16px 40px;
-  background: var(--study-bg);
-  border-bottom: 1px solid var(--study-line);
-}
-.study-nav nav {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  font-size: 13px;
-}
-.study-nav nav :is(a, button) {
-  display: inline-flex;
-  align-items: center;
-  min-height: 44px;
-  padding: 8px 14px;
-  border-radius: 24px;
-}
-.study-nav nav a {
-  background: var(--study-panel);
-  border: 1px solid var(--study-line);
-}
-.study-nav button:hover {
-  background: var(--study-panel);
 }
 .study-skip {
   position: absolute;
@@ -240,7 +201,6 @@
   font-size: 11px;
   letter-spacing: 0.02em;
   color: var(--study-muted);
-  background: var(--study-bg);
 }
 .study-walkthrough {
   padding-top: 88px;
@@ -272,6 +232,12 @@
   z-index: 2;
   border-top: 1px solid var(--study-line);
   border-bottom: 1px solid var(--study-line);
+  background: transparent;
+}
+/* The interactive artifact stays solid. Its explanatory footer belongs to the
+   surrounding page, with local reading protection rather than a full slab. */
+.study-demo-nav,
+.study-demo-body {
   background: var(--study-bg);
 }
 .study-demo-nav {
@@ -451,9 +417,6 @@
   .study-wrap {
     width: calc(100% - 48px);
   }
-  .study-nav {
-    padding-inline: 24px;
-  }
   .study-hero-art {
     height: 480px;
   }
@@ -476,21 +439,14 @@
   }
 }
 @media (max-width: 640px) {
+  .motion-study {
+    /* Scroll is the story clock. Give each mobile sculpture a real interval
+       to assemble before the next reading cluster asks it to disperse.
+       Stable viewport units avoid retiming on browser-toolbar expansion. */
+    --study-phone-art-space: clamp(320px, 64svh, 600px);
+  }
   .study-wrap {
     width: calc(100% - 40px);
-  }
-  .study-nav {
-    padding: 14px 20px;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-  .study-nav nav {
-    gap: 0;
-    flex-wrap: wrap;
-  }
-  .study-nav nav :is(a, button) {
-    padding: 8px 10px;
-    font-size: 11px;
   }
   .study-hero {
     display: flex;
@@ -506,7 +462,7 @@
     font-size: 16px;
   }
   .study-hero-art {
-    height: 210px;
+    height: clamp(380px, 78svh, 740px);
   }
   .study-art-caption {
     bottom: -5px;
@@ -515,15 +471,15 @@
     padding-top: 80px;
   }
   .study-chapter-top {
-    gap: 8px;
+    gap: 32px;
     padding-bottom: 32px;
   }
   .motion-study h2 {
     font-size: 40px;
   }
   .study-chapter-art {
-    width: 95px;
-    height: 110px;
+    width: min(440px, 100%);
+    height: var(--study-phone-art-space);
     flex-shrink: 0;
     margin: 0;
   }
@@ -560,7 +516,7 @@
     align-items: stretch;
   }
   .study-closing-art {
-    height: 180px;
+    height: var(--study-phone-art-space);
   }
   .study-footer nav {
     gap: 18px;

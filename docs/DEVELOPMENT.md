@@ -426,7 +426,7 @@ Use the existing abstraction before creating another version of the same behavio
 | [`backend/src/services/ai/canonicalTutorContext.ts`](../backend/src/services/ai/canonicalTutorContext.ts) | Server-authoritative guided tutor context |
 | [`backend/src/db/aiReservations.ts`](../backend/src/db/aiReservations.ts) | Atomic platform AI admission and settlement |
 
-Frontend color and surface styling uses semantic Tailwind tokens (`bg`, `panel`, `elevated`, `ink`, `muted`, `border`, `accent`, `success`, `warn`, `danger`, `violet`) backed by CSS variables in [`frontend/src/index.css`](../frontend/src/index.css). Do not introduce raw palette shades into product components; semantic tokens preserve contrast across light and dark themes.
+Follow the [design system](DESIGN_SYSTEM.md) for ownership and change rules. Public brand values live in [`frontend/src/design-system/tokens.ts`](../frontend/src/design-system/tokens.ts); both SPA first paint and generated static documents consume that source. Workspace styling retains semantic Tailwind tokens (`bg`, `panel`, `elevated`, `ink`, `muted`, `border`, `accent`, `success`, `warn`, `danger`, `violet`) backed by [`frontend/src/index.css`](../frontend/src/index.css). Do not introduce raw palette shades into product components; semantic tokens preserve contrast across light and dark themes.
 
 ## CI and release gates
 
@@ -472,6 +472,33 @@ must use a reviewed forward compensating migration.
 | Monaco or browser test flakes | Use the shared Monaco fixture, retain the trace/video, rerun only the affected shard once, and classify repeated failures. |
 | Node behavior differs inside a harness composite | Use a non-login shell, check `node --version`, and keep package `--cwd` explicit. |
 | ACI does not activate locally | Expected unless the flag and complete Azure target configuration are present; the factory falls back to local-only mode. |
+
+## Local phone access
+
+- [ ] Add authenticated device pairing/revocation and encrypted transport to the
+      machine-local development gateway. Reserved-IP filtering is not device auth.
+      Keep databases, Docker controls and unrelated internal services private unless
+      separately approved. This is a local developer-tooling task, not production auth.
+- Owner-approved preview access uses a machine-local gateway restricted to
+  the phone's reserved LAN source IP; app authentication remains unchanged. A DHCP
+  reservation is not cryptographic device authentication. Do not widen the rule to
+  the subnet, publish it to the internet, or commit machine addresses/configuration.
+  Phone verification remains required; a successful request from the Mac is not proof
+  of successful phone access.
+- On the owner's Mac, `~/.local/bin/phone-dev list` shows registered projects;
+  `phone-dev add NAME PORT [TARGET_PORT]` registers a development website/API once,
+  and `phone-dev remove NAME` revokes its forwarding. Use the full executable path
+  if it is not on your PATH. Only registered loopback targets are exposed, not every
+  listening port. New projects should bind to loopback; an independently wildcard-
+  bound server is not protected by this gateway.
+- The per-user `local.development.phone-access` LaunchAgent starts at login,
+  restarts on exit, and reloads registrations/retries network binding automatically.
+  Installation, configuration, tests and recovery instructions live outside the repo
+  at `~/Library/Application Support/Phone Dev Access/README.md`. Do not revive the
+  old temporary `.agent-harness/local-phone-preview.mjs` alongside this service.
+  The Mac must be awake and the project (including any SSH tunnel) running. This
+  service does not start projects or change sleep settings. HTTPS-only browser
+  features and OAuth may still require explicit development origin configuration.
 
 ## Manual QA entry points
 

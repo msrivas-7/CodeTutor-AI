@@ -3,8 +3,61 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="theme-color" content="#0f172a" />
+    <!-- design-system:tokens -->
+    <!-- Critical public canvas: painted before lazy routes/CSS, including when
+         the learner has a saved light workspace preference. Never change that
+         preference. The inline bootstrap also handles SPA route changes and
+         needs no extra network request or independently cached JS file. -->
+    <style>
+      html[data-public-theme],
+      html[data-public-theme] body {
+        background: var(--brand-canvas) !important;
+        color-scheme: dark !important;
+      }
+      html[data-public-theme] .route-loading {
+        background: var(--brand-canvas);
+        color: var(--brand-muted);
+        min-height: 100svh;
+      }
+      html[data-public-theme] .route-loading .skeleton {
+        background: var(--brand-line);
+      }
+    </style>
+    <script id="public-theme-bootstrap">
+      // One classifier for pre-paint, React navigation and browser Back.
+      (function () {
+        var chromeTheme = document.querySelector('meta[name="theme-color"]');
+        var workspaceChrome = chromeTheme && chromeTheme.content;
+        function syncPublicTheme() {
+          var path = window.location.pathname;
+          try {
+            path = decodeURI(path);
+          } catch {
+            // Leave malformed URLs to the router; never fail pre-paint.
+          }
+          path = path.replace(/\/+$/, "") || "/";
+          // Match workspace routes from App.tsx. Everything else is either
+          // a public page or the public 404 recovery page. This affects paint
+          // only: React Router and server guards still own access decisions.
+          var isWorkspace =
+            /^\/(?:start|welcome|editor|learn(?:\/saved|\/course\/[^/]+(?:\/lesson\/[^/]+)?)?|try\/lesson\/[^/]+\/[^/]+|admin(?:\/(?:overview|sessions|users|project|email|audit|anon|eval-quality))?|dev\/content)$/i.test(
+              path,
+            );
+          var isPublic = !isWorkspace;
+          document.documentElement.toggleAttribute(
+            "data-public-theme",
+            isPublic,
+          );
+          if (chromeTheme)
+            chromeTheme.content = isPublic ? "__PUBLIC_CANVAS_COLOR__" : workspaceChrome;
+        }
+        syncPublicTheme();
+        window.addEventListener("codetutor:route-change", syncPublicTheme);
+        window.addEventListener("popstate", syncPublicTheme);
+      })();
+    </script>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>AI that builds you, not the code · CodeTutor AI</title>
     <meta
       name="description"
@@ -21,10 +74,16 @@
       property="og:description"
       content="An AI coding tutor for beginners. Walks you to the answer with hints and questions, never gives it away. Python, JavaScript, and a 9-language editor."
     />
-    <meta property="og:image" content="https://codetutor.msrivas.com/og-image.png?v=4" />
+    <meta
+      property="og:image"
+      content="https://codetutor.msrivas.com/og-image.png?v=4"
+    />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="662" />
-    <meta property="og:image:alt" content="CodeTutor AI: an AI coding tutor that builds you, not the code" />
+    <meta
+      property="og:image:alt"
+      content="CodeTutor AI: an AI coding tutor that builds you, not the code"
+    />
 
     <!-- Twitter Card. Read by Twitter's crawler and used as fallback by a few other unfurlers -->
     <!-- (iMessage, some Slack configs) when OG data is ambiguous. No Twitter account required. -->
@@ -34,8 +93,14 @@
       name="twitter:description"
       content="An AI coding tutor for beginners. Walks you to the answer with hints and questions, never gives it away. Python, JavaScript, and a 9-language editor."
     />
-    <meta name="twitter:image" content="https://codetutor.msrivas.com/og-image.png?v=4" />
-    <meta name="twitter:image:alt" content="CodeTutor AI: an AI coding tutor that builds you, not the code" />
+    <meta
+      name="twitter:image"
+      content="https://codetutor.msrivas.com/og-image.png?v=4"
+    />
+    <meta
+      name="twitter:image:alt"
+      content="CodeTutor AI: an AI coding tutor that builds you, not the code"
+    />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <!-- Brand fonts enhance wider screens but never block first paint.

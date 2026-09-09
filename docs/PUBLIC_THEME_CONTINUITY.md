@@ -1,0 +1,178 @@
+# Public theme continuity
+
+**September 8: local implementation approved; release gates in progress.** Branch
+`dev/public-theme-continuity`, based on homepage release `690c767`.
+Nothing from this branch is committed, published or deployed.
+
+**27 of 27 findings are locally verified; owner approved the phone experience.** “Local”
+never means merged or production-verified. This checklist is the status source;
+[the design plan](PUBLIC_BRAND_CONTINUITY_DESIGN.md) records decisions and
+[the design system](DESIGN_SYSTEM.md) owns shared tokens/components.
+
+## Approved scope
+
+Continue the homepage's near-black, living code-glyph world across centered auth,
+legal/support, comparison, generated discovery, shares, loading and public errors.
+One renderer; open composition around protected text; solid forms/code/controls;
+aligned navigation. No detached auth sculpture, static replacement theme, broad
+opaque slabs, new pause button or mobile motion disable. OS Reduce Motion gets
+a static composition; graphics failure must not block tasks.
+
+Mehul approved phone login/signup for extension, the homepage demo materials,
+a four-to-five-second share reveal cap, and the phone spacing refinement. Further
+material design changes require approval. Auth/access rules, legal meaning,
+authored lessons, metadata and signed-in workspaces stay intact. The anonymous
+editor remains a workspace, without marketing decoration.
+
+## Current verification
+
+- **Latest product source:** 632 frontend tests, production build/typecheck and
+  unchanged asset budgets pass. **34 marketing + 62 public-theme/share-reveal
+  checks pass in Chromium/WebKit, zero retries.** These supplement real browsing.
+  The combined 96-case run passed again after unlock (2.0 minutes), along with
+  all 632 tests, the production build and asset budgets.
+  September 8 source snapshot: 44 changed/untracked frontend and E2E files;
+  SHA-256 `2e8c21a6458aa40316121c86fd9642d4ae9a7a6a49eae8e8af3c4aab1f7a745a`
+  over sorted path-NUL/content-NUL pairs. This identifies the reviewed local
+  source, not a commit or the harness's final staged fingerprint.
+- **Actual desktop journey:** homepage → Privacy → Terms → Support → comparison
+  → catalog/course → Mini ORM capstone → Hello World trial → Back. Reading,
+  focus, scroll restoration and public/workspace theme separation checked.
+- **Actual phone-width journey:** auth modes/recovery/callback, legal reading,
+  support keyboard focus, comparison → trial → Back, catalog, valid/invalid share,
+  blocked lookup → keyboard Retry → recovered share. Dense paragraphs, lists,
+  code and controls inspected while the glyph field moved.
+- **Cold paint/history:** held app JavaScript leaves a near-black login; reload
+  recovers. Fresh auth/legal Back/Forward and static discovery/home/trial returns
+  retain theme tokens. A documented dev account successfully signed in; saved
+  Light survives public Privacy → Start → reload, without changing preferences
+  or progress. One earlier anomalous history entry remains unexplained (UX-199).
+- **Motion/resilience:** actual short/fast/reversed scrolling, Read/Ask/Check,
+  keyboard artwork input, live Reduce Motion changes and blocked-renderer recovery
+  checked. Scoped checks also cover 320px, tablet, 4K, no-JavaScript discovery,
+  route-loading focus and long-share reveal.
+- **Scope preservation:** legal text/section-title AST comparison against base
+  passes. No backend, migration, authored-course or auth-handler changes.
+  Final boundary review additionally confirms entry-document metadata is unchanged
+  and login/reset/signup function bodies differ only in CSS classes (AST-backed
+  comparison recorded in the parent harness). Shared route/loading/world code
+  was inspected separately; this is not a production-hosting claim.
+  Static production hosting still requires deployed verification.
+- **Resumed final browser pass:** access returned after manual unlock. Signup's
+  Privacy link opens a readable separate tab and leaves signup intact; the test
+  tab was closed. Held-script signup first paint stays near-black. Fresh
+  Back/Forward retains tokens/bootstrap and restores a measured Privacy reading
+  position of 863px. Phone Terms remains readable during motion and live Reduce
+  Motion; Support keyboard focus and blocked graphics → usable homepage Ask →
+  Reload recovery pass. Viewport/network/media overrides were restored.
+
+No email or personal messaging app was opened. Browser wheel/viewport emulation
+does not prove physical iPhone swipe momentum, virtual keyboard or feel.
+
+## Finding checklist
+
+Checked means the bounded finding has local browser evidence, not whole-release acceptance.
+
+| Status | Finding | Change / remaining work |
+| --- | --- | --- |
+| [x] Local | UX-198 | Center auth; remove purposeless split-layout sculpture. |
+| [x] Local | UX-199 | Initial document/loading/settled colors aligned. Fresh cold loads, saved-Light and resumed Back/Forward journeys pass. The earlier missing-token/bootstrap history anomaly has not reproduced on the final source; retain it as an unexplained historical observation, not a claimed root-cause fix or browser defect. Recheck deployed cold load/history. |
+| [x] Local | UX-200 | Main-content focus appears on the heading, unobscured by child surfaces. |
+| [x] Local | UX-201 | Repair trust dividers and protect contact-link readability. |
+| [x] Local | UX-202 | New public navigation starts at destination top; explicit anchors and Back retain their own behavior. |
+| [x] Local | UX-203 | Router selects trust content; `/privacy/` no longer becomes Support. |
+| [x] Local | UX-204 | Malformed shares show unavailable; actual lookup failures retain working Retry. |
+| [x] Local | UX-205 | Themed static discovery 404 with real error status and no-JavaScript recovery; production host unverified. |
+| [x] Local | UX-206 | Living world, readable materials and persistent SPA renderer implemented. Connected desktop/phone family reading/navigation, auth and share recovery, workspace isolation, and resumed graphics interruption/recovery pass. Final harness phase/production gates remain separate. |
+| [x] Local | UX-207 | Disabled auth controls use opaque state colors instead of letting glyphs bleed through opacity. |
+| [x] Local | UX-208 | Bound auth foreground at 4K; preserve full-screen ambient density. |
+| [x] Local | UX-209 | Restore homepage graphics-download notice and Reload recovery after renderer extraction. |
+| [x] Local | UX-210 | Align header/wordmark/action geometry; auth heading no longer recenters with form height. |
+| [x] Local | UX-211 | Live Reduce Motion settles share code/count/timeline without replaying on restoration. |
+| [x] Local | UX-212 | Open homepage explanation area; keep demo functional surfaces solid. Owner approved. |
+| [x] Local | UX-213 | Support action retains readable normal/hover/focus colors; no mail app used. |
+| [x] Local | UX-214 | Lazy public loading retains escape navigation and focus through nested fallbacks. |
+| [x] Local | UX-215 | Long lesson inline code wraps without phone-wide document overflow. |
+| [x] Local | UX-216 | Omit empty concept panels; retain populated ones. |
+| [x] Local | UX-217 | Mixed text/code objective chips wrap as one text flow. |
+| [x] Local | UX-218 | Direct `/#study-demo` arrives after lazy loading; user interruption cancels pending handoff. |
+| [x] Local | UX-219 | Homepage loading handoff retains skip/home/main focus without unwanted page movement. |
+| [x] Local | UX-220 | Mobile homepage typography agrees across direct entry, auth return, reload and Back. |
+| [x] Local | UX-221 | Public share comments use readable faint-text role (at least 4.5:1); image-export palette unchanged. |
+| [x] Local | UX-222 | Auth supporting copy shares 14px/21px recipe; workspace signup unchanged. Intercepted recovery responses prove presentation, not delivery. |
+| [x] Local | UX-223 | Long reveal ends within five seconds of typing start and reserves line/footer space; short cadence retained. Network loading/later celebration excluded. |
+| [x] Local + owner | UX-224 | More phone formation space: hero departure interval at 390×844 increases from about 1px to 351px. Local adversarial scroll/recovery checks pass; after restored phone access Mehul confirmed it works and approved the experience. |
+
+## Evidence map
+
+Screenshots and detailed chronological audits are machine-local, not included in
+a fresh clone. Root: `.agent-harness/browser-evidence/`.
+
+| Session directory | Evidence |
+| --- | --- |
+| `5c7d75ed-22d3-41db-bfc3-857daf5b8b6f/` | Parent audits; `UX199-*`, `UX204-*`, `UX205-*`, `UX206-final-*`, `UX210-final-*`, `UX212-*`, `UX214-final-*`, `UX215-*`–`UX219-*`. |
+| Same parent, `connected-*.png` | Final desktop family/long-lesson journey and auth recovery. |
+| Same parent, `dev-account-*.png` | Dev-account sign-in and saved-Light/public-dark/workspace-Light boundaries. |
+| Same parent, `final-*.png` | Latest cold login, phone legal/support/comparison/trial, share failure/retry, callback/reset and static-history checks. |
+| Same parent, `resumed-*.png` | Post-unlock signup privacy-tab, held-script first paint, history/863px reading restoration, phone Terms/preferences/Support focus and graphics recovery. |
+| Parent finding audits | UX-199: `79a1d45e-a40e-458c-a867-cb5f07479852`; UX-206: `2a8377ee-db89-4806-9a3f-bb86f86c3ecf`. |
+| `693b16bc-7909-40fc-b51d-b531f67fe84d/` | UX-213 action states. |
+| `e2880cbd-d263-4e58-abb7-5cf88b8809d6/` | UX-220–222 typography/contrast/supporting-copy repairs. |
+| `dd56a6ef-9a6c-4f6c-b414-2092b1522ef6/` | UX-223 reveal/interruption/recovery. Failed audit retained, incident resolved; passing audit `b56570ef-8eeb-48e6-9d83-d9b79bc31021`. |
+| `e61236d8-3b68-4c1c-84a7-f704c6045827/` | UX-224 formation/dwell, reversal, keyboard, preferences and graphics recovery. Finding audit `cc2ea60a-4a6a-4502-ae3e-4b3de4e43d7a`. |
+| `b3564266-122c-439e-92c9-2dd55e3c4e3e/` | Independent design review of 27 primary-agent captures and source; reviewers did not run separate browser sessions. |
+
+Historical prototype captures do not establish acceptance of later edits.
+Named final checks supersede them only for their stated scope. The anomalous
+history capture is `UX199-restored-document-missing-theme.png`; do not discard it.
+UX-220–224 finding evidence is also indexed in the parent harness session, with
+original audit IDs, timestamps and fingerprints preserved in its notes. This is
+evidence consolidation, not a new browser execution or physical-phone acceptance.
+
+## Design review disposition
+
+Product/brand, motion/UX and design-system reviewers agreed on one recognizable
+family; keep the direction. Confirmed typography, share contrast and auth hierarchy
+inconsistencies became UX-220–222. Heavy-text browsing found no through-letter
+glyph collision; protect reading locally rather than broadly dimming the world.
+
+Optional, **not approved for this phase**: shorten desktop hero to expose CTA
+earlier; link Lessons to the course anchor; reconcile method/demo wording; soften
+comparison copy; quiet peripheral glow. Transparent pager/secondary-control
+consistency merits inspection, not redesign based on an assumed defect.
+
+## Remaining release gates
+
+- [x] After manual unlock, inspect signup's new privacy tab, restore viewport and
+  finish the connected browser pass and UX-199/206 disposition. Retain relevant
+  keyboard, loading/error/recovery, moving readability, responsive, preference
+  and adjacent-workspace coverage.
+- [x] Get physical-phone feedback for UX-224 through the registered local preview.
+  The temporary gateway stopped while localhost remained healthy. It has been
+  replaced with the owner-requested persistent, reserved-phone project gateway;
+  automatic process restart, allowed/denied peers, registration/removal and local
+  browser rendering pass. The service remains running on recheck. See
+  [local phone access](DEVELOPMENT.md#local-phone-access). This is not a production
+  deployment. Mehul subsequently confirmed: “Yeah it worked and I like it approved
+  from me.” This closes owner phone acceptance, not production verification.
+- [x] Retain the approved [D1 motion policy](PUBLIC_BRAND_CONTINUITY_DESIGN.md#review-decisions-and-open-questions):
+  current design approved after the pending decisions were surfaced; OS Reduce
+  Motion works and no pause button is added. Accessibility conformance remains
+  unproven and must not be advertised as established by product approval.
+- [ ] Record final finding/whole-phase evidence; inspect the full diff, stage only
+  this phase, run final deterministic checks, doctor and harness finish on the
+  exact intended phase. Any subsequent product-source change invalidates the
+  affected evidence and requires revalidation.
+- [ ] Publish separate PR with before→after journey notes. Require **green CI AND
+  clean Codex review** on final head: reviewer has completed its review with no
+  outstanding actionable findings, not merely no pending comment request.
+  Answer/resolve actionable threads and obtain a fresh review after fixes.
+- [ ] Merge after those gates, verify deployment SHA and changed/adjacent
+  production browser journeys, then complete the goal.
+
+PR journey notes: independent page themes → shared living brand; old scroll
+retained → new destination at top; stalled loading without escape → retained
+navigation/focus; direct walkthrough at top → correct delayed anchor; malformed
+share “connection failure” → unavailable; long reveal hides lines/moves footer →
+capped stable reveal; phone shapes rush away → longer native formation space.
+Auth/access rules are unchanged.

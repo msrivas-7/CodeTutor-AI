@@ -338,7 +338,9 @@ test.describe("marketing page (Phase 22C) — mobile viewport", () => {
     await artwork.focus();
     for (const viewport of [
       { width: 844, height: 390 },
+      { width: 320, height: 568 },
       { width: 320, height: 740 },
+      { width: 430, height: 932 },
       { width: 390, height: 844 },
     ]) {
       await page.setViewportSize(viewport);
@@ -349,6 +351,23 @@ test.describe("marketing page (Phase 22C) — mobile viewport", () => {
           () => document.documentElement.scrollWidth <= innerWidth + 1,
         ),
       ).toBe(true);
+      if (viewport.width <= 640) {
+        // UX-224: the old 210px hero collapsed the renderer's departure
+        // interval to 1px. Protect usable scroll space, not a CSS constant.
+        const pacing = await page.evaluate(() => {
+          const hero = document.querySelector(".study-hero-art")!.getBoundingClientRect();
+          const copy = document.querySelector(".study-hero-copy")!.getBoundingClientRect();
+          const assembledAt = Math.max(0, hero.top + scrollY + hero.height / 2 - innerHeight / 2);
+          const clearAt = Math.max(assembledAt + 1, copy.top + scrollY - innerHeight * 0.55);
+          return {
+            departure: (clearAt - assembledAt) / innerHeight,
+            chapters: [...document.querySelectorAll(".study-chapter-art, .study-closing-art")]
+              .map(element => element.getBoundingClientRect().height / innerHeight),
+          };
+        });
+        expect(pacing.departure).toBeGreaterThan(0.3);
+        expect(pacing.chapters.every(height => height >= 0.6)).toBe(true);
+      }
     }
     // The artwork must not capture vertical touch scrolling.
     await expect(artwork).toHaveCSS("touch-action", "pan-y");

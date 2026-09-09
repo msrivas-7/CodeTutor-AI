@@ -1,0 +1,96 @@
+/* Values live in design-system/tokens.ts, inlined by both HTML entry paths.
+   This sheet owns reusable public components/materials, not a second palette. */
+
+/* Display copy protects letterforms rather than hiding a rectangular panel.
+   Not for dense reading, controls, code or tables: those keep solid backing. */
+.brand-display-copy {
+  position: relative;
+  isolation: isolate;
+  text-shadow: var(--brand-display-shadow);
+}
+.brand-display-copy::before {
+  content: "";
+  position: absolute;
+  inset: -16px -24px;
+  z-index: -1;
+  pointer-events: none;
+  background: var(--brand-display-backing);
+}
+.brand-display-copy > :is(h1, h2, p) {
+  background: transparent;
+  box-shadow: none;
+}
+
+/* One navigation geometry for the SPA and authored static documents. */
+.brand-header {
+  box-sizing: border-box;
+  position: relative;
+  z-index: 5;
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 20px;
+  width: 100%;
+  min-height: var(--brand-header-height);
+  margin: 0;
+  padding: 16px 40px;
+  border-bottom: 1px solid var(--study-line);
+  background: transparent;
+}
+.brand-header > a:first-child {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--brand-target-min);
+  flex: none;
+  font: 600 20px/1 var(--brand-font-ui);
+  letter-spacing: -0.025em;
+  text-decoration: none;
+  color: var(--study-ink);
+  background: var(--study-bg);
+  box-shadow: var(--brand-reading-shadow);
+  border-radius: 4px;
+}
+.brand-header nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.brand-header .brand-header-action {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: var(--brand-target-min);
+  padding: 8px 14px;
+  border: 1px solid var(--study-line);
+  border-radius: var(--brand-pill-radius);
+  font: 500 13px/20px var(--brand-font-ui);
+  text-decoration: none;
+  color: var(--study-ink);
+  background: var(--study-panel);
+}
+.brand-header-short { display: none; }
+.public-flow-still {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  overflow: hidden;
+  color: var(--study-accent);
+}
+.public-flow-still svg { width: 100%; height: 100%; }
+[data-motion="ready"] .public-flow-still { visibility: hidden; }
+@media (max-width: 900px) {
+  .brand-header { padding-inline: 24px; }
+}
+@media (max-width: 640px) {
+  .brand-header { padding: 14px 20px; gap: 8px; }
+  .brand-header .brand-header-long { display: none; }
+  .brand-header-short { display: inline; }
+  .brand-header .brand-header-action { padding-inline: 12px; }
+  .brand-header .nav-links .quiet-link { display: none; }
+}

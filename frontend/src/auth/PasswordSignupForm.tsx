@@ -88,7 +88,7 @@ export function PasswordSignupForm({
     <div>
       <OAuthButtons disabled={submitting} returnTo={returnTo} />
 
-      <div className="my-4 flex items-center gap-2 text-sm text-faint">
+      <div className="auth-email-divider my-4 flex items-center gap-2 text-sm text-faint">
         <div className="h-px flex-1 bg-border" />
         <span>{emailDividerLabel}</span>
         <div className="h-px flex-1 bg-border" />

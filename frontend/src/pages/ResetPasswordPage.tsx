@@ -92,7 +92,7 @@ export default function ResetPasswordPage() {
           </Link>
         }
       >
-        <p className="text-center text-[11px] text-muted">
+        <p className="auth-supporting-copy text-center text-muted">
           The link expires in an hour.
         </p>
         <div className="mt-3 flex justify-center">
@@ -120,7 +120,7 @@ export default function ResetPasswordPage() {
           </button>
         }
       >
-        <p className="text-center text-[11px] text-muted">
+        <p className="auth-supporting-copy text-center text-muted">
           For security, other devices signed in with the old password will
           need to sign in again.
         </p>
