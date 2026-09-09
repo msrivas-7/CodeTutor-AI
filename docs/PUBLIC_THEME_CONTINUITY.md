@@ -1,8 +1,9 @@
 # Public theme continuity
 
-**September 8: local implementation approved; release gates in progress.** Branch
-`dev/public-theme-continuity`, based on homepage release `690c767`.
-Nothing from this branch is committed, published or deployed.
+**September 8: implementation committed; PR review and CI in progress.**
+[PR #51](https://github.com/msrivas-7/CodeTutor-AI/pull/51), branch
+`dev/public-theme-continuity`, implementation `ee325f3`, based on homepage release
+`690c767`. Not merged or production-deployed.
 
 **27 of 27 findings are locally verified; owner approved the phone experience.** “Local”
 never means merged or production-verified. This checklist is the status source;
@@ -116,6 +117,7 @@ a fresh clone. Root: `.agent-harness/browser-evidence/`.
 | Same parent, `final-*.png` | Latest cold login, phone legal/support/comparison/trial, share failure/retry, callback/reset and static-history checks. |
 | Same parent, `resumed-*.png` | Post-unlock signup privacy-tab, held-script first paint, history/863px reading restoration, phone Terms/preferences/Support focus and graphics recovery. |
 | Parent finding audits | UX-199: `79a1d45e-a40e-458c-a867-cb5f07479852`; UX-206: `2a8377ee-db89-4806-9a3f-bb86f86c3ecf`. |
+| Final local phase | `b293581c-f3e4-4a7f-a724-50f5daf20165`; staging-only fingerprint refresh `459bb440-e310-4631-8bea-f4d73cd38a85`. Parent harness finished and pre-commit live-browser gate passed. |
 | `693b16bc-7909-40fc-b51d-b531f67fe84d/` | UX-213 action states. |
 | `e2880cbd-d263-4e58-abb7-5cf88b8809d6/` | UX-220–222 typography/contrast/supporting-copy repairs. |
 | `dd56a6ef-9a6c-4f6c-b414-2092b1522ef6/` | UX-223 reveal/interruption/recovery. Failed audit retained, incident resolved; passing audit `b56570ef-8eeb-48e6-9d83-d9b79bc31021`. |
@@ -159,11 +161,12 @@ consistency merits inspection, not redesign based on an assumed defect.
   current design approved after the pending decisions were surfaced; OS Reduce
   Motion works and no pause button is added. Accessibility conformance remains
   unproven and must not be advertised as established by product approval.
-- [ ] Record final finding/whole-phase evidence; inspect the full diff, stage only
+- [x] Record final finding/whole-phase evidence; inspect the full diff, stage only
   this phase, run final deterministic checks, doctor and harness finish on the
   exact intended phase. Any subsequent product-source change invalidates the
   affected evidence and requires revalidation.
-- [ ] Publish separate PR with before→after journey notes. Require **green CI AND
+- [x] Publish separate PR with before→after journey notes: PR #51.
+- [ ] Require **green CI AND
   clean Codex review** on final head: reviewer has completed its review with no
   outstanding actionable findings, not merely no pending comment request.
   Answer/resolve actionable threads and obtain a fresh review after fixes.

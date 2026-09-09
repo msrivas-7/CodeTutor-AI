@@ -345,7 +345,7 @@ around. This decision belongs here rather than becoming a fabricated confirmed b
       supplements emulation; this is not exhaustive device/virtual-keyboard proof.
 - [x] Verify the authorized reading/discovery/share extension in the actual local browser.
 - [x] Complete scoped public-route and adjacent-workspace local checks; production verification remains separate.
-- [ ] Final source/deterministic/browser/harness gates on exact intended phase diff.
+- [x] Final source/deterministic/browser/harness gates passed for implementation `ee325f3`.
 - [ ] Separate PR: brief before-to-after journeys, green CI **and** clean Codex
       review on final head, then authorized merge, deployment and production proof.
 
