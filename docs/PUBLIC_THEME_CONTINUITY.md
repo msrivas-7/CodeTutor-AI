@@ -1,6 +1,6 @@
 # Public theme continuity
 
-**September 8: implementation committed; PR review and CI in progress.**
+**September 8: design approved; CI test maintenance/capacity verification in progress.**
 [PR #51](https://github.com/msrivas-7/CodeTutor-AI/pull/51), branch
 `dev/public-theme-continuity`, implementation `ee325f3`, based on homepage release
 `690c767`. Not merged or production-deployed.
@@ -27,6 +27,21 @@ editor remains a workspace, without marketing decoration.
 
 ## Current verification
 
+- **PR gate:** Codex completed `477be0a` with no major issues; CI passed.
+  E2E exposed two outdated contracts: the retired seven-DOM-glyph field and a
+  share test treating the loading heading as payload readiness. Test-only updates
+  inspect the live canvas/still fallback and exact lesson heading; the one-second
+  reduced-motion deadline is unchanged. No product code changed in this follow-up.
+  Complete affected files pass all 20 maintained Chromium cases; the final two
+  changed contracts additionally pass all four Chromium/WebKit cases, zero
+  retries, and E2E typecheck passes. Seven additional macOS WebKit workspace
+  snapshots have no maintained baseline and are not claimed as passing or added.
+  The suite also reached 476 tests, crossing the measured 467-test capacity
+  boundary. Rebenchmark the full suite at 16/20 shards before updating the record;
+  no test removal or threshold-only bypass. Final-head review/CI remain required.
+- **Hosted preview:** actual browser catalog → Python Intermediate → Mini ORM
+  capstone, narrow-screen lists/code and invalid discovery → catalog recovery
+  pass. Invalid paths return HTTP 404. This is preview evidence, not production.
 - **Latest product source:** 632 frontend tests, production build/typecheck and
   unchanged asset budgets pass. **34 marketing + 62 public-theme/share-reveal
   checks pass in Chromium/WebKit, zero retries.** These supplement real browsing.
