@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type ReactNode,
@@ -136,8 +137,9 @@ export function Modal({
     return () => window.clearTimeout(fallback);
   }, [exiting, finishClose]);
 
-  useEffect(() => {
-    let escapeTimer: number | null = null;
+  // Input ownership must be ready in the same commit as the dialog. A passive
+  // effect leaves a visible modal that can miss the first Escape/Tab under load.
+  useLayoutEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       const layers = Array.from(
@@ -154,26 +156,22 @@ export function Modal({
       // The product owns Escape while a dialog is the top interactive layer.
       // This prevents cancellable browser defaults from competing with the
       // dialog close; non-cancellable Safari fullscreen exits may still
-      // reflow the viewport, which the delayed close below tolerates.
+      // reflow the viewport; exit completion has its own bounded fallback.
       e.preventDefault();
       e.stopPropagation();
 
-      // Safari may also use this Escape to leave browser fullscreen. The
-      // product layer must still close; preserving it after the native reflow
-      // leaves the learner in a smaller layout with stale modal focus.
-      escapeTimer = window.setTimeout(() => {
-        escapeTimer = null;
-        closeWithExit();
-      }, 100);
+      // Capture the close intent synchronously. A timer owned by this effect
+      // can be cancelled by setup/cleanup replay before it updates state,
+      // swallowing an Escape that the dialog has already acknowledged.
+      closeWithExit();
     };
     window.addEventListener("keydown", onKey);
     return () => {
       window.removeEventListener("keydown", onKey);
-      if (escapeTimer !== null) window.clearTimeout(escapeTimer);
     };
   }, [closeWithExit]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const previouslyFocused = document.activeElement as HTMLElement | null;
     const panel = panelRef.current;
     const first = panel?.querySelector<HTMLElement>(
@@ -211,7 +209,7 @@ export function Modal({
   // behind the backdrop. This also composes for stacked modals: a share dialog
   // temporarily inerts the completion dialog beneath it, then restores that
   // layer when it closes while the completion dialog keeps the app inert.
-  useEffect(() => {
+  useLayoutEffect(() => {
     const backdrop = backdropRef.current;
     if (!backdrop) return;
 
@@ -232,7 +230,7 @@ export function Modal({
   // that can move focus out of the document before our old edge-only trap ever
   // ran. A modal must remain fully keyboard-operable regardless of that host
   // preference, so advance explicitly through its visible controls.
-  useEffect(() => {
+  useLayoutEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Tab") return;
       const layers = Array.from(

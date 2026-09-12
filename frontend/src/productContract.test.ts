@@ -85,4 +85,20 @@ describe("public product contract v1", () => {
     expect(publicApp).toContain('import("./auth/authStore")');
     expect(publicApp).toMatch(/initAuth\(\);\s+return appModule;/);
   });
+
+  it("keeps logged-out direct routes in both bootstrap route trees", () => {
+    const publicApp = read("src/PublicApp.tsx");
+    const fullApp = read("src/App.tsx");
+    for (const path of [
+      "/login",
+      "/signup",
+      "/reset-password",
+      "/auth/callback",
+      "/s/:token",
+      "/try/lesson/:courseId/:lessonId",
+    ]) {
+      expect(publicApp, `PublicApp route ${path}`).toContain(`path="${path}"`);
+      expect(fullApp, `App route ${path}`).toContain(`path="${path}"`);
+    }
+  });
 });

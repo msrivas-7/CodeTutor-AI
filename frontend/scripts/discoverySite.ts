@@ -10,6 +10,7 @@ import {
 import path from "node:path";
 import { renderLessonOgPng } from "./discoveryOg";
 import { FIRST_LESSON_CONTRACT } from "../src/productContract";
+import { designTokenCss, publicCanvasColor } from "../src/design-system/tokens";
 
 export const SITE_ORIGIN = "https://codetutor.msrivas.com";
 export const CATEGORY_PATH = "/learn-to-code/";
@@ -271,6 +272,8 @@ function documentShell(options: {
   ogAlt: string;
   body: string;
   structuredData: unknown[];
+  motionScript?: string;
+  noindex?: boolean;
 }): string {
   const canonical = `${SITE_ORIGIN}${options.canonicalPath}`;
   const og = `${SITE_ORIGIN}${options.ogPath}`;
@@ -279,10 +282,12 @@ function documentShell(options: {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="theme-color" content="#080d1b">
+  <meta name="theme-color" content="${publicCanvasColor}">
+  <style id="design-system-tokens">${designTokenCss()}</style>
+  <style>html,body{background:var(--brand-canvas);color-scheme:dark}</style>
   <title>${escapeHtml(options.title)}</title>
   <meta name="description" content="${escapeHtml(options.description)}">
-  <link rel="canonical" href="${canonical}">
+  ${options.noindex ? '<meta name="robots" content="noindex,follow">' : `<link rel="canonical" href="${canonical}">
   <meta property="og:type" content="article">
   <meta property="og:site_name" content="CodeTutor AI">
   <meta property="og:url" content="${canonical}">
@@ -296,7 +301,7 @@ function documentShell(options: {
   <meta name="twitter:title" content="${escapeHtml(options.title)}">
   <meta name="twitter:description" content="${escapeHtml(options.description)}">
   <meta name="twitter:image" content="${og}">
-  <meta name="twitter:image:alt" content="${escapeHtml(options.ogAlt)}">
+  <meta name="twitter:image:alt" content="${escapeHtml(options.ogAlt)}">`}
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -304,23 +309,41 @@ function documentShell(options: {
   <link rel="stylesheet" href="/discovery.css">
   ${options.structuredData.map((item) => `<script type="application/ld+json">${jsonLd(item)}</script>`).join("\n  ")}
 </head>
-<body>
-  <a class="skip" href="#main">Skip to lesson</a>
+<body class="public-theme">
+  <div id="discovery-motion" aria-hidden="true"></div>
+  <a class="skip" href="#main">${options.noindex ? 'Skip to content' : 'Skip to lesson'}</a>
   ${options.body.replace('<main id="main">', '<main id="main" tabindex="-1">')}
+  ${options.motionScript ? `<script type="module" src="${escapeHtml(options.motionScript)}"></script>` : ""}
   <script>(function(){var skip=document.querySelector('.skip');var main=document.getElementById('main');if(!skip||!main)return;skip.addEventListener('click',function(event){event.preventDefault();history.replaceState(null,'','#main');main.scrollIntoView({block:'start'});main.focus({preventScroll:true});requestAnimationFrame(function(){main.focus({preventScroll:true})})})})()</script>
 </body>
 </html>\n`;
 }
 
 function header(trial: string): string {
-  return `<header class="shell site-nav"><a class="wordmark" href="/" aria-label="CodeTutor AI home">CodeTutor AI</a><nav class="nav-links" aria-label="Public learning"><a class="quiet-link" href="${CATEGORY_PATH}">Explore lessons</a><a class="primary-link" href="${trial}">Try the first lesson →</a></nav></header>`;
+  return `<header class="brand-header site-nav"><a class="wordmark" href="/" aria-label="CodeTutor AI home">CodeTutor AI</a><nav class="nav-links" aria-label="Public learning"><a class="quiet-link" href="${CATEGORY_PATH}">Explore lessons</a><a class="brand-header-action" href="${trial}" aria-label="Try the first lesson"><span class="brand-header-long">Try the first lesson</span><span class="brand-header-short" aria-hidden="true">Try lesson 1</span><span aria-hidden="true">→</span></a></nav></header>`;
 }
 
 function footer(): string {
   return `<footer class="footer"><div class="shell footer-row"><span>© ${new Date().getUTCFullYear()} Mehul Srivastava · CodeTutor AI</span><span><a href="/why-not-chatgpt">Why not ChatGPT?</a> · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a> · <a href="/support">Support</a></span></div></footer>`;
 }
 
-export function renderLessonPage(course: DiscoveryCourse, lesson: DiscoveryLesson): string {
+// A real static error document: recovery remains usable without the app or
+// animation bundle. Hosts must retain status 404 rather than redirect to 200.
+export function renderDiscoveryNotFound(motionScript?: string): string {
+  return documentShell({
+    title: "Page not found · CodeTutor AI",
+    description: "This page isn't here. Browse the public lessons or return to CodeTutor AI.",
+    canonicalPath: "/404.html",
+    ogPath: "",
+    ogAlt: "",
+    noindex: true,
+    structuredData: [],
+    motionScript,
+    body: `${header(FIRST_LESSON_CONTRACT.route)}<main id="main"><section class="hero recovery"><div class="shell"><div class="eyebrow">404 · Page not found</div><h1>This page isn't here.</h1><p class="lede">The link may have changed, or the page may no longer be available.</p><div class="hero-actions"><a class="primary-link" href="${CATEGORY_PATH}">Browse public lessons →</a><a class="quiet-link" href="/">Back to CodeTutor AI</a></div></div></section></main>${footer()}`,
+  });
+}
+
+export function renderLessonPage(course: DiscoveryCourse, lesson: DiscoveryLesson, motionScript?: string): string {
   const lessonIndex = course.lessons.findIndex((item) => item.id === lesson.id);
   const previous = course.lessons[lessonIndex - 1];
   const next = course.lessons[lessonIndex + 1];
@@ -345,8 +368,12 @@ export function renderLessonPage(course: DiscoveryCourse, lesson: DiscoveryLesso
     new RegExp(`^#\\s+${lesson.title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*(?:\\r?\\n)+`),
     "",
   );
-  const body = `${header(trial)}<main id="main" tabindex="-1"><section class="hero"><div class="shell"><div class="eyebrow"><a href="${course.publicPath}">${escapeHtml(course.title)}</a> / Lesson ${lesson.order}</div><h1>${escapeHtml(lesson.title)}</h1><p class="lede">${escapeHtml(lesson.description)}</p><div class="meta-row"><span>${escapeHtml(lesson.language)}</span><span>·</span><span>~${lesson.estimatedMinutes} minutes</span><span>·</span><span>Lesson ${lesson.order} of ${course.lessons.length}</span></div><div class="chips" style="margin-top:1rem">${lesson.objectives.slice(0, 4).map((objective) => `<span class="chip">${inlineMarkdown(objective)}</span>`).join("")}</div><div class="hero-actions"><a class="primary-link" href="${trial}">${trialLabel}</a><a class="quiet-link" href="${course.publicPath}">See the full course</a></div></div></section><div class="shell content-grid"><article class="prose" aria-label="Lesson walkthrough">${renderMarkdown(authoredBody)}<nav class="pager" aria-label="Adjacent lessons">${pager}</nav></article><aside class="side" aria-label="About this lesson"><section class="note"><div class="note-label">Actual course material</div><h2>Read the field note. Then make it run.</h2><p>This public walkthrough comes from the same structured lesson used inside CodeTutor. Anonymous interactive access starts with lesson 1; this field note remains here when you return.</p><a class="primary-link" href="${trial}">${trialLabel}</a></section><section class="note"><div class="note-label">Concepts in this lesson</div><div class="chips" style="margin-top:.8rem">${lesson.teachesConceptTags.map((tag) => `<span class="chip">${escapeHtml(tag.replaceAll("-", " "))}</span>`).join("")}</div></section></aside></div></main>${footer()}`;
+  const conceptsPanel = lesson.teachesConceptTags.length > 0
+    ? `<section class="note"><div class="note-label">Concepts in this lesson</div><div class="chips" style="margin-top:.8rem">${lesson.teachesConceptTags.map((tag) => `<span class="chip">${escapeHtml(tag.replaceAll("-", " "))}</span>`).join("")}</div></section>`
+    : "";
+  const body = `${header(trial)}<main id="main" tabindex="-1"><section class="hero"><div class="shell"><div class="eyebrow"><a href="${course.publicPath}">${escapeHtml(course.title)}</a> / Lesson ${lesson.order}</div><h1>${escapeHtml(lesson.title)}</h1><p class="lede">${escapeHtml(lesson.description)}</p><div class="meta-row"><span>${escapeHtml(lesson.language)}</span><span>·</span><span>~${lesson.estimatedMinutes} minutes</span><span>·</span><span>Lesson ${lesson.order} of ${course.lessons.length}</span></div><div class="chips" style="margin-top:1rem">${lesson.objectives.slice(0, 4).map((objective) => `<span class="chip">${inlineMarkdown(objective)}</span>`).join("")}</div><div class="hero-actions"><a class="primary-link" href="${trial}">${trialLabel}</a><a class="quiet-link" href="${course.publicPath}">See the full course</a></div></div></section><div class="shell content-grid"><article class="prose" aria-label="Lesson walkthrough">${renderMarkdown(authoredBody)}<nav class="pager" aria-label="Adjacent lessons">${pager}</nav></article><aside class="side" aria-label="About this lesson"><section class="note"><div class="note-label">Actual course material</div><h2>Read the field note. Then make it run.</h2><p>This public walkthrough comes from the same structured lesson used inside CodeTutor. Anonymous interactive access starts with lesson 1; this field note remains here when you return.</p><a class="primary-link" href="${trial}">${trialLabel}</a></section>${conceptsPanel}</aside></div></main>${footer()}`;
   return documentShell({
+    motionScript,
     title,
     description,
     canonicalPath: lesson.publicPath,
@@ -384,11 +411,12 @@ export function renderLessonPage(course: DiscoveryCourse, lesson: DiscoveryLesso
   });
 }
 
-export function renderCoursePage(course: DiscoveryCourse): string {
+export function renderCoursePage(course: DiscoveryCourse, motionScript?: string): string {
   const trial = trialHref("category_page", course.id);
   const title = `${course.title} course — learn by doing | CodeTutor AI`;
   const body = `${header(trial)}<main id="main"><section class="hero"><div class="shell"><div class="eyebrow"><a href="${CATEGORY_PATH}">Learn to code</a> / ${escapeHtml(course.language)}</div><h1>${escapeHtml(course.title)}</h1><p class="lede">${escapeHtml(course.description)}</p><div class="meta-row"><span>${course.lessons.length} lessons</span><span>·</span><span>${course.lessons.reduce((sum, lesson) => sum + lesson.estimatedMinutes, 0)} guided minutes</span><span>·</span><span>Real checks, not completion clicks</span></div><div class="hero-actions"><a class="primary-link" href="${trial}">Try the first lesson →</a><a class="quiet-link" href="${CATEGORY_PATH}">All courses</a></div></div></section><section class="shell lesson-list" aria-label="Course lessons">${course.lessons.map((lesson) => `<a class="lesson-card" href="${lesson.publicPath}"><span class="lesson-number">${String(lesson.order).padStart(2, "0")}</span><span><h2>${escapeHtml(lesson.title)}</h2><p>${escapeHtml(lesson.description)}</p></span><span class="lesson-time">~${lesson.estimatedMinutes} min →</span></a>`).join("")}</section></main>${footer()}`;
   return documentShell({
+    motionScript,
     title,
     description: cleanDescription(course.description),
     canonicalPath: course.publicPath,
@@ -407,12 +435,13 @@ export function renderCoursePage(course: DiscoveryCourse): string {
   });
 }
 
-export function renderCategoryPage(catalog: DiscoveryCatalog): string {
+export function renderCategoryPage(catalog: DiscoveryCatalog, motionScript?: string): string {
   const trial = trialHref("category_page", "learn-to-code");
   const title = "Learn coding with an AI tutor that makes you think | CodeTutor AI";
   const description = "Structured Python and JavaScript lessons with a real editor, runnable checks, and an AI tutor built to teach—not autocomplete.";
   const body = `${header(trial)}<main id="main"><section class="hero"><div class="shell"><div class="eyebrow">A different kind of AI coding course</div><h1>Built to teach,<br>not to autocomplete.</h1><p class="lede">Read a real lesson. Write the code yourself. Run it, inspect what happened, and prove it with checks. The tutor asks and hints without quietly taking the keyboard away from you.</p><div class="hero-actions"><a class="primary-link" href="${trial}">Try the first lesson — about ${FIRST_LESSON_CONTRACT.estimatedMinutes} minutes →</a><a class="quiet-link" href="#courses">Browse ${catalog.publicCourses.reduce((sum, course) => sum + course.lessons.length, 0)} public lessons</a></div></div></section><section class="shell" aria-labelledby="method-title" style="padding-top:4rem"><div class="eyebrow">The CodeTutor loop</div><h2 id="method-title">You do the part that changes you.</h2><div class="course-grid"><article class="course-card"><div class="eyebrow">01 / Read</div><h2>One idea, in context.</h2><p>Every public field note comes directly from the structured course material—not an SEO-only paraphrase.</p></article><article class="course-card"><div class="eyebrow">02 / Make</div><h2>Your code. Your evidence.</h2><p>The interactive lesson gives you an editor and runner. A completion is earned by the authored checks.</p></article><article class="course-card"><div class="eyebrow">03 / Ask</div><h2>Help that leaves work for you.</h2><p>The tutor points to evidence and asks the next useful question. It is designed to build judgment, not output.</p></article></div></section><section id="courses" class="shell" aria-labelledby="courses-title" style="padding-top:2rem"><div class="eyebrow">Public course library</div><h2 id="courses-title">Choose a trail.</h2><div class="course-grid">${catalog.publicCourses.map((course) => `<a class="course-card" href="${course.publicPath}"><div class="eyebrow">${escapeHtml(course.language)} · ${course.lessons.length} lessons</div><h2>${escapeHtml(course.title)}</h2><p>${escapeHtml(course.description)}</p><span class="arrow">Open the course →</span></a>`).join("")}</div></section></main>${footer()}`;
   return documentShell({
+    motionScript,
     title,
     description,
     canonicalPath: CATEGORY_PATH,
@@ -457,17 +486,19 @@ export async function generateDiscoverySite(options: {
   coursesDir: string;
   outDir: string;
   renderImages?: boolean;
+  motionScript?: string;
 }): Promise<DiscoveryCatalog> {
   const catalog = loadDiscoveryCatalog(options.coursesDir);
-  write(options.outDir, "discovery.css", DISCOVERY_CSS.trimStart());
-  write(options.outDir, "learn-to-code/index.html", renderCategoryPage(catalog));
+  write(options.outDir, "discovery.css", discoveryCss());
+  write(options.outDir, "404.html", renderDiscoveryNotFound(options.motionScript));
+  write(options.outDir, "learn-to-code/index.html", renderCategoryPage(catalog, options.motionScript));
   write(options.outDir, "sitemap.xml", renderSitemap(catalog));
   write(options.outDir, "robots.txt", renderRobots());
 
   for (const course of catalog.publicCourses) {
-    write(options.outDir, `learn-to-code/${course.id}/index.html`, renderCoursePage(course));
+    write(options.outDir, `learn-to-code/${course.id}/index.html`, renderCoursePage(course, options.motionScript));
     for (const lesson of course.lessons) {
-      write(options.outDir, `lessons/${course.id}/${lesson.id}/index.html`, renderLessonPage(course, lesson));
+      write(options.outDir, `lessons/${course.id}/${lesson.id}/index.html`, renderLessonPage(course, lesson, options.motionScript));
       if (options.renderImages !== false) {
         const png = await renderLessonOgPng({
           courseTitle: course.title,
@@ -500,5 +531,8 @@ export async function generateDiscoverySite(options: {
 }
 
 export function discoveryCss(): string {
-  return DISCOVERY_CSS.trimStart();
+  // Config-side imports are bundled into a temporary directory by Vite;
+  // resolve authored assets from the frontend package, not import.meta.url.
+  const publicStyles = path.resolve(process.cwd(), "src/features/marketing/public");
+  return [DISCOVERY_CSS.trimStart(), readFileSync(path.join(publicStyles, "theme.css"), "utf8"), readFileSync(path.join(publicStyles, "discovery-theme.css"), "utf8")].join("\n");
 }

@@ -1,18 +1,15 @@
 import {
-  Component,
-  lazy,
-  Suspense,
   useCallback,
   useEffect,
   useRef,
   useState,
-  type ReactNode,
 } from "react";
 import { Link } from "react-router-dom";
 import { Wordmark } from "../../../components/Wordmark";
 import { FIRST_LESSON_CONTRACT } from "../../../productContract";
 import { pickHeroCopy } from "../heroCopy";
 import { useMarketingAuth } from "../useMarketingAuth";
+import { usePublicMotionScene } from "../public/PublicMotionWorld";
 import {
   createShape,
   particleIdentity,
@@ -21,28 +18,6 @@ import {
 } from "./geometry";
 import "./study.css";
 
-const ParticleField = lazy(() => import("./ParticleField"));
-class MotionBoundary extends Component<
-  { children: ReactNode },
-  { failed: boolean }
-> {
-  state = { failed: false };
-  static getDerivedStateFromError() {
-    return { failed: true };
-  }
-  render() {
-    return this.state.failed ? (
-      <p className="study-motion-notice" role="status">
-        Motion could not load. The walkthrough is still available.{" "}
-        <button type="button" onClick={() => location.reload()}>
-          Reload page
-        </button>
-      </p>
-    ) : (
-      this.props.children
-    );
-  }
-}
 const stages = [
   {
     name: "Read",
@@ -132,7 +107,8 @@ export default function MarketingHomepage() {
     },
     [handOffArtworkFocus],
   );
-  const [attempt, setAttempt] = useState(0);
+  const world = usePublicMotionScene(root, "story");
+  useEffect(() => handleStatus(world.status), [world.status, handleStatus]);
   const [stage, setStage] = useState(0);
   const { isLoggedIn } = useMarketingAuth();
   const copy = pickHeroCopy();
@@ -152,31 +128,18 @@ export default function MarketingHomepage() {
   return (
     <main
       ref={setRoot}
-      className={`motion-study ${animate && status === "ready" ? "study-ready" : ""}`}
+      className={`public-surface motion-study ${animate && status === "ready" ? "study-ready" : ""}`}
       data-marketing="glyph-homepage"
     >
       <a className="study-skip" href="#study-demo">
         Skip to the product walkthrough
       </a>
-      {root && animate && (
-        <MotionBoundary>
-          <Suspense fallback={null}>
-            <ParticleField
-              key={attempt}
-              root={root}
-              light={false}
-              count={420}
-              onStatus={handleStatus}
-            />
-          </Suspense>
-        </MotionBoundary>
-      )}
-      <header className="study-nav">
+      <header className="brand-header study-nav">
         <Link to="/" aria-label="CodeTutor AI home">
           <Wordmark size="md" />
         </Link>
         <nav aria-label="Main navigation">
-          <Link to={isLoggedIn ? "/start" : "/login"}>
+          <Link className="brand-header-action" to={isLoggedIn ? "/start" : "/login"}>
             {isLoggedIn ? "Dashboard" : "Sign in"}{" "}
             <span aria-hidden="true">↗</span>
           </Link>
@@ -184,16 +147,19 @@ export default function MarketingHomepage() {
       </header>
       {animate && status === "unavailable" && (
         <p className="study-motion-notice" role="status">
-          Motion is unavailable. You can still explore the walkthrough.{" "}
+          {world.loadFailed
+            ? "Motion could not load. The walkthrough is still available."
+            : "Motion is unavailable. You can still explore the walkthrough."}{" "}
           <button
             type="button"
             onClick={() => {
+              if (world.loadFailed) { location.reload(); return; }
               headline.current?.focus();
               setStatus("loading");
-              setAttempt((v) => v + 1);
+              world.retry();
             }}
           >
-            Retry motion
+            {world.loadFailed ? "Reload page" : "Retry motion"}
           </button>
         </p>
       )}
@@ -248,7 +214,7 @@ export default function MarketingHomepage() {
         aria-labelledby="study-demo-title"
       >
         <div className="study-chapter-top">
-          <div className="study-solid">
+          <div className="study-solid brand-display-copy">
             <p className="study-eyebrow">01 — The learning loop</p>
             <h2 id="study-demo-title" className="font-display">
               From “why?”

@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { useReducedMotion } from "framer-motion";
+import { codeRevealTimeline, revealedCodeLength } from "./codeRevealTiming";
 
 // Phase 21C: 4-color tokenizer + typewriter for the SharePage. Mirrors
 // backend/src/services/share/og/OgArtifact.tsx so the page reads as the
-// same artifact the OG card promised — same colors, same line breaks,
-// same truncation behavior.
+// same artifact the OG card promised — same syntax roles, line breaks and
+// truncation. Browser comments consume the readable public faint role rather
+// than the fixed image palette; export artwork keeps its separate owner.
 //
 // Pacing — logarithmic deceleration, not uniform. Uniform 18ms/char
 // drags. Real film typesetting decelerates: the eye scans the first
@@ -12,7 +13,7 @@ import { useReducedMotion } from "framer-motion";
 //   First 30% of chars: 8ms/char
 //   Middle 40%:        14ms/char
 //   Final 30%:         22ms/char
-// Total: ~14ms/char average, ~1300ms for ~95 chars.
+// Long snippets compress this same cadence to at most five seconds.
 
 const KEYWORDS = new Set([
   "def", "return", "if", "else", "elif", "for", "while", "in", "and", "or", "not",
@@ -67,12 +68,14 @@ function tokenizeLine(line: string): Token[] {
 function tokenColor(kind: Token["kind"]): string {
   if (kind === "kw") return "rgb(56 189 248)";
   if (kind === "str") return "rgba(52 211 153 / 0.85)";
-  if (kind === "cmt") return "rgb(100 116 139)";
+  if (kind === "cmt") return "rgb(var(--color-faint))";
   return "rgba(230 236 245 / 0.92)";
 }
 
 interface CodeTypewriterProps {
   code: string;
+  /** Owned by the share reveal so resuming motion never rewinds visible code. */
+  reduceMotion: boolean;
   /** Delay before typing starts (ms from mount). */
   startDelayMs?: number;
   /** Max number of source lines kept; the rest is replaced by a single
@@ -86,12 +89,11 @@ interface CodeTypewriterProps {
 
 export function CodeTypewriter({
   code,
+  reduceMotion: reduce,
   startDelayMs = 0,
   maxLines = 10,
   onDone,
 }: CodeTypewriterProps) {
-  const reduce = useReducedMotion();
-
   // Truncate first — the typewriter only ever types the visible slice.
   const allLines = code.split("\n");
   const lines = allLines.slice(0, maxLines);
@@ -127,45 +129,27 @@ export function CodeTypewriter({
       onDoneRef.current?.();
       return;
     }
-    let cancelled = false;
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
-
-    const total = visible.length;
-    const tickFor = (i: number): number => {
-      // i = chars typed so far (0-based, before the next paint).
-      const pct = i / Math.max(1, total);
-      if (pct < 0.3) return 8;
-      if (pct < 0.7) return 14;
-      return 22;
+    const deadlines = codeRevealTimeline(visible.length);
+    const startsAt = performance.now() + startDelayMs;
+    let frame: number;
+    const tick = (now: number) => {
+      const count = revealedCodeLength(deadlines, now - startsAt);
+      setRevealed(count);
+      if (count === visible.length) {
+        onDoneRef.current?.();
+        return;
+      }
+      frame = requestAnimationFrame(tick);
     };
-
-    const start = () => {
-      let i = 0;
-      const tick = () => {
-        if (cancelled) return;
-        i += 1;
-        setRevealed(i);
-        if (i >= total) {
-          onDoneRef.current?.();
-          return;
-        }
-        timeoutId = setTimeout(tick, tickFor(i));
-      };
-      timeoutId = setTimeout(tick, tickFor(0));
-    };
-
-    timeoutId = setTimeout(start, startDelayMs);
-    return () => {
-      cancelled = true;
-      if (timeoutId) clearTimeout(timeoutId);
-    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
   }, [visible, startDelayMs, reduce]);
 
   // Render: walk the visible string char-by-char, but maintain
   // line/token structure so colors stay correct as the cursor moves.
   // Strategy: compute token list per line (full), then for each render
   // pass include only the prefix of (line+separators) up to `revealed`.
-  const slice = visible.slice(0, revealed);
+  const slice = reduce ? visible : visible.slice(0, revealed);
   const renderedLines = slice.split("\n");
   const showCursor = !reduce && revealed < visible.length;
 
@@ -177,14 +161,14 @@ export function CodeTypewriter({
     // overflow-x-auto so the very rare 50+ char line still renders
     // intact and the user can swipe to read.
     <div className="font-mono text-[13.5px] leading-[1.5] sm:text-[17px] sm:leading-[1.55] md:text-[19px]">
-      {renderedLines.map((rendered, lineIdx) => {
+      {/* Mount all line boxes immediately: typing must not push the CTA down. */}
+      {lines.map((fullLine, lineIdx) => {
         // Full line — drives the color tokens. Then we trim each token
         // text to fit the rendered prefix.
-        const fullLine = lines[lineIdx] ?? "";
         const tokens = tokenizeLine(fullLine);
-        let remaining = rendered.length;
+        let remaining = renderedLines[lineIdx]?.length ?? 0;
         return (
-          <div key={lineIdx} className="min-h-[1.55em]">
+          <div key={lineIdx} className="min-h-[1.55em] whitespace-nowrap">
             {tokens.length === 0 && remaining === 0 ? (
               <span>&nbsp;</span>
             ) : (
@@ -225,8 +209,11 @@ export function CodeTypewriter({
           </div>
         );
       })}
-      {truncated && revealed >= visible.length && (
-        <div className="mt-1 text-[13px] text-faint sm:text-[15px]">…</div>
+      {truncated && (
+        <div
+          className="mt-1 text-[13px] text-faint sm:text-[15px]"
+          style={{ visibility: reduce || revealed >= visible.length ? "visible" : "hidden" }}
+        >…</div>
       )}
     </div>
   );

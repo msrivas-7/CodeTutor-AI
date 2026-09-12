@@ -1,15 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import { motion, useReducedMotion } from "framer-motion";
+import { motion } from "framer-motion";
+import { useReducedMotionPreference } from "../../../hooks/useReducedMotionPreference";
 import { api } from "../../../api/client";
 import type { SharedLessonCompletion } from "../../../api/client";
 import { ApiError } from "../../../api/ApiError";
-import { CinematicLighting } from "../../../components/cinema/CinematicLighting";
-import { FilmGrain } from "../../../components/cinema/FilmGrain";
+import { PublicPage } from "../../marketing/public/PublicPage";
 import { CodeTypewriter } from "../components/CodeTypewriter";
 import { masteryLabel } from "../components/MasteryRing";
 import { FIRST_LESSON_CONTRACT } from "../../../productContract";
-import { Wordmark } from "../../../components/Wordmark";
 
 // Phase 21C: cinematic share page at /s/:token. Public route — no auth
 // required. Renders a slow, choreographed reveal of the learner's
@@ -71,30 +70,11 @@ function ShareRecovery({
     };
   }, [title]);
 
-  const primaryClasses =
-    "inline-flex min-h-11 items-center justify-center rounded-full bg-gradient-to-r from-violet to-accent px-5 py-2.5 text-sm font-bold text-bg shadow-glow transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg";
+  const primaryClasses = "public-action";
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-bg text-ink">
-      <CinematicLighting
-        variant="three-point"
-        fadeInMs={300}
-        keyColor="accent"
-        intensity="soft"
-      />
-      <FilmGrain intensity="hero" fadeInMs={300} />
-      <header className="relative mx-auto max-w-5xl px-5 pt-7 sm:px-10 sm:pt-10">
-        <a
-          href="/"
-          aria-label="CodeTutor AI home"
-          className="inline-flex rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-4 focus-visible:ring-offset-bg"
-        >
-          <Wordmark size="md" />
-        </a>
-      </header>
-      <main className="relative mx-auto flex min-h-[calc(100vh-5rem)] max-w-5xl items-center px-5 py-12 sm:px-10 sm:py-16">
-        <section className="w-full max-w-2xl">
-          <div className="font-mono text-xs font-semibold uppercase tracking-[0.2em] text-accent">
+        <section className="share-recovery public-recovery-copy">
+          <div className="public-eyebrow">
             {eyebrow}
           </div>
           <h1
@@ -129,12 +109,18 @@ function ShareRecovery({
             </a>
           </div>
         </section>
-      </main>
-    </div>
   );
 }
 
 export default function SharePage() {
+  return (
+    <PublicPage className="public-share" composition="ambient" focusOnNavigation={false}>
+      <ShareContent />
+    </PublicPage>
+  );
+}
+
+function ShareContent() {
   const { token } = useParams<{ token: string }>();
   const [share, setShare] = useState<SharedLessonCompletion | null>(null);
   const [error, setError] = useState<"not_found" | "load_failed" | null>(null);
@@ -144,7 +130,12 @@ export default function SharePage() {
   // but the api.getShare wrapper attaches the bearer token if a session
   // exists (which is fine; the backend ignores it on this route).
   useEffect(() => {
-    if (!token) {
+    // Match the server-generated token shape (shares.ts). Malformed paths
+    // fall through the public API router to protected routes; their 401 is
+    // not a connection failure or a reason to ask a public visitor to log in.
+    // This is only a UX preflight, never an authorization decision.
+    if (!token || !/^[a-z2-9]{12}$/i.test(token)) {
+      setShare(null);
       setError("not_found");
       return;
     }
@@ -276,18 +267,13 @@ export default function SharePage() {
     // a blank atmospheric canvas reads as a broken link on slow networks.
     return (
       <div
-        className="relative min-h-screen overflow-hidden bg-bg text-ink"
+        className="public-share-artifact"
         role="status"
         aria-live="polite"
       >
-        <CinematicLighting variant="three-point" fadeInMs={400} keyColor="accent" intensity="soft" />
-        <FilmGrain intensity="hero" fadeInMs={400} />
-        <div className="relative mx-auto max-w-5xl px-5 pt-8 sm:px-10 sm:pt-10">
-          <Wordmark size="md" />
-          <main className="pt-12 sm:pt-16">
-            <div className="text-xs font-medium uppercase tracking-wider text-muted">
+            <h1>
               Shared lesson
-            </div>
+            </h1>
             <div className="mt-4 h-12 w-3/4 max-w-xl animate-pulse rounded-xl bg-elevated/80" />
             <div className="mt-6 rounded-2xl border border-border bg-panel/90 p-5 shadow-2xl sm:p-8">
               <div className="h-3 w-28 animate-pulse rounded-full bg-elevated" />
@@ -295,8 +281,6 @@ export default function SharePage() {
               <div className="mt-3 h-3 w-1/2 animate-pulse rounded-full bg-elevated" />
             </div>
             <p className="mt-6 text-sm text-muted">Loading this learner's project…</p>
-          </main>
-        </div>
       </div>
     );
   }
@@ -309,7 +293,14 @@ interface SharePageReadyProps {
 }
 
 function SharePageReady({ share }: SharePageReadyProps) {
-  const reduce = useReducedMotion();
+  const prefersReducedMotion = useReducedMotionPreference();
+  // A revealed artifact must never rewind when the OS preference is restored.
+  // Background motion can resume independently of this one-shot reveal.
+  const [revealSettled, setRevealSettled] = useState(prefersReducedMotion);
+  const reduce = prefersReducedMotion || revealSettled;
+  useEffect(() => {
+    if (prefersReducedMotion) setRevealSettled(true);
+  }, [prefersReducedMotion]);
   // Coordinated timeline. Reduced-motion users skip past the staggered
   // beats and reveal everything statically — we keep the same hierarchy
   // but drop the typewriter and the zoom hold.
@@ -329,7 +320,10 @@ function SharePageReady({ share }: SharePageReadyProps) {
     timersRef.current.push(t);
   };
   useEffect(() => {
-    if (reduce) return;
+    if (reduce) {
+      setPhase("idle");
+      return;
+    }
     // UX polish: typewriter starts at 900ms (was 1200) so it overlaps
     // the title gradient sweep tail rather than pausing after it. The
     // first ~1.4s used to feel stalled.
@@ -349,7 +343,10 @@ function SharePageReady({ share }: SharePageReadyProps) {
     reduce ? share.viewCount : 0,
   );
   useEffect(() => {
-    if (reduce) return;
+    if (reduce) {
+      setAnimatedViews(share.viewCount);
+      return;
+    }
     if (phase !== "footer" && phase !== "idle") return;
     const target = share.viewCount;
     if (target <= 0) return;
@@ -383,7 +380,7 @@ function SharePageReady({ share }: SharePageReadyProps) {
 
   // Whether the page is past the money-shot beat — used to dim
   // peripheral chrome briefly during the hold.
-  const inMoneyShot = phase === "moneyShot";
+  const inMoneyShot = !reduce && phase === "moneyShot";
 
   const ringColor = TIER_COLOR[share.mastery];
   const timeSpentLabel = fmtTimeSpent(share.timeSpentMs);
@@ -392,15 +389,7 @@ function SharePageReady({ share }: SharePageReadyProps) {
     share.lessonId === FIRST_LESSON_CONTRACT.lessonId;
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-bg text-ink">
-      {/* Lighting + grain — atmosphere from t=0. */}
-      <CinematicLighting
-        variant="three-point"
-        fadeInMs={reduce ? 0 : 400}
-        keyColor="accent"
-        intensity={inMoneyShot ? "full" : "soft"}
-      />
-      <FilmGrain intensity="hero" fadeInMs={reduce ? 0 : 400} />
+    <div className="public-share-artifact">
 
       {/* Header row — wordmark + share URL.
           Phase 22E: at iPhone-13-class widths (≤640px) the full
@@ -408,8 +397,8 @@ function SharePageReady({ share }: SharePageReadyProps) {
           fitting beside a 24px-padded wordmark. Hide the URL on narrow
           and rely on the address bar for the link — saves a horizontal-
           overflow risk and keeps the header airy. */}
-      <motion.header
-        className="relative mx-auto flex max-w-5xl items-center justify-between px-5 pt-8 sm:px-10 sm:pt-10"
+      <motion.div
+        className="mb-6 hidden text-right font-mono text-xs text-faint sm:block"
         initial={reduce ? false : { opacity: 0.65, y: -4 }}
         animate={
           inMoneyShot
@@ -422,18 +411,13 @@ function SharePageReady({ share }: SharePageReadyProps) {
           ease: [0.22, 1, 0.36, 1],
         }}
       >
-        <div className="font-display text-xl font-semibold tracking-tight text-ink sm:text-2xl">
-          CodeTutor AI
-        </div>
-        <div className="hidden font-mono text-xs text-faint sm:block sm:text-sm">
           codetutor.msrivas.com/s/{share.shareToken}
-        </div>
-      </motion.header>
+      </motion.div>
 
       {/* Body — title + code, the centered headline.
           Phase 22E: tighter horizontal padding on mobile so the code
           panel + title get every pixel of usable width. */}
-      <main className="relative mx-auto max-w-5xl px-5 pt-8 pb-12 sm:px-10 sm:pt-10 sm:pb-16">
+      <div>
         {/* Course context eyebrow */}
         <motion.div
           className="text-xs font-medium uppercase tracking-wider text-muted sm:text-sm"
@@ -453,50 +437,23 @@ function SharePageReady({ share }: SharePageReadyProps) {
           {share.courseTotalLessons}
         </motion.div>
 
-        {/* Lesson title — ONE gradient on the page. Sweeps in via
-            backgroundPosition on a 200% gradient. Money-shot beat
-            scales the title+code group. */}
+        {/* Preserve the earned-completion reveal within the public theme. */}
         <motion.div
           className="mt-3"
           animate={inMoneyShot ? { scale: 1.02 } : { scale: 1 }}
           transition={{
-            duration: 0.6,
+            duration: reduce ? 0 : 0.6,
             ease: [0.22, 1, 0.36, 1],
           }}
         >
           <motion.h1
-            // text-balance keeps long titles from sprawling unevenly.
-            // For very long titles (50+ chars — "Why Mutability
-            // Matters in Python (and Other Languages)" type), step
-            // the size DOWN one bracket instead of clamping with an
-            // ellipsis — losing characters reads worse than smaller
-            // type. line-clamp-3 catches the rare extreme case where
-            // even at the smaller size the title still wraps long.
-            className={`bg-gradient-to-r from-success via-accent to-violet bg-clip-text font-display font-semibold leading-tight tracking-tight text-transparent [text-wrap:balance] line-clamp-3 ${
-              share.lessonTitle.length > 50
-                ? "text-3xl sm:text-4xl md:text-5xl"
-                : "text-4xl sm:text-5xl md:text-6xl"
-            }`}
-            style={{
-              backgroundSize: "200% 100%",
-            }}
-            initial={
-              reduce
-                ? { opacity: 1, backgroundPosition: "0% 50%" }
-                : { opacity: 0.65, backgroundPosition: "100% 50%" }
-            }
-            animate={{ opacity: 1, backgroundPosition: "0% 50%" }}
+            className="text-ink [text-wrap:balance]"
+            initial={reduce ? false : { opacity: 0.65 }}
+            animate={{ opacity: 1 }}
             transition={{
-              opacity: {
                 duration: reduce ? 0 : 0.5,
                 delay: reduce ? 0 : 0.7,
                 ease: [0.22, 1, 0.36, 1],
-              },
-              backgroundPosition: {
-                duration: reduce ? 0 : 1.2,
-                delay: reduce ? 0 : 1,
-                ease: [0.22, 1, 0.36, 1],
-              },
             }}
           >
             {share.lessonTitle}
@@ -511,7 +468,7 @@ function SharePageReady({ share }: SharePageReadyProps) {
               mid-token (which would break the 4-color tokenization
               colors across visual lines). */}
           <motion.div
-            className="mt-5 rounded-2xl border border-border bg-panel/95 p-4 shadow-2xl sm:mt-6 sm:p-6 md:p-8"
+            className="mt-5 rounded-2xl border border-borderSoft bg-panel p-4 sm:mt-6 sm:p-6 md:p-8"
             initial={reduce ? false : { opacity: 0.55, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{
@@ -523,6 +480,7 @@ function SharePageReady({ share }: SharePageReadyProps) {
             <div className="overflow-x-auto">
               <CodeTypewriter
                 code={share.codeSnippet}
+                reduceMotion={reduce}
                 // Typewriter starts immediately on phase=typing (the
                 // outer schedule fires that at t=900ms post-mount).
                 // Prior 200ms padding made the first ~1.4s feel stalled.
@@ -542,7 +500,7 @@ function SharePageReady({ share }: SharePageReadyProps) {
               ? { opacity: 1, y: 0 }
               : { opacity: 0.72, y: 0 }
           }
-          transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+          transition={{ duration: reduce ? 0 : 0.5, ease: [0.22, 1, 0.36, 1] }}
         >
           <div className="flex items-center gap-3">
             {/* Mastery ring — strokes in via stroke-dashoffset on the
@@ -611,8 +569,8 @@ function SharePageReady({ share }: SharePageReadyProps) {
               : { opacity: 0.65, y: 8 }
           }
           transition={{
-            duration: 0.5,
-            delay: 0.2,
+            duration: reduce ? 0 : 0.5,
+            delay: reduce ? 0 : 0.2,
             ease: [0.22, 1, 0.36, 1],
           }}
         >
@@ -625,6 +583,7 @@ function SharePageReady({ share }: SharePageReadyProps) {
             href={`${window.location.origin}${FIRST_LESSON_CONTRACT.route}?utm_source=share&utm_medium=lesson_share&utm_campaign=${encodeURIComponent(share.courseId)}&utm_content=${encodeURIComponent(share.lessonId)}&share_ref=${encodeURIComponent(share.shareToken)}`}
             label={`${isFirstLesson ? "Try this lesson" : "Start with lesson 1"} — about ${FIRST_LESSON_CONTRACT.estimatedMinutes} minutes →`}
             breathe={phase === "idle" && !reduce}
+            reduceMotion={reduce}
           />
           <div className="text-sm text-faint">
             No signup needed for the first lesson.
@@ -643,7 +602,7 @@ function SharePageReady({ share }: SharePageReadyProps) {
             </div>
           )}
         </motion.div>
-      </main>
+      </div>
     </div>
   );
 }
@@ -741,12 +700,13 @@ function SaveImageButton({ storyImageUrl, authorLabel }: SaveImageButtonProps) {
 interface CtaButtonProps {
   href: string;
   label: string;
+  reduceMotion: boolean;
   /** When true, fires a single 800ms breath at t=0 (one-shot, not
    *  looped). Looped CTA-pulse reads as desperate. */
   breathe?: boolean;
 }
 
-function CtaButton({ href, label, breathe }: CtaButtonProps) {
+function CtaButton({ href, label, breathe, reduceMotion }: CtaButtonProps) {
   // The button has a tactile press: hover lifts borderColor + bg,
   // press collapses translate + scale 0.985. Breath is opt-in by the
   // parent and runs once when phase reaches idle.
@@ -754,7 +714,9 @@ function CtaButton({ href, label, breathe }: CtaButtonProps) {
     <motion.a
       href={href}
       animate={
-        breathe
+        reduceMotion
+          ? { scale: 1, y: 0, transition: { duration: 0 } }
+          : breathe
           ? {
               scale: [1, 1.02, 1],
               transition: {
@@ -766,9 +728,9 @@ function CtaButton({ href, label, breathe }: CtaButtonProps) {
             }
           : undefined
       }
-      whileHover={{ y: -1 }}
-      whileTap={{ y: 0, scale: 0.985 }}
-      className="inline-flex min-h-11 items-center rounded-full border border-borderSoft bg-panel px-5 py-2.5 text-sm font-medium text-ink transition hover:border-accent/40 hover:bg-accent/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      whileHover={reduceMotion ? undefined : { y: -1 }}
+      whileTap={reduceMotion ? undefined : { y: 0, scale: 0.985 }}
+      className="public-action"
     >
       {label}
     </motion.a>

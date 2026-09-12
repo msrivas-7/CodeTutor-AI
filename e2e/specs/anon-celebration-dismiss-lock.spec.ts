@@ -52,6 +52,30 @@ test.describe("Phase A-Q — celebration dismissal and continuation", () => {
     await expect(page.getByRole("button", { name: /check/i }).first()).toBeEnabled();
   });
 
+  test("Escape is owned from the first committed completion dialog", async ({ page }) => {
+    await page.goto(PATH);
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+    await page.getByRole("button", { name: /run/i }).first().click();
+    await expect(page.getByText(/Hello, Maya!/).last()).toBeVisible();
+    await page.evaluate(() => {
+      // Exercise the DOM-commit boundary without a timing sleep or a poll that
+      // could let passive effects catch up before the one-shot key arrives.
+      const observer = new MutationObserver(() => {
+        if (!document.querySelector('[role="dialog"][aria-labelledby="lesson-complete-title"]')) return;
+        observer.disconnect();
+        const event = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+        window.dispatchEvent(event);
+        document.documentElement.dataset.earlyDialogEscape = String(event.defaultPrevented);
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+    });
+    await page.getByRole("button", { name: /check/i }).first().click();
+    await expect(page.locator("html")).toHaveAttribute("data-early-dialog-escape", "true");
+    await expect(page.getByRole("dialog", { name: /lesson complete/i })).toHaveCount(0);
+    await expect(page.getByText(/Lesson 2 is queued up/i)).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /check/i }).first()).toBeEnabled();
+  });
+
   test("Keep practicing has a distinct outcome from Next Lesson", async ({ page }) => {
     const celebration = await openCelebration(page);
     await celebration.getByRole("button", { name: /keep practicing/i }).click();

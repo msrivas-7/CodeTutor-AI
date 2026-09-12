@@ -1,7 +1,14 @@
 import React, { lazy, Suspense, useEffect } from "react";
 import ReactDOM from "react-dom/client";
-import { BrowserRouter } from "react-router-dom";
+import { BrowserRouter, useLocation } from "react-router-dom";
 import PublicApp from "./PublicApp";
+import { PublicThemeSync } from "./features/marketing/public/PublicThemeSync";
+import { PublicMotionWorld } from "./features/marketing/public/PublicMotionWorld";
+import { RouteLoading } from "./features/marketing/public/RouteLoading";
+import {
+  shouldDeferAuthHydration,
+  shouldUsePublicApp,
+} from "./features/marketing/public/publicBootstrap";
 import "./index.css";
 // Side-effect import: applies `data-theme` on <html> from the stored preference
 // at module load. Routes that don't transitively import theme.ts (e.g. the
@@ -18,33 +25,26 @@ const FullApp = lazy(() => import("./App"));
 // address bar while preserving unrelated query flags.
 captureDistributionAttribution();
 
-const PUBLIC_PATHS = new Set([
-  "/",
-  "/why-not-chatgpt",
-  "/privacy",
-  "/terms",
-  "/support",
-]);
-const startsOnPublicSurface = PUBLIC_PATHS.has(window.location.pathname);
+const initialPathname = window.location.pathname;
+const startsOnPublicSurface = shouldUsePublicApp(initialPathname);
 
 function Bootstrap() {
+  const { pathname } = useLocation();
+  const deferAuthHydration = shouldDeferAuthHydration(pathname);
+
   useEffect(() => {
     const timer = setTimeout(
       () => {
         void import("./auth/authStore").then(({ initAuth }) => initAuth());
       },
-      startsOnPublicSurface ? 5000 : 0,
+      startsOnPublicSurface && deferAuthHydration ? 5000 : 0,
     );
     return () => clearTimeout(timer);
-  }, []);
+  }, [deferAuthHydration]);
 
   return (
     <Suspense
-      fallback={
-        <div className="flex min-h-screen items-center justify-center bg-bg text-muted">
-          <span className="skeleton h-4 w-32 rounded" />
-        </div>
-      }
+      fallback={<RouteLoading fullHeight />}
     >
       {startsOnPublicSurface ? <PublicApp /> : <FullApp />}
     </Suspense>
@@ -54,7 +54,8 @@ function Bootstrap() {
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <BrowserRouter>
-      <Bootstrap />
+      <PublicThemeSync />
+      <PublicMotionWorld><Bootstrap /></PublicMotionWorld>
     </BrowserRouter>
   </React.StrictMode>
 );

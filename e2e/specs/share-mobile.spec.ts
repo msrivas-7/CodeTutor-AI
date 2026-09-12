@@ -97,7 +97,7 @@ test.describe("Phase 22E: SharePage at iPhone 13 portrait", () => {
     await page.goto(`/s/${shareToken}`);
 
     // Lesson title — the H1, gradient sweep settles within ~2.5s.
-    const title = page.getByRole("heading", { level: 1 });
+    const title = page.getByRole("heading", { level: 1, name: "Hello, World!", exact: true });
     await expect(title).toBeVisible({ timeout: 10_000 });
 
     // Wait for the typewriter to finish typing — `print(greet("Mehul"))`
@@ -134,7 +134,7 @@ test.describe("Phase 22E: SharePage at iPhone 13 portrait", () => {
     await page.goto(`/s/${shareToken}`);
     // Wait for content to render so visibility checks aren't racing
     // the lazy chrome.
-    await expect(page.getByRole("heading", { level: 1 })).toBeVisible({
+    await expect(page.getByRole("heading", { level: 1, name: "Hello, World!", exact: true })).toBeVisible({
       timeout: 10_000,
     });
 
@@ -170,7 +170,7 @@ test.describe("Phase 22E: SharePage reduced-motion at iPhone 13", () => {
     // dynamic-chunk time are not animation time; once the heading renders,
     // reduced motion must expose the full code in the same settled state
     // rather than starting the typewriter timeline.
-    await expect(page.getByRole("heading", { level: 1 })).toBeVisible({
+    await expect(page.getByRole("heading", { level: 1, name: "Hello, World!", exact: true })).toBeVisible({
       timeout: 10_000,
     });
     await expect(

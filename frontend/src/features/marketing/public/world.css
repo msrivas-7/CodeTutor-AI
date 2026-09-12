@@ -1,0 +1,18 @@
+.public-motion-world { display: contents; }
+.public-motion-world > .motion-study-canvas {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+/* Existing local content protection remains above the shared world. */
+.public-motion-world .motion-study,
+.public-motion-world .public-page {
+  background: transparent;
+}
+html:not([data-public-theme]) .public-motion-world > .motion-study-canvas {
+  display: none;
+}
+html[data-public-theme] .public-motion-world .route-loading {
+  background: transparent;
+}

@@ -44,72 +44,61 @@ test.describe("Phase A-Q — visual viewport matrix", () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/login");
 
-    const field = page.getByTestId("ambient-glyph-field");
-    const glyphs = field.locator("[data-floating-glyph]");
+    await expect(page.getByRole("heading", { name: "Sign in", exact: true })).toBeVisible();
+    await expect(page.locator(".public-page")).toHaveAttribute("data-motion", "ready");
+    const field = page.locator(".public-motion-world > .motion-study-canvas");
+    const canvas = field.locator("canvas");
     await expect(field).toBeVisible();
-    await expect(glyphs).toHaveCount(7);
-    await expect(field).toHaveClass(/ambient-glyph-field--center-safe/);
+    await expect(canvas).toHaveCount(1);
+    await page.evaluate(() => document.fonts.ready);
 
-    const sample = () =>
-      glyphs.evaluateAll((elements) =>
-        elements.map((element) => {
-          const style = getComputedStyle(element);
-          return `${style.transform}|${style.opacity}`;
-        }),
-      );
+    // The approved public world is rendered, not seven independent DOM
+    // glyphs. Compare actual frames so a mounted but frozen canvas fails.
+    const sample = () => canvas.screenshot({ caret: "hide" });
     const initialMotion = await sample();
     await expect
-      .poll(async () => JSON.stringify(await sample()), { timeout: 5_000 })
-      .not.toBe(JSON.stringify(initialMotion));
+      .poll(async () => (await sample()).equals(initialMotion), { timeout: 5_000 })
+      .toBe(false);
 
-    const contentLayer = page
-      .locator("div.relative.z-10")
-      .filter({ has: page.getByRole("heading", { name: "Sign in", exact: true }) })
-      .first();
+    const contentLayer = page.locator(".public-page");
     await expect(contentLayer).toBeVisible();
     expect(await field.evaluate((element) => getComputedStyle(element).zIndex)).toBe("0");
-    expect(await contentLayer.evaluate((element) => getComputedStyle(element).zIndex)).toBe(
-      "10",
-    );
+    // The page is an isolated stacking context painted after the fixed world;
+    // it need not invent a positive z-index to protect its content.
+    await expect(contentLayer).toHaveCSS("isolation", "isolate");
+    await expect(contentLayer).toHaveCSS("position", "relative");
+    expect(await field.evaluate(element => Boolean(
+      element.compareDocumentPosition(document.querySelector(".public-page")!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ))).toBe(true);
     expect(await field.evaluate((element) => getComputedStyle(element).pointerEvents)).toBe(
       "none",
     );
+    await page.getByLabel("Email", { exact: true }).click();
+    await expect(page.getByLabel("Email", { exact: true })).toBeFocused();
 
-    await page.evaluate(() => {
-      document.documentElement.dataset.theme = "light";
-      document.documentElement.style.colorScheme = "light";
-    });
+    // Public pages intentionally retain their approved dark brand even when
+    // the OS is light; changing system preference must not stop the field.
+    await page.emulateMedia({ colorScheme: "light", reducedMotion: "no-preference" });
+    await expect(page.locator("html")).toHaveAttribute("data-public-theme");
     await expect(field).toBeVisible();
-    expect(await field.evaluate((element) => getComputedStyle(element).mixBlendMode)).toBe(
-      "multiply",
-    );
-    const lightGlyphColor = await glyphs.first().evaluate(
-      (element) => getComputedStyle(element).color,
-    );
-    expect(lightGlyphColor).toMatch(/rgba?\(2, 132, 199(?:, 0\.55)?\)/);
-    const centerMask = await field.evaluate((element) => {
-      const style = getComputedStyle(element);
-      return style.maskImage || style.webkitMaskImage;
-    });
-    expect(centerMask).toMatch(/transparent|rgba\(0, 0, 0, 0\)/);
     const lightMotion = await sample();
     await expect
-      .poll(async () => JSON.stringify(await sample()), { timeout: 5_000 })
-      .not.toBe(JSON.stringify(lightMotion));
+      .poll(async () => (await sample()).equals(lightMotion), { timeout: 5_000 })
+      .toBe(false);
 
     await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
-    await page.reload();
-    await expect(field).toBeVisible();
-    await expect
-      .poll(
-        async () =>
-          (await sample()).every((value) => value === "none|0.35"),
-        { timeout: 5_000 },
-      )
-      .toBe(true);
-    const stillStart = await sample();
+    await expect(canvas).toHaveCount(0);
+    const still = page.locator(".public-auth-still");
+    await expect(still).toBeVisible();
+    // A focused input caret is unrelated motion over the still artwork.
+    await page.getByRole("heading", { name: "Sign in", exact: true }).click();
+    const stillStart = await still.screenshot({ caret: "hide" });
     await page.waitForTimeout(400);
-    expect(await sample()).toEqual(stillStart);
+    expect((await still.screenshot({ caret: "hide" })).equals(stillStart), "reduced-motion artwork remains still").toBe(true);
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "Sign in", exact: true })).toBeVisible();
+    await expect(canvas).toHaveCount(0);
+    await expect(still).toBeVisible();
   });
 
   test("phone auth and recovery controls keep a 44px interaction floor", async ({

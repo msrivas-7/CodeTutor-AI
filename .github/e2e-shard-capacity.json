@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "selectedShards": 16,
+  "selectedShards": 12,
   "workersPerShard": 2,
   "retriesDuringBenchmark": 0,
   "benchmark": {
@@ -10,23 +10,45 @@
         "url": "https://github.com/msrivas-7/CodeTutor-AI/actions/runs/33385421742",
         "headSha": "ced40c1b465cfeddba37c6299e4668a38d235139",
         "topologies": [16, 20]
+      },
+      {
+        "runId": 34688798759,
+        "url": "https://github.com/msrivas-7/CodeTutor-AI/actions/runs/34688798759",
+        "headSha": "144335888eb1129dfd8e4bc6f0fbc47644308af8",
+        "topologies": [16, 20]
       }
     ],
-    "method": "After the account moved to GitHub Pro, 16 and 20 shards ran sequentially on the same stable commit with two workers per shard and no retries. All jobs started without an account queue and every shard passed; 16 had both the faster retry-free test critical path and the faster topology completion.",
-    "totalTests": 439,
+    "method": "On the exact PR head, 16 and 20 Chromium shards ran sequentially against one frozen 484-test inventory with two workers per shard and no retries. All 16-shard jobs passed in isolation. Six of 20-shard jobs failed after the shared development database reached its 200-client connection ceiling. The normal E2E workflow then proved that 16 Chromium shards plus four concurrently running support stacks reproduces the same ceiling, so the operational workflow reserves those four stacks and selects 12 Chromium shards.",
+    "totalTests": 484,
     "topologies": [
-      { "shards": 16, "modeledTestCriticalPathSeconds": 160, "topologyReadySeconds": 379, "reliable": true },
-      { "shards": 20, "modeledTestCriticalPathSeconds": 198, "topologyReadySeconds": 416, "reliable": true }
+      {
+        "shards": 16,
+        "modeledTestCriticalPathSeconds": 160,
+        "topologyReadySeconds": 289,
+        "reliable": true
+      },
+      {
+        "shards": 20,
+        "modeledTestCriticalPathSeconds": 151,
+        "topologyReadySeconds": 287,
+        "reliable": false
+      }
     ],
-    "selectedModeledTestCriticalPathSeconds": 160,
-    "selectedTopologyReadySeconds": 379,
-    "selectedAverageTestsPerShard": 27.4,
-    "measuredAt": "2026-08-31T11:20:21Z"
+    "bestReliableIsolatedModeledTestCriticalPathSeconds": 160,
+    "bestReliableIsolatedTopologyReadySeconds": 289,
+    "selectedAverageTestsPerShard": 40.3,
+    "measuredAt": "2026-09-12T10:44:41Z"
   },
   "rebenchmark": {
-    "atOrBelowTests": 411,
-    "atOrAboveTests": 467,
+    "atOrBelowTests": 443,
+    "atOrAboveTests": 525,
     "rule": "Rebenchmark when the suite changes by one selected shard's measured average workload."
+  },
+  "operationalTopology": {
+    "maximumReliableConcurrentStacks": 16,
+    "evidenceRunId": 34690166145,
+    "url": "https://github.com/msrivas-7/CodeTutor-AI/actions/runs/34690166145",
+    "method": "The normal exact-head workflow launched 16 blocking Chromium shards and four support stacks together. Backend logs recorded EMAXCONN at the shared 200-client database ceiling and unrelated browser lanes flaked. The capacity guard now derives every Compose-backed job and matrix cardinality from the workflow itself, then fails if their total exceeds the proven reliable 16-stack boundary."
   },
   "selectionPolicy": {
     "minimumAbsoluteGainSeconds": 20,
@@ -48,9 +70,24 @@
       "selected": true
     },
     "workerCandidates": [
-      { "workers": 2, "testCriticalPathSeconds": 190, "reliable": true, "selected": true },
-      { "workers": 3, "testCriticalPathSeconds": 160, "reliable": false, "selected": false },
-      { "workers": 4, "testCriticalPathSeconds": null, "reliable": false, "selected": false }
+      {
+        "workers": 2,
+        "testCriticalPathSeconds": 190,
+        "reliable": true,
+        "selected": true
+      },
+      {
+        "workers": 3,
+        "testCriticalPathSeconds": 160,
+        "reliable": false,
+        "selected": false
+      },
+      {
+        "workers": 4,
+        "testCriticalPathSeconds": null,
+        "reliable": false,
+        "selected": false
+      }
     ],
     "maximumChromiumShards": 20,
     "method": "Three images prepared in parallel, then local-build and digest-pinned 16-shard stages ran sequentially on the same commit with zero retries. Higher worker counts were eligible only when every shard passed."

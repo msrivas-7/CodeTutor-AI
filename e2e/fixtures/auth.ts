@@ -23,6 +23,7 @@ import {
   buildWorkerTestEmail,
   listAllUsers,
 } from "./testIdentity";
+import { withAuthProvisioningRetry } from "./authRetry";
 
 const BACKEND_URL = process.env.E2E_API_URL ?? "http://localhost:4000";
 const APP_ORIGIN = process.env.E2E_APP_ORIGIN ?? "http://localhost:5173";
@@ -77,18 +78,25 @@ async function createOrReuseUser(email: string): Promise<string> {
   // design — this endpoint is idempotent on the email key as of GoTrue
   // 2.x). We still rely on email_confirm:true so the session we issue
   // downstream lands with email_verified = true.
-  const { data, error } = await admin.auth.admin.createUser({
-    email,
-    password: PASSWORD,
-    email_confirm: true,
-  });
+  const { data, error } = await withAuthProvisioningRetry(
+    "create test user",
+    () =>
+      admin.auth.admin.createUser({
+        email,
+        password: PASSWORD,
+        email_confirm: true,
+      }),
+  );
   if (error) {
     // Supabase returns 422 with "User already registered" when the email
     // exists. We can still sign in, so treat this as a non-fatal reuse.
     const isDuplicate = /already registered|already exists/i.test(error.message);
     if (!isDuplicate) throw error;
     // Look the user up so we can track the id for teardown.
-    const users = await listAllUsers(admin);
+    const users = await withAuthProvisioningRetry(
+      "find existing test user",
+      () => listAllUsers(admin),
+    );
     const existing = users.find((u) => u.email === email);
     if (!existing) throw error;
     return existing.id;
@@ -114,10 +122,14 @@ async function freshSession(email: string): Promise<Session> {
       },
     },
   });
-  const { data, error } = await anon.auth.signInWithPassword({
-    email,
-    password: PASSWORD,
-  });
+  const { data, error } = await withAuthProvisioningRetry(
+    "sign in test user",
+    () =>
+      anon.auth.signInWithPassword({
+        email,
+        password: PASSWORD,
+      }),
+  );
   if (error) throw error;
   if (!data.session) throw new Error("signIn returned no session");
   return data.session;
@@ -237,9 +249,13 @@ export async function getAdminWorkerUser(workerIndex: number): Promise<CachedUse
   const email = buildCurrentRunTestEmail(`admin-w${workerIndex}`);
   const promise = (async () => {
     const userId = await createOrReuseUser(email);
-    const { error: metadataError } = await admin.auth.admin.updateUserById(userId, {
-      app_metadata: { role: "admin" },
-    });
+    const { error: metadataError } = await withAuthProvisioningRetry(
+      "grant test admin metadata",
+      () =>
+        admin.auth.admin.updateUserById(userId, {
+          app_metadata: { role: "admin" },
+        }),
+    );
     if (metadataError) throw metadataError;
     const { error: roleError } = await admin.from("user_roles").upsert({
       user_id: userId,

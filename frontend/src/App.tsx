@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate, Outlet } from "react-router-dom";
 import { lazy, Suspense, useEffect } from "react";
+import { RouteLoading } from "./features/marketing/public/RouteLoading";
 import { initAuth } from "./auth/authStore";
 import { StorageQuotaBanner } from "./components/StorageQuotaBanner";
 import { FrozenAccountBanner } from "./components/FrozenAccountBanner";
@@ -75,14 +76,6 @@ const ContentHealthPage = import.meta.env.DEV
   ? lazy(() => import("./__dev__/ContentHealthPage"))
   : null;
 
-function Loading() {
-  return (
-    <div className="flex h-full items-center justify-center bg-bg text-muted">
-      <span className="skeleton h-4 w-32 rounded" />
-    </div>
-  );
-}
-
 // Layout route wrapping RequireAuth + HydrationGate — both stay mounted
 // across navigations so the AuthLoader doesn't re-run on every route
 // change. No page-level transition animation: the shared bg-bg
@@ -136,7 +129,7 @@ export default function App() {
   useEffect(() => initAuth(), []);
 
   return (
-    <Suspense fallback={<Loading />}>
+    <Suspense fallback={<RouteLoading />}>
       <StorageQuotaBanner />
       <GlobalShortcuts />
       <InviteCapture />
@@ -150,9 +143,9 @@ export default function App() {
             Answers the honest "why not just ChatGPT?" question in the
             open, including where ChatGPT wins. */}
         <Route path="/why-not-chatgpt" element={<WhyNotChatGPTPage />} />
-        <Route path="/privacy" element={<TrustPage />} />
-        <Route path="/terms" element={<TrustPage />} />
-        <Route path="/support" element={<TrustPage />} />
+        <Route path="/privacy" element={<TrustPage pageKey="privacy" />} />
+        <Route path="/terms" element={<TrustPage pageKey="terms" />} />
+        <Route path="/support" element={<TrustPage pageKey="support" />} />
 
         {/* Public auth routes — no layout wrapper, no RequireAuth. */}
         <Route path="/login" element={<LoginPage />} />

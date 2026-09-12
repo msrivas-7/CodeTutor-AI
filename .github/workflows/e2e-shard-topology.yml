@@ -28,6 +28,11 @@ on:
         required: false
         default: 2
         type: number
+      duration_plan_artifact:
+        description: Optional frozen duration-balanced plans for all candidate counts
+        required: false
+        default: ''
+        type: string
       backend_image_ref:
         description: Optional immutable backend image reference
         required: false
@@ -89,6 +94,7 @@ jobs:
       BACKEND_IMAGE: ${{ inputs.backend_image_ref }}
       RUNNER_IMAGE: ${{ inputs.runner_image_ref }}
       FRONTEND_IMAGE: ${{ inputs.frontend_image_ref }}
+      DURATION_PLAN_ARTIFACT: ${{ inputs.duration_plan_artifact }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -119,6 +125,12 @@ jobs:
       - name: Install e2e deps
         working-directory: e2e
         run: npm ci
+      - name: Download frozen duration-balanced benchmark plans
+        if: inputs.duration_plan_artifact != ''
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ${{ inputs.duration_plan_artifact }}
+          path: e2e/duration-plan
       - name: Cache Playwright browser
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
@@ -131,7 +143,15 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Run identical full suite without retries
         working-directory: e2e
-        run: npx playwright test --shard=${{ matrix.shard }}/${{ inputs.total }} --workers=${{ inputs.workers }} --retries=0
+        run: |
+          set -euo pipefail
+          if [ -n "$DURATION_PLAN_ARTIFACT" ]; then
+            plan="duration-plan/${{ inputs.total }}/shard-${{ matrix.shard }}.txt"
+            test -s "$plan"
+            npx playwright test --project=chromium --test-list="$plan" --workers=${{ inputs.workers }} --retries=0
+          else
+            npx playwright test --project=chromium --shard=${{ matrix.shard }}/${{ inputs.total }} --workers=${{ inputs.workers }} --retries=0
+          fi
       - name: Dump docker-compose logs on failure
         if: failure()
         run: docker compose logs --no-color --tail=300

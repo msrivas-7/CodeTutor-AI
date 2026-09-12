@@ -1,0 +1,358 @@
+@import "./theme.css";
+.public-page {
+  position: relative;
+  isolation: isolate;
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  color-scheme: dark;
+  color: var(--study-ink);
+  background: var(--study-bg);
+  overflow: clip;
+}
+.public-footer {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 40px;
+  background: transparent;
+}
+.public-footer a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  border-radius: 24px;
+}
+.public-footer {
+  border-top: 1px solid var(--study-line);
+  font-size: 12px;
+  color: var(--study-muted);
+}
+.public-footer nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+}
+.public-page :is(a, button, input, textarea):focus-visible {
+  outline: 2px solid var(--study-accent);
+  outline-offset: 4px;
+}
+.public-page :is(a, button) {
+  -webkit-tap-highlight-color: transparent;
+}
+.public-page a:hover {
+  color: var(--study-accent);
+}
+.public-content {
+  width: min(1120px, calc(100% - 80px));
+  margin: auto;
+  padding-block: 72px;
+  flex: 1;
+  outline: none;
+}
+.public-route-loading .public-content {
+  display: grid;
+  place-items: center;
+}
+.public-route-loading [role="status"] {
+  background: var(--study-bg);
+  box-shadow: var(--brand-reading-shadow);
+}
+.public-content:focus-visible h1 {
+  outline: 2px solid var(--study-accent);
+  outline-offset: 8px;
+  border-radius: 2px;
+}
+.public-page h1 {
+  font-family: "Fraunces", "Iowan Old Style", Georgia, serif;
+  font-size: clamp(40px, 5vw, 68px);
+  font-weight: 500;
+  line-height: 1.08;
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+.public-eyebrow {
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--study-accent);
+}
+.public-skip {
+  position: absolute;
+  left: 16px;
+  top: 12px;
+  z-index: 10;
+  padding: 12px 18px;
+  transform: translateY(-180%);
+  background: var(--study-panel);
+  border-radius: 8px;
+}
+.public-skip:focus {
+  transform: none;
+}
+.public-auth .public-content {
+  width: min(420px, calc(100% - 40px));
+  margin: 0 auto;
+  flex: none;
+  padding-block: 48px;
+}
+.public-auth .public-footer { margin-top: auto; }
+.public-auth-intro {
+  text-align: center;
+}
+.public-auth-intro h1 {
+  font-size: clamp(36px, 5vw, 48px);
+}
+.public-auth-intro > p {
+  margin-top: 16px;
+  color: var(--study-muted);
+  font-size: 16px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.public-auth-form {
+  position: relative;
+  min-width: 0;
+  padding: 24px 0;
+}
+/* Reading/control clusters, not the form's full bounding box, own protection. */
+.public-auth-intro > *,
+.public-auth-form > :not(form),
+.public-auth-form form > *,
+.public-footer > span,
+.public-footer nav > *,
+.public-reading-header > div:first-child > *,
+.public-reading-body section > h2,
+.public-reading-body section > div > :is(p, ul, ol),
+.public-reading-body > a,
+.public-recovery-copy > :is(h1, p, .public-eyebrow),
+.public-comparison-copy > :is(h1, p),
+.public-comparison-copy section > :is(h2, p, ul),
+.public-comparison-pair > div > *,
+.public-comparison-copy > div:last-child > p {
+  background-color: var(--study-bg);
+  box-shadow: var(--brand-reading-shadow);
+}
+.public-auth :is(.public-header, .public-footer) {
+  background: transparent;
+}
+.public-auth-still {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  overflow: hidden;
+  color: var(--study-accent);
+}
+.public-auth-still svg {
+  width: 100%;
+  height: 100%;
+}
+.public-auth[data-motion="ready"] .public-auth-still {
+  visibility: hidden;
+}
+.public-auth-form input:not([type="checkbox"]):not([type="radio"]) {
+  font-size: 16px;
+  min-height: var(--brand-control-height);
+  border-radius: var(--brand-control-radius);
+}
+.public-auth-form label {
+  font-size: 14px;
+}
+/* Equivalent instructions share a role across auth modes. Scope the recipe
+   to the public form: the signup component also serves workspace dialogs. */
+.public-auth-form :is(.auth-email-divider, .auth-supporting-copy) {
+  font-size: 14px;
+  line-height: 1.5;
+}
+.public-auth-form :is(.text-danger, [role="alert"]) {
+  font-size: 14px;
+  line-height: 1.5;
+}
+.public-auth-form button[type="submit"] {
+  background: var(--study-ink);
+  color: var(--study-bg);
+  border-radius: var(--brand-pill-radius);
+  min-height: var(--brand-control-height);
+}
+.public-auth-form button[type="submit"]:disabled {
+  opacity: 1;
+  background: color-mix(in srgb, var(--study-ink) 38%, var(--study-bg));
+  color: var(--study-bg);
+}
+.public-auth-footer {
+  border-top: 1px solid var(--study-line);
+  margin-top: 28px;
+  padding-top: 16px;
+  text-align: center;
+  color: var(--study-muted);
+  font-size: 14px;
+}
+.public-auth-footer :is(a, button) {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding-inline: 6px;
+  border-radius: 8px;
+}
+.public-reading-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 760px;
+  gap: 48px;
+  align-items: center;
+}
+.public-reading-header h1 {
+  margin-top: 18px;
+}
+.public-reading-header .public-intro {
+  margin-top: 24px;
+  color: var(--study-muted);
+  font-size: 18px;
+  line-height: 1.8;
+}
+.public-reading-body {
+  position: relative;
+  max-width: 760px;
+  padding: 40px 32px;
+  margin: 32px -32px 0;
+  background: transparent;
+}
+.public-reading-body h2 {
+  font-family: "Fraunces", Georgia, serif;
+  font-weight: 500;
+}
+.public-action {
+  --public-action-fill: var(--study-ink);
+  --public-action-hover-fill: var(--study-accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: 12px 24px;
+  border: 1px solid var(--public-action-fill);
+  border-radius: 32px;
+  background: var(--public-action-fill);
+  color: var(--study-bg);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.6;
+  text-align: center;
+  text-wrap: balance;
+  transition: background-color 160ms ease, border-color 160ms ease;
+}
+.public-action--accent {
+  --public-action-fill: var(--study-accent);
+  --public-action-hover-fill: var(--study-ink);
+}
+.public-page .public-action:hover {
+  color: var(--study-bg);
+  background: var(--public-action-hover-fill);
+  border-color: var(--public-action-hover-fill);
+}
+.public-recovery .public-content {
+  display: flex;
+  align-items: center;
+}
+.public-recovery-copy {
+  position: relative;
+  padding: 16px;
+  margin: -16px;
+  background: transparent;
+}
+.public-share .public-content {
+  max-width: 1000px;
+  min-width: 0;
+}
+.public-share-artifact {
+  min-width: 0;
+  padding: 24px;
+  margin: -24px;
+  background: var(--study-bg);
+  overflow-wrap: anywhere;
+}
+.public-share h1 {
+  font-size: clamp(36px, 5vw, 60px);
+}
+.share-recovery {
+  max-width: 760px;
+  margin-block: 48px;
+}
+.public-comparison .public-content {
+  max-width: 920px;
+}
+.public-comparison-copy {
+  padding: 0 24px;
+  margin-inline: -24px;
+  background: transparent;
+  line-height: 1.85;
+}
+.public-comparison-copy .public-intro {
+  max-width: 740px;
+  color: var(--study-muted);
+  font-size: 18px;
+}
+.public-comparison-copy h2 {
+  font-family: "Fraunces", Georgia, serif;
+  font-size: clamp(24px, 3vw, 30px);
+  line-height: 1.35;
+  font-weight: 500;
+}
+.public-comparison-rows {
+  margin-top: 64px;
+}
+.public-comparison-row {
+  padding-block: 32px;
+  border-top: 1px solid var(--study-line);
+}
+.public-comparison-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 40px;
+  margin-top: 24px;
+}
+.public-comparison-concession {
+  margin-block: 32px;
+  padding-block: 32px;
+  border-block: 1px solid var(--study-line);
+}
+@media (max-width: 760px) {
+  .public-comparison-copy {
+    margin-inline: -12px;
+    padding-inline: 12px;
+  }
+  .public-comparison-pair {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+  .public-footer {
+    padding: 14px 20px;
+  }
+  .public-content {
+    width: calc(100% - 40px);
+    padding-block: 36px;
+  }
+  .public-auth .public-content {
+    padding-block: 36px;
+  }
+  .public-reading-header {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  .public-reading-body {
+    margin: 16px -12px 0;
+    padding: 16px 12px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .public-page *,
+  .public-page *::before,
+  .public-page *::after {
+    scroll-behavior: auto !important;
+    transition: none !important;
+  }
+}

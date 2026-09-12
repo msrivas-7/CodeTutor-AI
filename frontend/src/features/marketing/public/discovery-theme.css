@@ -1,0 +1,63 @@
+/* Shared tokens are embedded ahead of this sheet by the static generator. */
+body.public-theme {
+  --bg: var(--study-bg);
+  --panel: var(--study-panel);
+  --ink: var(--study-ink);
+  --muted: var(--study-muted);
+  --faint: var(--brand-faint);
+  --line: var(--study-line);
+  --accent: var(--study-accent);
+  background: var(--bg);
+  isolation: isolate;
+}
+#discovery-motion { position: fixed; inset: 0; z-index: -1; pointer-events: none; }
+.motion-study-canvas { position: fixed; inset: 0; width: 100%; height: 100%; opacity: 0; transition: opacity var(--brand-field-arrival) ease; }
+body[data-motion="ready"] .motion-study-canvas { opacity: 1; }
+.public-theme .shell { width: min(1120px, calc(100% - 80px)); }
+.public-theme :is(h1,h2,h3) { font-weight: 500; }
+.public-theme h1 { font-size: clamp(40px, 6vw, 76px); max-width: 18ch; text-wrap: balance; }
+.public-theme .primary-link { background: var(--ink); color: var(--bg); text-align: center; justify-content: center; text-wrap: balance; }
+.public-theme .primary-link:hover { background: var(--accent); }
+.public-theme a:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.public-theme :is(.hero,.footer) { border-color: var(--line); }
+.public-theme :is(.hero > .shell, main > .shell) { background: transparent; }
+.public-theme .hero > .shell > *,
+.public-theme main > section.shell > :is(.eyebrow,h2),
+.public-theme .prose > :is(h1,h2,h3,p,ul,ol,blockquote),
+.public-theme .footer-row > *,
+.public-theme .nav-links > .quiet-link {
+  background: var(--bg);
+  box-shadow: var(--brand-reading-shadow);
+}
+/* Protect section text, not the open interval around the course library. */
+.public-theme main > section.shell > :is(.eyebrow,h2) {
+  width: fit-content;
+  max-width: 100%;
+}
+.public-theme .hero { border: 0; }
+.public-theme .recovery { min-height: 60vh; display: grid; align-items: center; }
+.public-theme .hero > .shell { padding-block: 24px; }
+.public-theme .content-grid { padding-inline: 24px; width: min(1168px, calc(100% - 32px)); }
+.public-theme :is(.course-card,.lesson-card,.note,.prose pre,.prose table) { background: var(--panel); box-shadow: none; }
+.public-theme .course-card { min-height: 260px; }
+.public-theme :is(a.course-card,a.lesson-card):hover { border-color: var(--accent); }
+.public-theme :is(article.course-card,article.lesson-card):hover { transform: none; border-color: var(--line); }
+.public-theme :is(.prose p,.prose li,.prose th,.prose td) { color: var(--ink); }
+.public-theme .prose code { color: var(--accent); background: var(--brand-code); border-color: var(--line); }
+.public-theme .prose pre code { color: var(--ink); background: none; }
+/* Long inline expressions wrap as prose; preformatted examples keep scrolling. */
+.public-theme .prose :not(pre) > code { overflow-wrap: anywhere; }
+/* Markdown inside a chip is one text flow, not anonymous flex columns. */
+.public-theme .chip { display: block; max-width: 100%; overflow-wrap: anywhere; }
+.public-theme .prose th { background: var(--brand-tableHeader); }
+.public-theme .footer { background: transparent; }
+.public-theme .footer a { display: inline-flex; align-items: center; min-height: 44px; }
+.public-theme #main:focus { outline: none; }
+.public-theme #main:focus-visible h1 { outline: 2px solid var(--accent); outline-offset: 8px; }
+@media(max-width:760px) {
+  .public-theme .shell { width: calc(100% - 40px); }
+  .public-theme .hero { padding-block: 24px; }
+  .public-theme .content-grid { padding-inline: 12px; width: calc(100% - 16px); }
+  .public-theme h1 { font-size: clamp(40px, 10vw, 60px); }
+}
+@media(prefers-reduced-motion:reduce) { .motion-study-canvas { transition: none; } }

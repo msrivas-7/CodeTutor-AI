@@ -112,7 +112,7 @@ export default function LoginPage() {
           </button>
         }
       >
-        <p className="text-center text-[11px] text-muted">
+        <p className="auth-supporting-copy text-center text-muted">
           The link expires in an hour. Spam folder is worth a check too.
         </p>
         <div className="mt-3 flex justify-center">
@@ -143,7 +143,7 @@ export default function LoginPage() {
           </button>
         }
       >
-        <p className="text-center text-[11px] text-muted">
+        <p className="auth-supporting-copy text-center text-muted">
           The link expires in an hour. You can close this tab once you've
           clicked it.
         </p>
@@ -191,7 +191,7 @@ export default function LoginPage() {
           divider, so first-time visitors don't scan past the 2-click option. */}
       <OAuthButtons disabled={submitting} returnTo={returnTo} />
 
-      <div className="my-4 flex items-center gap-2 text-[10px] text-faint">
+      <div className="auth-email-divider my-4 flex items-center gap-2 text-faint">
         <div className="h-px flex-1 bg-border" />
         <span>or sign in with email</span>
         <div className="h-px flex-1 bg-border" />

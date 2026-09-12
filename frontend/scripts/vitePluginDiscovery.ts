@@ -7,6 +7,7 @@ import {
   renderCategoryPage,
   renderCoursePage,
   renderLessonPage,
+  renderDiscoveryNotFound,
   renderRobots,
   renderSitemap,
 } from "./discoverySite";
@@ -33,6 +34,7 @@ export function isReservedDiscoveryPath(pathname: string): boolean {
 }
 
 export function discoverySitePlugin(): Plugin {
+  const motionScript = "/src/features/marketing/public/DiscoveryMotion.tsx";
   const frontendRoot = process.cwd();
   const coursesDir = path.join(frontendRoot, "public", "courses");
   return {
@@ -47,8 +49,19 @@ export function discoverySitePlugin(): Plugin {
         const catalog = loadDiscoveryCatalog(coursesDir);
         let body: string | Buffer | null = null;
         let contentType = "text/html; charset=utf-8";
+        let statusCode = 200;
 
-        if (pathname === "/learn-to-code/") body = renderCategoryPage(catalog);
+        async function notFound() {
+          res.statusCode = 404;
+          res.setHeader("Content-Type", "text/html; charset=utf-8");
+          res.setHeader("Cache-Control", "no-cache");
+          res.end(await server.transformIndexHtml(pathname, renderDiscoveryNotFound(motionScript)));
+        }
+
+        if (pathname === "/404.html") {
+          body = renderDiscoveryNotFound(motionScript);
+          statusCode = 404;
+        } else if (pathname === "/learn-to-code/") body = renderCategoryPage(catalog, motionScript);
         else if (pathname === "/sitemap.xml") {
           body = renderSitemap(catalog);
           contentType = "application/xml; charset=utf-8";
@@ -64,10 +77,9 @@ export function discoverySitePlugin(): Plugin {
           const ogMatch = pathname.match(/^\/lesson-og\/([a-z0-9][a-z0-9_-]*)\/([a-z0-9][a-z0-9_-]*)\.png$/);
           if (courseMatch) {
             const course = catalog.publicCourses.find((item) => item.id === courseMatch[1]);
-            if (course) body = renderCoursePage(course);
+            if (course) body = renderCoursePage(course, motionScript);
             else {
-              res.statusCode = 404;
-              res.end("Not found");
+              await notFound();
               return;
             }
           } else if (lessonMatch || ogMatch) {
@@ -75,11 +87,10 @@ export function discoverySitePlugin(): Plugin {
             const course = catalog.publicCourses.find((item) => item.id === match[1]);
             const lesson = course?.lessons.find((item) => item.id === match[2]);
             if (!course || !lesson) {
-              res.statusCode = 404;
-              res.end("Not found");
+              await notFound();
               return;
             }
-            if (lessonMatch) body = renderLessonPage(course, lesson);
+            if (lessonMatch) body = renderLessonPage(course, lesson, motionScript);
             else {
               let png = pngCache.get(pathname);
               if (!png) {
@@ -101,13 +112,14 @@ export function discoverySitePlugin(): Plugin {
         }
 
         if (body === null && isReservedDiscoveryPath(pathname)) {
-          res.statusCode = 404;
-          res.setHeader("Content-Type", "text/plain; charset=utf-8");
-          res.end("Not found");
+          await notFound();
           return;
         }
         if (body === null) return next();
-        res.statusCode = 200;
+        if (typeof body === "string" && contentType.startsWith("text/html")) {
+          body = await server.transformIndexHtml(pathname, body);
+        }
+        res.statusCode = statusCode;
         res.setHeader("Content-Type", contentType);
         res.setHeader("Cache-Control", contentType === "image/png" ? "public, max-age=3600" : "no-cache");
         res.end(body);
@@ -118,14 +130,23 @@ export function discoverySitePlugin(): Plugin {
 
 export function discoveryBuildPlugin(): Plugin {
   const frontendRoot = process.cwd();
+  let motionEntry: string;
+  let motionScript: string;
   return {
     name: "codetutor:discovery-build",
     apply: "build",
+    buildStart() {
+      motionEntry = this.emitFile({ type: "chunk", id: path.join(frontendRoot, "src/features/marketing/public/DiscoveryMotion.tsx"), name: "discovery-motion" });
+    },
+    generateBundle() {
+      motionScript = `/${this.getFileName(motionEntry)}`;
+    },
     async closeBundle() {
       const outDir = path.resolve(frontendRoot, "dist");
       const catalog = await generateDiscoverySite({
         coursesDir: path.join(frontendRoot, "public", "courses"),
         outDir,
+        motionScript,
       });
       const lessonCount = catalog.publicCourses.reduce((sum, course) => sum + course.lessons.length, 0);
       this.info(`[discovery] emitted ${catalog.publicCourses.length} course pages, ${lessonCount} lesson pages, and ${lessonCount} OG images`);

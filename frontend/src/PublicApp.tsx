@@ -1,12 +1,23 @@
 import { lazy, Suspense } from "react";
 import { Route, Routes } from "react-router-dom";
-import type { ReactNode } from "react";
 import WhyNotChatGPTPage from "./pages/WhyNotChatGPTPage";
+import { RouteLoading } from "./features/marketing/public/RouteLoading";
 
 const MarketingHomepage = lazy(
   () => import("./features/marketing/study/MarketingHomepage"),
 );
 const TrustPage = lazy(() => import("./pages/TrustPage"));
+const LoginPage = lazy(() => import("./pages/LoginPage"));
+const SignupPage = lazy(() => import("./pages/SignupPage"));
+const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
+const AuthCallbackPage = lazy(() => import("./pages/AuthCallbackPage"));
+const AnonLessonPage = lazy(() => import("./features/learning/pages/AnonLessonPage"));
+const GlobalShortcuts = lazy(() =>
+  import("./components/GlobalShortcuts").then((module) => ({
+    default: module.GlobalShortcuts,
+  })),
+);
+const SharePage = lazy(() => import("./features/share/pages/SharePage"));
 const FullApp = lazy(async () => {
   const [appModule, { initAuth }] = await Promise.all([
     import("./App"),
@@ -20,18 +31,6 @@ const FullApp = lazy(async () => {
   return appModule;
 });
 
-function Loading() {
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-bg text-muted">
-      <span className="skeleton h-4 w-32 rounded" />
-    </div>
-  );
-}
-
-function PublicSurface({ children }: { children: ReactNode }) {
-  return <div className="public-surface contents">{children}</div>;
-}
-
 /**
  * Lightweight route shell for acquisition and trust surfaces.
  *
@@ -42,47 +41,41 @@ function PublicSurface({ children }: { children: ReactNode }) {
  */
 export default function PublicApp() {
   return (
-    <Suspense fallback={<Loading />}>
+    <Suspense fallback={<RouteLoading fullHeight />}>
       <Routes>
         <Route
           path="/"
-          element={
-            <PublicSurface>
-              <MarketingHomepage />
-            </PublicSurface>
-          }
+          element={<MarketingHomepage />}
         />
         <Route
           path="/why-not-chatgpt"
-          element={
-            <PublicSurface>
-              <WhyNotChatGPTPage />
-            </PublicSurface>
-          }
+          element={<WhyNotChatGPTPage />}
         />
         <Route
           path="/privacy"
-          element={
-            <PublicSurface>
-              <TrustPage />
-            </PublicSurface>
-          }
+          element={<TrustPage pageKey="privacy" />}
         />
         <Route
           path="/terms"
-          element={
-            <PublicSurface>
-              <TrustPage />
-            </PublicSurface>
-          }
+          element={<TrustPage pageKey="terms" />}
         />
         <Route
           path="/support"
-          element={
-            <PublicSurface>
-              <TrustPage />
-            </PublicSurface>
-          }
+          element={<TrustPage pageKey="support" />}
+        />
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/signup" element={<SignupPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
+        <Route path="/auth/callback" element={<AuthCallbackPage />} />
+        <Route path="/s/:token" element={<SharePage />} />
+        <Route
+          path="/try/lesson/:courseId/:lessonId"
+          element={(
+            <>
+              <GlobalShortcuts />
+              <AnonLessonPage />
+            </>
+          )}
         />
         <Route path="*" element={<FullApp />} />
       </Routes>

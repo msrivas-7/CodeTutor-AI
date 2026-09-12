@@ -130,7 +130,8 @@ code, pre, .font-mono {
    360–640 px hero causes a late whole-screen type swap on throttled mobile
    connections; the native fallbacks preserve the visual hierarchy without
    resetting the page's largest paint. Desktop keeps the full Fraunces +
-   JetBrains Mono brand treatment. */
+   JetBrains Mono brand treatment. Acquisition page roots own public-surface,
+   never an entry-router wrapper: returning from auth must keep the same fonts. */
 @media (max-width: 640px) {
   .public-surface {
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
