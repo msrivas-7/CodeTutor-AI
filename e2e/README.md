@@ -106,7 +106,7 @@ npm run test:real
 
 See `.github/workflows/e2e.yml`. The current PR model is:
 
-- sixteen blocking Chromium shards for all 481 tests, selected by a same-commit,
+- sixteen blocking Chromium shards for all 484 tests, selected by a same-commit,
   zero-retry capacity benchmark with no regression-coverage reduction;
 - blocking Firefox and WebKit focused journeys;
 - one advisory, zero-retry Chromium critical lane (currently 41 tests in 15 files);
@@ -124,20 +124,17 @@ See `.github/workflows/e2e.yml`. The current PR model is:
 
 `e2e/shadow/regression-corpus.json` freezes the initial P0/P1 catch corpus.
 `e2e/shadow/migration-pilots.json` records the three lower-layer pilots and the
-browser boundary retained for each. The earlier shard benchmark measured four,
-six, and eight shards on commit `c6aa5f0`; at the then-smaller suite size, six
-was fastest at 316 seconds versus 340 for eight and 495 for four. The suite has
-since grown to 439 Chromium tests, so the capacity benchmark compared 16 and 20
-shards sequentially on the same stable GitHub Pro commit and without retries. Run
-[`33385421742`](https://github.com/msrivas-7/CodeTutor-AI/actions/runs/33385421742)
-selected sixteen shards: its retry-free test critical path was 160 seconds and
-its topology completed in 379 seconds, versus 198 and 416 seconds for 20
-shards. Every shard passed and all 439 tests remained blocking. The benchmark
-reports end-to-end completion, slowest test time, shard imbalance, aggregate
-runner time, setup overhead, and tests per shard. A larger topology is
-recommended only when every shard passes and it improves completion by at least
-20 seconds and 5%; this avoids buying more runner/setup overhead for a noisy or
-negligible gain.
+browser boundary retained for each. The latest capacity run
+[`34688798759`](https://github.com/msrivas-7/CodeTutor-AI/actions/runs/34688798759)
+compared 16 and 20 shards sequentially on the exact 484-test PR head with two
+workers per shard and no retries. All 16 shards passed with a 160-second test
+critical path and 289-second topology completion. Although 20 modeled at 151
+seconds, six shards failed after the shared development database reached its
+200-client connection ceiling, so it is not a reliable option and 16 remains
+selected. All 484 tests remain blocking. The benchmark reports end-to-end
+completion, slowest test time, shard imbalance, aggregate runner time, setup
+overhead, and tests per shard. A larger topology is recommended only when every
+shard passes and it improves completion by at least 20 seconds and 5%.
 
 After the account moved to GitHub Pro, the controlled capacity pass narrowed to
 a fresh same-commit comparison of the 16-shard incumbent and 20 shards. The
@@ -162,8 +159,8 @@ fully green. Image reuse is adopted only from a material end-to-end gain;
 worker count is selected independently from the Playwright test critical path.
 
 `.github/e2e-shard-capacity.json` records the measured decision. Shard 1 counts
-the live Chromium inventory and fails closed when it reaches 467 tests or falls
-to 411, one measured shard-workload from the 439-test baseline. Re-run the
+the live Chromium inventory and fails closed when it reaches 515 tests or falls
+to 453, one measured shard-workload from the 484-test baseline. Re-run the
 benchmark and update the record at that point instead of guessing a new shard
 count or selecting tests away.
 
