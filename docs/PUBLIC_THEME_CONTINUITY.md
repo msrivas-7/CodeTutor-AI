@@ -47,6 +47,13 @@ editor remains a workspace, without marketing decoration.
   normalized pathname classifies both exact and prefixed public routes. Actual
   browser homepage → login/trial and direct `/Signup/` checks pass; the focused
   25-case bootstrap contract and frontend typecheck pass.
+- **UX-229 locally closed:** the lightweight anonymous lesson omitted the full app's
+  global shortcut owner, so `?` and Cmd/Ctrl+K stopped working after the
+  cinematic. The anonymous product route now mounts that same owner without
+  loading it on acquisition/trust pages. In the rebuilt local in-app browser,
+  `?` opened and Escape closed the shortcuts dialog, Cmd+K focused the Tutor,
+  typed question marks stayed in the composer, and Privacy remained shortcut-free.
+  The retry-disabled Chromium regression and 39 focused frontend contracts pass.
 - **PR gate:** Full cross-platform CI is green. Capacity run `34688798759`
   proved 16 isolated database stacks reliable and 20 unreliable. Exact-head E2E
   run `34690166145` then exposed that the normal workflow also added Firefox,

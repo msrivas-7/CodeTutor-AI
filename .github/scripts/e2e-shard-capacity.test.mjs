@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
+  deriveDatabaseStackFanout,
   deriveRebenchmarkBounds,
   evaluateShardCapacity,
 } from "./e2e-shard-capacity.mjs";
@@ -75,11 +76,7 @@ test("tracked decision preserves the clean controlled benchmark evidence", () =>
   assert.equal(record.benchmark.bestReliableIsolatedModeledTestCriticalPathSeconds, 160);
   assert.equal(record.benchmark.selectedAverageTestsPerShard, 40.3);
   assert.deepEqual(record.operationalTopology, {
-    blockingChromiumShards: 12,
-    concurrentSupportStacks: 4,
-    selectedTotalConcurrentStacks: 16,
     maximumReliableConcurrentStacks: 16,
-    supportStacks: ["firefox", "webkit", "critical-shadow-1", "critical-shadow-2"],
     evidenceRunId: 34690166145,
     url: "https://github.com/msrivas-7/CodeTutor-AI/actions/runs/34690166145",
     method: record.operationalTopology.method,
@@ -105,7 +102,7 @@ test("tracked decision preserves the clean controlled benchmark evidence", () =>
   assert.equal(record.runtimeOptimization.maximumChromiumShards, 20);
 });
 
-test("blocking workflow uses the selected matrix and derives its denominator", () => {
+test("blocking workflow uses the selected matrix and complete planned inventory", () => {
   const exhaustiveJob =
     workflow.match(/\n  e2e:\n([\s\S]+?)\n  cross-browser-core:/)?.[1] ?? "";
   const shardMatrix = exhaustiveJob
@@ -116,13 +113,13 @@ test("blocking workflow uses the selected matrix and derives its denominator", (
     shardMatrix,
     Array.from({ length: record.selectedShards }, (_, index) => index + 1),
   );
-  assert.match(exhaustiveJob, /--active-shards "\$\{\{ strategy\.job-total }}/);
   assert.match(workflow, /--output e2e\/duration-plan\/full[\s\S]+--shards 12/);
   assert.match(
     exhaustiveJob,
     /--test-list=duration-plan-artifact\/full\/shard-\$\{\{ matrix\.shard }}\.txt/,
   );
   assert.match(exhaustiveJob, /name: Upload test-duration evidence/);
+  assert.doesNotMatch(exhaustiveJob, /e2e-shard-capacity\.mjs/);
 });
 
 test("advisory critical coverage is split across two isolated duration-balanced jobs", () => {
@@ -138,24 +135,52 @@ test("advisory critical coverage is split across two isolated duration-balanced 
   );
 });
 
-test("capacity record reserves every concurrent non-exhaustive browser stack", () => {
-  assert.deepEqual(record.operationalTopology.supportStacks, [
-    "firefox",
-    "webkit",
-    "critical-shadow-1",
-    "critical-shadow-2",
-  ]);
+test("derives every concurrent database stack from the workflow", () => {
+  assert.deepEqual(deriveDatabaseStackFanout(workflow), {
+    jobs: [
+      { name: "critical-shadow", instances: 2 },
+      { name: "e2e", instances: 12 },
+      { name: "cross-browser-core", instances: 2 },
+    ],
+    totalConcurrentStacks: 16,
+  });
+});
+
+test("capacity gate runs before any database-backed job can launch", () => {
+  const planningJob =
+    workflow.match(/\n  duration-plan:\n([\s\S]+?)\n  prepare-backend:/)?.[1] ??
+    "";
+  assert.match(planningJob, /name: Enforce measured database fan-out/);
+  assert.match(planningJob, /--workflow \.github\/workflows\/e2e\.yml/);
+  assert.match(planningJob, /--active-shards 12/);
   assert.match(
-    workflow,
-    /cross-browser-core:[\s\S]+matrix:[\s\S]+browser: \[firefox, webkit]/,
+    planningJob,
+    /Build coverage-complete duration plan[\s\S]+Enforce measured database fan-out[\s\S]+Upload duration plan/,
   );
-  assert.match(
-    workflow,
-    /critical-shadow:[\s\S]+matrix:\n\s+shard: \[1, 2]/,
+  for (const job of ["critical-shadow", "e2e", "cross-browser-core"]) {
+    assert.match(workflow, new RegExp(`\\n  ${job}:[\\s\\S]+?needs: \\[[^\\]]*duration-plan`));
+  }
+});
+
+test("recognizes docker compose flags before the up command", () => {
+  const workflowWithComposeFlags = workflow.replace(
+    "docker compose up -d --no-build backend frontend",
+    "docker compose --project-name isolated up -d --no-build backend frontend",
   );
-  assert.equal(
-    record.selectedShards + record.operationalTopology.concurrentSupportStacks,
-    record.operationalTopology.maximumReliableConcurrentStacks,
+  assert.deepEqual(
+    deriveDatabaseStackFanout(workflowWithComposeFlags),
+    deriveDatabaseStackFanout(workflow),
+  );
+});
+
+test("fails closed when a database-backed matrix cannot be counted", () => {
+  const dynamicMatrix = workflow.replace(
+    "browser: [firefox, webkit]",
+    "browser: ${{ fromJSON(needs.plan.outputs.browsers) }}",
+  );
+  assert.throws(
+    () => deriveDatabaseStackFanout(dynamicMatrix),
+    /cross-browser-core must use inline matrix lists/,
   );
 });
 
@@ -181,17 +206,17 @@ test("duration planning receives the authenticated fixture environment required 
 
 test("accepts the measured inventory and normal growth", () => {
   assert.equal(
-    evaluateShardCapacity({ record, totalTests: 484, activeShards: 12 })
+    evaluateShardCapacity({ record, totalTests: 484, activeShards: 12, workflowSource: workflow })
       .eligible,
     true,
   );
   assert.equal(
-    evaluateShardCapacity({ record, totalTests: 524, activeShards: 12 })
+    evaluateShardCapacity({ record, totalTests: 524, activeShards: 12, workflowSource: workflow })
       .eligible,
     true,
   );
   assert.equal(
-    evaluateShardCapacity({ record, totalTests: 444, activeShards: 12 })
+    evaluateShardCapacity({ record, totalTests: 444, activeShards: 12, workflowSource: workflow })
       .eligible,
     true,
   );
@@ -202,11 +227,13 @@ test("requires a new benchmark at either capacity boundary", () => {
     record,
     totalTests: 525,
     activeShards: 12,
+    workflowSource: workflow,
   });
   const lower = evaluateShardCapacity({
     record,
     totalTests: 443,
     activeShards: 12,
+    workflowSource: workflow,
   });
   assert.deepEqual(
     { eligible: upper.eligible, direction: upper.direction },
@@ -220,7 +247,12 @@ test("requires a new benchmark at either capacity boundary", () => {
 
 test("fails closed when workflow topology drifts from the measured record", () => {
   assert.throws(
-    () => evaluateShardCapacity({ record, totalTests: 437, activeShards: 10 }),
+    () => evaluateShardCapacity({
+      record,
+      totalTests: 437,
+      activeShards: 10,
+      workflowSource: workflow,
+    }),
     /active workflow has 10 shards/,
   );
 });
@@ -228,17 +260,13 @@ test("fails closed when workflow topology drifts from the measured record", () =
 test("fails closed when the complete workflow exceeds measured database fan-out", () => {
   assert.throws(
     () => evaluateShardCapacity({
-      record: {
-        ...record,
-        selectedShards: 16,
-        operationalTopology: {
-          ...record.operationalTopology,
-          blockingChromiumShards: 16,
-          selectedTotalConcurrentStacks: 20,
-        },
-      },
+      record: { ...record, selectedShards: 16 },
       totalTests: 484,
       activeShards: 16,
+      workflowSource: workflow.replace(
+        "shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]",
+        "shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]",
+      ),
     }),
     /requests 20 concurrent stacks.*reliable limit is 16/,
   );
@@ -254,6 +282,7 @@ test("fails closed when recorded boundaries are stale or hand-edited", () => {
         },
         totalTests: 484,
         activeShards: 12,
+        workflowSource: workflow,
       }),
     /capacity record bounds must be 443\/525/,
   );

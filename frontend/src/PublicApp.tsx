@@ -12,6 +12,11 @@ const SignupPage = lazy(() => import("./pages/SignupPage"));
 const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
 const AuthCallbackPage = lazy(() => import("./pages/AuthCallbackPage"));
 const AnonLessonPage = lazy(() => import("./features/learning/pages/AnonLessonPage"));
+const GlobalShortcuts = lazy(() =>
+  import("./components/GlobalShortcuts").then((module) => ({
+    default: module.GlobalShortcuts,
+  })),
+);
 const SharePage = lazy(() => import("./features/share/pages/SharePage"));
 const FullApp = lazy(async () => {
   const [appModule, { initAuth }] = await Promise.all([
@@ -65,7 +70,12 @@ export default function PublicApp() {
         <Route path="/s/:token" element={<SharePage />} />
         <Route
           path="/try/lesson/:courseId/:lessonId"
-          element={<AnonLessonPage />}
+          element={(
+            <>
+              <GlobalShortcuts />
+              <AnonLessonPage />
+            </>
+          )}
         />
         <Route path="*" element={<FullApp />} />
       </Routes>

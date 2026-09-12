@@ -27,7 +27,8 @@ export function openKeyboardShortcuts(returnFocus?: HTMLElement): void {
 //   Esc       → close the cheatsheet when it's open; everything else keeps
 //               its own Esc handling (SSE abort, dialog dismiss, etc.).
 //
-// Mounted once at the app root — there's no route that shouldn't have these.
+// Mounted once by the active product shell. Public acquisition/trust pages do
+// not need it, but the lightweight anonymous lesson route does.
 
 export function isTypingTarget(el: EventTarget | null): boolean {
   if (!(el instanceof HTMLElement)) return false;

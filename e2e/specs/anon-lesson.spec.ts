@@ -81,6 +81,30 @@ test.describe("anonymous lesson 1 (Phase 27 §3a)", () => {
     await expect(page.getByLabel(/ask the tutor/i)).toBeVisible();
   });
 
+  test("anonymous lesson retains product shortcuts after the cinematic", async ({ page }) => {
+    await page.addInitScript(() => {
+      window.sessionStorage.setItem("codetutor.anonChoreographyDone", "1");
+    });
+    await page.goto(ALLOWED_PATH);
+    const composer = page.getByLabel(/ask the tutor/i);
+    await expect(composer).toBeVisible();
+
+    await page.keyboard.press("?");
+    const dialog = page.getByRole("dialog", { name: /keyboard shortcuts/i });
+    await expect(dialog).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+
+    await page.getByRole("main").focus();
+    await page.keyboard.press("Control+K");
+    await expect(composer).toBeFocused();
+
+    await composer.fill("Does ? stay in the question?");
+    await page.keyboard.press("?");
+    await expect(dialog).toHaveCount(0);
+    await expect(composer).toHaveValue("Does ? stay in the question??");
+  });
+
   test("anonymous tutor preserves the same Socratic first-turn proof flow", async ({ page }) => {
     await page.addInitScript(() => {
       window.sessionStorage.setItem("codetutor.anonChoreographyDone", "1");

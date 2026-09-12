@@ -161,11 +161,14 @@ workers on the reused images. Each stage is sequential, retry-free, and must be
 fully green. Image reuse is adopted only from a material end-to-end gain;
 worker count is selected independently from the Playwright test critical path.
 
-`.github/e2e-shard-capacity.json` records the measured decision. Shard 1 counts
-the live Chromium inventory and fails closed when it reaches 525 tests or falls
-to 443, one selected shard-workload from the 484-test baseline. Re-run the
-benchmark and update the record at that point instead of guessing a new shard
-count or selecting tests away.
+`.github/e2e-shard-capacity.json` records the measured decision. The
+duration-planning gate counts the live Chromium inventory and derives every
+database-backed job's matrix cardinality from the workflow before any of those
+jobs can launch. It fails closed if the complete fan-out exceeds the measured
+16-stack limit, or if the suite reaches 525 tests or falls to 443—one selected
+shard-workload from the 484-test baseline. Re-run the benchmark and update the
+record at that point instead of guessing a new shard count or selecting tests
+away.
 
 The blocking 12-shard lane uses a duration-aware plan rather than Playwright's
 test-count-only partition. `.github/e2e-duration-seed.json` is the cold-start

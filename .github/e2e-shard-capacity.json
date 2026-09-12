@@ -45,14 +45,10 @@
     "rule": "Rebenchmark when the suite changes by one selected shard's measured average workload."
   },
   "operationalTopology": {
-    "blockingChromiumShards": 12,
-    "concurrentSupportStacks": 4,
-    "selectedTotalConcurrentStacks": 16,
     "maximumReliableConcurrentStacks": 16,
-    "supportStacks": ["firefox", "webkit", "critical-shadow-1", "critical-shadow-2"],
     "evidenceRunId": 34690166145,
     "url": "https://github.com/msrivas-7/CodeTutor-AI/actions/runs/34690166145",
-    "method": "The normal exact-head workflow launched 16 blocking Chromium shards and four support stacks together. Backend logs recorded EMAXCONN at the shared 200-client database ceiling and unrelated browser lanes flaked. Capping the complete E2E fan-out at the proven reliable 16-stack boundary preserves all tests and cross-browser coverage without changing connection-pool semantics."
+    "method": "The normal exact-head workflow launched 16 blocking Chromium shards and four support stacks together. Backend logs recorded EMAXCONN at the shared 200-client database ceiling and unrelated browser lanes flaked. The capacity guard now derives every Compose-backed job and matrix cardinality from the workflow itself, then fails if their total exceeds the proven reliable 16-stack boundary."
   },
   "selectionPolicy": {
     "minimumAbsoluteGainSeconds": 20,
