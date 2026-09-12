@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-import { selectPackageVersions } from "./ghcr-retention.mjs";
+import {
+  isSuccessfulPackageDeleteStatus,
+  selectPackageVersions,
+} from "./ghcr-retention.mjs";
 
 const versions = [
   {
@@ -49,6 +52,13 @@ test("retention protects the newest requested versions even when all are old", (
     }).map((version) => version.id),
     [1],
   );
+});
+
+test("package deletion is idempotent when another cleanup already removed a version", () => {
+  assert.equal(isSuccessfulPackageDeleteStatus(204), true);
+  assert.equal(isSuccessfulPackageDeleteStatus(404), true);
+  assert.equal(isSuccessfulPackageDeleteStatus(403), false);
+  assert.equal(isSuccessfulPackageDeleteStatus(500), false);
 });
 
 test("blocking E2E retains digest inputs for job-only reruns and prunes only stale images", async () => {
