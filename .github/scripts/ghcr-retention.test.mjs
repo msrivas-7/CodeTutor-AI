@@ -51,7 +51,7 @@ test("retention protects the newest requested versions even when all are old", (
   );
 });
 
-test("blocking E2E adopts digest reuse but cleans images only after retry-safe success", async () => {
+test("blocking E2E retains digest inputs for job-only reruns and prunes only stale images", async () => {
   const workflow = await readFile(
     new URL("../workflows/e2e.yml", import.meta.url),
     "utf8",
@@ -63,7 +63,9 @@ test("blocking E2E adopts digest reuse but cleans images only after retry-safe s
   assert.match(workflow, /docker compose up -d --no-build backend frontend/);
   assert.match(workflow, /needs\.e2e\.result == 'success'/);
   assert.match(workflow, /needs\.cross-browser-core\.result == 'success'/);
-  assert.match(workflow, /--tag "\$RUN_TAG" --require-match/);
+  assert.match(workflow, /name: Prune stale E2E images/);
+  assert.equal((workflow.match(/--older-than-hours 48 --keep-newest 1/g) ?? []).length, 3);
+  assert.doesNotMatch(workflow, /--tag "\$RUN_TAG" --require-match/);
 });
 
 test("scheduled retention preserves one fallback and bounds stale versions", async () => {

@@ -803,7 +803,7 @@ jobs:
           if-no-files-found: error
 
   cleanup-images:
-    name: Clean temporary E2E images
+    name: Prune stale E2E images
     if: >-
       always() &&
       needs.e2e.result == 'success' &&
@@ -821,21 +821,20 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
-      RUN_TAG: run-${{ github.run_id }}
       BACKEND_CREATED: ${{ needs.prepare-backend.outputs.created }}
       RUNNER_CREATED: ${{ needs.prepare-runner.outputs.created }}
       FRONTEND_CREATED: ${{ needs.prepare-frontend.outputs.created }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - name: Delete exact run-scoped package versions
+      - name: Keep rerun-safe fallback and remove stale versions
         run: |
           set -euo pipefail
           if [ "$BACKEND_CREATED" = "true" ]; then
-            node .github/scripts/ghcr-retention.mjs --owner "$GITHUB_REPOSITORY_OWNER" --package codetutor-ci-backend --tag "$RUN_TAG" --require-match
+            node .github/scripts/ghcr-retention.mjs --owner "$GITHUB_REPOSITORY_OWNER" --package codetutor-ci-backend --older-than-hours 48 --keep-newest 1
           fi
           if [ "$RUNNER_CREATED" = "true" ]; then
-            node .github/scripts/ghcr-retention.mjs --owner "$GITHUB_REPOSITORY_OWNER" --package codetutor-ci-runner --tag "$RUN_TAG" --require-match
+            node .github/scripts/ghcr-retention.mjs --owner "$GITHUB_REPOSITORY_OWNER" --package codetutor-ci-runner --older-than-hours 48 --keep-newest 1
           fi
           if [ "$FRONTEND_CREATED" = "true" ]; then
-            node .github/scripts/ghcr-retention.mjs --owner "$GITHUB_REPOSITORY_OWNER" --package codetutor-ci-frontend --tag "$RUN_TAG" --require-match
+            node .github/scripts/ghcr-retention.mjs --owner "$GITHUB_REPOSITORY_OWNER" --package codetutor-ci-frontend --older-than-hours 48 --keep-newest 1
           fi
