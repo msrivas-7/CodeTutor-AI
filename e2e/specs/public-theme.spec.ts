@@ -344,10 +344,16 @@ test("reading routes retain the field and protect text without an opaque page sl
 });
 
 test("cold public loading retains the header without adding it to workspace loading", async ({ page }) => {
-  let release!: () => void;
-  const held = new Promise<void>(resolve => { release = resolve; });
+  let releasePublic!: () => void;
+  let releaseWorkspace!: () => void;
+  const heldPublic = new Promise<void>(resolve => { releasePublic = resolve; });
+  const heldWorkspace = new Promise<void>(resolve => { releaseWorkspace = resolve; });
+  await page.route(/\/(?:src\/pages\/LoginPage\.tsx|assets\/LoginPage-[^/]+\.js)(?:\?|$)/, async route => {
+    await heldPublic;
+    await route.continue();
+  });
   await page.route(/\/(?:src\/App\.tsx|assets\/App-[^/]+\.js)(?:\?|$)/, async route => {
-    await held;
+    await heldWorkspace;
     await route.continue();
   });
   try {
@@ -366,21 +372,35 @@ test("cold public loading retains the header without adding it to workspace load
     await page.goto("/login", { waitUntil: "domcontentloaded" });
     await expect(page.locator(".public-route-loading")).toBeVisible();
     await page.getByRole("link", { name: "Back to CodeTutor" }).focus();
-    release();
+    releasePublic();
     await expect(page.getByRole("heading", { name: "Sign in", exact: true })).toBeVisible();
     await expect(page.getByRole("link", { name: "Back to CodeTutor" })).toBeFocused();
     expect(await header.boundingBox()).toEqual(initial);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
   } finally {
-    release();
+    releasePublic();
+    releaseWorkspace();
     await page.unrouteAll({ behavior: "wait" });
   }
+});
+
+test("direct auth entry does not wait for the authenticated application bundle", async ({ page }) => {
+  let fullAppRequests = 0;
+  await page.route(/\/(?:src\/App\.tsx|assets\/App-[^/]+\.js)(?:\?|$)/, route => {
+    fullAppRequests += 1;
+    return route.abort();
+  });
+
+  await page.goto("/login");
+  await expect(page.getByRole("heading", { name: "Sign in", exact: true })).toBeVisible();
+  await expect(page.locator("html")).toHaveAttribute("data-public-theme", "");
+  expect(fullAppRequests).toBe(0);
 });
 
 test("nested auth loading can be left through its header and completed without stale navigation", async ({ page }) => {
   let release!: () => void;
   const held = new Promise<void>(resolve => { release = resolve; });
-  await page.route(/\/(?:src\/pages\/LoginPage\.tsx|assets\/App-[^/]+\.js)(?:\?|$)/, async route => {
+  await page.route(/\/(?:src\/pages\/LoginPage\.tsx|assets\/LoginPage-[^/]+\.js)(?:\?|$)/, async route => {
     await held;
     await route.continue();
   });
@@ -405,7 +425,7 @@ test("a canceled slow auth load keeps public navigation and cannot replace the r
   let release!: () => void;
   let intercepted = false;
   const held = new Promise<void>(resolve => { release = resolve; });
-  await page.route(/\/(?:src\/App\.tsx|assets\/App-[^/]+\.js)(?:\?|$)/, async route => {
+  await page.route(/\/(?:src\/pages\/LoginPage\.tsx|assets\/LoginPage-[^/]+\.js)(?:\?|$)/, async route => {
     intercepted = true;
     await held;
     await route.continue();

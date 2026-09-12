@@ -5,6 +5,10 @@ import PublicApp from "./PublicApp";
 import { PublicThemeSync } from "./features/marketing/public/PublicThemeSync";
 import { PublicMotionWorld } from "./features/marketing/public/PublicMotionWorld";
 import { RouteLoading } from "./features/marketing/public/RouteLoading";
+import {
+  shouldDeferAuthHydration,
+  shouldUsePublicApp,
+} from "./features/marketing/public/publicBootstrap";
 import "./index.css";
 // Side-effect import: applies `data-theme` on <html> from the stored preference
 // at module load. Routes that don't transitively import theme.ts (e.g. the
@@ -21,14 +25,9 @@ const FullApp = lazy(() => import("./App"));
 // address bar while preserving unrelated query flags.
 captureDistributionAttribution();
 
-const PUBLIC_PATHS = new Set([
-  "/",
-  "/why-not-chatgpt",
-  "/privacy",
-  "/terms",
-  "/support",
-]);
-const startsOnPublicSurface = PUBLIC_PATHS.has(window.location.pathname);
+const initialPathname = window.location.pathname;
+const startsOnPublicSurface = shouldUsePublicApp(initialPathname);
+const defersInitialAuthHydration = shouldDeferAuthHydration(initialPathname);
 
 function Bootstrap() {
   useEffect(() => {
@@ -36,7 +35,7 @@ function Bootstrap() {
       () => {
         void import("./auth/authStore").then(({ initAuth }) => initAuth());
       },
-      startsOnPublicSurface ? 5000 : 0,
+      startsOnPublicSurface && defersInitialAuthHydration ? 5000 : 0,
     );
     return () => clearTimeout(timer);
   }, []);

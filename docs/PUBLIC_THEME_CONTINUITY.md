@@ -5,7 +5,7 @@
 `dev/public-theme-continuity`, implementation `ee325f3`, based on homepage release
 `690c767`. Not merged or production-deployed.
 
-**28 of 28 findings are locally verified; owner approved the phone experience.** “Local”
+**29 of 29 findings are locally verified; owner approved the phone experience.** “Local”
 never means merged or production-verified. This checklist is the status source;
 [the design plan](PUBLIC_BRAND_CONTINUITY_DESIGN.md) records decisions and
 [the design system](DESIGN_SYSTEM.md) owns shared tokens/components.
@@ -27,13 +27,19 @@ editor remains a workspace, without marketing decoration.
 
 ## Current verification
 
-- **UX-225 open:** two CI runs missed the completion dialog's first Escape.
-  A new regression reproduces an unhandled Escape at the DOM-commit boundary,
-  before passive effects install keyboard ownership. The shared modal now sets
-  up keyboard, focus and background interaction blocking before paint; rebuild,
-  cross-browser regression and actual-browser verification are in progress.
-  Codex review on `78c7b1f` is clean, but the modal repair needs fresh final-head
-  review and CI. The historical 96-case result below predates this repair.
+- **UX-225 locally closed:** two CI runs missed the completion dialog's first
+  Escape. A regression reproduced the unhandled DOM-commit-boundary event before
+  passive effects installed keyboard ownership. The shared modal now establishes
+  keyboard, focus and background blocking before paint; focused regression and
+  actual-browser completion/recovery checks pass. Fresh final-head review and CI
+  remain required. The historical 96-case result below predates this repair.
+- **UX-226 locally closed:** direct login, signup, recovery, callback, public
+  share and anonymous-lesson entries now paint through the lightweight public
+  route tree. The full route tree retains those routes for workspace-originated
+  navigation. Real-browser blocking of the full App module still produced a
+  working login; pre-app paint, protected redirect, share recovery, anonymous
+  handoff, 404, desktop, 390px and reduced-motion checks pass. The complete
+  58-case Chromium/WebKit public-theme matrix passes without retries.
 - **PR gate:** Codex completed `477be0a` with no major issues; CI passed.
   E2E exposed two outdated contracts: the retired seven-DOM-glyph field and a
   share test treating the loading heading as payload readiness. Test-only updates
@@ -130,6 +136,7 @@ Checked means the bounded finding has local browser evidence, not whole-release 
 | [x] Local | UX-223 | Long reveal ends within five seconds of typing start and reserves line/footer space; short cadence retained. Network loading/later celebration excluded. |
 | [x] Local + owner | UX-224 | More phone formation space: hero departure interval at 390×844 increases from about 1px to 351px. Local adversarial scroll/recovery checks pass; after restored phone access Mehul confirmed it works and approved the experience. |
 | [x] Closed | UX-225 | Completion dialog now owns Escape at first mount and closes safely before checkout gates; the browser evidence now confirms the first-commit close path, with modal-level regression checked and happy-path recovery preserved. |
+| [x] Closed | UX-226 | Direct auth, recovery, callback, share and anonymous-lesson entries use the lightweight public bootstrap while retaining the same routes in the full app for later SPA navigation. Rebuilt real-browser and retry-disabled Chromium/WebKit proof pass. |
 
 ## Evidence map
 
@@ -150,6 +157,7 @@ a fresh clone. Root: `.agent-harness/browser-evidence/`.
 | `dd56a6ef-9a6c-4f6c-b414-2092b1522ef6/` | UX-223 reveal/interruption/recovery. Failed audit retained, incident resolved; passing audit `b56570ef-8eeb-48e6-9d83-d9b79bc31021`. |
 | `e61236d8-3b68-4c1c-84a7-f704c6045827/` | UX-224 formation/dwell, reversal, keyboard, preferences and graphics recovery. Finding audit `cc2ea60a-4a6a-4502-ae3e-4b3de4e43d7a`. |
 | `b3564266-122c-439e-92c9-2dd55e3c4e3e/` | Independent design review of 27 primary-agent captures and source; reviewers did not run separate browser sessions. |
+| `825e4a74-2653-4b04-ae59-269a8bc6f90f/` | Final-head UX-225/226 browser replay: direct auth without App, pre-app paint, protected redirect, phone/reduced-motion recovery, share-to-anonymous handoff, completion Escape and focus restoration. |
 
 Historical prototype captures do not establish acceptance of later edits.
 Named final checks supersede them only for their stated scope. The anomalous
@@ -205,6 +213,9 @@ retained → new destination at top; stalled loading without escape → retained
 navigation/focus; direct walkthrough at top → correct delayed anchor; malformed
 share “connection failure” → unavailable; long reveal hides lines/moves footer →
 capped stable reveal; phone shapes rush away → longer native formation space.
+Direct logged-out entries waited on the authenticated application route tree →
+auth, recovery, callback, share and anonymous-lesson entries load through the
+lightweight public route tree while protected-entry navigation remains intact.
 Auth/access rules are unchanged.
 
 Separate follow-up approved: automatically choose the shard count from trusted

@@ -7,6 +7,12 @@ const MarketingHomepage = lazy(
   () => import("./features/marketing/study/MarketingHomepage"),
 );
 const TrustPage = lazy(() => import("./pages/TrustPage"));
+const LoginPage = lazy(() => import("./pages/LoginPage"));
+const SignupPage = lazy(() => import("./pages/SignupPage"));
+const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
+const AuthCallbackPage = lazy(() => import("./pages/AuthCallbackPage"));
+const AnonLessonPage = lazy(() => import("./features/learning/pages/AnonLessonPage"));
+const SharePage = lazy(() => import("./features/share/pages/SharePage"));
 const FullApp = lazy(async () => {
   const [appModule, { initAuth }] = await Promise.all([
     import("./App"),
@@ -51,6 +57,15 @@ export default function PublicApp() {
         <Route
           path="/support"
           element={<TrustPage pageKey="support" />}
+        />
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/signup" element={<SignupPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
+        <Route path="/auth/callback" element={<AuthCallbackPage />} />
+        <Route path="/s/:token" element={<SharePage />} />
+        <Route
+          path="/try/lesson/:courseId/:lessonId"
+          element={<AnonLessonPage />}
         />
         <Route path="*" element={<FullApp />} />
       </Routes>
