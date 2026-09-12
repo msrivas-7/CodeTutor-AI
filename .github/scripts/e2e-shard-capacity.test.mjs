@@ -100,20 +100,25 @@ test("tracked decision preserves the clean controlled benchmark evidence", () =>
     ],
   );
   assert.equal(record.runtimeOptimization.maximumChromiumShards, 20);
+  assert.deepEqual(record.automaticSelection, {
+    minimumShards: 1,
+    historyMaxAgeDays: 30,
+    minimumHistoryCoverage: 0.8,
+    fixedOverheadSeconds: 129,
+    fixedOverheadSource: record.automaticSelection.fixedOverheadSource,
+    rule: record.automaticSelection.rule,
+  });
 });
 
 test("blocking workflow uses the selected matrix and complete planned inventory", () => {
   const exhaustiveJob =
     workflow.match(/\n  e2e:\n([\s\S]+?)\n  cross-browser-core:/)?.[1] ?? "";
-  const shardMatrix = exhaustiveJob
-    .match(/matrix:\n\s+shard: \[([^\]]+)]/)?.[1]
-    .split(",")
-    .map((value) => Number(value.trim()));
-  assert.deepEqual(
-    shardMatrix,
-    Array.from({ length: record.selectedShards }, (_, index) => index + 1),
+  assert.match(
+    exhaustiveJob,
+    /matrix:\n\s+shard: \$\{\{ fromJSON\(needs\.duration-plan\.outputs\.shard-matrix\) }}/,
   );
-  assert.match(workflow, /--output e2e\/duration-plan\/full[\s\S]+--shards 12/);
+  assert.match(workflow, /name: Select safe duration-backed shard topology/);
+  assert.match(workflow, /--output e2e\/duration-plan\/full[\s\S]+--shards "\$SHARD_COUNT"/);
   assert.match(
     exhaustiveJob,
     /--test-list=duration-plan-artifact\/full\/shard-\$\{\{ matrix\.shard }}\.txt/,
@@ -136,7 +141,9 @@ test("advisory critical coverage is split across two isolated duration-balanced 
 });
 
 test("derives every concurrent database stack from the workflow", () => {
-  assert.deepEqual(deriveDatabaseStackFanout(workflow), {
+  assert.deepEqual(deriveDatabaseStackFanout(workflow, {
+    dynamicJobInstances: { e2e: 12 },
+  }), {
     jobs: [
       { name: "critical-shadow", instances: 2 },
       { name: "e2e", instances: 12 },
@@ -152,7 +159,7 @@ test("capacity gate runs before any database-backed job can launch", () => {
     "";
   assert.match(planningJob, /name: Enforce measured database fan-out/);
   assert.match(planningJob, /--workflow \.github\/workflows\/e2e\.yml/);
-  assert.match(planningJob, /--active-shards 12/);
+  assert.match(planningJob, /--active-shards "\$SHARD_COUNT"/);
   assert.match(
     planningJob,
     /Build coverage-complete duration plan[\s\S]+Enforce measured database fan-out[\s\S]+Upload duration plan/,
@@ -168,8 +175,8 @@ test("recognizes docker compose flags before the up command", () => {
     "docker compose --project-name isolated up -d --no-build backend frontend",
   );
   assert.deepEqual(
-    deriveDatabaseStackFanout(workflowWithComposeFlags),
-    deriveDatabaseStackFanout(workflow),
+    deriveDatabaseStackFanout(workflowWithComposeFlags, { dynamicJobInstances: { e2e: 12 } }),
+    deriveDatabaseStackFanout(workflow, { dynamicJobInstances: { e2e: 12 } }),
   );
 });
 
@@ -179,8 +186,8 @@ test("fails closed when a database-backed matrix cannot be counted", () => {
     "browser: ${{ fromJSON(needs.plan.outputs.browsers) }}",
   );
   assert.throws(
-    () => deriveDatabaseStackFanout(dynamicMatrix),
-    /cross-browser-core must use inline matrix lists/,
+    () => deriveDatabaseStackFanout(dynamicMatrix, { dynamicJobInstances: { e2e: 12 } }),
+    /cross-browser-core must use inline matrix lists or a verified dynamic instance count/,
   );
 });
 
@@ -222,7 +229,7 @@ test("accepts the measured inventory and normal growth", () => {
   );
 });
 
-test("requires a new benchmark at either capacity boundary", () => {
+test("recommends a benchmark at boundaries without blocking safe automatic selection", () => {
   const upper = evaluateShardCapacity({
     record,
     totalTests: 525,
@@ -236,24 +243,30 @@ test("requires a new benchmark at either capacity boundary", () => {
     workflowSource: workflow,
   });
   assert.deepEqual(
-    { eligible: upper.eligible, direction: upper.direction },
-    { eligible: false, direction: "upper" },
+    { eligible: upper.eligible, direction: upper.direction, recommended: upper.rebenchmarkRecommended },
+    { eligible: true, direction: "upper", recommended: true },
   );
   assert.deepEqual(
-    { eligible: lower.eligible, direction: lower.direction },
-    { eligible: false, direction: "lower" },
+    { eligible: lower.eligible, direction: lower.direction, recommended: lower.rebenchmarkRecommended },
+    { eligible: true, direction: "lower", recommended: true },
   );
 });
 
-test("fails closed when workflow topology drifts from the measured record", () => {
+test("accepts a smaller selected topology but fails above the proven fallback", () => {
+  assert.equal(evaluateShardCapacity({
+    record,
+    totalTests: 484,
+    activeShards: 10,
+    workflowSource: workflow,
+  }).totalConcurrentStacks, 14);
   assert.throws(
     () => evaluateShardCapacity({
       record,
       totalTests: 437,
-      activeShards: 10,
+      activeShards: 13,
       workflowSource: workflow,
     }),
-    /active workflow has 10 shards/,
+    /active workflow has 13 shards.*permits at most 12/,
   );
 });
 
@@ -263,10 +276,7 @@ test("fails closed when the complete workflow exceeds measured database fan-out"
       record: { ...record, selectedShards: 16 },
       totalTests: 484,
       activeShards: 16,
-      workflowSource: workflow.replace(
-        "shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]",
-        "shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]",
-      ),
+      workflowSource: workflow,
     }),
     /requests 20 concurrent stacks.*reliable limit is 16/,
   );

@@ -106,8 +106,9 @@ npm run test:real
 
 See `.github/workflows/e2e.yml`. The current PR model is:
 
-- twelve blocking Chromium shards for all 484 tests, plus four concurrent
-  Firefox, WebKit and critical support stacks, with no coverage reduction;
+- an automatically selected blocking Chromium topology of up to twelve shards
+  for the complete current inventory, plus four concurrent Firefox, WebKit and
+  critical support stacks, with no coverage reduction;
 - blocking Firefox and WebKit focused journeys;
 - one advisory, zero-retry Chromium critical lane (currently 41 tests in 15 files);
 - CI retries retain diagnostic traces, but `failOnFlakyTests` makes a flaky
@@ -132,9 +133,10 @@ with two workers per shard and no retries. All 16 shards passed in isolation;
 connection ceiling. Exact-head normal run `34690166145` showed that 16 Chromium
 shards plus Firefox, WebKit and two critical support stacks also reaches 20
 database stacks and reproduces that failure. The operational workflow
-therefore uses 12 Chromium shards and reserves four support slots, keeping the
-full run at the proven 16-stack limit. All 484 tests remain blocking. The
-benchmark reports end-to-end completion, slowest test time, shard imbalance,
+therefore caps and falls back to 12 Chromium shards while reserving four
+support slots, keeping the full run at or below the proven 16-stack limit. All
+tests remain blocking. The benchmark reports end-to-end completion, slowest
+test time, shard imbalance,
 aggregate runner time, setup overhead, and tests per shard. A larger topology
 is recommended only when every shard passes and it improves completion by at
 least 20 seconds and 5%.
@@ -161,25 +163,40 @@ workers on the reused images. Each stage is sequential, retry-free, and must be
 fully green. Image reuse is adopted only from a material end-to-end gain;
 worker count is selected independently from the Playwright test critical path.
 
-`.github/e2e-shard-capacity.json` records the measured decision. The
-duration-planning gate counts the live Chromium inventory and derives every
-database-backed job's matrix cardinality from the workflow before any of those
-jobs can launch. It fails closed if the complete fan-out exceeds the measured
-16-stack limit, or if the suite reaches 525 tests or falls to 443—one selected
-shard-workload from the 484-test baseline. Re-run the benchmark and update the
-record at that point instead of guessing a new shard count or selecting tests
-away.
+`.github/e2e-shard-capacity.json` records the measured safety and performance
+envelope. The duration-planning job counts the live Chromium inventory and
+chooses the smallest topology whose predicted completion is within the
+measured 20-second or 5% noise floor of the fastest safe candidate. Its model
+uses the trusted per-test history, two proven workers per shard, and the
+measured 129-second fixed preparation/setup cost. The hard maximum is the
+smaller of the GitHub concurrency allowance and the database limit after four
+support stacks are reserved; today that is twelve blocking shards.
 
-The blocking 12-shard lane uses a duration-aware plan rather than Playwright's
-test-count-only partition. `.github/e2e-duration-seed.json` is the cold-start
+The selected matrix is passed to the browser job through a job output and
+GitHub's supported `fromJSON` dynamic-matrix contract. Every candidate plan is
+coverage-complete and deterministic. Missing, malformed, older-than-30-day, or
+less-than-80%-complete history cannot drive topology: the workflow falls back
+to the proven twelve-shard configuration. Test-count boundaries at 443 and 525
+now recommend a controlled capacity rebenchmark instead of blocking ordinary
+growth; selection adapts automatically inside the proven envelope on every
+run. Rebenchmark the hard ceiling when the runner class, GitHub plan, database
+capacity, support-lane count, or worker reliability changes—never by guessing
+a larger matrix or selecting tests away.
+
+The automatically sized blocking lane uses a duration-aware plan rather than
+Playwright's test-count-only partition. `.github/e2e-duration-seed.json` is the cold-start
 baseline from a clean 439-test run. Before each workflow, the planner enumerates
 the current Chromium inventory and assigns the longest predicted test to the
 least-loaded shard until every test appears exactly once. Unseen tests receive
 an eight-second conservative estimate, so additions cannot disappear from the
 suite. A successful exhaustive run publishes per-test timings; a separate
 post-processing job updates a branch-scoped moving-average cache for the next
-run. Forks can read the trusted default-branch history but cannot publish it.
-The tracked seed remains the deterministic fallback if no cache is available.
+run. Timing artifacts include their shard and workflow-attempt identity. When
+GitHub reruns only a failed matrix job, the learner keeps the newest clean
+attempt for each shard and ignores the older failed artifact instead of
+depending on nondeterministic file overwrites. Forks can read the trusted
+default-branch history but cannot publish it. The tracked seed remains the
+deterministic duration fallback if no cache is available.
 
 The 63-test advisory critical lane consumes the same inventory and duration
 history but runs as two isolated shards. This preserves its frozen contract,

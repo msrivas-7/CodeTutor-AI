@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { mergeDurationHistory } from "./e2e-duration-history.mjs";
+import { mergeDurationHistory, selectLatestCleanReports } from "./e2e-duration-history.mjs";
 
 test("merges clean shard timings with a bounded moving average", () => {
   const result = mergeDurationHistory({
@@ -21,6 +21,43 @@ test("merges clean shard timings with a bounded moving average", () => {
   assert.deepEqual(result.tests.unseen, { durationMs: 5_000, samples: 1 });
   assert.deepEqual(result.tests.old, { durationMs: 4_600, samples: 20 });
   assert.equal(result.tests.skipped, undefined);
+  assert.equal(result.schemaVersion, 2);
+});
+
+test("selects the latest clean attempt for each shard after a job-only rerun", () => {
+  const clean = (name, durationMs) => ({
+    name,
+    report: {
+      schemaVersion: 1,
+      status: "passed",
+      tests: { [name]: { durationMs, status: "passed" } },
+    },
+  });
+  const failed = {
+    name: "shard-2-attempt-1.json",
+    report: { schemaVersion: 1, status: "failed", tests: {} },
+  };
+  const selected = selectLatestCleanReports([
+    clean("shard-1-attempt-1.json", 1_000),
+    failed,
+    clean("shard-2-attempt-2.json", 2_000),
+  ], 2);
+  assert.deepEqual(selected.map(({ shard, attempt }) => ({ shard, attempt })), [
+    { shard: 1, attempt: 1 },
+    { shard: 2, attempt: 2 },
+  ]);
+});
+
+test("rejects missing, ambiguous, or unproven shard timing evidence", () => {
+  const clean = {
+    name: "shard-1-attempt-1.json",
+    report: { schemaVersion: 1, status: "passed", tests: {} },
+  };
+  assert.throws(() => selectLatestCleanReports([clean], 2), /no clean timing artifact for shard\(s\): 2/);
+  assert.throws(() => selectLatestCleanReports([clean, clean], 1), /duplicate clean timing artifacts/);
+  assert.throws(() => selectLatestCleanReports([
+    { name: "shard-1.json", report: clean.report },
+  ], 1), /does not contain shard and attempt provenance/);
 });
 test("rejects failed reports and duplicate coverage", () => {
   assert.throws(() => mergeDurationHistory({
