@@ -678,7 +678,13 @@ test("trust route aliases keep their content and malformed anchors cannot crash 
   page,
 }) => {
   const errors: string[] = [];
+  const fullAppRequests: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/src/App.tsx") {
+      fullAppRequests.push(request.url());
+    }
+  });
   for (const path of [
     "/privacy/",
     "/Privacy",
@@ -693,6 +699,7 @@ test("trust route aliases keep their content and malformed anchors cannot crash 
     await expect(page).toHaveTitle(/Privacy/);
   }
   expect(errors).toEqual([]);
+  expect(fullAppRequests).toEqual([]);
 });
 
 for (const [path, heading] of [

@@ -47,17 +47,18 @@ editor remains a workspace, without marketing decoration.
   normalized pathname classifies both exact and prefixed public routes. Actual
   browser homepage → login/trial and direct `/Signup/` checks pass; the focused
   25-case bootstrap contract and frontend typecheck pass.
-- **PR gate:** Codex review of `1443358` is clean with no open threads, and full
-  cross-platform CI is green. The final 484-test capacity run `34688798759`
+- **PR gate:** Full cross-platform CI is green. The final 484-test capacity run `34688798759`
   passed every 16-shard job with zero retries. Twenty shards overloaded the
   shared 200-connection development database and failed six jobs, so the measured
   record retains 16 shards and moves the next rebenchmark boundary to 515 tests.
-  One final exact-head E2E run remains after recording this result; merge,
-  deployment and focused production browser verification are still pending.
+  A final review found that encoded public paths selected the full application
+  tree; the shared normalizer and exact browser contract now match the guarded
+  pre-paint decoder. Exact-head review/E2E, merge, deployment and focused
+  production browser verification remain pending.
 - **Hosted preview:** actual browser catalog → Python Intermediate → Mini ORM
   capstone, narrow-screen lists/code and invalid discovery → catalog recovery
   pass. Invalid paths return HTTP 404. This is preview evidence, not production.
-- **Latest product source:** 658 frontend tests, production build/typecheck and
+- **Latest product source:** 663 frontend tests, production build/typecheck and
   unchanged asset budgets pass. The final 98-case public/marketing/share matrix
   passed 97 cases directly; the one local Supabase-outage case passed on its exact
   zero-retry rerun after the stack recovered. These supplement real browsing.
@@ -135,7 +136,7 @@ Checked means the bounded finding has local browser evidence, not whole-release 
 | [x] Closed        | UX-225  | Completion dialog now owns Escape at first mount and closes safely before checkout gates; the browser evidence now confirms the first-commit close path, with modal-level regression checked and happy-path recovery preserved.                                                                                                                            |
 | [x] Closed        | UX-226  | Direct auth, recovery, callback, share and anonymous-lesson entries use the lightweight public bootstrap while retaining the same routes in the full app for later SPA navigation. Rebuilt real-browser and retry-disabled Chromium/WebKit proof pass.                                                                                                     |
 | [x] Closed        | UX-227  | Auth-dependent navigation from a deferred public page cancels the five-second hydration delay immediately; homepage → login/trial are ready without the stale waiting state.                                                                                                                                                                               |
-| [x] Closed        | UX-228  | Public bootstrap classification now matches React Router for case and trailing slashes across exact, share and anonymous-lesson routes.                                                                                                                                                                                                                    |
+| [x] Closed        | UX-228  | Public bootstrap classification now matches React Router for case, trailing slashes and guarded percent decoding across exact, share and anonymous-lesson routes.                                                                                                                                                                                          |
 
 ## Evidence map
 

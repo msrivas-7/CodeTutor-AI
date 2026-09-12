@@ -21,7 +21,13 @@ const DEFERRED_AUTH_PATHS = new Set([
 ]);
 
 function normalizePublicPathname(pathname: string): string {
-  const lowerPathname = pathname.toLowerCase();
+  let decodedPathname = pathname;
+  try {
+    decodedPathname = decodeURI(pathname);
+  } catch {
+    // Match the pre-paint classifier: malformed escapes stay router-owned.
+  }
+  const lowerPathname = decodedPathname.toLowerCase();
   if (lowerPathname === "/") return lowerPathname;
   return lowerPathname.replace(/\/+$/, "");
 }
@@ -38,7 +44,7 @@ export function shouldUsePublicApp(pathname: string): boolean {
   const normalizedPathname = normalizePublicPathname(pathname);
   if (PUBLIC_APP_EXACT_PATHS.has(normalizedPathname)) return true;
   return PUBLIC_APP_PREFIXES.some((prefix) =>
-    normalizedPathname.startsWith(prefix)
+    normalizedPathname.startsWith(prefix),
   );
 }
 

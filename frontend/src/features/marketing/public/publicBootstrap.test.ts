@@ -25,6 +25,9 @@ describe("public route bootstrap", () => {
     "/login/",
     "/Signup",
     "/AUTH/CALLBACK/",
+    "/%70rivacy",
+    "/%53/qd99cvtcbwdn",
+    "/%54RY/LESSON/python-fundamentals/hello-world/",
     "/S/qd99cvtcbwdn/",
     "/TRY/LESSON/python-fundamentals/hello-world/",
   ])(
@@ -42,6 +45,11 @@ describe("public route bootstrap", () => {
     "/this-route-does-not-exist",
   ])("keeps the full route tree for %s", (path) => {
     expect(shouldUsePublicApp(path)).toBe(false);
+  });
+
+  it("leaves malformed percent escapes to the full router without throwing", () => {
+    expect(shouldUsePublicApp("/%E0%A4%A")).toBe(false);
+    expect(shouldDeferAuthHydration("/%E0%A4%A")).toBe(false);
   });
 
   it("defers auth only on acquisition and trust entries", () => {
@@ -67,7 +75,7 @@ describe("public route bootstrap", () => {
     }
   });
 
-  it.each(["/PRIVACY", "/terms/", "/Support/"])(
+  it.each(["/PRIVACY", "/terms/", "/Support/", "/%70rivacy"])(
     "normalizes deferred auth path %s",
     (path) => {
       expect(shouldDeferAuthHydration(path)).toBe(true);
