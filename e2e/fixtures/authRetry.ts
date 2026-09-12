@@ -37,6 +37,17 @@ export function isRetryableAuthProvisioningError(
   );
 }
 
+function returnedRetryableAuthProvisioningError(
+  result: unknown,
+): RetryableAuthProvisioningError | undefined {
+  if (typeof result !== "object" || result === null || !("error" in result)) {
+    return undefined;
+  }
+  return isRetryableAuthProvisioningError(result.error)
+    ? result.error
+    : undefined;
+}
+
 /**
  * Absorb only Supabase Auth failures that the SDK explicitly classifies as
  * retryable. Playwright retries remain a signal for product/test flakes; this
@@ -72,16 +83,16 @@ export async function withAuthProvisioningRetry<T>(
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
-      return await run();
+      const result = await run();
+      const returnedError = returnedRetryableAuthProvisioningError(result);
+      if (returnedError) throw returnedError;
+      return result;
     } catch (error) {
       if (!isRetryableAuthProvisioningError(error) || attempt === maxAttempts) {
         throw error;
       }
 
-      const ceiling = Math.min(
-        maxDelayMs,
-        baseDelayMs * 2 ** (attempt - 1),
-      );
+      const ceiling = Math.min(maxDelayMs, baseDelayMs * 2 ** (attempt - 1));
       // Equal jitter prevents all hosted workers from retrying in lockstep
       // while retaining a meaningful lower bound between attempts.
       const delayMs = Math.round(ceiling / 2 + random() * (ceiling / 2));

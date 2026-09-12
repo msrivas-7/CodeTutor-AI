@@ -61,17 +61,17 @@ npm run test:real
 
 ## Fixtures
 
-| Fixture | Purpose |
-| --- | --- |
-| `fixtures/boot.ts` | globalSetup; asserts frontend + backend reachable |
-| `fixtures/profiles.ts` | `loadProfile(page, id)` + `seedApiKey(page)` + `clearAppStorage(page)` |
-| `fixtures/monaco.ts` | `waitForMonacoReady` / `setMonacoValue` / `getMonacoValue` (uses `window.monaco` global) |
-| `fixtures/aiMocks.ts` | SSE scenario frames for `/api/ai/ask/stream` — matches production `data: {...}\n\n` wire format |
-| `fixtures/harnessResults.ts` | Canned `TestReport` payloads for `/api/execute/tests` |
-| `fixtures/testMetadata.ts` | Required risk/owner/browser/device/quarantine metadata for the advisory critical lane |
-| `fixtures/seeds/*.json` | Serialized `__dev__` profile localStorage seeds |
-| `utils/selectors.ts` | Centralized Playwright locators (role + aria-label first) |
-| `utils/assertions.ts` | Domain-level expects (`expectLessonComplete`, `expectStdoutContains`, …) |
+| Fixture                      | Purpose                                                                                         |
+| ---------------------------- | ----------------------------------------------------------------------------------------------- |
+| `fixtures/boot.ts`           | globalSetup; asserts frontend + backend reachable                                               |
+| `fixtures/profiles.ts`       | `loadProfile(page, id)` + `seedApiKey(page)` + `clearAppStorage(page)`                          |
+| `fixtures/monaco.ts`         | `waitForMonacoReady` / `setMonacoValue` / `getMonacoValue` (uses `window.monaco` global)        |
+| `fixtures/aiMocks.ts`        | SSE scenario frames for `/api/ai/ask/stream` — matches production `data: {...}\n\n` wire format |
+| `fixtures/harnessResults.ts` | Canned `TestReport` payloads for `/api/execute/tests`                                           |
+| `fixtures/testMetadata.ts`   | Required risk/owner/browser/device/quarantine metadata for the advisory critical lane           |
+| `fixtures/seeds/*.json`      | Serialized `__dev__` profile localStorage seeds                                                 |
+| `utils/selectors.ts`         | Centralized Playwright locators (role + aria-label first)                                       |
+| `utils/assertions.ts`        | Domain-level expects (`expectLessonComplete`, `expectStdoutContains`, …)                        |
 
 ## Conventions
 
@@ -113,8 +113,9 @@ See `.github/workflows/e2e.yml`. The current PR model is:
 - CI retries retain diagnostic traces, but `failOnFlakyTests` makes a flaky
   result fail its shard so a targeted rerun cannot erase the original signal;
 - disposable-user provisioning retries only the Supabase SDK's explicit
-  `AuthRetryableFetchError`, with a four-attempt exponential equal-jitter bound;
-  ordinary auth errors and every browser assertion still fail immediately;
+  `AuthRetryableFetchError`, whether thrown or returned in the SDK response,
+  with a four-attempt exponential equal-jitter bound; ordinary auth errors and
+  every browser assertion still fail immediately;
 - each lane, shard, attempt, and benchmark stage receives a stable synthetic
   address from the reserved `2001:db8::/32` range through the Vite proxy, so
   the real per-IP abuse controls are tested without unrelated jobs sharing one

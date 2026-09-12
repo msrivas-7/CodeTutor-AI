@@ -53,6 +53,48 @@ test.describe("E2E auth provisioning retry contract", () => {
     expect(isRetryableAuthProvisioningError(failure)).toBe(false);
   });
 
+  test("retries a retryable error returned in a Supabase SDK response", async () => {
+    const failure = { name: "AuthRetryableFetchError" as const, status: 503 };
+    let attempts = 0;
+
+    const value = await withAuthProvisioningRetry(
+      "create user",
+      async () => {
+        attempts += 1;
+        return attempts === 1
+          ? { data: null, error: failure }
+          : { data: { id: "user-1" }, error: null };
+      },
+      {
+        sleep: async () => undefined,
+        onRetry: () => undefined,
+      },
+    );
+
+    expect(attempts).toBe(2);
+    expect(value).toEqual({ data: { id: "user-1" }, error: null });
+  });
+
+  test("returns ordinary Supabase SDK errors for the caller to handle", async () => {
+    const failure = { name: "AuthApiError", status: 422 };
+    let attempts = 0;
+
+    const value = await withAuthProvisioningRetry(
+      "create user",
+      async () => {
+        attempts += 1;
+        return { data: null, error: failure };
+      },
+      {
+        sleep: async () => undefined,
+        onRetry: () => undefined,
+      },
+    );
+
+    expect(attempts).toBe(1);
+    expect(value.error).toBe(failure);
+  });
+
   test("preserves the final retryable failure after the fixed attempt bound", async () => {
     const failure = { name: "AuthRetryableFetchError", status: 0 };
     let attempts = 0;
@@ -63,6 +105,28 @@ test.describe("E2E auth provisioning retry contract", () => {
         async () => {
           attempts += 1;
           throw failure;
+        },
+        {
+          maxAttempts: 3,
+          sleep: async () => undefined,
+          onRetry: () => undefined,
+        },
+      ),
+    ).rejects.toBe(failure);
+
+    expect(attempts).toBe(3);
+  });
+
+  test("preserves a returned retryable failure after the fixed attempt bound", async () => {
+    const failure = { name: "AuthRetryableFetchError" as const, status: 503 };
+    let attempts = 0;
+
+    await expect(
+      withAuthProvisioningRetry(
+        "update user",
+        async () => {
+          attempts += 1;
+          return { data: null, error: failure };
         },
         {
           maxAttempts: 3,
