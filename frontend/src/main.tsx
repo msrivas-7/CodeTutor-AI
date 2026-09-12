@@ -15,10 +15,15 @@ import "./index.css";
 // standalone /dev/content dashboard) otherwise render in default dark.
 import "./util/theme";
 import { captureDistributionAttribution } from "./features/distribution/attribution";
+import { installPreloadErrorRecovery } from "./preloadRecovery";
 // Phase 18a: hydrate the Supabase auth store before React mounts so the
 // initial render reads a stable `loading: true` → resolved state rather
 // than flashing the login page to users with a persisted session.
 const FullApp = lazy(() => import("./App"));
+
+// A tab left open across a deployment can still reference lazy chunks that the
+// new release replaced. Recover that version skew before it becomes a blank UI.
+installPreloadErrorRecovery();
 
 // Release B4: capture a bounded first-touch channel before any route can fire
 // funnel telemetry. This also removes the acquisition parameters from the

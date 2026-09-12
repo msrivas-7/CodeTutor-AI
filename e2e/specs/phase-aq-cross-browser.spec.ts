@@ -275,6 +275,62 @@ test.describe(
     await expect(continuation).toHaveCount(0);
   });
 
+  test("WebKit recovers once from its native URL-less module error", async ({
+    page,
+    browserName,
+  }) => {
+    test.skip(browserName !== "webkit", "Safari/WebKit-specific error shape");
+
+    await page.goto("/");
+    await page.evaluate(() => {
+      window.sessionStorage.removeItem("codetutor:preload-recovery");
+      window.sessionStorage.removeItem("e2e:webkit-import-message");
+    });
+
+    const reloaded = page.waitForEvent("load");
+    await page.evaluate(async () => {
+      const missingModule = "/assets/e2e-missing-preload-first.js";
+      try {
+        await import(/* @vite-ignore */ missingModule);
+      } catch (payload) {
+        const message =
+          payload instanceof Error ? payload.message : String(payload);
+        window.sessionStorage.setItem("e2e:webkit-import-message", message);
+        const event = new Event("vite:preloadError", { cancelable: true });
+        Object.defineProperty(event, "payload", { value: payload });
+        setTimeout(() => window.dispatchEvent(event), 0);
+      }
+    });
+    await reloaded;
+
+    const nativeMessage = await page.evaluate(() =>
+      window.sessionStorage.getItem("e2e:webkit-import-message"),
+    );
+    expect(nativeMessage).toMatch(/Importing a module script failed/i);
+    await expect(
+      page.getByRole("heading", { name: "AI that builds you, not the code" }),
+    ).toBeVisible();
+
+    const before = await page.evaluate(() => performance.timeOrigin);
+    const repeatedWasPrevented = await page.evaluate(async () => {
+      let payload: unknown;
+      const missingModule = "/assets/e2e-missing-preload-second.js";
+      try {
+        await import(/* @vite-ignore */ missingModule);
+      } catch (error) {
+        payload = error;
+      }
+      const event = new Event("vite:preloadError", { cancelable: true });
+      Object.defineProperty(event, "payload", { value: payload });
+      window.dispatchEvent(event);
+      return event.defaultPrevented;
+    });
+    await page.waitForTimeout(250);
+
+    expect(repeatedWasPrevented).toBe(false);
+    expect(await page.evaluate(() => performance.timeOrigin)).toBe(before);
+  });
+
   test("Escape closes the product modal through a native viewport reflow", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 720 });
     await seedFirstRun(page, true);
