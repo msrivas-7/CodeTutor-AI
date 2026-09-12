@@ -47,10 +47,13 @@ editor remains a workspace, without marketing decoration.
   normalized pathname classifies both exact and prefixed public routes. Actual
   browser homepage → login/trial and direct `/Signup/` checks pass; the focused
   25-case bootstrap contract and frontend typecheck pass.
-- **PR gate:** Full cross-platform CI is green. The final 484-test capacity run `34688798759`
-  passed every 16-shard job with zero retries. Twenty shards overloaded the
-  shared 200-connection development database and failed six jobs, so the measured
-  record retains 16 shards and moves the next rebenchmark boundary to 515 tests.
+- **PR gate:** Full cross-platform CI is green. Capacity run `34688798759`
+  proved 16 isolated database stacks reliable and 20 unreliable. Exact-head E2E
+  run `34690166145` then exposed that the normal workflow also added Firefox,
+  WebKit and two critical stacks to its 16 Chromium shards, recreating the same
+  20-stack overload. The workflow now reserves those four support stacks and
+  runs 12 exhaustive Chromium shards, keeping all coverage inside the proven
+  16-stack limit; exact-head E2E confirmation is pending.
   A final review found that encoded public paths selected the full application
   tree; the shared normalizer and exact browser contract now match the guarded
   pre-paint decoder. Exact-head review/E2E, merge, deployment and focused

@@ -16,9 +16,9 @@ const workflow = readFileSync(
 );
 
 test("derives a one-shard-workload rebenchmark band", () => {
-  assert.deepEqual(deriveRebenchmarkBounds(484, 16), {
-    atOrBelowTests: 453,
-    atOrAboveTests: 515,
+  assert.deepEqual(deriveRebenchmarkBounds(484, 12), {
+    atOrBelowTests: 443,
+    atOrAboveTests: 525,
   });
 });
 
@@ -72,8 +72,18 @@ test("tracked decision preserves the clean controlled benchmark evidence", () =>
     ],
   );
   assert.equal(record.benchmark.totalTests, 484);
-  assert.equal(record.benchmark.selectedModeledTestCriticalPathSeconds, 160);
-  assert.equal(record.benchmark.selectedAverageTestsPerShard, 30.3);
+  assert.equal(record.benchmark.bestReliableIsolatedModeledTestCriticalPathSeconds, 160);
+  assert.equal(record.benchmark.selectedAverageTestsPerShard, 40.3);
+  assert.deepEqual(record.operationalTopology, {
+    blockingChromiumShards: 12,
+    concurrentSupportStacks: 4,
+    selectedTotalConcurrentStacks: 16,
+    maximumReliableConcurrentStacks: 16,
+    supportStacks: ["firefox", "webkit", "critical-shadow-1", "critical-shadow-2"],
+    evidenceRunId: 34690166145,
+    url: "https://github.com/msrivas-7/CodeTutor-AI/actions/runs/34690166145",
+    method: record.operationalTopology.method,
+  });
   assert.deepEqual(record.runtimeOptimization.imageReuse, {
     localBuildEndToEndSeconds: 369,
     prebuiltEndToEndSecondsIncludingPreparation: 338,
@@ -107,7 +117,7 @@ test("blocking workflow uses the selected matrix and derives its denominator", (
     Array.from({ length: record.selectedShards }, (_, index) => index + 1),
   );
   assert.match(exhaustiveJob, /--active-shards "\$\{\{ strategy\.job-total }}/);
-  assert.match(workflow, /--output e2e\/duration-plan\/full[\s\S]+--shards 16/);
+  assert.match(workflow, /--output e2e\/duration-plan\/full[\s\S]+--shards 12/);
   assert.match(
     exhaustiveJob,
     /--test-list=duration-plan-artifact\/full\/shard-\$\{\{ matrix\.shard }}\.txt/,
@@ -125,6 +135,27 @@ test("advisory critical coverage is split across two isolated duration-balanced 
   assert.match(
     workflow,
     /shadow-evidence:[\s\S]+needs: \[duration-plan, critical-shadow, e2e, cross-browser-core][\s\S]+files\.length!==2/,
+  );
+});
+
+test("capacity record reserves every concurrent non-exhaustive browser stack", () => {
+  assert.deepEqual(record.operationalTopology.supportStacks, [
+    "firefox",
+    "webkit",
+    "critical-shadow-1",
+    "critical-shadow-2",
+  ]);
+  assert.match(
+    workflow,
+    /cross-browser-core:[\s\S]+matrix:[\s\S]+browser: \[firefox, webkit]/,
+  );
+  assert.match(
+    workflow,
+    /critical-shadow:[\s\S]+matrix:\n\s+shard: \[1, 2]/,
+  );
+  assert.equal(
+    record.selectedShards + record.operationalTopology.concurrentSupportStacks,
+    record.operationalTopology.maximumReliableConcurrentStacks,
   );
 });
 
@@ -150,17 +181,17 @@ test("duration planning receives the authenticated fixture environment required 
 
 test("accepts the measured inventory and normal growth", () => {
   assert.equal(
-    evaluateShardCapacity({ record, totalTests: 484, activeShards: 16 })
+    evaluateShardCapacity({ record, totalTests: 484, activeShards: 12 })
       .eligible,
     true,
   );
   assert.equal(
-    evaluateShardCapacity({ record, totalTests: 514, activeShards: 16 })
+    evaluateShardCapacity({ record, totalTests: 524, activeShards: 12 })
       .eligible,
     true,
   );
   assert.equal(
-    evaluateShardCapacity({ record, totalTests: 454, activeShards: 16 })
+    evaluateShardCapacity({ record, totalTests: 444, activeShards: 12 })
       .eligible,
     true,
   );
@@ -169,13 +200,13 @@ test("accepts the measured inventory and normal growth", () => {
 test("requires a new benchmark at either capacity boundary", () => {
   const upper = evaluateShardCapacity({
     record,
-    totalTests: 515,
-    activeShards: 16,
+    totalTests: 525,
+    activeShards: 12,
   });
   const lower = evaluateShardCapacity({
     record,
-    totalTests: 453,
-    activeShards: 16,
+    totalTests: 443,
+    activeShards: 12,
   });
   assert.deepEqual(
     { eligible: upper.eligible, direction: upper.direction },
@@ -194,6 +225,25 @@ test("fails closed when workflow topology drifts from the measured record", () =
   );
 });
 
+test("fails closed when the complete workflow exceeds measured database fan-out", () => {
+  assert.throws(
+    () => evaluateShardCapacity({
+      record: {
+        ...record,
+        selectedShards: 16,
+        operationalTopology: {
+          ...record.operationalTopology,
+          blockingChromiumShards: 16,
+          selectedTotalConcurrentStacks: 20,
+        },
+      },
+      totalTests: 484,
+      activeShards: 16,
+    }),
+    /requests 20 concurrent stacks.*reliable limit is 16/,
+  );
+});
+
 test("fails closed when recorded boundaries are stale or hand-edited", () => {
   assert.throws(
     () =>
@@ -203,8 +253,8 @@ test("fails closed when recorded boundaries are stale or hand-edited", () => {
           rebenchmark: { atOrBelowTests: 1, atOrAboveTests: 999 },
         },
         totalTests: 484,
-        activeShards: 16,
+        activeShards: 12,
       }),
-    /capacity record bounds must be 453\/515/,
+    /capacity record bounds must be 443\/525/,
   );
 });

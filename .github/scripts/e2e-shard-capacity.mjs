@@ -28,12 +28,47 @@ export function evaluateShardCapacity({ record, totalTests, activeShards }) {
   }
   requirePositiveInteger(record.selectedShards, "selectedShards");
   requirePositiveInteger(record?.benchmark?.totalTests, "benchmark.totalTests");
+  requirePositiveInteger(
+    record?.operationalTopology?.concurrentSupportStacks,
+    "operationalTopology.concurrentSupportStacks",
+  );
+  requirePositiveInteger(
+    record?.operationalTopology?.selectedTotalConcurrentStacks,
+    "operationalTopology.selectedTotalConcurrentStacks",
+  );
+  requirePositiveInteger(
+    record?.operationalTopology?.maximumReliableConcurrentStacks,
+    "operationalTopology.maximumReliableConcurrentStacks",
+  );
   requirePositiveInteger(totalTests, "totalTests");
   requirePositiveInteger(activeShards, "activeShards");
 
   if (activeShards !== record.selectedShards) {
     throw new Error(
       `active workflow has ${activeShards} shards but the measured capacity record selects ${record.selectedShards}`,
+    );
+  }
+
+  const selectedTotalConcurrentStacks =
+    record.selectedShards + record.operationalTopology.concurrentSupportStacks;
+  if (
+    record.operationalTopology.blockingChromiumShards !== record.selectedShards
+    || !Array.isArray(record.operationalTopology.supportStacks)
+    || record.operationalTopology.supportStacks.length
+      !== record.operationalTopology.concurrentSupportStacks
+    || record.operationalTopology.selectedTotalConcurrentStacks
+      !== selectedTotalConcurrentStacks
+  ) {
+    throw new Error(
+      "operational topology must equal selected Chromium shards plus reserved support stacks",
+    );
+  }
+  if (
+    selectedTotalConcurrentStacks
+    > record.operationalTopology.maximumReliableConcurrentStacks
+  ) {
+    throw new Error(
+      `operational workflow requests ${selectedTotalConcurrentStacks} concurrent stacks but the measured reliable limit is ${record.operationalTopology.maximumReliableConcurrentStacks}`,
     );
   }
 

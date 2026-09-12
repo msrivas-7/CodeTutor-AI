@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "selectedShards": 16,
+  "selectedShards": 12,
   "workersPerShard": 2,
   "retriesDuringBenchmark": 0,
   "benchmark": {
@@ -18,7 +18,7 @@
         "topologies": [16, 20]
       }
     ],
-    "method": "On the exact PR head, 16 and 20 shards ran sequentially against one frozen 484-test inventory with two workers per shard and no retries. All 16-shard jobs passed. Six of 20-shard jobs failed after the shared development database reached its 200-client connection ceiling, so 20 is unreliable and 16 remains selected.",
+    "method": "On the exact PR head, 16 and 20 Chromium shards ran sequentially against one frozen 484-test inventory with two workers per shard and no retries. All 16-shard jobs passed in isolation. Six of 20-shard jobs failed after the shared development database reached its 200-client connection ceiling. The normal E2E workflow then proved that 16 Chromium shards plus four concurrently running support stacks reproduces the same ceiling, so the operational workflow reserves those four stacks and selects 12 Chromium shards.",
     "totalTests": 484,
     "topologies": [
       {
@@ -34,15 +34,25 @@
         "reliable": false
       }
     ],
-    "selectedModeledTestCriticalPathSeconds": 160,
-    "selectedTopologyReadySeconds": 289,
-    "selectedAverageTestsPerShard": 30.3,
+    "bestReliableIsolatedModeledTestCriticalPathSeconds": 160,
+    "bestReliableIsolatedTopologyReadySeconds": 289,
+    "selectedAverageTestsPerShard": 40.3,
     "measuredAt": "2026-09-12T10:44:41Z"
   },
   "rebenchmark": {
-    "atOrBelowTests": 453,
-    "atOrAboveTests": 515,
+    "atOrBelowTests": 443,
+    "atOrAboveTests": 525,
     "rule": "Rebenchmark when the suite changes by one selected shard's measured average workload."
+  },
+  "operationalTopology": {
+    "blockingChromiumShards": 12,
+    "concurrentSupportStacks": 4,
+    "selectedTotalConcurrentStacks": 16,
+    "maximumReliableConcurrentStacks": 16,
+    "supportStacks": ["firefox", "webkit", "critical-shadow-1", "critical-shadow-2"],
+    "evidenceRunId": 34690166145,
+    "url": "https://github.com/msrivas-7/CodeTutor-AI/actions/runs/34690166145",
+    "method": "The normal exact-head workflow launched 16 blocking Chromium shards and four support stacks together. Backend logs recorded EMAXCONN at the shared 200-client database ceiling and unrelated browser lanes flaked. Capping the complete E2E fan-out at the proven reliable 16-stack boundary preserves all tests and cross-browser coverage without changing connection-pool semantics."
   },
   "selectionPolicy": {
     "minimumAbsoluteGainSeconds": 20,

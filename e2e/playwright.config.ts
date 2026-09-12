@@ -69,7 +69,7 @@ export default defineConfig({
   // "Waiting for session". Two preserves useful parallelism without turning
   // infrastructure capacity into false product failures.
   //
-  // CI parallelism comes from sharding (16 matrix shards × 2 workers = 32
+  // CI parallelism comes from sharding (12 matrix shards × 2 workers = 24
   // effective workers across separate ubuntu-latest runners) — see
   // .github/workflows/e2e.yml. The measured topology and rebenchmark band live
   // in .github/e2e-shard-capacity.json. Larger
