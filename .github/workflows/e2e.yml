@@ -59,6 +59,9 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       contract-outcome: ${{ steps.contract.outcome }}
+      shard-count: ${{ steps.topology.outputs.shard-count }}
+      shard-matrix: ${{ steps.topology.outputs.shard-matrix }}
+      selection-reason: ${{ steps.topology.outputs.selection-reason }}
     # Test discovery imports the same authenticated fixtures as execution.
     # Keep its environment in parity with the browser jobs even though this
     # planner never starts a browser or calls the services.
@@ -88,29 +91,47 @@ jobs:
       - name: Install e2e deps
         working-directory: e2e
         run: npm ci
-      - name: Build coverage-complete duration plan
+      - name: Build exhaustive Chromium inventory
         run: |
           set -euo pipefail
           mkdir -p .e2e-duration e2e/duration-plan/full e2e/duration-plan/critical
-          if [ ! -s .e2e-duration/history.json ]; then
-            cp .github/e2e-duration-seed.json .e2e-duration/history.json
-          fi
-          cp .e2e-duration/history.json e2e/duration-plan/history.json
           cd e2e
           npx playwright test --list --project=chromium --reporter=json > duration-plan/inventory.json
           cd ..
-          node .github/scripts/e2e-duration-plan.mjs \
+      - name: Select safe duration-backed shard topology
+        id: topology
+        run: |
+          set -euo pipefail
+          planner_now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          node .github/scripts/e2e-shard-select.mjs \
             --inventory e2e/duration-plan/inventory.json \
             --history .e2e-duration/history.json \
+            --fallback-history .github/e2e-duration-seed.json \
+            --effective-history e2e/duration-plan/history.json \
+            --record .github/e2e-shard-capacity.json \
+            --workflow .github/workflows/e2e.yml \
+            --output e2e/duration-plan/selection.json \
+            --github-output "$GITHUB_OUTPUT" \
+            --now "$planner_now"
+      - name: Build coverage-complete duration plan
+        env:
+          SHARD_COUNT: ${{ steps.topology.outputs.shard-count }}
+        run: |
+          set -euo pipefail
+          node .github/scripts/e2e-duration-plan.mjs \
+            --inventory e2e/duration-plan/inventory.json \
+            --history e2e/duration-plan/history.json \
             --output e2e/duration-plan/full \
-            --shards 12
+            --shards "$SHARD_COUNT"
           node .github/scripts/e2e-duration-plan.mjs \
             --inventory e2e/duration-plan/inventory.json \
-            --history .e2e-duration/history.json \
+            --history e2e/duration-plan/history.json \
             --output e2e/duration-plan/critical \
             --shards 2 \
             --tag lane:critical
       - name: Enforce measured database fan-out
+        env:
+          SHARD_COUNT: ${{ steps.topology.outputs.shard-count }}
         run: |
           set -euo pipefail
           total_tests=$(node -e 'const fs=require("fs"); const value=JSON.parse(fs.readFileSync("e2e/duration-plan/full/manifest.json","utf8")); process.stdout.write(String(value.testCount))')
@@ -119,7 +140,7 @@ jobs:
             --record .github/e2e-shard-capacity.json \
             --workflow .github/workflows/e2e.yml \
             --total-tests "$total_tests" \
-            --active-shards 12
+            --active-shards "$SHARD_COUNT"
       - name: Validate critical metadata and frozen regression coverage
         id: contract
         continue-on-error: true
@@ -407,17 +428,14 @@ jobs:
     needs: [duration-plan, prepare-backend, prepare-runner, prepare-frontend]
     runs-on: ubuntu-latest
     # Sharding splits the exhaustive suite across isolated runners. The
-    # capacity record owns the measured decision; the duration-planning gate
-    # verifies this complete workflow before any database-backed job launches
-    # and forces a new benchmark after one shard-equivalent of suite growth or
-    # shrinkage. The isolated capacity benchmark proved 16 stacks reliable,
-    # but this workflow also runs Firefox, WebKit, and two critical-shadow
-    # stacks concurrently. Twelve Chromium shards reserve those four slots and
-    # keep the complete database-backed fan-out at the proven 16-stack limit.
+    # planner chooses from trusted per-test durations while the capacity gate
+    # keeps four support stacks reserved beneath the proven 16-stack database
+    # ceiling. Missing, stale, malformed, or sparse history falls back to the
+    # measured 12-shard topology; no path selects tests out of the suite.
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        shard: ${{ fromJSON(needs.duration-plan.outputs.shard-matrix) }}
     # Bumped from 15 → 25 in Phase 22C: full e2e sweep grew past the 15-min
     # ceiling once the marketing specs landed. Sharding (Phase 27-v2.2)
     # each shard now runs ~1/12 of the suite, so 25 stays generous.
@@ -471,7 +489,7 @@ jobs:
       BACKEND_IMAGE: ${{ needs.prepare-backend.outputs.ref }}
       RUNNER_IMAGE: ${{ needs.prepare-runner.outputs.ref }}
       FRONTEND_IMAGE: ${{ needs.prepare-frontend.outputs.ref }}
-      E2E_TIMING_OUTPUT: duration-results/shard-${{ matrix.shard }}.json
+      E2E_TIMING_OUTPUT: duration-results/shard-${{ matrix.shard }}-attempt-${{ github.run_attempt }}.json
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -538,8 +556,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: e2e-timing-shard-${{ matrix.shard }}
-          path: e2e/duration-results/shard-${{ matrix.shard }}.json
+          name: e2e-timing-shard-${{ matrix.shard }}-attempt-${{ github.run_attempt }}
+          path: e2e/duration-results/shard-${{ matrix.shard }}-attempt-${{ github.run_attempt }}.json
           retention-days: 7
           if-no-files-found: warn
 
@@ -574,7 +592,7 @@ jobs:
 
   cross-browser-core:
     name: Playwright core (${{ matrix.browser }})
-    needs: [prepare-backend, prepare-runner, prepare-frontend]
+    needs: [duration-plan, prepare-backend, prepare-runner, prepare-frontend]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -679,7 +697,7 @@ jobs:
   duration-history:
     name: Learn E2E test durations
     if: needs.e2e.result == 'success'
-    needs: [e2e]
+    needs: [duration-plan, e2e]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -688,20 +706,26 @@ jobs:
         with:
           pattern: e2e-timing-shard-*
           path: e2e/duration-results
-          merge-multiple: true
       - name: Download duration plan baseline
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: e2e-duration-plan
           path: e2e/duration-plan-artifact
       - name: Update duration history from a clean exhaustive run
+        env:
+          EXPECTED_SHARDS: ${{ needs.duration-plan.outputs.shard-count }}
         run: |
           set -euo pipefail
           mkdir -p .e2e-duration
+          generated_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           node .github/scripts/e2e-duration-history.mjs \
             --base e2e/duration-plan-artifact/history.json \
             --input e2e/duration-results \
-            --output .e2e-duration/history.json
+            --output .e2e-duration/history.json \
+            --expected-shards "$EXPECTED_SHARDS" \
+            --generated-at "$generated_at" \
+            --source-run "$GITHUB_RUN_ID" \
+            --source-sha "$GITHUB_SHA"
       - name: Save trusted duration history
         if: >-
           github.event_name != 'pull_request' ||
@@ -779,7 +803,7 @@ jobs:
           if-no-files-found: error
 
   cleanup-images:
-    name: Clean temporary E2E images
+    name: Prune stale E2E images
     if: >-
       always() &&
       needs.e2e.result == 'success' &&
@@ -797,21 +821,20 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
-      RUN_TAG: run-${{ github.run_id }}
       BACKEND_CREATED: ${{ needs.prepare-backend.outputs.created }}
       RUNNER_CREATED: ${{ needs.prepare-runner.outputs.created }}
       FRONTEND_CREATED: ${{ needs.prepare-frontend.outputs.created }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - name: Delete exact run-scoped package versions
+      - name: Keep rerun-safe fallback and remove stale versions
         run: |
           set -euo pipefail
           if [ "$BACKEND_CREATED" = "true" ]; then
-            node .github/scripts/ghcr-retention.mjs --owner "$GITHUB_REPOSITORY_OWNER" --package codetutor-ci-backend --tag "$RUN_TAG" --require-match
+            node .github/scripts/ghcr-retention.mjs --owner "$GITHUB_REPOSITORY_OWNER" --package codetutor-ci-backend --older-than-hours 48 --keep-newest 1
           fi
           if [ "$RUNNER_CREATED" = "true" ]; then
-            node .github/scripts/ghcr-retention.mjs --owner "$GITHUB_REPOSITORY_OWNER" --package codetutor-ci-runner --tag "$RUN_TAG" --require-match
+            node .github/scripts/ghcr-retention.mjs --owner "$GITHUB_REPOSITORY_OWNER" --package codetutor-ci-runner --older-than-hours 48 --keep-newest 1
           fi
           if [ "$FRONTEND_CREATED" = "true" ]; then
-            node .github/scripts/ghcr-retention.mjs --owner "$GITHUB_REPOSITORY_OWNER" --package codetutor-ci-frontend --tag "$RUN_TAG" --require-match
+            node .github/scripts/ghcr-retention.mjs --owner "$GITHUB_REPOSITORY_OWNER" --package codetutor-ci-frontend --older-than-hours 48 --keep-newest 1
           fi

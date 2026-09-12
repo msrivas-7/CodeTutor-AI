@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-import { selectPackageVersions } from "./ghcr-retention.mjs";
+import {
+  isSuccessfulPackageDeleteStatus,
+  selectPackageVersions,
+} from "./ghcr-retention.mjs";
 
 const versions = [
   {
@@ -51,7 +54,14 @@ test("retention protects the newest requested versions even when all are old", (
   );
 });
 
-test("blocking E2E adopts digest reuse but cleans images only after retry-safe success", async () => {
+test("package deletion is idempotent when another cleanup already removed a version", () => {
+  assert.equal(isSuccessfulPackageDeleteStatus(204), true);
+  assert.equal(isSuccessfulPackageDeleteStatus(404), true);
+  assert.equal(isSuccessfulPackageDeleteStatus(403), false);
+  assert.equal(isSuccessfulPackageDeleteStatus(500), false);
+});
+
+test("blocking E2E retains digest inputs for job-only reruns and prunes only stale images", async () => {
   const workflow = await readFile(
     new URL("../workflows/e2e.yml", import.meta.url),
     "utf8",
@@ -63,7 +73,9 @@ test("blocking E2E adopts digest reuse but cleans images only after retry-safe s
   assert.match(workflow, /docker compose up -d --no-build backend frontend/);
   assert.match(workflow, /needs\.e2e\.result == 'success'/);
   assert.match(workflow, /needs\.cross-browser-core\.result == 'success'/);
-  assert.match(workflow, /--tag "\$RUN_TAG" --require-match/);
+  assert.match(workflow, /name: Prune stale E2E images/);
+  assert.equal((workflow.match(/--older-than-hours 48 --keep-newest 1/g) ?? []).length, 3);
+  assert.doesNotMatch(workflow, /--tag "\$RUN_TAG" --require-match/);
 });
 
 test("scheduled retention preserves one fallback and bounds stale versions", async () => {

@@ -56,6 +56,14 @@
     "requiresEveryShardToPass": true,
     "preservesFullChromiumSuite": true
   },
+  "automaticSelection": {
+    "minimumShards": 1,
+    "historyMaxAgeDays": 30,
+    "minimumHistoryCoverage": 0.8,
+    "fixedOverheadSeconds": 129,
+    "fixedOverheadSource": "Measured reliable 16-shard topology readiness (289 seconds) minus its modeled test critical path (160 seconds).",
+    "rule": "Choose the smallest topology whose predicted completion is within the measured 20-second or 5% noise floor of the fastest safe topology. Fall back to the proven 12-shard topology whenever history is missing, stale, malformed, or covers less than 80% of the current inventory."
+  },
   "runtimeOptimization": {
     "runId": 33397529873,
     "url": "https://github.com/msrivas-7/CodeTutor-AI/actions/runs/33397529873",

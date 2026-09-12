@@ -1,5 +1,7 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-31T14:09:36Z",
+  "algorithm": "seed-clean-run",
   "source": {
     "runId": 33400350423,
     "headSha": "f3ee51e3cc08ac53af549c01805c3fbfb12dae5c"

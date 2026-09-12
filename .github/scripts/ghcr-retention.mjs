@@ -4,6 +4,10 @@ import { pathToFileURL } from "node:url";
 
 const API_ROOT = process.env.GITHUB_API_URL || "https://api.github.com";
 
+export function isSuccessfulPackageDeleteStatus(status) {
+  return (status >= 200 && status < 300) || status === 404;
+}
+
 export function selectPackageVersions(
   versions,
   { tag = null, olderThanMs = null, keepNewest = 0, now = Date.now() } = {},
@@ -84,7 +88,11 @@ async function githubRequest(url, token, init = {}) {
       ...init.headers,
     },
   });
-  if (!response.ok) {
+  const accepted =
+    init.method === "DELETE"
+      ? isSuccessfulPackageDeleteStatus(response.status)
+      : response.ok;
+  if (!accepted) {
     const body = await response.text();
     throw new Error(`${init.method ?? "GET"} ${url} failed (${response.status}): ${body}`);
   }
