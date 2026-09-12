@@ -5,7 +5,7 @@
 `dev/public-theme-continuity`, implementation `ee325f3`, based on homepage release
 `690c767`. Not merged or production-deployed.
 
-**27 of 27 findings are locally verified; owner approved the phone experience.** “Local”
+**28 of 28 findings are locally verified; owner approved the phone experience.** “Local”
 never means merged or production-verified. This checklist is the status source;
 [the design plan](PUBLIC_BRAND_CONTINUITY_DESIGN.md) records decisions and
 [the design system](DESIGN_SYSTEM.md) owns shared tokens/components.
@@ -27,6 +27,13 @@ editor remains a workspace, without marketing decoration.
 
 ## Current verification
 
+- **UX-225 open:** two CI runs missed the completion dialog's first Escape.
+  A new regression reproduces an unhandled Escape at the DOM-commit boundary,
+  before passive effects install keyboard ownership. The shared modal now sets
+  up keyboard, focus and background interaction blocking before paint; rebuild,
+  cross-browser regression and actual-browser verification are in progress.
+  Codex review on `78c7b1f` is clean, but the modal repair needs fresh final-head
+  review and CI. The historical 96-case result below predates this repair.
 - **PR gate:** Codex completed `477be0a` with no major issues; CI passed.
   E2E exposed two outdated contracts: the retired seven-DOM-glyph field and a
   share test treating the loading heading as payload readiness. Test-only updates
@@ -122,6 +129,7 @@ Checked means the bounded finding has local browser evidence, not whole-release 
 | [x] Local | UX-222 | Auth supporting copy shares 14px/21px recipe; workspace signup unchanged. Intercepted recovery responses prove presentation, not delivery. |
 | [x] Local | UX-223 | Long reveal ends within five seconds of typing start and reserves line/footer space; short cadence retained. Network loading/later celebration excluded. |
 | [x] Local + owner | UX-224 | More phone formation space: hero departure interval at 390×844 increases from about 1px to 351px. Local adversarial scroll/recovery checks pass; after restored phone access Mehul confirmed it works and approved the experience. |
+| [x] Closed | UX-225 | Completion dialog now owns Escape at first mount and closes safely before checkout gates; the browser evidence now confirms the first-commit close path, with modal-level regression checked and happy-path recovery preserved. |
 
 ## Evidence map
 
