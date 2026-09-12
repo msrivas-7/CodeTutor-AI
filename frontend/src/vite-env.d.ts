@@ -12,6 +12,8 @@ interface ImportMetaEnv {
    * `/api/*` path — prepended to every fetch in the api client. Left
    * undefined in dev so Vite's proxy handles `/api/*` as before. */
   readonly VITE_API_BASE_URL?: string;
+  /** Full Git SHA embedded into release and preview builds. */
+  readonly VITE_APP_SHA?: string;
 }
 
 interface ImportMeta {

@@ -1,10 +1,12 @@
 const RECOVERY_STORAGE_KEY = "codetutor:preload-recovery";
 const RECOVERY_WINDOW_MS = 5 * 60 * 1000;
+const APP_BUILD_ID = import.meta.env.VITE_APP_SHA?.trim() || "dev";
+const ASSET_URL_PATTERN = /(?:https?:\/\/|\/assets\/)[^\s"'<>]+/i;
 
 type PreloadErrorEvent = Event & { payload?: unknown };
 
 type PreloadRecoveryHost = Pick<Window, "addEventListener" | "removeEventListener"> & {
-  location: Pick<Location, "href" | "reload">;
+  location: Pick<Location, "reload">;
   sessionStorage: Pick<Storage, "getItem" | "setItem">;
 };
 
@@ -13,11 +15,23 @@ type RecoveryMarker = {
   recordedAt: number;
 };
 
-function errorSignature(event: PreloadErrorEvent, href: string) {
+function errorSignature(event: PreloadErrorEvent, buildId: string) {
   const payload = event.payload;
-  if (payload instanceof Error) return payload.message || payload.name;
-  if (typeof payload === "string" && payload) return payload;
-  return `unknown-preload-error:${href}`;
+  const message =
+    payload instanceof Error
+      ? payload.message || payload.name
+      : typeof payload === "string"
+        ? payload
+        : "";
+  const assetUrl = message.match(ASSET_URL_PATTERN)?.[0];
+
+  if (assetUrl) return `asset:${assetUrl}`;
+
+  // Safari/WebKit commonly omits the failed module URL and reports only
+  // "Importing a module script failed.". In that case, key the one-shot
+  // recovery to the bundle that installed this handler. A reload receives the
+  // newly deployed build id, so a later deployment can recover independently.
+  return `build:${buildId || "unknown"}`;
 }
 
 function readMarker(storage: PreloadRecoveryHost["sessionStorage"]) {
@@ -44,10 +58,11 @@ function readMarker(storage: PreloadRecoveryHost["sessionStorage"]) {
 export function installPreloadErrorRecovery(
   host: PreloadRecoveryHost = window,
   now: () => number = Date.now,
+  buildId: string = APP_BUILD_ID,
 ) {
   const onPreloadError: EventListener = (rawEvent) => {
     const event = rawEvent as PreloadErrorEvent;
-    const signature = errorSignature(event, host.location.href);
+    const signature = errorSignature(event, buildId);
     let previous: RecoveryMarker | null;
 
     try {

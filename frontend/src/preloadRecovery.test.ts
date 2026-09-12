@@ -4,6 +4,7 @@ import { installPreloadErrorRecovery } from "./preloadRecovery";
 function setup(
   storage: Pick<Storage, "getItem" | "setItem"> = new MemoryStorage(),
   now: () => number = () => 1_000,
+  buildId = "build-a",
 ) {
   const target = new EventTarget();
   const reload = vi.fn();
@@ -11,7 +12,7 @@ function setup(
     location: { href: "https://codetutor.example/try/lesson/python/intro", reload },
     sessionStorage: storage,
   }) as unknown as Window;
-  const dispose = installPreloadErrorRecovery(host, now);
+  const dispose = installPreloadErrorRecovery(host, now, buildId);
   return { target, reload, dispose };
 }
 
@@ -70,6 +71,30 @@ describe("preload recovery", () => {
     second.target.dispatchEvent(preloadError("missing:/assets/share-new.js"));
 
     expect(second.reload).toHaveBeenCalledOnce();
+  });
+
+  it("keys Safari's URL-less preload error by the deployed build", () => {
+    const storage = new MemoryStorage();
+    const first = setup(storage, () => 1_000, "build-a");
+    first.target.dispatchEvent(
+      preloadError("Importing a module script failed."),
+    );
+    first.dispose();
+
+    const sameBuild = setup(storage, () => 2_000, "build-a");
+    const repeated = preloadError("Importing a module script failed.");
+    sameBuild.target.dispatchEvent(repeated);
+    sameBuild.dispose();
+
+    expect(repeated.defaultPrevented).toBe(false);
+    expect(sameBuild.reload).not.toHaveBeenCalled();
+
+    const nextBuild = setup(storage, () => 3_000, "build-b");
+    nextBuild.target.dispatchEvent(
+      preloadError("Importing a module script failed."),
+    );
+
+    expect(nextBuild.reload).toHaveBeenCalledOnce();
   });
 
   it("allows the same recovery again after the loop guard expires", () => {
