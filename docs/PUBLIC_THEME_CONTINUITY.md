@@ -5,7 +5,7 @@
 `dev/public-theme-continuity`, implementation `ee325f3`, based on homepage release
 `690c767`. Not merged or production-deployed.
 
-**29 of 29 findings are locally verified; owner approved the phone experience.** “Local”
+**31 of 31 findings are locally verified; owner approved the phone experience.** “Local”
 never means merged or production-verified. This checklist is the status source;
 [the design plan](PUBLIC_BRAND_CONTINUITY_DESIGN.md) records decisions and
 [the design system](DESIGN_SYSTEM.md) owns shared tokens/components.
@@ -40,6 +40,13 @@ editor remains a workspace, without marketing decoration.
   working login; pre-app paint, protected redirect, share recovery, anonymous
   handoff, 404, desktop, 390px and reduced-motion checks pass. The complete
   58-case Chromium/WebKit public-theme matrix passes without retries.
+- **UX-227/228 locally closed:** final-head review found that a quick homepage
+  transition could retain the five-second deferred-auth timer, and that the
+  public bootstrap did not mirror React Router's case/trailing-slash matching.
+  Auth-dependent navigation now cancels the delay immediately, while a shared
+  normalized pathname classifies both exact and prefixed public routes. Actual
+  browser homepage → login/trial and direct `/Signup/` checks pass; the focused
+  25-case bootstrap contract and frontend typecheck pass.
 - **PR gate:** Codex completed `477be0a` with no major issues; CI passed.
   E2E exposed two outdated contracts: the retired seven-DOM-glyph field and a
   share test treating the loading heading as payload readiness. Test-only updates
@@ -65,7 +72,7 @@ editor remains a workspace, without marketing decoration.
 - **Hosted preview:** actual browser catalog → Python Intermediate → Mini ORM
   capstone, narrow-screen lists/code and invalid discovery → catalog recovery
   pass. Invalid paths return HTTP 404. This is preview evidence, not production.
-- **Latest product source:** 632 frontend tests, production build/typecheck and
+- **Latest product source:** 658 frontend tests, production build/typecheck and
   unchanged asset budgets pass. **34 marketing + 62 public-theme/share-reveal
   checks pass in Chromium/WebKit, zero retries.** These supplement real browsing.
   The combined 96-case run passed again after unlock (2.0 minutes), along with
@@ -143,6 +150,8 @@ Checked means the bounded finding has local browser evidence, not whole-release 
 | [x] Local + owner | UX-224 | More phone formation space: hero departure interval at 390×844 increases from about 1px to 351px. Local adversarial scroll/recovery checks pass; after restored phone access Mehul confirmed it works and approved the experience. |
 | [x] Closed | UX-225 | Completion dialog now owns Escape at first mount and closes safely before checkout gates; the browser evidence now confirms the first-commit close path, with modal-level regression checked and happy-path recovery preserved. |
 | [x] Closed | UX-226 | Direct auth, recovery, callback, share and anonymous-lesson entries use the lightweight public bootstrap while retaining the same routes in the full app for later SPA navigation. Rebuilt real-browser and retry-disabled Chromium/WebKit proof pass. |
+| [x] Closed | UX-227 | Auth-dependent navigation from a deferred public page cancels the five-second hydration delay immediately; homepage → login/trial are ready without the stale waiting state. |
+| [x] Closed | UX-228 | Public bootstrap classification now matches React Router for case and trailing slashes across exact, share and anonymous-lesson routes. |
 
 ## Evidence map
 
@@ -164,6 +173,7 @@ a fresh clone. Root: `.agent-harness/browser-evidence/`.
 | `e61236d8-3b68-4c1c-84a7-f704c6045827/` | UX-224 formation/dwell, reversal, keyboard, preferences and graphics recovery. Finding audit `cc2ea60a-4a6a-4502-ae3e-4b3de4e43d7a`. |
 | `b3564266-122c-439e-92c9-2dd55e3c4e3e/` | Independent design review of 27 primary-agent captures and source; reviewers did not run separate browser sessions. |
 | `825e4a74-2653-4b04-ae59-269a8bc6f90f/` | Final-head UX-225/226 browser replay: direct auth without App, pre-app paint, protected redirect, phone/reduced-motion recovery, share-to-anonymous handoff, completion Escape and focus restoration. |
+| `a6c213ed-476c-4201-a428-ebe6b7ea02d4/` | UX-227/228 review follow-up: immediate homepage-to-auth/product hydration and normalized direct public entry. |
 
 Historical prototype captures do not establish acceptance of later edits.
 Named final checks supersede them only for their stated scope. The anomalous

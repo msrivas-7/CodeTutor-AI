@@ -1,6 +1,6 @@
 import React, { lazy, Suspense, useEffect } from "react";
 import ReactDOM from "react-dom/client";
-import { BrowserRouter } from "react-router-dom";
+import { BrowserRouter, useLocation } from "react-router-dom";
 import PublicApp from "./PublicApp";
 import { PublicThemeSync } from "./features/marketing/public/PublicThemeSync";
 import { PublicMotionWorld } from "./features/marketing/public/PublicMotionWorld";
@@ -27,18 +27,20 @@ captureDistributionAttribution();
 
 const initialPathname = window.location.pathname;
 const startsOnPublicSurface = shouldUsePublicApp(initialPathname);
-const defersInitialAuthHydration = shouldDeferAuthHydration(initialPathname);
 
 function Bootstrap() {
+  const { pathname } = useLocation();
+  const deferAuthHydration = shouldDeferAuthHydration(pathname);
+
   useEffect(() => {
     const timer = setTimeout(
       () => {
         void import("./auth/authStore").then(({ initAuth }) => initAuth());
       },
-      startsOnPublicSurface && defersInitialAuthHydration ? 5000 : 0,
+      startsOnPublicSurface && deferAuthHydration ? 5000 : 0,
     );
     return () => clearTimeout(timer);
-  }, []);
+  }, [deferAuthHydration]);
 
   return (
     <Suspense

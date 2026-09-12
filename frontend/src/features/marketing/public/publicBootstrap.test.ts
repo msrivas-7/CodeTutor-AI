@@ -22,6 +22,19 @@ describe("public route bootstrap", () => {
   });
 
   it.each([
+    "/login/",
+    "/Signup",
+    "/AUTH/CALLBACK/",
+    "/S/qd99cvtcbwdn/",
+    "/TRY/LESSON/python-fundamentals/hello-world/",
+  ])(
+    "matches React Router's casing and trailing-slash behavior for %s",
+    (path) => {
+      expect(shouldUsePublicApp(path)).toBe(true);
+    },
+  );
+
+  it.each([
     "/editor",
     "/start",
     "/learn/course/python-fundamentals",
@@ -53,4 +66,11 @@ describe("public route bootstrap", () => {
       expect(shouldDeferAuthHydration(path), path).toBe(false);
     }
   });
+
+  it.each(["/PRIVACY", "/terms/", "/Support/"])(
+    "normalizes deferred auth path %s",
+    (path) => {
+      expect(shouldDeferAuthHydration(path)).toBe(true);
+    },
+  );
 });

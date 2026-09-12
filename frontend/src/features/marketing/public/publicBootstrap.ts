@@ -20,6 +20,12 @@ const DEFERRED_AUTH_PATHS = new Set([
   "/support",
 ]);
 
+function normalizePublicPathname(pathname: string): string {
+  const lowerPathname = pathname.toLowerCase();
+  if (lowerPathname === "/") return lowerPathname;
+  return lowerPathname.replace(/\/+$/, "");
+}
+
 /**
  * Direct entries that can paint through the lightweight public route tree.
  *
@@ -29,11 +35,14 @@ const DEFERRED_AUTH_PATHS = new Set([
  * entry has already selected the full route tree.
  */
 export function shouldUsePublicApp(pathname: string): boolean {
-  if (PUBLIC_APP_EXACT_PATHS.has(pathname)) return true;
-  return PUBLIC_APP_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+  const normalizedPathname = normalizePublicPathname(pathname);
+  if (PUBLIC_APP_EXACT_PATHS.has(normalizedPathname)) return true;
+  return PUBLIC_APP_PREFIXES.some((prefix) =>
+    normalizedPathname.startsWith(prefix)
+  );
 }
 
 /** Acquisition and trust pages can defer session hydration until entry intent. */
 export function shouldDeferAuthHydration(pathname: string): boolean {
-  return DEFERRED_AUTH_PATHS.has(pathname);
+  return DEFERRED_AUTH_PATHS.has(normalizePublicPathname(pathname));
 }
