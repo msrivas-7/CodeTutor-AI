@@ -9,12 +9,13 @@ Last updated: September 12, 2026
 - Production release
   [34692580750](https://github.com/msrivas-7/CodeTutor-AI/actions/runs/34692580750)
   passed and `release.json` returned the exact merge SHA.
-- UX-198 through UX-229 are shipped. The focused production browser pass covered
+- [PR #52](https://github.com/msrivas-7/CodeTutor-AI/pull/52) merged as
+  `6f00272950775255f1d576130074def87277fdcc`; production release
+  [34695452472](https://github.com/msrivas-7/CodeTutor-AI/actions/runs/34695452472)
+  passed and `release.json` returned that exact merge SHA.
+- UX-198 through UX-230 are shipped. The focused production browser pass covered
   the changed and adjacent public journeys rather than replaying the full
   historical audit.
-- UX-230 was discovered during that pass and is being repaired separately: a
-  tab kept open across a deployment could request a removed lazy chunk and show
-  a blank canvas until the learner manually reloaded.
 
 ## Approved product direction
 
@@ -48,6 +49,9 @@ viewports:
   a 900×720 viewport reflow closes it and restores focus to “Sign up to save.”
 - Invalid/retired public shares show a themed recovery state with working
   navigation.
+- A Safari-shaped URL-less stale-chunk failure reloads once into a healthy
+  anonymous lesson. The marker is keyed to the exact deployed build SHA, and a
+  repeated same-build failure causes no second navigation or blank root.
 
 The first anonymous-lesson attempt came from a homepage tab loaded before the
 release. Its old bundle requested a deleted chunk and left `#root` empty; reload
@@ -100,7 +104,7 @@ listed above. “Local” means implemented and validated but not yet deployed.
 | [x] Production | UX-227 | Product/auth navigation cancels deferred hydration immediately. |
 | [x] Production | UX-228 | Public path matching handles case, slashes, and guarded decoding. |
 | [x] Production | UX-229 | Anonymous lesson restores `?` and Ctrl/Cmd+K without acquisition-page shortcuts. |
-| [ ] Local | UX-230 | Recover one time from a removed lazy chunk after deployment, without a reload loop. |
+| [x] Production | UX-230 | Stale tabs recover once after deployment; same-build failures cannot reload-loop, including Safari's URL-less error. |
 
 ## Evidence
 
@@ -108,12 +112,16 @@ Machine-local screenshots remain gitignored under
 `.agent-harness/browser-evidence/`. The focused production set is in
 `production-d454e56/` (`homepage-desktop.jpg`, `login-desktop.jpg`,
 `privacy-mobile.jpg`, `anon-lesson-desktop.jpg`, and
-`signup-modal-desktop.jpg`). Harness sessions and earlier evidence retain the
-detailed chronology; this document intentionally stays compact.
+`signup-modal-desktop.jpg`). UX-230 production proof is in
+`production-6f002729/ux230-production-recovery.png`. Harness sessions and
+earlier evidence retain the detailed chronology; this document intentionally
+stays compact.
 
 ## Separate follow-up
 
 Automatically choosing E2E shard count from trusted runtime history, measured
 setup cost, and safe concurrency is approved as a separate PR. It must preserve
 the full suite, use a stable fallback, and prove a meaningful gain in real runs
-before activation.
+before activation. That work must also make duration learning select the latest
+clean artifact after a job-only shard rerun; GitHub currently retains both the
+failed and clean artifacts under the same shard name.
