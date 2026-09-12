@@ -49,9 +49,15 @@ editor remains a workspace, without marketing decoration.
   changed contracts additionally pass all four Chromium/WebKit cases, zero
   retries, and E2E typecheck passes. Seven additional macOS WebKit workspace
   snapshots have no maintained baseline and are not claimed as passing or added.
-  The suite also reached 476 tests, crossing the measured 467-test capacity
-  boundary. Rebenchmark the full suite at 16/20 shards before updating the record;
-  no test removal or threshold-only bypass. Final-head review/CI remain required.
+  The suite reached 478 tests, crossing the measured 467-test capacity boundary.
+  The required run `34686107941` reproduced transient Supabase
+  `AuthRetryableFetchError` failures under both ordinary and zero-retry benchmark
+  load. The Node-only provisioning fixture now uses a bounded equal-jitter retry
+  only for that SDK-classified retryable error; three contract tests, E2E
+  typecheck, nine implicated Chromium cases and the implicated WebKit journey pass
+  with Playwright retries disabled. Rebenchmark the final 481-test head at 16/20
+  shards before updating the capacity record; no test removal or threshold-only
+  bypass. Final-head review/CI remain required.
   The benchmark now freezes one inventory/history and uses normal CI's duration
   planner for both candidates, replacing its outdated test-count partitioning.
   Local planner checks cover all 476 tests exactly once at either count; measured

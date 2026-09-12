@@ -106,12 +106,15 @@ npm run test:real
 
 See `.github/workflows/e2e.yml`. The current PR model is:
 
-- sixteen blocking Chromium shards for all 439 tests, selected by a same-commit,
+- sixteen blocking Chromium shards for all 481 tests, selected by a same-commit,
   zero-retry capacity benchmark with no regression-coverage reduction;
 - blocking Firefox and WebKit focused journeys;
 - one advisory, zero-retry Chromium critical lane (currently 41 tests in 15 files);
 - CI retries retain diagnostic traces, but `failOnFlakyTests` makes a flaky
   result fail its shard so a targeted rerun cannot erase the original signal;
+- disposable-user provisioning retries only the Supabase SDK's explicit
+  `AuthRetryableFetchError`, with a four-attempt exponential equal-jitter bound;
+  ordinary auth errors and every browser assertion still fail immediately;
 - each lane, shard, attempt, and benchmark stage receives a stable synthetic
   address from the reserved `2001:db8::/32` range through the Vite proxy, so
   the real per-IP abuse controls are tested without unrelated jobs sharing one
